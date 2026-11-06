@@ -34,7 +34,7 @@ from __future__ import annotations
 from typing import Any, Dict
 
 from pyscriptc.dwarf import DwarfEmitter
-from pyscriptc.emit._ir import _fn_symbol, _llvm_double, _llvm_type, _safe
+from pyscriptc.emit._ir import _fn_symbol, _llvm_bytes, _llvm_double, _llvm_type, _safe
 from pyscriptc.emit.llvm._driver import Emitter
 from pyscriptc.errors import IRError
 from pyscriptc.ir import assert_same_cpython
@@ -309,6 +309,14 @@ class MirEmitter:
         direct = emitter.emit(call, args, standalone, library=library)
         if not mir_module.functions:
             return direct
+        # The format-global interning reads the direct walk's complete
+        # global table: the splice replaces bodies only, so the globals
+        # and declarations the direct emitter rendered for the same
+        # functions are already final. Seeding keeps `format_global`'s
+        # dedup on the same symbols the direct path picked (a `@ps.fmt.s`
+        # suffix collision across the slice boundary would otherwise
+        # reference a global the direct walk defined for other bytes).
+        self.globals = list(emitter.globals)
         return self._splice(direct, mir_module, by_name)
 
     def _splice(self, direct: str, mir_module: MirModule, by_name: dict[str, MirFunction]) -> str:
@@ -726,6 +734,12 @@ class MirEmitter:
         value call takes a fresh temp.
         """
         name: str = fn.callees[callee_vid]
+        if fn.helpers.get(i) == "print":
+            # The builtin `print` marks its call out of band: a user
+            # function named `print` shares the callee-table name, so the
+            # name alone cannot tell the two apart.
+            self._emit_print(fn, i, fn.call_args[i])
+            return
         ir_fn: Dict[str, Any] = self._ir_fn(name)
         ret_type: Dict[str, Any] = ir_fn["returnType"]
         ret: str = _llvm_type(ret_type)
@@ -744,6 +758,141 @@ class MirEmitter:
         reg: str = self.tmp_reg()
         self.line(f"{reg} = call {ret} @{symbol}({rendered})")
         self.reg[dst] = reg
+
+    def _emit_print(self, fn: MirFunction, i: int, args_i: list[int]) -> None:
+        """The `print` builtin's emission: the direct `_print_one` walk.
+
+        The slice admits scalar arguments only (the slice test refuses a
+        `str` argument before this runs), so the value spellings are the
+        three scalar arms of `_print_one`: an int is one `printf` with the
+        `%lld` format global, a bool selects between the `True`/`False`
+        globals and prints through `%s`, a float renders `ps_f64_str` and
+        the `%.*s` pair. The separator and the terminator match the
+        defaults (space, newline); the slice test refuses `sep=`/`end=`.
+
+        The argument kinds come from the MIR tags, not from the IR: a
+        `MIR_W` is an int, a `MIR_B` a bool and a `MIR_D` a float, the
+        same three tags the leaf slice admits. `self.needed`,
+        `self.globals` and `self.abi_decls` are the same stores the
+        direct emitter reads, so the declarations land identically.
+        """
+        needed: set[str] = self.needed
+        needed.add("printf")
+        self.needed = needed
+        for position in range(len(args_i)):
+            if position:
+                self._print_fmt("space", b" ")
+            value: str = self.operand(fn, args_i[position])
+            tag: int = self._print_tag(fn, args_i[position])
+            if tag == MIR_B:
+                picked = self.tmp_reg()
+                self.line(
+                    f"{picked} = select i1 {value}, ptr {self.format_global('boolT', b'True')}, "
+                    f"ptr {self.format_global('boolF', b'False')}"
+                )
+                self._print_fmt("s", b"%s", [f"ptr {picked}"])
+            elif tag == MIR_D:
+                out = self._buf_out("ps_f64_str", [f"double {value}"])
+                length, ptr = self._buf_parts(out)
+                self._abi_decl("ps_f64_str", "void", ["double", "ptr"])
+                self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"])
+            else:
+                self._print_fmt("int", b"%lld", [f"i64 {value}"])
+        self._print_fmt("nl", b"\n")
+
+    def _print_tag(self, fn: MirFunction, operand: int) -> int:
+        """The scalar tag of a print argument: W (int), B (bool) or D (float).
+
+        A constant reads the pool; a value reads the tag of the
+        instruction that defined it, the same way `llvm_of` reads it.
+        """
+        if is_const_ref(operand):
+            const = fn.consts[const_index(operand)]
+            return const.typ
+        return self._def_tag(operand)
+
+    def _print_fmt(self, name: str, data: bytes, args: list[str] | None = None) -> None:
+        """The direct `_print_fmt`'s stdout spelling (the slice prints to stdout only)."""
+        fmt = self.format_global(name, data)
+        call_args: list[str] = []
+        if args is not None:
+            call_args = list(args)
+        parts: list[str] = [f"ptr {fmt}"]
+        if data.startswith(b"%.*s"):
+            self._abi_decl("ps_stream_write", "void", ["ptr", "ptr", "i64"])
+            self._abi_decl("ps_stdout_stream", "ptr", [])
+            stream = self.tmp_reg()
+            self.line(f"{stream} = call ptr @ps_stdout_stream()")
+            tail = data[4:]
+            alen = ""
+            for index in range(len(call_args)):
+                arg = call_args[index]
+                if index % 2 == 0:
+                    alen = arg[4:]
+                else:
+                    self.line(f"call void @ps_stream_write(ptr {stream}, ptr {arg[4:]}, i64 {alen})")
+            if tail:
+                self._print_fmt("plain", tail)
+            return
+        for index in range(len(call_args)):
+            parts.append(call_args[index])
+        rendered = ", ".join(parts)
+        self.line(f"call i32 (ptr, ...) @printf({rendered})")
+
+    def format_global(self, name: str, data: bytes) -> str:
+        """The direct emitter's format-global interning: same symbol, same dedup."""
+        base = f"@ps.fmt.{name}"
+        body = f'private unnamed_addr constant [{len(data) + 1} x i8] c"{_llvm_bytes(data)}"'
+        defined = {g.split(" = ", 1)[0] for g in self.globals}
+        symbol = base
+        suffix = 0
+        while symbol in defined and f"{symbol} = {body}" not in self.globals:
+            suffix += 1
+            symbol = f"{base}.{suffix}"
+        if symbol not in defined:
+            globals_: list[str] = self.globals
+            globals_.append(f"{symbol} = {body}")
+        return symbol
+
+    def _buf_out(self, symbol: str, args: list[str]) -> str:
+        """The direct `_buf_out`'s spelling: alloca, call, the four loads, the scan.
+
+        The buffer alloca hoists into the entry block the way the direct
+        emitter's `_alloca` does: an alloca inside a loop body would
+        grow the stack per iteration, so the allocation happens once per
+        call and the block reuses it.
+        """
+        out = self._mir_alloca("%ps.str")
+        # The buffer pointer rides last, the direct `_buf_out`'s argument
+        # order: the runtime writes the 16-byte prefix through it.
+        call_args: list[str] = list(args)
+        call_args.append(f"ptr {out}")
+        self.line(f"call void @{symbol}({', '.join(call_args)})")
+        count_ptr = self.tmp_reg()
+        flags_ptr = self.tmp_reg()
+        length = self.tmp_reg()
+        raw_ptr = self.tmp_reg()
+        data_ptr = self.tmp_reg()
+        self.line(f"{length} = load i64, ptr {out}")
+        self.line(f"{raw_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 1")
+        self.line(f"{data_ptr} = load ptr, ptr {raw_ptr}")
+        self.line(f"{count_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 2")
+        self.line(f"{flags_ptr} = getelementptr %ps.str, ptr {out}, i32 0, i32 3")
+        self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
+        self.line(f"call void @ps_str_counts(i64 {length}, ptr {data_ptr}, ptr {count_ptr}, ptr {flags_ptr})")
+        reg = self.tmp_reg()
+        self.line(f"{reg} = load %ps.str, ptr {out}")
+        return reg
+
+    def _buf_parts(self, value: str) -> tuple[str, str]:
+        length = self.tmp_reg()
+        ptr = self.tmp_reg()
+        self.line(f"{length} = extractvalue %ps.str {value}, 0")
+        self.line(f"{ptr} = extractvalue %ps.str {value}, 1")
+        return length, ptr
+
+    def _abi_decl(self, symbol: str, ret: str, params: list[str]) -> None:
+        self.abi_decls[symbol] = (ret, params)
 
     def _block_of(self, fn: MirFunction, i: int) -> MirBlock:
         for span_bid in range(len(fn.blocks)):

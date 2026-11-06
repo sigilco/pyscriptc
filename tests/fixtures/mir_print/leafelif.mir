@@ -1,5 +1,4 @@
 ; module leafelif.py entry=__entry__
-; skipped (direct path): main, __entry__
 
 fn pick(v0:w) -> w {
   c0 = w 0
@@ -106,4 +105,38 @@ b5 merge():
 b6 merge():
   v7:w = copy v2
   ret v7
+}
+
+fn main() -> void {
+  c0 = w 1
+  c1 = w 3
+  c2 = w 7
+  c3 = w 20
+  c4 = w 10
+  c5 = w 60
+  c6 = w 90
+  c7 = w 5
+  c8 = w 0
+  c9 = w 9
+b0 entry():
+  v1:w = negw c0
+  v2:w = call @pick(v1)
+  v3:w = call @pick(c1)
+  v4:w = call @pick(c2)
+  v5:w = call @pick(c3)
+  v7:w = call @grade(c4)
+  v8:w = call @grade(c5)
+  v9:w = call @grade(c6)
+  v11:w = negw c7
+  v12:w = call @dead_mid(v11)
+  v13:w = call @dead_mid(c8)
+  v14:w = call @dead_mid(c9)
+  v-1:void = call @print(v2, v3, v4, v5, v7, v8, v9, v12, v13, v14)
+  ret
+}
+
+fn __entry__() -> void {
+b0 entry():
+  v-1:void = call @main()
+  ret
 }

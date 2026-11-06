@@ -7,7 +7,7 @@ def main() -> None:
     total = 0
     for x in xs:
         total = total + g(x, 2)
-    print(total)
+    print("total", total)
 
 
 if __name__ == "__main__":
