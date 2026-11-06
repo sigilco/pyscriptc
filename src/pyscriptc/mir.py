@@ -148,6 +148,25 @@ MIR_SEQGET = 31
 MIR_SEQSET = 32
 MIR_SEQPUSH = 33
 MIR_SEQLEN = 34
+
+# Class values. A class instance is a heap pointer, so it rides the
+# shared `MIR_P` tag like the other pointer shapes; the class identity
+# stays in HIR the way a list's element type does. `MIR_NEWOBJ` allocates
+# one (`ps_alloc` over the `%cls.<name>` struct size); `arg1` is a
+# `MIR_S` constant carrying the class name, which the emitter reads
+# without materializing (the name is not a runtime str value). The
+# synthesized `tuple_N_*` classes the lowerer emits for unpacking have
+# no `__init__`, so the constructor call carries no arguments and no
+# initializer call.
+#
+# `MIR_SETATTR` writes one field: `arg1` the object, `arg2` the value,
+# `arg3` a `MIR_S` constant spelling `<class>.<field>`; it produces
+# nothing. `MIR_GETATTR` reads one field the same way with the result
+# tag in `arg3` (the `MIR_SEQGET` convention), `arg2` the same key
+# constant.
+MIR_NEWOBJ = 37
+MIR_SETATTR = 38
+MIR_GETATTR = 39
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table;
@@ -190,6 +209,9 @@ OP_ARITY = {
     MIR_SEQLEN: 1,
     MIR_ORW: 2,
     MIR_XORW: 2,
+    MIR_NEWOBJ: 1,
+    MIR_SETATTR: 3,
+    MIR_GETATTR: 3,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -233,6 +255,9 @@ OP_RESULT_TYPE = {
     MIR_SEQLEN: MIR_W,
     MIR_ORW: MIR_W,
     MIR_XORW: MIR_W,
+    MIR_NEWOBJ: MIR_P,
+    MIR_SETATTR: MIR_W,
+    MIR_GETATTR: MIR_P,  # a getattr's true tag rides arg3; the tables cannot know it
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -292,6 +317,8 @@ VALUE_OPS = [
     MIR_SEQLEN,
     MIR_ORW,
     MIR_XORW,
+    MIR_NEWOBJ,
+    MIR_GETATTR,
 ]
 
 

@@ -42,7 +42,7 @@ from pyscriptc.mirlower import lower_module, supported_expr, supported_fn, suppo
 # membership table, the spellings `mirlower.py` lowers clean.
 _SCALARS = frozenset({"int", "float", "bool"})
 _EXPR_CHILDREN = ["operand", "left", "right", "value"]
-_STMT_EXPRS = ["value", "expr", "cond"]
+_STMT_EXPRS = ["object", "value", "expr", "cond"]
 _STMT_BODIES = ["then", "else", "body"]
 
 _CALLEE_REASON = "fn:callee out of slice"
