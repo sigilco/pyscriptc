@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-04",
-  "commit": "eec9f7033db400b1c05f116bd1905aa99fe4bca3",
+  "generated": "2026-11-06",
+  "commit": "b6011443e471904eab66c59de74a76aae21ea6ba",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -779,7 +779,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "237/641",
-      "blocking": "name-resolution (147), construct-other (102), generic-alias (55)",
+      "blocking": "name-resolution (149), construct-other (100), generic-alias (55)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
