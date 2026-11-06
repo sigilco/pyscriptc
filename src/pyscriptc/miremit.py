@@ -1024,6 +1024,9 @@ class MirEmitter:
         if marker is not None and marker.startswith("abi "):
             self._emit_abi_call(fn, i, dst, tag, fn.call_args[i], marker[len("abi ") :])
             return
+        if marker == "strget":
+            self._emit_strget(fn, dst, fn.call_args[i])
+            return
         if marker is not None and marker.startswith("method:"):
             self._emit_method_call(fn, i, dst, fn.call_args[i], marker[len("method:") :])
             return
@@ -1200,6 +1203,24 @@ class MirEmitter:
         reg = self.tmp_reg()
         self.line(f"{reg} = call {ret} @{symbol}({', '.join(rendered)})")
         self.reg[dst] = reg
+
+    def _emit_strget(self, fn: MirFunction, dst: int, args_i: list[int]) -> None:
+        """A str subscript: the direct `emit_subscript` str arm.
+
+        Both operands render first (the string value, then the index —
+        the direct walk's `emit_expr` order), then the string's buffer
+        parts extract and the `ps_str_get` buffer-out call runs. The
+        generic abi walk cannot spell this: it would extract the string
+        parts before the index's own lines, reordering the emits.
+        """
+        needed: set[str] = self.needed
+        needed.add("str")
+        self.needed = needed
+        seq: str = self.operand(fn, args_i[0])
+        index: str = self.operand(fn, args_i[1])
+        length, ptr = self._buf_parts(seq)
+        self._abi_decl("ps_str_get", "void", ["i64", "ptr", "i64", "ptr"])
+        self.reg[dst] = self._buf_out("ps_str_get", [f"i64 {length}", f"ptr {ptr}", f"i64 {index}"])
 
     def _print_fmt(self, name: str, data: bytes, args: list[str] | None = None) -> None:
         """The direct `_print_fmt`'s stdout spelling (the slice prints to stdout only)."""
