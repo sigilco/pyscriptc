@@ -262,6 +262,14 @@ def _check_call(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violatio
         got: int | None = _operand_type(fn, operand, defs)
         if got is None:
             out.append(_Violation(CODE_USEDEF, f"instr {i}: call argument {position} does not resolve"))
+    callee: int = fn.arg1[i]
+    if is_const_ref(callee):
+        out.append(_Violation(CODE_USEDEF, f"instr {i}: call callee is a constant reference"))
+    elif callee not in defs and callee not in fn.callees:
+        # A callee is either a declared entry (the lowerer's callee
+        # table) or a value a prior instruction defined; both spellings
+        # resolve. Anything else names no function.
+        out.append(_Violation(CODE_USEDEF, f"instr {i}: call callee v{callee} is not a declared callee"))
     return out
 
 
@@ -312,6 +320,16 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         if param.vid in defs:
             out.append(_Violation(CODE_USEDEF, f"param v{param.vid} redefined"))
         defs[param.vid] = param.typ
+
+    # Callee entry ids seed the def map too: a callee is a function's
+    # entry, not a runtime value, but the call reads it as one, so it has
+    # to resolve. Its tag is the word tag: the callee's own result type
+    # rides the call's `arg2`, not the entry value.
+    callees: dict[int, str] = fn.callees
+    for vid in sorted(callees):
+        if vid in defs:
+            out.append(_Violation(CODE_USEDEF, f"callee v{vid} redefined"))
+        defs[vid] = MIR_W
 
     # Attribute each instruction to the block whose span contains it. The
     # spans partition the instruction list by construction of the walk; an

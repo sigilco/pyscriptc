@@ -391,6 +391,13 @@ class MirFunction:
     # in index order. A separate dict, not a slot packing: an instruction
     # has two operand slots and a call reads a variable argument count.
     call_args: dict[int, list[int]]
+    # The callee table: a callee value id to the callee function's name.
+    # A direct call names a same-module function; the slice's callees are
+    # plain module-level functions, so the lowerer packs one callee value
+    # id per distinct callee (allocated through `MirBuilder.add_callee`)
+    # and `arg1` of the call reads it like any value. The serializer
+    # renders the table construction-ordered, so the hash stays stable.
+    callees: dict[int, str]
 
     def __init__(self, name: str) -> None:
         self.name = name
@@ -405,6 +412,7 @@ class MirFunction:
         self.consts = []
         self.helpers = {}
         self.call_args = {}
+        self.callees = {}
 
     def n_instr(self) -> int:
         return len(self.ops)
@@ -597,6 +605,24 @@ class MirBuilder:
         self.emit(MIR_RET, -1, none_ref(), MIR_VOID)
         self.terminated = 1
 
+    def add_callee(self, name: str) -> int:
+        """Declare a callee: allocate its entry value id, return the id.
+
+        A direct call names a same-module function; the entry value id is
+        the value `arg1` of the `MIR_CALL` reads, and the name is what
+        the emitter resolves to the LLVM symbol. One id per distinct
+        callee: a second `add_callee` of the same name returns the first
+        id.
+        """
+        callees: dict[int, str] = self.fn.callees
+        for vid in callees:
+            if callees[vid] == name:
+                return vid
+        vid: int = self.next_vid
+        self.next_vid = self.next_vid + 1
+        callees[vid] = name
+        return vid
+
     def emit_call(self, callee: int, args: list[int], result_type: int) -> int:
         """A direct call: `callee` called with `args`.
 
@@ -774,6 +800,12 @@ def serialize(fn: MirFunction) -> str:
         args_i: list[int] = call_args[i]
         spelled: str = ",".join(str(args_i[k]) for k in range(len(args_i)))
         lines.append(f"callargs {i} [{spelled}]")
+    # The callee table renders after the call arguments, in value-id
+    # order. The ids are allocated in allocation order, so the bytes stay
+    # construction-ordered; an empty table renders nothing.
+    callees: dict[int, str] = fn.callees
+    for vid in sorted(callees):
+        lines.append(f"callee v{vid} {callees[vid]}")
     return "\n".join(lines) + "\n"
 
 

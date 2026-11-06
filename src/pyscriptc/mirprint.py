@@ -18,6 +18,7 @@ from pyscriptc.mir import (
     MIR_ADDW,
     MIR_B,
     MIR_BR,
+    MIR_CALL,
     MIR_CEQD,
     MIR_CEQW,
     MIR_CGED,
@@ -83,6 +84,7 @@ OP_NAMES: dict[int, str] = {
     MIR_COPY: "copy",
     MIR_NOTB: "notb",
     MIR_RAISE: "raise",
+    MIR_CALL: "call",
 }
 
 _TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]
@@ -169,6 +171,12 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
         if helper is not None:
             return f"{dst}:{tag} = call {helper.split(' ')[0]} {_operand(fn, a1)}, {_operand(fn, a2)}"
         return f"{dst}:{tag} = copy {_operand(fn, a1)}"
+    if op == MIR_CALL:
+        callees = fn.callees
+        callee = callees.get(a1, "?")
+        args_i = fn.call_args.get(i, [])
+        bound = ", ".join(_operand(fn, v) for v in args_i) if args_i else ""
+        return f"{dst}:{tag} = call @{callee}({bound})"
     tag = tag_name(OP_RESULT_TYPE.get(op, MIR_W))
     if OP_ARITY.get(op, 2) == 1:
         return f"{dst}:{tag} = {name} {_operand(fn, a1)}"

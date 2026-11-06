@@ -121,7 +121,10 @@ def test_out_of_slice_reason_names_the_innermost_rejected_node(tmp_path: Path) -
     module, _ = lower_file(str(src))
     by_name = {fn["name"]: fn for fn in module["functions"]}
     assert mod.out_of_slice_reason(by_name["leaf"]) is None
-    assert mod.out_of_slice_reason(by_name["calls"]) == "expr:call"
+    # A call to a plain module-level user function is in the slice since
+    # the call slice (A3): the callee lowers to a `MIR_CALL` and the
+    # caller rides the same lane.
+    assert mod.out_of_slice_reason(by_name["calls"]) is None
     assert mod.out_of_slice_reason(by_name["text"]) == "return:str"
     assert mod.out_of_slice_reason(by_name["bits"]) == "expr:binary & int"
 
