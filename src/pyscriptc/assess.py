@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from pyscriptc import coverage, imports, verify
+from pyscriptc.emit._ir import _str_map
 from pyscriptc.errors import IRError
 from pyscriptc.reflection import mechanism_of, routes_to_island
 
@@ -482,7 +483,7 @@ def assess(
     nat_defs = 0
     for f in file_results:
         f_plane = f.get("planeMap", {})
-        for plane in {**f_plane.get("functions", {}), **f_plane.get("classes", {})}.values():
+        for plane in {**_str_map(f_plane, "functions"), **_str_map(f_plane, "classes")}.values():
             if plane == boxed.ISLAND:
                 isl_defs += 1
             elif plane == boxed.NATIVE:
@@ -560,7 +561,7 @@ def assess(
     all_defs: list[dict[str, Any]] = []
     for f in file_results:
         f_plane = f.get("planeMap", {})
-        for name in f_plane.get("functions", {}):
+        for name in _str_map(f_plane, "functions"):
             all_defs.append({"name": name})
     unique_all_defs = [{"name": n} for n in dict.fromkeys(d["name"] for d in all_defs)]
     merged_demoted_by: dict[str, str] = {}
@@ -883,11 +884,11 @@ def render_text(
     lines.append("")
 
     plane_map = report.get("planeMap")
-    if plane_map and (plane_map.get("functions") or plane_map.get("moduleTopLevel")):
+    if plane_map and (_str_map(plane_map, "functions") or plane_map.get("moduleTopLevel")):
         lines.append("Plane map:")
         lines.append(f"  module top level: {plane_map.get('moduleTopLevel', 'native')}")
         demoted_by = plane_map.get("demotedBy", {})
-        for fn_name, plane in sorted(plane_map.get("functions", {}).items()):
+        for fn_name, plane in sorted(_str_map(plane_map, "functions").items()):
             if fn_name in demoted_by:
                 lines.append(f"  {fn_name}: {plane} (demoted by {demoted_by[fn_name]})")
             else:
