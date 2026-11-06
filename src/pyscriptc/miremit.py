@@ -75,6 +75,7 @@ from pyscriptc.mir import (
     MIR_EXTWD,
     MIR_GETATTR,
     MIR_JMP,
+    MIR_MAP_PUT,
     MIR_MULD,
     MIR_MULW,
     MIR_NEGD,
@@ -203,6 +204,7 @@ _OP_ARITY: Dict[int, int] = {
     MIR_NEWOBJ: 1,
     MIR_SETATTR: 3,
     MIR_GETATTR: 3,
+    MIR_MAP_PUT: 3,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -243,6 +245,7 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_NEWOBJ: MIR_P,
     MIR_SETATTR: MIR_W,
     MIR_GETATTR: MIR_P,  # a getattr's true tag rides arg3
+    MIR_MAP_PUT: MIR_W,
 }
 
 
@@ -677,9 +680,14 @@ class MirEmitter:
             needed.add("seq")
             self.needed = needed
             tag: int = a3
-            llvm: str = _tag_llvm(tag)
-            out_slot: str = self._mir_alloca(llvm)
+            out_slot: str = self._mir_alloca(_mem_llvm(tag))
             self.line(f"call void @ps_seq_get(ptr {self.operand(fn, a1)}, i64 {self.operand(fn, a2)}, ptr {out_slot})")
+            if tag == MIR_S:
+                # A str element lands in the cell as the 16-byte `%ps.buf`
+                # prefix; the read widens it back the way `_widen_cell` does.
+                self.reg[dst] = self._widen_str_cell(out_slot)
+                return
+            llvm: str = _tag_llvm(tag)
             reg = self.tmp_reg()
             self.line(f"{reg} = load {llvm}, ptr {out_slot}")
             self.reg[dst] = reg
@@ -699,6 +707,16 @@ class MirEmitter:
             value_tag = self._operand_tag(fn, a2)
             slot = self._stash_cell_tag(value_tag, self.operand(fn, a2))
             self.line(f"call void @ps_seq_push(ptr {self.operand(fn, a1)}, ptr {slot})")
+            return
+        if op == MIR_MAP_PUT:
+            needed = self.needed
+            needed.add("map")
+            self.needed = needed
+            key_tag = self._operand_tag(fn, a2)
+            key_slot = self._stash_cell_tag(key_tag, self.operand(fn, a2))
+            val_tag = self._operand_tag(fn, a3)
+            val_slot = self._stash_cell_tag(val_tag, self.operand(fn, a3))
+            self.line(f"call void @ps_map_put(ptr {self.operand(fn, a1)}, ptr {key_slot}, ptr {val_slot})")
             return
         if op == MIR_CALL:
             self._emit_call(fn, i, dst, a1, a2)
@@ -804,6 +822,12 @@ class MirEmitter:
             return
         if marker is not None and marker.startswith("abi "):
             self._emit_abi_call(fn, i, dst, tag, fn.call_args[i], marker[len("abi ") :])
+            return
+        if marker is not None and marker.startswith("method:"):
+            self._emit_method_call(fn, i, dst, fn.call_args[i], marker[len("method:") :])
+            return
+        if marker is not None and marker.startswith("format:"):
+            self._emit_format_call(fn, i, dst, fn.call_args[i], int(marker[len("format:") :]))
             return
         ir_fn: Dict[str, Any] = self._ir_fn(name)
         ret_type: Dict[str, Any] = ir_fn["returnType"]
@@ -1097,7 +1121,12 @@ class MirEmitter:
                 parts.append(f"i64 {value}")
             else:
                 raise IRError(f"cannot pass MIR tag {otag} to a runtime call")
-        rendered: str = ", ".join(parts)
+        if symbol == "ps_map_new":
+            # ps_map_new's first word is the i32 key-kind selector; the
+            # remaining three stay i64.
+            rendered = f"i32 {values[0]}, " + ", ".join(parts[1:])
+        else:
+            rendered = ", ".join(parts)
         if tag == MIR_VOID:
             self.line(f"call void @{symbol}({rendered})")
             return
@@ -1112,6 +1141,70 @@ class MirEmitter:
         reg2: str = self.tmp_reg()
         self.line(f"{reg2} = call {llvm} @{symbol}({rendered})")
         self.reg[dst] = reg2
+
+    def _emit_method_call(self, fn: MirFunction, i: int, dst: int, args_i: list[int], name: str) -> None:
+        """An admitted method call's emission: the direct `emit_method` arm.
+
+        `join` is the only admitted method: the separator (a str, the
+        receiver the IR carries as `args[0]`) splits into its buffer
+        parts, the `list[str]` argument renders as the sequence pointer,
+        and the result rides `_buf_out`'s `ps_str_join` buffer shape —
+        the direct emitter's `values[0]`/`values[1]` order.
+        """
+        if name != "join":
+            raise IRError(f"the MIR lane has no method emission for {name}")
+        needed: set[str] = self.needed
+        needed.add("str")
+        self.needed = needed
+        sep: str = self.operand(fn, args_i[0])
+        length, ptr = self._buf_parts(sep)
+        seq: str = self.operand(fn, args_i[1])
+        self._abi_decl("ps_str_join", "void", ["i64", "ptr", "ptr", "ptr"])
+        self.reg[dst] = self._buf_out("ps_str_join", [f"i64 {length}", f"ptr {ptr}", f"ptr {seq}"])
+
+    def _emit_format_call(self, fn: MirFunction, i: int, dst: int, args_i: list[int], style: int) -> None:
+        """An admitted `builtins.format` call: the direct `_emit_abi` arm.
+
+        `args_i[0]` is the format string; the rest marshal into a
+        `[{count} x %ps.arg]` array through `_store_fmt_arg`, then the
+        `ps_str_format` buffer-out call. The style code and the zero
+        keyword count ride the marker (`format_kwnames` is always 0 in
+        the admitted shape). The `%ps.arg` global itself comes from the
+        direct pass's global table, which already rendered this call.
+        """
+        count: int = len(args_i) - 1
+        if count:
+            fmt_slot: str = self.tmp_reg()
+            self.line(f"{fmt_slot} = alloca [{count} x %ps.arg]")
+            for index in range(count):
+                base: str = self.tmp_reg()
+                self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {fmt_slot}, i64 0, i64 {index}")
+                arg_i: int = args_i[index + 1]
+                self._store_fmt_arg(base, self.operand(fn, arg_i), self._operand_tag(fn, arg_i))
+            arg_ptr: str = self.tmp_reg()
+            self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {fmt_slot}, i64 0, i64 0")
+        else:
+            arg_ptr = "null"
+        flen, fptr = self._buf_parts(self.operand(fn, args_i[0]))
+        self._abi_decl("ps_str_format", "void", ["i64", "ptr", "ptr", "i64", "i64", "i64", "ptr"])
+        self.reg[dst] = self._buf_out(
+            "ps_str_format",
+            [f"i64 {flen}", f"ptr {fptr}", f"ptr {arg_ptr}", f"i64 {count}", "i64 0", f"i64 {style}"],
+        )
+
+    def _store_fmt_arg(self, base: str, value: str, tag: int) -> None:
+        """One `%ps.arg` store for the admitted int/float kinds: the kind
+        code at field 0, the payload at field 2 (i64) or 3 (double), the
+        direct `_store_ps_arg` spelling."""
+        code: int = 1 if tag == MIR_W else 2
+        kind_ptr: str = self.tmp_reg()
+        self.line(f"{kind_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 0")
+        self.line(f"store i32 {code}, ptr {kind_ptr}")
+        slot: str = self.tmp_reg()
+        field: int = 2 if tag == MIR_W else 3
+        piece: str = "i64" if tag == MIR_W else "double"
+        self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 {field}")
+        self.line(f"store {piece} {value}, ptr {slot}")
 
     def _mir_class(self, name: str) -> Dict[str, Any]:
         """The module's class record for `name`, or an `IRError`."""
@@ -1275,7 +1368,7 @@ class MirEmitter:
                 return MIR_B
             if kind == "str":
                 return MIR_S
-            if kind == "list" or kind == "class":
+            if kind == "list" or kind == "dict" or kind == "class":
                 return MIR_P
             return MIR_W
         if operand in self.slot_vid_set:
@@ -1285,13 +1378,30 @@ class MirEmitter:
     def _stash_cell_tag(self, tag: int, value: str) -> str:
         """Stash one scalar/pointer value into a runtime cell, the direct
         path's `_stash_cell` shape for the non-str kinds this slice admits."""
+        if tag == MIR_S:
+            slot = self._mir_alloca("%ps.buf")
+            length = self.tmp_reg()
+            ptr = self.tmp_reg()
+            self.line(f"{length} = extractvalue %ps.str {value}, 0")
+            self.line(f"{ptr} = extractvalue %ps.str {value}, 1")
+            len_ptr = self.tmp_reg()
+            data_ptr = self.tmp_reg()
+            self.line(f"{len_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 0")
+            self.line(f"store i64 {length}, ptr {len_ptr}")
+            self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
+            self.line(f"store ptr {ptr}, ptr {data_ptr}")
+            return slot
         llvm: str = _tag_llvm(tag)
         slot: str = self._mir_alloca(llvm)
         self.line(f"store {llvm} {value}, ptr {slot}")
         return slot
 
     def _widen_str_slot(self, a1: int) -> str:
-        """Read a str name slot: widen the `%ps.buf` cell to `%ps.str`.
+        """Read a str name slot: widen the `%ps.buf` cell to `%ps.str`."""
+        return self._widen_str_cell(self.reg[a1])
+
+    def _widen_str_cell(self, slot: str) -> str:
+        """Widen one `%ps.buf` cell to a `%ps.str` value.
 
         Mirrors the direct path's `_widen_cell` for `str`: load the
         length and data pointer out of the cell, rebuild the aggregate
@@ -1300,7 +1410,6 @@ class MirEmitter:
         bytes. The staging alloca hoists out of non-entry blocks exactly
         like the direct path's.
         """
-        slot = self.reg[a1]
         length = self.tmp_reg()
         ptr = self.tmp_reg()
         self.line(f"{length} = load i64, ptr {slot}")

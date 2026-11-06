@@ -37,6 +37,7 @@ from pyscriptc.mir import (
     MIR_D,
     MIR_GETATTR,
     MIR_JMP,
+    MIR_MAP_PUT,
     MIR_NEWOBJ,
     MIR_NEWSEQ,
     MIR_P,
@@ -106,6 +107,7 @@ _OP_ARITY: dict[int, int] = {
     37: 1,  # MIR_NEWOBJ
     38: 3,  # MIR_SETATTR
     39: 3,  # MIR_GETATTR
+    40: 3,  # MIR_MAP_PUT
 }
 
 # The verifier's own codes. They are stable: a test that pins a violation
@@ -323,7 +325,7 @@ def _check_sequence(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Viol
         index_type: int | None = _operand_type(fn, fn.arg2[i], defs)
         if index_type != MIR_W:
             out.append(_Violation(CODE_TYPE, f"instr {i}: seqget index typed non-word"))
-        if not (arg3 == MIR_W or arg3 == MIR_D or arg3 == MIR_B or arg3 == MIR_P):
+        if not (arg3 == MIR_W or arg3 == MIR_D or arg3 == MIR_B or arg3 == MIR_S or arg3 == MIR_P):
             out.append(_Violation(CODE_TYPE, f"instr {i}: seqget result tag is not a value tag"))
         return out
     if op == MIR_SEQSET or op == MIR_SEQPUSH:
@@ -339,7 +341,7 @@ def _check_sequence(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Viol
             stored: int | None = _operand_type(fn, arg3, defs)
         else:
             stored = _operand_type(fn, fn.arg2[i], defs)
-        if not (stored == MIR_W or stored == MIR_D or stored == MIR_B or stored == MIR_P):
+        if not (stored == MIR_W or stored == MIR_D or stored == MIR_B or stored == MIR_S or stored == MIR_P):
             if op == MIR_SEQSET:
                 out.append(_Violation(CODE_TYPE, f"instr {i}: seqset stored value typed non-value"))
             else:
@@ -404,7 +406,7 @@ def _check_class(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violati
             kindex = const_index(key_op)
             if kindex < len(consts) and consts[kindex].typ != MIR_S:
                 out.append(_Violation(CODE_TYPE, f"instr {i}: getattr field key typed non-str"))
-        if not (arg3 == MIR_W or arg3 == MIR_D or arg3 == MIR_B or arg3 == MIR_P):
+        if not (arg3 == MIR_W or arg3 == MIR_D or arg3 == MIR_B or arg3 == MIR_S or arg3 == MIR_P):
             out.append(_Violation(CODE_TYPE, f"instr {i}: getattr result tag is not a value tag"))
     return out
 
@@ -515,7 +517,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         # stores are arity-2/3 ops that produce nothing, so they are out
         # of the value-op rule too; `MIR_SEQGET` is a value op whose tag
         # rides `arg3`.
-        is_seq_store: int = 1 if op == MIR_SEQSET or op == MIR_SEQPUSH or op == MIR_SETATTR else 0
+        is_seq_store: int = 1 if op == MIR_SEQSET or op == MIR_SEQPUSH or op == MIR_SETATTR or op == MIR_MAP_PUT else 0
         if (
             op != MIR_CALL
             and is_seq_store == 0
@@ -529,13 +531,13 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                     defs[dst] = copy_result_type(fn, i)
                 elif op == MIR_SEQGET:
                     seq_tag: int = fn.arg3[i] if i < len(fn.arg3) else -1
-                    if seq_tag == MIR_W or seq_tag == MIR_D or seq_tag == MIR_B or seq_tag == MIR_P:
+                    if seq_tag == MIR_W or seq_tag == MIR_D or seq_tag == MIR_B or seq_tag == MIR_S or seq_tag == MIR_P:
                         defs[dst] = seq_tag
                     else:
                         defs[dst] = MIR_W
                 elif op == MIR_GETATTR:
                     get_tag: int = fn.arg3[i] if i < len(fn.arg3) else -1
-                    if get_tag == MIR_W or get_tag == MIR_D or get_tag == MIR_B or get_tag == MIR_P:
+                    if get_tag == MIR_W or get_tag == MIR_D or get_tag == MIR_B or get_tag == MIR_S or get_tag == MIR_P:
                         defs[dst] = get_tag
                     else:
                         defs[dst] = MIR_W

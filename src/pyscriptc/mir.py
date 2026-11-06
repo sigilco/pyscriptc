@@ -135,6 +135,12 @@ MIR_ANDW = 29
 MIR_ORW = 35
 MIR_XORW = 36
 
+# Maps. `MIR_MAP_PUT` stores a key/value pair through the runtime cell ABI
+# (`ps_map_put`): `arg1` is the map, `arg2` the key and `arg3` the value.
+# Map creation rides `MIR_CALL` on the `rt:ps_map_new` symbol so the four
+# constructor words stay in `call_args`.
+MIR_MAP_PUT = 40
+
 # Sequences. `MIR_NEWSEQ` builds a list (`ps_seq_new`): `arg1` is the
 # element byte size and `arg2` the element count, both word constants, and
 # the result is a `MIR_P` pointer. `MIR_SEQGET` loads an element into a
@@ -212,6 +218,7 @@ OP_ARITY = {
     MIR_NEWOBJ: 1,
     MIR_SETATTR: 3,
     MIR_GETATTR: 3,
+    MIR_MAP_PUT: 3,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -258,6 +265,7 @@ OP_RESULT_TYPE = {
     MIR_NEWOBJ: MIR_P,
     MIR_SETATTR: MIR_W,
     MIR_GETATTR: MIR_P,  # a getattr's true tag rides arg3; the tables cannot know it
+    MIR_MAP_PUT: MIR_W,
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.

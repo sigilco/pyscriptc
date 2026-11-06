@@ -72,7 +72,7 @@
   "pyscriptc.lower._stmt_b": 39,
   "pyscriptc.mir": 0,
   "pyscriptc.miremit": 0,
-  "pyscriptc.mirlower": 0,
+  "pyscriptc.mirlower": 2,
   "pyscriptc.mirprint": 28,
   "pyscriptc.mirverify": 0,
   "pyscriptc.mobile": 13,

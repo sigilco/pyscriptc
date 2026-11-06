@@ -108,6 +108,7 @@ MIR_XORW = 36
 MIR_NEWOBJ = 37
 MIR_SETATTR = 38
 MIR_GETATTR = 39
+MIR_MAP_PUT = 40
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -198,7 +199,20 @@ _D_HELPER_OPS = {
 }
 
 _EXPR_KINDS = frozenset(
-    {"const", "name", "binary", "compare", "unary", "call", "cast", "list", "subscript", "attr", "contains"}
+    {
+        "const",
+        "name",
+        "binary",
+        "compare",
+        "unary",
+        "call",
+        "cast",
+        "list",
+        "dict",
+        "subscript",
+        "attr",
+        "contains",
+    }
 )
 _STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise", "setitem", "setattr"})
 
@@ -225,17 +239,22 @@ def supported_type(typ: Dict[str, Any]) -> bool:
             return False
         cname: str = typ["name"]
         return cname.startswith("tuple_")
+    if kind == "dict":
+        key: Dict[str, Any] = typ["key"]
+        value: Dict[str, Any] = typ["value"]
+        kkind: str = key["kind"]
+        return kkind in ("int", "str") and supported_type(value)
     if kind != "list":
         return False
     return _supported_seq_elem(typ["elem"])
 
 
 def _supported_seq_elem(elem: Dict[str, Any]) -> bool:
-    """The element types a sequence value may carry: int and float at the
-    leaves, and lists of those recursively (the ABI is one pointer tag
-    either way; the element semantics stay in HIR)."""
+    """The element types a sequence value may carry: int, float and str
+    at the leaves, and lists of those recursively (the ABI is one pointer
+    tag either way; the element semantics stay in HIR)."""
     ekind: str = elem["kind"]
-    if ekind in ("int", "float"):
+    if ekind in ("int", "float", "str"):
         return True
     if ekind == "list":
         return supported_type(elem)
@@ -293,6 +312,14 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
         elems: list[Dict[str, Any]] = expr["elems"]
         for elem in elems:
             if not supported_expr(elem):
+                return False
+        return True
+    if kind == "dict":
+        if not supported_type(expr["type"]):
+            return False
+        pairs: list[Dict[str, Any]] = expr["pairs"]
+        for pair in pairs:
+            if not supported_expr(pair["key"]) or not supported_expr(pair["value"]):
                 return False
         return True
     if kind == "subscript":
@@ -431,6 +458,7 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
                 akind not in ("int", "float", "bool", "str")
                 and not _is_supported_list(atyp)
                 and not _is_supported_class(atyp)
+                and akind != "dict"
             ):
                 return False
             if not supported_expr(arg):
@@ -445,6 +473,8 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
             return False
         rtype: Dict[str, Any] = expr["type"]
         return _is_supported_class(rtype)
+    if ckind == "method":
+        return _supported_method_call(callee, expr)
     if ckind == "builtin":
         cname: str = callee["name"]
         if cname == "print":
@@ -467,9 +497,101 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
                     and supported_expr(seq_arg)
                     and supported_expr(elem_arg)
                 )
+        if cmodule == "builtins" and mname == "dict.keys" and len(args) == 1:
+            arg: Dict[str, Any] = args[0]
+            atype: Dict[str, Any] = arg["type"]
+            if (
+                _type_kind(atype) == "dict"
+                and supported_type(atype)
+                and _is_supported_list(expr["type"])
+                and "symbol" in expr
+                and _expr_symbol(expr) == "ps_dict_keys"
+                and supported_expr(arg)
+            ):
+                return True
+        if cmodule == "builtins" and mname == "format":
+            return _supported_format(expr)
         if _rt_call_shape(cmodule, mname, expr):
             return _rt_args_order_ok(args)
     return False
+
+
+def _supported_format(expr: Dict[str, Any]) -> bool:
+    """The slice test for `builtins.format` (`ps_str_format`).
+
+    The admitted shape is the positional percent/dot form: a str format
+    constant first, then int/float arguments only (the `%ps.arg` marshal
+    covers those two kinds), no keyword names and a str result. The
+    style rides the call marker since MIR carries no expr payload.
+    """
+    if "symbol" not in expr or _expr_symbol(expr) != "ps_str_format":
+        return False
+    if "format_kwnames" in expr:
+        nkw: int = expr["format_kwnames"]
+        if nkw != 0:
+            return False
+    style: str = "percent"
+    if "format_style" in expr:
+        style = _opt_str(expr, "format_style")
+    if style != "percent" and style != "dot":
+        return False
+    args: list[Dict[str, Any]] = expr["args"]
+    if len(args) < 2:
+        return False
+    fmt_arg: Dict[str, Any] = args[0]
+    if _type_kind(fmt_arg["type"]) != "str":
+        return False
+    if not supported_expr(fmt_arg):
+        return False
+    for arg in args[1:]:
+        akind: str = _type_kind(arg["type"])
+        if akind != "int" and akind != "float":
+            return False
+        if not supported_expr(arg):
+            return False
+    return _type_kind(expr["type"]) == "str"
+
+
+def _supported_method_call(callee: Dict[str, Any], expr: Dict[str, Any]) -> bool:
+    """The slice test for one method call.
+
+    Only `str.join` admits: a str receiver (the separator, carried as
+    `args[0]`), one `list[str]` argument and a str result. Every other
+    method stays outside.
+    """
+    if "receiver" not in callee or callee["receiver"] != "str":
+        return False
+    if callee["name"] != "join":
+        return False
+    args: list[Dict[str, Any]] = expr["args"]
+    if len(args) != 2:
+        return False
+    sep: Dict[str, Any] = args[0]
+    seq: Dict[str, Any] = args[1]
+    if _type_kind(sep["type"]) != "str":
+        return False
+    seq_type: Dict[str, Any] = seq["type"]
+    if _type_kind(seq_type) != "list" or _type_kind(seq_type["elem"]) != "str":
+        return False
+    if _type_kind(expr["type"]) != "str":
+        return False
+    return supported_expr(sep) and supported_expr(seq)
+
+
+def _opt_str(expr: Dict[str, Any], key: str) -> str:
+    """An optional str payload on an expr record; `""` when absent."""
+    if key not in expr:
+        return ""
+    val: str = expr[key]
+    return val
+
+
+def _expr_symbol(expr: Dict[str, Any]) -> str:
+    """The `symbol` payload of a call expr; `""` when the key is absent."""
+    if "symbol" not in expr:
+        return ""
+    symbol: str = expr["symbol"]
+    return symbol
 
 
 def _type_kind(typ: Dict[str, Any]) -> str:
@@ -572,6 +694,8 @@ def _rt_call_symbol(cmodule: str, mname: str, expr: Dict[str, Any]) -> str:
     if cmodule == "builtins" and mname == "repeat":
         return symbol
     if cmodule == "builtins" and mname == "int":
+        return symbol
+    if cmodule == "builtins" and mname == "dict.keys":
         return symbol
     return ""
 
@@ -1001,6 +1125,26 @@ def _calls_in_slice_expr(expr: Dict[str, Any], callees: Dict[str, Dict[str, Any]
     return True
 
 
+def _is_str_const(expr: Dict[str, Any]) -> bool:
+    """A str const node: the map cell stashes it as a `%ps.buf` prefix."""
+    ekind: str = expr["kind"]
+    if ekind != "const":
+        return False
+    etyp: Dict[str, Any] = expr["type"]
+    return _type_kind(etyp) == "str"
+
+
+def _elem_size(typ: Dict[str, Any]) -> int:
+    kind: str = typ["kind"]
+    if kind in ("int", "float"):
+        return 8
+    if kind in ("str", "bytes"):
+        return 16
+    if kind == "bool":
+        return 1
+    return 8
+
+
 def _param_tag(kind: str) -> int:
     if kind == "float":
         return MIR_D
@@ -1008,7 +1152,7 @@ def _param_tag(kind: str) -> int:
         return MIR_B
     if kind == "str":
         return MIR_S
-    if kind == "list" or kind == "class":
+    if kind == "list" or kind == "dict" or kind == "class":
         return MIR_P
     return MIR_W
 
@@ -1389,6 +1533,8 @@ class _FnLowerer:
             return self.emit_cast(expr)
         if kind == "list":
             return self.emit_list(expr)
+        if kind == "dict":
+            return self.emit_dict(expr)
         if kind == "subscript":
             return self.emit_subscript(expr)
         if kind == "attr":
@@ -1414,6 +1560,8 @@ class _FnLowerer:
             if cname == "len" and _is_supported_list(args[0]["type"]):
                 seq = self.emit_expr(args[0])
                 return self.builder.emit_val(MIR_SEQLEN, seq, -1, MIR_W)
+        if ckind == "method":
+            return self.emit_method_call(expr)
         if ckind == "module":
             cmodule: str = callee["module"]
             mname: str = callee["name"]
@@ -1424,6 +1572,8 @@ class _FnLowerer:
                     item = self.emit_expr(args[1])
                     self.builder.emit(MIR_SEQPUSH, -1, seq, item)
                     return -1
+            if cmodule == "builtins" and mname == "format":
+                return self.emit_format_call(expr)
             rt_symbol: str = _rt_call_symbol(cmodule, mname, expr)
             if rt_symbol != "":
                 # A runtime-ABI call: the `rt:` callee prefix marks the
@@ -1521,6 +1671,41 @@ class _FnLowerer:
         tag: int = _param_tag(rkind)
         return self.builder.emit_val3(MIR_GETATTR, obj, key, tag, tag)
 
+    def emit_dict(self, expr: Dict[str, Any]) -> int:
+        """A dict literal: evaluate pairs, `ps_map_new`, then `MIR_MAP_PUT`s."""
+        pairs: list[Dict[str, Any]] = expr["pairs"]
+        keys: list[int] = []
+        vals: list[int] = []
+        for pair in pairs:
+            key_node: Dict[str, Any] = pair["key"]
+            val_node: Dict[str, Any] = pair["value"]
+            key = self.emit_expr(key_node)
+            val = self.emit_expr(val_node)
+            if _is_str_const(key_node):
+                key = self.builder.emit_copy(key, MIR_S)
+            if _is_str_const(val_node):
+                val = self.builder.emit_copy(val, MIR_S)
+            keys.append(key)
+            vals.append(val)
+        typ: Dict[str, Any] = expr["type"]
+        key_t: Dict[str, Any] = typ["key"]
+        val_t: Dict[str, Any] = typ["value"]
+        key_kind: int = 1 if _type_kind(key_t) == "int" else 2
+        reg: int = self._map_new(key_kind, _elem_size(key_t), _elem_size(val_t), len(keys))
+        for index in range(len(keys)):
+            self.builder.emit(MIR_MAP_PUT, -1, reg, keys[index], vals[index])
+        return reg
+
+    def _map_new(self, key_kind: int, key_size: int, val_size: int, count: int) -> int:
+        callee = self.builder.add_callee("rt:ps_map_new")
+        args = [
+            self.builder.const_w(key_kind),
+            self.builder.const_w(key_size),
+            self.builder.const_w(val_size),
+            self.builder.const_w(count),
+        ]
+        return self.builder.emit_call(callee, args, MIR_P)
+
     def emit_subscript(self, expr: Dict[str, Any]) -> int:
         """A list load: container then index, `MIR_SEQGET` with the element
         tag in `arg3` (the direct path's `ps_seq_get` + cell reload)."""
@@ -1580,6 +1765,43 @@ class _FnLowerer:
         callee_vid: int = self.builder.add_callee(name)
         dst: int = self.builder.emit_call(callee_vid, [value], tag)
         self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = f"builtin:{name}"
+        return dst
+
+    def emit_format_call(self, expr: Dict[str, Any]) -> int:
+        """An admitted `builtins.format` call: a marked `MIR_CALL`.
+
+        The arguments evaluate left to right (the format string first);
+        the marker carries the `ps_str_format` style code since the MIR
+        call record has no expr payload for `format_style`.
+        """
+        style: str = "percent"
+        if "format_style" in expr:
+            style = _opt_str(expr, "format_style")
+        style_code: int = 1 if style == "dot" else 0
+        args: list[Dict[str, Any]] = expr["args"]
+        values: list[int] = []
+        for arg in args:
+            values.append(self.emit_expr(arg))
+        callee_vid: int = self.builder.add_callee("format")
+        dst: int = self.builder.emit_call(callee_vid, values, MIR_S)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = f"format:{style_code}"
+        return dst
+
+    def emit_method_call(self, expr: Dict[str, Any]) -> int:
+        """An admitted method call (`str.join`): a marked `MIR_CALL`.
+
+        The separator and the list evaluate left to right; the callee
+        name is `str.join` and the `method:` helper marker tells the
+        emitter apart from a user function of the same spelling, the
+        same out-of-band convention `builtin:`/`abi ` use.
+        """
+        args: list[Dict[str, Any]] = expr["args"]
+        values: list[int] = []
+        for arg in args:
+            values.append(self.emit_expr(arg))
+        callee_vid: int = self.builder.add_callee("str.join")
+        dst: int = self.builder.emit_call(callee_vid, values, MIR_S)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "method:join"
         return dst
 
     def emit_module_call(self, expr: Dict[str, Any]) -> int:
