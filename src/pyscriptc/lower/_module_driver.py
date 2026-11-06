@@ -51,7 +51,10 @@ def _deepest_node(tree: ast.AST) -> ast.AST:
     stack: list[tuple[ast.AST, int]] = [(tree, 0)]
     while stack:
         node, depth = stack.pop()
-        if depth > best_depth:
+        # `ast.Load()` and its siblings are shared singletons: an earlier
+        # lowering can stamp a `lineno` on them, so a span taken from one
+        # would depend on test order. Only positioned nodes are candidates.
+        if depth > best_depth and not isinstance(node, ast.expr_context):
             best, best_depth = node, depth
         stack.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
     return best
