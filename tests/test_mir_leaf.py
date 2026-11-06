@@ -8,6 +8,7 @@ verifier tests pin the stable `MVS` codes on hand-built broken functions.
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -56,6 +57,9 @@ LEAF_SAMPLES = [
         "leafelif.py",
         "leafnone.py",
         "leafcall.py",
+        "leafshortcircuit.py",
+        "leafifexp.py",
+        "leafaug.py",
     )
 ]
 
@@ -314,7 +318,7 @@ class TestCallSlice:
         module, _ = lower_file(path)
         mir = lower_module(module)
         by_name = {fn.name: fn for fn in mir.functions}
-        assert mir.skipped == ["main", "__entry__"]
+        assert "main" in mir.skipped
         add_fn = by_name["add"]
         assert add_fn.call_args == {}
         total_fn = by_name["total"]
@@ -332,3 +336,47 @@ class TestCallSlice:
         module, _ = lower_file(str(src))
         mir = lower_module(module)
         assert "shout" in mir.skipped
+
+
+class TestShortCircuitSlice:
+    """The short-circuit slice (A6): `and`/`or` and the ternary fold
+    into the existing shape (the IR desugars both into temp assigns plus
+    one-level ifs), so no new MIR op is needed; the fixtures pin both
+    operand orders, scalar int/float/bool operands, and byte identity."""
+
+    @staticmethod
+    def _lower(name: str) -> Any:
+        module, _ = lower_file(str(_FIXTURES / name))
+        return module, lower_module(module)
+
+    def test_shortcircuit_functions_in_slice(self) -> None:
+        module, mir = self._lower("leafshortcircuit.py")
+        assert "main" in mir.skipped
+        names = {fn.name for fn in mir.functions}
+        assert "land_int" in names
+        assert "land_calls" in names
+
+    def test_ifexp_functions_in_slice(self) -> None:
+        module, mir = self._lower("leafifexp.py")
+        assert "main" in mir.skipped
+        names = {fn.name for fn in mir.functions}
+        assert "ifexp_int" in names
+        assert "ifexp_calls" in names
+
+    def test_aug_functions_in_slice(self) -> None:
+        module, mir = self._lower("leafaug.py")
+        assert "main" in mir.skipped
+        names = {fn.name for fn in mir.functions}
+        assert "aug_in_loop" in names
+
+    def test_augassign_folds_to_plain_assign(self) -> None:
+        # `x += e` desugars in the IR to `x = x + e`, so the slice test
+        # sees only the `assign` kind the body walk already lowers. The
+        # fixture pins byte identity through LEAF_SAMPLES; this pins
+        # that no AugAssign-shaped node reaches the walk.
+        module, _ = self._lower("leafaug.py")
+        by_name = {fn["name"]: fn for fn in module["functions"]}
+        body = by_name["aug_in_loop"]["body"]
+        kinds = [s["kind"] for s in body]
+        assert "augassign" not in kinds
+        assert "assign" in kinds

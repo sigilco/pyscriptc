@@ -4,7 +4,11 @@ The leaf slice covers pure scalar arithmetic: int/float/bool constants,
 binary arithmetic and comparison on scalars, unary minus and `not`, names,
 assignments, `return`, one-level `if` and `while` loops whose condition is
 a scalar compare or bool and whose body is leaf statements plus `break`
-and `continue` (no `while ... else`). It is the straight-line,
+and `continue` (no `while ... else`). Short-circuit `and`/`or`, the
+ternary `a if c else b` and augmented assignment on scalar locals are
+part of the slice: the IR desugars all three into temp assigns plus
+one-level `if` statements (A6/A7), so the leaf handles them with the
+existing block machinery and no new MIR op. It is the straight-line,
 one-level-`if` and plain-`while` shape the byte-identity A/B runs
 against; everything outside the slice stays on the direct path unchanged.
 
