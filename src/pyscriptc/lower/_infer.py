@@ -311,6 +311,182 @@ class TypeInferMixin:
             return None
         return inferred
 
+    def _infer_yield_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any] | None:
+        """The yielded element type an unannotated generator body proves, or None.
+
+        The yield-side counterpart of `_infer_signature` (issue #500): a
+        `def g(...)` carrying `yield` and no return annotation gets the one
+        type every yield agrees on, which the coro signature reads as
+        `Iterator[elem]` with send and return both None. Only the shape the
+        pass lowers without a send or stop type qualifies: no `yield
+        from`, no valued `return`, and the yields are collected in the
+        function's own scope (a nested def's yields do not vote). Anything
+        else returns None and the caller keeps its PS1001 fence:
+        inference never guesses.
+        """
+        if fn.returns is not None or self.function is None or self.inf_peek:
+            return None
+        if isinstance(fn, ast.AsyncFunctionDef):
+            return None
+        yields: list[ast.Yield] = []
+        stack: list[ast.AST] = list(reversed(fn.body))
+        refused = False
+        while stack:
+            node = stack.pop()
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.Lambda, ast.ClassDef)):
+                continue
+            if isinstance(node, ast.YieldFrom) or (isinstance(node, ast.Return) and node.value is not None):
+                refused = True
+                break
+            if isinstance(node, ast.Yield):
+                yields.append(node)
+            stack.extend(reversed(list(ast.iter_child_nodes(node))))
+        if refused or not yields:
+            return None
+        saved_locals = self.locals
+        saved_fn_body = self.fn_body
+        body_locals = dict(_peek_annotated_params(self, fn))
+        self.locals = {**saved_locals, **body_locals}
+        self.fn_body = list(fn.body)
+        try:
+            self._yield_bind_locals(fn.body)
+            inferred = None
+            for node in yields:
+                if node.value is None:
+                    return None
+                typ = self._infer_type_of(node.value)
+                if typ is None or _type_kind(typ) == "none":
+                    return None
+                if inferred is None:
+                    inferred = typ
+                elif not types_equal(inferred, typ):
+                    return None
+        finally:
+            self.fn_body = saved_fn_body
+            self.locals = saved_locals
+        if inferred is None or _has_typevar(inferred):
+            return None
+        return inferred
+
+    def _yield_elem_of_iter(self, iter_node: ast.expr) -> dict[str, Any] | None:
+        """The element type a `for` target takes, or None when unproven.
+
+        `range(...)` yields int without a peek; a list, dict, set or str
+        iterable yields its element (a dict its keys, bytes its ints), and
+        a resumable or iterator class yields the element its class record
+        carries. Anything else stays unbound so a yield that reads the
+        target refuses the inference.
+        """
+        if isinstance(iter_node, ast.Call) and isinstance(iter_node.func, ast.Name) and iter_node.func.id == "range":
+            return {"kind": "int"}
+        typ = self._infer_type_of(iter_node)
+        if typ is None:
+            return None
+        kind = _maybe_type_kind(typ)
+        if kind == "list":
+            return typ["elem"]
+        if kind == "dict":
+            return typ["key"]
+        if kind == "str":
+            return {"kind": "str"}
+        if kind == "bytes":
+            return {"kind": "int"}
+        if kind == "class":
+            name = typ.get("name")
+            info = self.classes.get(name) if isinstance(name, str) else None
+            if info is not None and info.get("iterator") and typ.get("elem") is not None:
+                return typ["elem"]
+            if info is not None and info.get("coro") and info.get("coro_elem") is not None:
+                return info["coro_elem"]
+        return None
+
+    def _yield_bind_locals(self, body: list[ast.stmt]) -> None:
+        """Bind the body's own local names for the yield-type peek.
+
+        The same source-order walk `_call_site_types` runs for call-site
+        pins, trimmed to what a yield value can read: assigns, annotated
+        assigns, augmented assigns, `for` targets (range and the iterable
+        kinds `_yield_elem_of_iter` proves), and the compound statements
+        that nest them. A name bound twice with different types leaves the
+        table: the ambiguity refuses the peek rather than guessing.
+        """
+
+        def _bind(name: str, typ: dict[str, Any] | None) -> None:
+            if typ is None or name in self.bindings or _type_kind(typ) == "none":
+                return
+            known = self.locals.get(name)
+            if known is not None and not types_equal(known, typ):
+                self.locals.pop(name, None)
+                return
+            self.locals[name] = typ
+
+        def _visit(stmts: list[ast.stmt]) -> None:
+            for item in stmts:
+                if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                    continue
+                if isinstance(item, ast.Assign):
+                    if len(item.targets) == 1 and isinstance(item.targets[0], ast.Name):
+                        _bind(item.targets[0].id, self._infer_type_of(item.value))
+                    elif (
+                        len(item.targets) == 1
+                        and isinstance(item.targets[0], ast.Tuple)
+                        and all(isinstance(elt, ast.Name) for elt in item.targets[0].elts)
+                    ):
+                        value_type = self._infer_type_of(item.value)
+                        fields = self._tuple_fields_of(value_type)
+                        if (
+                            fields is None
+                            and isinstance(value_type, dict)
+                            and _maybe_type_kind(value_type) == "list"
+                            and not value_type.get("set")
+                        ):
+                            fields = [value_type["elem"]] * len(item.targets[0].elts)
+                        if fields is not None and len(fields) == len(item.targets[0].elts):
+                            for elt, field in zip(item.targets[0].elts, fields, strict=True):
+                                _bind(elt.id, field)
+                elif isinstance(item, ast.AnnAssign) and isinstance(item.target, ast.Name):
+                    typ = _peek_annotation(item.annotation)
+                    if _maybe_type_kind(typ) == "__peek_unresolved__":
+                        typ = self._infer_type_of(item.value) if item.value is not None else None
+                    _bind(item.target.id, typ)
+                elif isinstance(item, ast.AugAssign) and isinstance(item.target, ast.Name):
+                    left = self.locals.get(item.target.id)
+                    if left is not None:
+                        binop = ast.BinOp(
+                            left=ast.Name(id=item.target.id, ctx=ast.Load()), op=item.op, right=item.value
+                        )
+                        ast.copy_location(binop, item)
+                        _bind(item.target.id, self._infer_type_of(binop))
+                elif isinstance(item, (ast.For, ast.AsyncFor)):
+                    if isinstance(item.target, ast.Name):
+                        _bind(item.target.id, self._yield_elem_of_iter(item.iter))
+                    _visit(item.body)
+                    _visit(item.orelse)
+                elif isinstance(item, ast.While):
+                    _visit(item.body)
+                    _visit(item.orelse)
+                elif isinstance(item, ast.If):
+                    _visit(item.body)
+                    _visit(item.orelse)
+                elif isinstance(item, ast.With):
+                    for entry in item.items:
+                        if isinstance(entry.optional_vars, ast.Name):
+                            opened = self._infer_type_of(entry.context_expr)
+                            if opened is not None and _maybe_type_kind(opened) == "class":
+                                _bind(entry.optional_vars.id, opened)
+                    _visit(item.body)
+                elif isinstance(item, (ast.Try, ast.TryStar)):
+                    _visit(item.body)
+                    for handler in item.handlers:
+                        _visit(handler.body)
+                    _visit(item.orelse)
+                    _visit(item.finalbody)
+                elif isinstance(item, ast.Match):
+                    for case in item.cases:
+                        _visit(case.body)
+
+        _visit(body)
+
     def _bindings_types(self) -> dict[str, dict[str, Any]]:
         """The import-bound modules as peekable types.
 

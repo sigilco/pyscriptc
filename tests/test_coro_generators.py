@@ -1124,6 +1124,100 @@ def test_send_value_must_match_the_annotation() -> None:
     ]
 
 
+# --- Unannotated generator element inference ---------------------------------
+
+INFER = """\
+def squares(n: int):
+    for i in range(n):
+        yield i * i
+
+
+def words(text: str):
+    for w in text.split(" "):
+        yield w.upper()
+
+
+def pairs(n: int):
+    for a in range(n):
+        for b in range(a):
+            yield a * 10 + b
+
+
+total: int = 0
+for x in squares(4):
+    total += x
+for w in words("a bc"):
+    print(w)
+for p in pairs(3):
+    total += p
+print(total)
+"""
+
+INFER_FENCED = """\
+def yf(n: int):
+    yield 1
+    yield from [2]
+
+
+def ret(n: int):
+    yield n
+    return n
+
+
+def mixed(n: int):
+    yield n
+    yield "s"
+
+
+def bare(n: int):
+    yield
+"""
+
+
+def test_unannotated_generator_infers_the_element_type(tmp_path: Path) -> None:
+    got, expected = _run_both(tmp_path, "infer", INFER)
+    assert expected
+    assert got == expected
+    module = lower_source(INFER, "infer.py")
+    assert module["fences"] == []
+    validate_module(module)
+    frames = {cls["name"] for cls in module["classes"] if cls["name"].startswith("gen.")}
+    assert frames == {"gen.squares", "gen.words", "gen.pairs"}
+    for name in frames:
+        frame = next(cls for cls in module["classes"] if cls["name"] == name)
+        assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close"}
+
+
+def test_unannotated_generator_refusals_keep_the_annotation_fence() -> None:
+    module = lower_source(INFER_FENCED, "inferfenced.py")
+    got = sorted((f["span"]["line"], f["code"], f["message"]) for f in module["fences"])
+    assert got == [
+        (1, "PS1001", "yf needs a return annotation"),
+        (6, "PS1001", "ret needs a return annotation"),
+        (11, "PS1001", "mixed needs a return annotation"),
+        (16, "PS1001", "bare needs a return annotation"),
+    ]
+
+
+def test_unannotated_send_form_reads_none(tmp_path: Path) -> None:
+    source = """\
+def g(n: int):
+    x = yield n
+
+
+total: int = 0
+for v in g(3):
+    total += v
+print(total)
+"""
+    got, expected = _run_both(tmp_path, "sendnone", source)
+    assert expected
+    assert got == expected
+    module = lower_source(source, "sendnone.py")
+    assert module["fences"] == []
+    validate_module(module)
+
+
 def test_iterator_send_form_recv_is_the_none_singleton() -> None:
     module = lower_source(
         "from typing import Iterator\n\n\ndef g(n: int) -> Iterator[int]:\n    x = yield n\n",

@@ -61,7 +61,7 @@
   "pyscriptc.lower._entry": 24,
   "pyscriptc.lower._expr": 61,
   "pyscriptc.lower._expr_compare": 35,
-  "pyscriptc.lower._infer": 18,
+  "pyscriptc.lower._infer": 21,
   "pyscriptc.lower._misc_emit": 24,
   "pyscriptc.lower._module_driver": 5,
   "pyscriptc.lower._stdlib": 51,
