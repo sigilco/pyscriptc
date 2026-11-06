@@ -608,8 +608,6 @@ class ExprMixin(ExprCompareMixin):
         elem_expect = expect["elem"] if expect and expect["kind"] == "list" else None
         elems = [self._expr(elt, elem_expect) for elt in node.elts]
         elem = elems[0]["type"]
-        if elem["kind"] == "bool":
-            self.fail(node, "PS2002", "list[bool] is not lowered")
         for item in elems[1:]:
             if not types_equal(item["type"], elem):
                 self.fail(node, "PS1003", "list elements have one type")

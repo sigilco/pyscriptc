@@ -397,7 +397,7 @@
   "builtins.str.translate": "fb9feeca4c88602fba8cd488e8515437642d31e6ace48edde2c5dc443100e2b5",
   "builtins.str.upper": "ea4f6963deb44b25c0810fa99471c66b0963bf994cb983a3f94f5805ec15d653",
   "builtins.str.zfill": "4c9863f7134f0d7568220d2d5ea6ee281a24108eac79c10c01fbecb5aa1544d7",
-  "builtins.sum": "bb618f532e4ff052235b8a22be8f23df4111a115ed6dc49ea0974eff39829650",
+  "builtins.sum": "298da9b26e9e8eff6d7c043f2e09ca45c96eadca597c0487ab46e815f9fa80e0",
   "builtins.super": "c5ca759bd459467140ec4d56eabe10aded9e3365d79be7f2ad850951354b751c",
   "builtins.tuple": "e287c8f954c5d0c26224d84795c42aee23823f68a4a0481a8d3e5cc96d81f7d4",
   "builtins.tuple.count": "a09856c3ee7baa9c227b01535f5e72cc0286ae54f1c045a58d25e6ecfa653fd8",
