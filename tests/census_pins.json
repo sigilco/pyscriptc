@@ -40,7 +40,7 @@
   "pyscriptc.factsbridge": 60,
   "pyscriptc.ffi_manifest": 122,
   "pyscriptc.imports": 44,
-  "pyscriptc.ir": 33,
+  "pyscriptc.ir": 29,
   "pyscriptc.irverify": 28,
   "pyscriptc.licenses": 5,
   "pyscriptc.llvm": 1,
