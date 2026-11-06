@@ -740,6 +740,11 @@ class MirEmitter:
             # name alone cannot tell the two apart.
             self._emit_print(fn, i, fn.call_args[i])
             return
+        if name.startswith("rt:"):
+            # A runtime-ABI call: the `rt:` prefix marks a `ps_*` symbol
+            # the lowerer admitted, not a module function name.
+            self._emit_rt_call(fn, i, dst, name[3:], tag)
+            return
         ir_fn: Dict[str, Any] = self._ir_fn(name)
         ret_type: Dict[str, Any] = ir_fn["returnType"]
         ret: str = _llvm_type(ret_type)
@@ -893,6 +898,60 @@ class MirEmitter:
 
     def _abi_decl(self, symbol: str, ret: str, params: list[str]) -> None:
         self.abi_decls[symbol] = (ret, params)
+
+    def _emit_rt_call(self, fn: MirFunction, i: int, dst: int, symbol: str, tag: int) -> None:
+        """A runtime-ABI call: the direct emitter's `_emit_abi`/`_emit_math`
+        shape, spelled from the operand tags.
+
+        Two passes mirror the direct order: every argument's value
+        renders first (a str const materializes here, in argument order),
+        then each str argument's `(length, data)` extract pair, then the
+        call. The result renders by the call's tag: `i64`/`double`/`ptr`
+        calls take a fresh temp, a bool result is the `i32` call plus the
+        `icmp ne` flag, and a void call renders bare.
+        """
+        args_i: list[int] = fn.call_args[i]
+        values: list[str] = []
+        tags: list[int] = []
+        for position in range(len(args_i)):
+            operand: int = args_i[position]
+            otag: int = self._operand_tag(fn, operand)
+            values.append(self.operand(fn, operand))
+            tags.append(otag)
+        parts: list[str] = []
+        for position in range(len(args_i)):
+            otag = tags[position]
+            value = values[position]
+            if otag == MIR_S:
+                length: str = self.tmp_reg()
+                ptr: str = self.tmp_reg()
+                self.line(f"{length} = extractvalue %ps.str {value}, 0")
+                self.line(f"{ptr} = extractvalue %ps.str {value}, 1")
+                parts.append(f"i64 {length}")
+                parts.append(f"ptr {ptr}")
+            elif otag == MIR_D:
+                parts.append(f"double {value}")
+            elif otag == MIR_P:
+                parts.append(f"ptr {value}")
+            elif otag == MIR_W:
+                parts.append(f"i64 {value}")
+            else:
+                raise IRError(f"cannot pass MIR tag {otag} to a runtime call")
+        rendered: str = ", ".join(parts)
+        if tag == MIR_VOID:
+            self.line(f"call void @{symbol}({rendered})")
+            return
+        if tag == MIR_B:
+            raw: str = self.tmp_reg()
+            self.line(f"{raw} = call i32 @{symbol}({rendered})")
+            reg: str = self.tmp_reg()
+            self.line(f"{reg} = icmp ne i32 {raw}, 0")
+            self.reg[dst] = reg
+            return
+        llvm: str = _tag_llvm(tag)
+        reg2: str = self.tmp_reg()
+        self.line(f"{reg2} = call {llvm} @{symbol}({rendered})")
+        self.reg[dst] = reg2
 
     def _block_of(self, fn: MirFunction, i: int) -> MirBlock:
         for span_bid in range(len(fn.blocks)):
