@@ -120,6 +120,7 @@ MIR_RETLOD = 48
 MIR_EXCCUR = 49
 MIR_RERAISE = 50
 MIR_RAISEEXC = 51
+MIR_STRGET = 53
 MIR_UNREACH = 52
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
@@ -424,11 +425,16 @@ def supported_expr(expr: Dict[str, Any]) -> bool:
     if kind == "subscript":
         value: Dict[str, Any] = expr["value"]
         index: Dict[str, Any] = expr["index"]
-        if not _is_supported_list(value["type"]):
-            return False
         itype: Dict[str, Any] = index["type"]
         ikind: str = itype["kind"]
         if ikind != "int":
+            return False
+        vkind: str = _type_kind(value["type"])
+        if vkind == "str":
+            # `s[i]` reads one character: the result is a str, lowered
+            # through `MIR_STRGET`.
+            return _type_kind(expr["type"]) == "str" and supported_expr(value) and supported_expr(index)
+        if not _is_supported_list(value["type"]):
             return False
         return supported_expr(value) and supported_expr(index)
     if kind == "attr":
@@ -2249,12 +2255,18 @@ class _FnLowerer:
         return self.builder.emit_call(callee, args, MIR_P)
 
     def emit_subscript(self, expr: Dict[str, Any]) -> int:
-        """A list load: container then index, `MIR_SEQGET` with the element
-        tag in `arg3` (the direct path's `ps_seq_get` + cell reload)."""
+        """A sequence load: container then index.
+
+        A list read is `MIR_SEQGET` with the element tag in `arg3`; a str
+        read is `MIR_STRGET`, the one-character str result riding the
+        `MIR_S` tag (the direct path's `ps_str_get` + counts sequence).
+        """
         seq = self.emit_expr(expr["value"])
         index = self.emit_expr(expr["index"])
         result_type: Dict[str, Any] = expr["type"]
         rkind: str = result_type["kind"]
+        if _type_kind(expr["value"]["type"]) == "str":
+            return self.builder.emit_val(MIR_STRGET, seq, index, MIR_S)
         tag: int = _param_tag(rkind)
         return self.builder.emit_val3(MIR_SEQGET, seq, index, tag, tag)
 

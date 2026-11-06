@@ -63,6 +63,7 @@ from pyscriptc.mir import (
     MIR_SEQPUSH,
     MIR_SEQSET,
     MIR_SETATTR,
+    MIR_STRGET,
     MIR_SUBD,
     MIR_SUBW,
     MIR_TRYCALL,
@@ -135,6 +136,7 @@ OP_NAMES: dict[int, str] = {
     MIR_RERAISE: "reraise",
     MIR_RAISEEXC: "raiseexc",
     MIR_UNREACH: "unreach",
+    MIR_STRGET: "strget",
 }
 
 _TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE, MIR_RERAISE, MIR_RAISEEXC, MIR_UNREACH]

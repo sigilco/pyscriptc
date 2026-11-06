@@ -100,6 +100,7 @@ from pyscriptc.mir import (
     MIR_SEQPUSH,
     MIR_SEQSET,
     MIR_SETATTR,
+    MIR_STRGET,
     MIR_SUBD,
     MIR_SUBW,
     MIR_TRYCALL,
@@ -229,6 +230,7 @@ _OP_ARITY: Dict[int, int] = {
     MIR_RERAISE: 0,
     MIR_RAISEEXC: 1,
     MIR_UNREACH: 0,
+    MIR_STRGET: 2,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -282,6 +284,7 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_RERAISE: MIR_W,
     MIR_RAISEEXC: MIR_W,
     MIR_UNREACH: MIR_W,
+    MIR_STRGET: MIR_S,
 }
 
 
@@ -862,6 +865,9 @@ class MirEmitter:
             return
         if op == MIR_UNREACH:
             self.line("unreachable")
+            return
+        if op == MIR_STRGET:
+            self._emit_strget(fn, dst, a1, a2)
             return
         if op in _HELPER_W:
             needed = self.needed
@@ -1691,6 +1697,24 @@ class MirEmitter:
             self.reg[dst] = reg
             return
         self.reg[dst] = flag
+
+    def _emit_strget(self, fn: MirFunction, dst: int, a1: int, a2: int) -> None:
+        """A str subscript: the direct `emit_subscript` str arm.
+
+        The container's `(length, data)` extract pair feeds `ps_str_get`
+        through `_buf_out`, which stages the one-character result as a
+        `%ps.str` — the `MIR_S` value the op's result tag carries.
+        """
+        needed: set[str] = self.needed
+        needed.add("str")
+        self.needed = needed
+        value: str = self.operand(fn, a1)
+        index: str = self.operand(fn, a2)
+        length: str
+        ptr: str
+        length, ptr = self._buf_parts(value)
+        self._abi_decl("ps_str_get", "void", ["i64", "ptr", "i64", "ptr"])
+        self.reg[dst] = self._buf_out("ps_str_get", [f"i64 {length}", f"ptr {ptr}", f"i64 {index}"])
 
     def operand(self, fn: MirFunction, operand: int) -> str:
         if is_const_ref(operand):

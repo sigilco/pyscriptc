@@ -201,6 +201,11 @@ MIR_EXCCUR = 49
 MIR_RERAISE = 50
 MIR_RAISEEXC = 51
 MIR_UNREACH = 52
+
+# Str indexing. `MIR_STRGET` reads `s[i]`: `arg1` is a `MIR_S` value, `arg2`
+# a `MIR_W` index, and the result is the one-character `MIR_S` str. The ids
+# append after the try ops so existing digests keep their bytes.
+MIR_STRGET = 53
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table;
@@ -259,6 +264,7 @@ OP_ARITY = {
     MIR_RERAISE: 0,
     MIR_RAISEEXC: 1,
     MIR_UNREACH: 0,
+    MIR_STRGET: 2,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -318,6 +324,7 @@ OP_RESULT_TYPE = {
     MIR_RERAISE: MIR_W,
     MIR_RAISEEXC: MIR_W,
     MIR_UNREACH: MIR_W,
+    MIR_STRGET: MIR_S,
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -388,6 +395,7 @@ VALUE_OPS = [
     MIR_EXCISA,
     MIR_RETLOD,
     MIR_EXCCUR,
+    MIR_STRGET,
 ]
 
 

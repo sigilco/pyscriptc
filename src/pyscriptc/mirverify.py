@@ -120,6 +120,7 @@ _OP_ARITY: dict[int, int] = {
     50: 0,  # MIR_RERAISE
     51: 1,  # MIR_RAISEEXC
     52: 0,  # MIR_UNREACH
+    53: 2,  # MIR_STRGET
 }
 
 # The try callsite terminators, spelled as int literals for the same
@@ -451,9 +452,11 @@ def _result_type_of(op: int) -> int:
     new_obj: int = 37
     clt_w: int = 12
     cne_d: int = 23
+    str_get: int = 53
     tag_d: int = 1
     tag_b: int = 2
     tag_w: int = 0
+    tag_s: int = 4
     tag_p: int = 5
     if op == neg_d:
         return tag_d
@@ -461,6 +464,8 @@ def _result_type_of(op: int) -> int:
         return tag_d
     if op == not_b:
         return tag_b
+    if op == str_get:
+        return tag_s
     if op == new_seq or op == new_obj:
         return tag_p
     is_compare: int = 1 if op >= clt_w and op <= cne_d else 0
@@ -588,6 +593,14 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
             class_violations: list[_Violation] = _check_class(fn, i, defs)
             for c_index in range(len(class_violations)):
                 out.append(class_violations[c_index])
+        if op == 53:
+            # strget: arg1 a str value, arg2 a word index.
+            strget_seq: int | None = _operand_type(fn, fn.arg1[i], defs)
+            if strget_seq != MIR_S:
+                out.append(_Violation(CODE_TYPE, f"instr {i}: strget sequence typed non-str"))
+            strget_index: int | None = _operand_type(fn, fn.arg2[i], defs)
+            if strget_index != MIR_W:
+                out.append(_Violation(CODE_TYPE, f"instr {i}: strget index typed non-word"))
         if op == MIR_RET:
             violation: _Violation | None = _check_ret_type(fn, i, defs)
             if violation is not None:
