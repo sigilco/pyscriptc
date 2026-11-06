@@ -125,7 +125,7 @@
   "pyscriptc.telemetry": 28,
   "pyscriptc.tirserde": 53,
   "pyscriptc.typefacts": 75,
-  "pyscriptc.verify": 5,
+  "pyscriptc.verify": 4,
   "pyscriptc.wasm_adapter": 10,
   "pyscriptc.zigshim": 11
 }
