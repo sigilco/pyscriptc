@@ -255,6 +255,16 @@ def test_the_seam_knows_the_typed_accessors() -> None:
     assert _ir._field_name(field) == "_0"
     assert _ir._field_type(field) == {"kind": "str"}
     assert _ir._kind(_ir._field_type(field)) == "str"
+    indexed = {**field, "index": 2}
+    assert _ir._field_index(indexed) == 2
+    module = {"functions": [{"name": "main", "params": []}], "sourceFile": "a.py", "fences": []}
+    assert _ir._items(module, "functions")[0]["name"] == "main"
+    assert _ir._name_list(module, "fences") == []
+    assert _ir._opt_str(module, "sourceFile") == "a.py"
+    assert _ir._opt_module_fallback(module) is None
+    fallback = {"moduleTopLevel": "island"}
+    assert _ir._opt_module_fallback({"fallback": fallback, "functions": []}) == fallback
+    assert _ir._opt_str_or_none(fallback, "moduleTopLevel") == "island"
     assert _ir._has({"sep": "x"}, "sep") is True
     assert _ir._has({"sep": "x"}, "end") is False
     assert _ir._opt_str_or_none({"file": "stderr"}, "file") == "stderr"

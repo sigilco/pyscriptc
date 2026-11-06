@@ -298,6 +298,13 @@ def _field_type(field: dict[str, Any]) -> dict[str, Any]:
     return typ
 
 
+def _field_index(field: dict[str, Any]) -> int:
+    """The struct index a class field carries after `_field` annotates it."""
+
+    index: int = field["index"]
+    return index
+
+
 def _elem_kind(typ: dict[str, Any]) -> str:
     """The kind tag of the element type a list or dict type record carries."""
     elem: dict[str, Any] = typ["elem"]
@@ -324,14 +331,23 @@ def _opt_str_or_none(expr: dict[str, Any], key: str) -> str | None:
 def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
     """The module's runnable entry (a script body or `__main__` guard), if `--run` without `--call` has one."""
     entry = module.get("entry")
-    fn = next((f for f in module["functions"] if f["name"] == entry), None)
-    if fn is not None and not fn["params"]:
-        name = fn["name"]
+    fn = next((f for f in _items(module, "functions") if _opt_str(f, "name") == entry), None)
+    if fn is not None and not _items(fn, "params"):
+        name = _opt_str(fn, "name")
         # A script's entry is `main`/`__entry__`; a program's is the
         # qualified `__main__.main`/`__main__.__entry__`.
         if name in ("main", "__entry__") or name.startswith("__main__."):
             return fn
     return None
+
+
+def _opt_module_fallback(module: dict[str, Any]) -> dict[str, Any] | None:
+    """The boxed fallback record a module carries, or None when native."""
+
+    if "fallback" not in module:
+        return None
+    fallback: dict[str, Any] = module["fallback"]
+    return fallback
 
 
 def _type_of(expr: dict[str, Any]) -> dict[str, Any]:

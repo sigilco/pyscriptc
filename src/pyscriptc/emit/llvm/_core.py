@@ -7,7 +7,21 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.dwarf import DwarfEmitter
-from pyscriptc.emit._ir import _fn_symbol, _kind, _llvm_field_type, _llvm_type, _safe, standalone_entry
+from pyscriptc.emit._ir import (
+    _field_index,
+    _field_name,
+    _field_type,
+    _fn_symbol,
+    _items,
+    _kind,
+    _llvm_field_type,
+    _llvm_type,
+    _opt_str,
+    _return_type,
+    _safe,
+    _type_of,
+    standalone_entry,
+)
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.emit.llvm._runtime import _declarations, _helpers
 from pyscriptc.errors import IRError
@@ -24,7 +38,7 @@ class CoreMixin(EmitterBase):
         # Off by default: without `--debug-info` the emitted text is byte-identical
         # to the historical output, so the frozen gates and IR hashes do not move.
         self.dwarf = dwarf
-        self.functions = {fn["name"]: fn for fn in module["functions"]}
+        self.functions = {_opt_str(fn, "name"): fn for fn in _items(module, "functions")}
         self.out: list[str] = []
         self.globals: list[str] = []
         self.needed: set[str] = set()
@@ -85,20 +99,23 @@ class CoreMixin(EmitterBase):
         library: bool = False,
         binding: bool = False,
     ) -> str:
-        self.class_index = {cls["name"]: cls for cls in self.module.get("classes", [])}
+        self.class_index = {_opt_str(cls, "name"): cls for cls in _items(self.module, "classes")}
         self.library = library
         self.binding = binding
-        for cls in self.module.get("classes", []):
-            body = "i8" if not cls["fields"] else ", ".join(_llvm_field_type(field["type"]) for field in cls["fields"])
-            self.globals.append(f"%cls.{cls['name']} = type {{ {body} }}")
-            for method in cls["methods"]:
-                symbol = f"cls.{cls['name']}.{method['name']}"
+        for cls in _items(self.module, "classes"):
+            cls_name: str = _opt_str(cls, "name")
+            fields: list[dict[str, Any]] = _items(cls, "fields")
+            body = "i8" if not fields else ", ".join(_llvm_field_type(_field_type(field)) for field in fields)
+            self.globals.append(f"%cls.{cls_name} = type {{ {body} }}")
+            for method in _items(cls, "methods"):
+                symbol = f"cls.{cls_name}.{_opt_str(method, 'name')}"
                 self.functions[symbol] = {**method, "name": symbol}
-        for fn in self.module["functions"]:
+        for fn in _items(self.module, "functions"):
             self.emit_function(fn)
-        for cls in self.module.get("classes", []):
-            for method in cls["methods"]:
-                self.emit_function(self.functions[f"cls.{cls['name']}.{method['name']}"])
+        for cls in _items(self.module, "classes"):
+            cls_name = _opt_str(cls, "name")
+            for method in _items(cls, "methods"):
+                self.emit_function(self.functions[f"cls.{cls_name}.{_opt_str(method, 'name')}"])
         if call is not None:
             self.emit_main(call, args, library=library or binding)
         elif standalone:
@@ -106,7 +123,7 @@ class CoreMixin(EmitterBase):
             # in source order. A definition-only module keeps the no-op main.
             entry_fn = standalone_entry(self.module)
             if entry_fn is not None:
-                self.emit_main(entry_fn["name"], [])
+                self.emit_main(_opt_str(entry_fn, "name"), [])
             else:
                 self.out.append(f"define i32 @{self.entry_symbol}(i32 %argc, ptr %argv) {{")
                 self._reset_function()
@@ -122,7 +139,7 @@ class CoreMixin(EmitterBase):
             # script having a body.
             entry_fn = standalone_entry(self.module)
             if entry_fn is not None:
-                self.emit_main(entry_fn["name"], [], library=True)
+                self.emit_main(_opt_str(entry_fn, "name"), [], library=True)
             else:
                 self.emit_noop_library_main()
         # Shims go last: a closure inside a module global initializer (emitted
@@ -194,14 +211,14 @@ class CoreMixin(EmitterBase):
     # boxed:end
 
     def _field(self, class_name: str, name: str) -> dict[str, Any]:
-        for index, field in enumerate(self.class_index[class_name]["fields"]):
-            if field["name"] == name:
+        for index, field in enumerate(_items(self.class_index[class_name], "fields")):
+            if _field_name(field) == name:
                 return {**field, "index": index}
         raise IRError(f"{class_name}.{name} is not a field")
 
     def _field_ptr(self, class_name: str, obj: str, field: dict[str, Any]) -> str:
         reg = self.tmp()
-        self.line(f"{reg} = getelementptr %cls.{class_name}, ptr {obj}, i32 0, i32 {field['index']}")
+        self.line(f"{reg} = getelementptr %cls.{class_name}, ptr {obj}, i32 0, i32 {_field_index(field)}")
         return reg
 
     def _stash(self, typ: dict[str, Any], value: str) -> str:
@@ -390,10 +407,11 @@ class CoreMixin(EmitterBase):
     def _emit_clo_wrapper(self, fn: dict[str, Any]) -> None:
         """`name.clo(env, params...) -> name(params...)`: env-first shim for a
         plain function referenced as a value."""
-        ret = _llvm_type(fn["returnType"])
-        symbol = _fn_symbol(fn["name"])
-        plist = ["ptr %env"] + [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"]]
-        args = ", ".join(f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"])
+        ret = _llvm_type(_return_type(fn))
+        symbol = _fn_symbol(_opt_str(fn, "name"))
+        params: list[dict[str, Any]] = _items(fn, "params")
+        plist = ["ptr %env"] + [f"{_llvm_type(_type_of(p))} %{_safe(_opt_str(p, 'name'))}" for p in params]
+        args = ", ".join(f"{_llvm_type(_type_of(p))} %{_safe(_opt_str(p, 'name'))}" for p in params)
         self.out.append(f"define internal {ret} @{symbol}.clo({', '.join(plist)}) {{")
         self.out.append("entry:")
         if ret == "void":

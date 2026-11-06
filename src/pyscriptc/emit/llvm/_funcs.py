@@ -20,6 +20,8 @@ from pyscriptc.emit._ir import (
     _llvm_type,
     _memory_type,
     _name_list,
+    _node_kind,
+    _node_value_node,
     _none_type,
     _opt_default,
     _opt_int,
@@ -38,7 +40,7 @@ from pyscriptc.errors import FitError, IRError
 
 class FuncsMixin(EmitterBase):
     def emit_function(self, fn: dict[str, Any]) -> None:
-        return_type: dict[str, Any] = fn["returnType"]
+        return_type: dict[str, Any] = _return_type(fn)
         ret: str = _llvm_type(return_type)
         # Env-first functions (nested defs and lambdas) take the caller's env
         # cell array as a leading `ptr %env` and bind those slots by pointer.
@@ -399,7 +401,7 @@ class FuncsMixin(EmitterBase):
             self.span = saved
 
     def _emit_return(self, stmt: dict[str, Any]) -> None:
-        expr: dict[str, Any] = stmt["value"]
+        expr: dict[str, Any] = _node_value_node(stmt)
         expr_type: dict[str, Any] = _type_of(expr)
         kind: str = _kind(expr_type)
         if self.outline_depth:
@@ -408,7 +410,7 @@ class FuncsMixin(EmitterBase):
                 if self.ret_ptr is None or self.ret_llvm is None:
                     raise IRError("return inside try has no slot")
                 self.line(f"store {self.ret_llvm} {value}, ptr {self.ret_ptr}")
-            elif _kind(expr) != "const":
+            elif _node_kind(expr) != "const":
                 self.emit_expr(expr)
             if self.terminated:
                 return
@@ -417,7 +419,7 @@ class FuncsMixin(EmitterBase):
             # suspension skips the finally, a return runs it.
             self.line(f"ret i32 {2 if _flag_of(stmt, 'suspend') else 1}")
         elif kind == "none":
-            if _kind(expr) != "const":
+            if _node_kind(expr) != "const":
                 self.emit_expr(expr)
             if self.terminated:
                 return
