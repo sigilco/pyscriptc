@@ -89,7 +89,11 @@ def measure_script(path: Path) -> dict[str, object]:
         if (
             reason is None
             and name in mir_names
-            and supported_module_fn(fn, {f["name"]: f for f in functions if f.get("name") in mir_names})
+            and supported_module_fn(
+                fn,
+                {f["name"]: f for f in functions if f.get("name") in mir_names},
+                {f["name"]: f for f in functions},
+            )
         ):
             in_slice.append(name)
         else:

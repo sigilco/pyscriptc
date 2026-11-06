@@ -40,6 +40,7 @@ from pyscriptc.mir import (
     MIR_EXTWD,
     MIR_FLOWLD,
     MIR_GETATTR,
+    MIR_INITCALL,
     MIR_JMP,
     MIR_MAP_PUT,
     MIR_MULD,
@@ -75,8 +76,10 @@ from pyscriptc.mir import (
     MIR_XORW,
     OP_ARITY,
     OP_RESULT_TYPE,
+    MirConst,
     MirFunction,
     MirModule,
+    const_index,
     copy_result_type,
     float_bits,
 )
@@ -135,6 +138,7 @@ OP_NAMES: dict[int, str] = {
     MIR_RERAISE: "reraise",
     MIR_RAISEEXC: "raiseexc",
     MIR_UNREACH: "unreach",
+    MIR_INITCALL: "initcall",
 }
 
 _TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE, MIR_RERAISE, MIR_RAISEEXC, MIR_UNREACH]
@@ -256,6 +260,10 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
         callee: str = fn.callees.get(a1, "?")
         tag = tag_name(fn.arg2[i])
         return f"{dst}:{tag} = call @{callee}({_call_args_text(fn, i)})"
+    if op == MIR_INITCALL:
+        const: MirConst = fn.consts[const_index(a1)]
+        cname: str = const.sval
+        return f"{dst}:{tag_name(MIR_P)} = initcall {cname}({_call_args_text(fn, i)})"
     if op == MIR_TRYPACK:
         helper = fn.helpers.get(i)
         suffix = ""

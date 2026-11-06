@@ -165,6 +165,12 @@ MIR_SEQLEN = 34
 # no `__init__`, so the constructor call carries no arguments and no
 # initializer call.
 #
+# `MIR_INITCALL` is the user-class constructor: the same `MIR_S` class
+# name in `arg1`, the constructor arguments in `call_args` (the
+# `MIR_CALL` channel), and the emitter runs `cls.<name>.__init__` when
+# the class defines one — the direct `emit_constructor` shape. It
+# produces a `MIR_P` like `MIR_NEWOBJ`.
+#
 # `MIR_SETATTR` writes one field: `arg1` the object, `arg2` the value,
 # `arg3` a `MIR_S` constant spelling `<class>.<field>`; it produces
 # nothing. `MIR_GETATTR` reads one field the same way with the result
@@ -201,6 +207,7 @@ MIR_EXCCUR = 49
 MIR_RERAISE = 50
 MIR_RAISEEXC = 51
 MIR_UNREACH = 52
+MIR_INITCALL = 53
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table;
@@ -259,6 +266,7 @@ OP_ARITY = {
     MIR_RERAISE: 0,
     MIR_RAISEEXC: 1,
     MIR_UNREACH: 0,
+    MIR_INITCALL: 1,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -318,6 +326,7 @@ OP_RESULT_TYPE = {
     MIR_RERAISE: MIR_W,
     MIR_RAISEEXC: MIR_W,
     MIR_UNREACH: MIR_W,
+    MIR_INITCALL: MIR_P,
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -388,6 +397,7 @@ VALUE_OPS = [
     MIR_EXCISA,
     MIR_RETLOD,
     MIR_EXCCUR,
+    MIR_INITCALL,
 ]
 
 

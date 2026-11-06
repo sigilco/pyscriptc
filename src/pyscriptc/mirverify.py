@@ -36,6 +36,7 @@ from pyscriptc.mir import (
     MIR_COPY,
     MIR_D,
     MIR_GETATTR,
+    MIR_INITCALL,
     MIR_JMP,
     MIR_MAP_PUT,
     MIR_NEWOBJ,
@@ -120,6 +121,7 @@ _OP_ARITY: dict[int, int] = {
     50: 0,  # MIR_RERAISE
     51: 1,  # MIR_RAISEEXC
     52: 0,  # MIR_UNREACH
+    53: 1,  # MIR_INITCALL
 }
 
 # The try callsite terminators, spelled as int literals for the same
@@ -388,7 +390,7 @@ def _check_class(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violati
     out: list[_Violation] = []
     op: int = fn.ops[i]
     arg3: int = fn.arg3[i] if i < len(fn.arg3) else -1
-    if op == MIR_NEWOBJ:
+    if op == MIR_NEWOBJ or op == MIR_INITCALL:
         operand: int = fn.arg1[i]
         if not is_const_ref(operand):
             out.append(_Violation(CODE_TYPE, f"instr {i}: newobj class name is not a constant"))
@@ -397,6 +399,19 @@ def _check_class(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violati
             index: int = const_index(operand)
             if index < len(consts) and consts[index].typ != MIR_S:
                 out.append(_Violation(CODE_TYPE, f"instr {i}: newobj class name typed non-str"))
+        if op == MIR_INITCALL:
+            # The constructor arguments ride `call_args`, the `MIR_CALL`
+            # channel: every operand must resolve like a call argument.
+            init_args: dict[int, list[int]] = fn.call_args
+            args_i: list[int] | None = init_args.get(i)
+            if args_i is None:
+                out.append(_Violation(CODE_USEDEF, f"instr {i}: initcall with no argument list"))
+            else:
+                for position in range(len(args_i)):
+                    carg: int = args_i[position]
+                    carg_type: int | None = _operand_type(fn, carg, defs)
+                    if carg_type is None:
+                        out.append(_Violation(CODE_USEDEF, f"instr {i}: initcall argument {position} does not resolve"))
         return out
     if op == MIR_SETATTR:
         if fn.dsts[i] >= 0:
@@ -449,6 +464,7 @@ def _result_type_of(op: int) -> int:
     not_b: int = 26
     new_seq: int = 30
     new_obj: int = 37
+    init_call: int = 53
     clt_w: int = 12
     cne_d: int = 23
     tag_d: int = 1
@@ -461,7 +477,7 @@ def _result_type_of(op: int) -> int:
         return tag_d
     if op == not_b:
         return tag_b
-    if op == new_seq or op == new_obj:
+    if op == new_seq or op == new_obj or op == init_call:
         return tag_p
     is_compare: int = 1 if op >= clt_w and op <= cne_d else 0
     if is_compare:
@@ -583,7 +599,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
             seq_violations: list[_Violation] = _check_sequence(fn, i, defs)
             for s_index in range(len(seq_violations)):
                 out.append(seq_violations[s_index])
-        is_class_op: int = 1 if op == MIR_NEWOBJ or op == MIR_SETATTR or op == MIR_GETATTR else 0
+        is_class_op: int = 1 if op == MIR_NEWOBJ or op == MIR_SETATTR or op == MIR_GETATTR or op == MIR_INITCALL else 0
         if is_class_op:
             class_violations: list[_Violation] = _check_class(fn, i, defs)
             for c_index in range(len(class_violations)):
