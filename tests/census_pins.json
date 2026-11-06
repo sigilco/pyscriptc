@@ -82,6 +82,7 @@
   "pyscriptc.restlower._argparse": 29,
   "pyscriptc.restlower._asyncio": 10,
   "pyscriptc.restlower._asyncio_sync": 10,
+  "pyscriptc.restlower._bisect": 8,
   "pyscriptc.restlower._builtins": 19,
   "pyscriptc.restlower._collections": 5,
   "pyscriptc.restlower._copy": 6,
