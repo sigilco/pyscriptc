@@ -2,7 +2,7 @@
 
 Date: 2026-11-06. Epic: #817. Milestone: v0.9.0. Docs only.
 
-What still reads IR records by raw key under `src/pyscriptc/emit/` after the batch 7 mixin PRs, measured on `master` at `25d9cb94` plus the `_exprs` PR (#989).
+What still reads IR records by raw key under `src/pyscriptc/emit/` after the batch 7 mixin PRs, measured on `master` at `25d9cb94` plus the `_exprs` PR (#989). PR states are as of 2026-11-06: #949 and #950 have merged, while #947 and #989 are still open.
 
 ## How it was counted
 
@@ -17,10 +17,10 @@ The broad count also hits reads of non-IR tables (exception codes, math specs, t
 | --- | --- | --- | --- | --- |
 | `emit/_ir.py` | 31 | 87 | n/a | The accessors themselves; this is the seam, expected to stay. |
 | `emit/llvm/_stmts.py` | 24 | 70 | ~70 | Statement children (`value`, `target`, `cond`, `then`, `else`, `body`, `finalbody`, ...). Covered by open #947. |
-| `emit/llvm/_core.py` | 9 | 20 | 20 | Module, class, method and closure-wrapper records (`functions`, `classes`, `fields`, `methods`, `params`, `returnType`, `index`). Covered by open #950. |
-| `emit/llvm/_driver.py` | 1 | 9 | 5 | Module record (`fences`, `fallback.moduleTopLevel`, `sourceFile`, `functions`). The other 4 are `os.environ` and `timings`. Covered by open #950. |
-| `emit/llvm/_print.py` | 0 | 5 | 5 | `expr["sep"]`, `expr["end"]` (guarded by `_has`), and `class_index[...]["fields"]` twice plus one `class_index.get`. Covered by open #949. |
-| `emit/llvm/_funcs.py` | 0 | 3 | 2 | `fn["returnType"]`, `stmt["value"]`. `functions.get(name)` is an emitter table lookup. Covered by open #950. |
+| `emit/llvm/_core.py` | 9 | 20 | 20 | Module, class, method and closure-wrapper records (`functions`, `classes`, `fields`, `methods`, `params`, `returnType`, `index`). Covered by merged #950. |
+| `emit/llvm/_driver.py` | 1 | 9 | 5 | Module record (`fences`, `fallback.moduleTopLevel`, `sourceFile`, `functions`). The other 4 are `os.environ` and `timings`. Covered by merged #950. |
+| `emit/llvm/_print.py` | 0 | 5 | 5 | `expr["sep"]`, `expr["end"]` (guarded by `_has`), and `class_index[...]["fields"]` twice plus one `class_index.get`. Covered by merged #949. |
+| `emit/llvm/_funcs.py` | 0 | 3 | 2 | `fn["returnType"]`, `stmt["value"]`. `functions.get(name)` is an emitter table lookup. Covered by merged #950. |
 | `emit/llvm/_calls.py` | 0 | 3 | 0 | `self.functions.get(...)` lookup and `["ptr"]` list literals. |
 | `emit/llvm/_abi.py` | 0 | 9 | 0 | Kind-code maps, `self.functions` / `partial_keys` / `thread_keys` lookups, `EXCEPTIONS[...]`, `["ptr"]` list literals. |
 | `emit/llvm/_runtime.py` | 0 | 13 | 0 | `MATH_FUNCTIONS` sig specs, `EXCEPTIONS[...]`, the zero-division message map. No IR records; E-3 skipped. |
@@ -31,6 +31,6 @@ The broad count also hits reads of non-IR tables (exception codes, math specs, t
 
 ## Gaps after batch 7
 
-- Once #947, #949 and #950 merge, the IR reads outside `_ir.py` are the ones those PRs move; #949 covers the 5 in `_print.py` (class `fields` via `class_index`, and the `sep`/`end` children).
+- Once #947 merges, the IR reads outside `_ir.py` are the ones #947 moves in `_stmts.py`; #949 and #950 are already merged, and #989 moves `_exprs.py`.
 - `self.functions.get(...)` and `self.class_index.get(...)` look up emitter-built tables keyed by name, not IR records. The plan regex does not count them; moving them through the seam would mean `_ir.py` owning those tables.
 - The `.get("` part of the plan regex misses `.get(` with a non-literal key and single-quoted subscripts (`p['type']` in `_core.py` lines 395 and 396). Use the broad count to call the migration complete.
