@@ -14,8 +14,14 @@ from pyscriptc.mir import (
     MIR_B,
     MIR_BR,
     MIR_JMP,
+    MIR_NEWSEQ,
     MIR_NOP,
+    MIR_P,
     MIR_RET,
+    MIR_SEQGET,
+    MIR_SEQLEN,
+    MIR_SEQPUSH,
+    MIR_SEQSET,
     MIR_W,
     MirBlock,
     MirBlockArg,
@@ -135,6 +141,7 @@ def test_instr_belongs_to_no_block() -> None:
     fn.dsts.append(-1)
     fn.arg1.append(c)
     fn.arg2.append(-1)
+    fn.arg3.append(-1)
     errs = verify_function(fn)
     assert any(e.code == CODE_CONTROL for e in errs)
     assert any("belongs to no block" in str(e) for e in errs)
@@ -258,6 +265,137 @@ def test_block_falls_through_without_terminator() -> None:
     errs = verify_function(b.finish())
     assert any(e.code == CODE_CONTROL for e in errs)
     assert any("falls through without a terminator" in str(e) for e in errs)
+
+
+def _sequence_builder() -> MirBuilder:
+    b = MirBuilder("f")
+    b.set_result(MIR_W)
+    b.start_block()
+    return b
+
+
+def test_sequence_ops_verify() -> None:
+    b = _sequence_builder()
+    elem_size = b.const_w(8)
+    count = b.const_w(2)
+    seq = b.emit_val(MIR_NEWSEQ, elem_size, count, MIR_P)
+    index = b.const_w(0)
+    value = b.const_w(7)
+    b.emit(MIR_SEQSET, -1, seq, index, value)
+    b.emit(MIR_SEQPUSH, -1, seq, value)
+    b.emit_val(MIR_SEQLEN, seq, -1, MIR_W)
+    got = b.emit_val3(MIR_SEQGET, seq, index, MIR_W, MIR_W)
+    b.emit_ret(got)
+    assert verify_function(b.finish()) == []
+
+
+def test_seqget_sequence_must_be_pointer() -> None:
+    b = _sequence_builder()
+    word = b.const_w(1)
+    index = b.const_w(0)
+    b.emit_val3(MIR_SEQGET, word, index, MIR_W, MIR_W)
+    b.emit_ret(word)
+    errs = verify_function(b.finish())
+    assert any(e.code == CODE_TYPE for e in errs)
+    assert any("seqget sequence typed" in str(e) for e in errs)
+
+
+def test_seqget_index_must_be_word() -> None:
+    b = MirBuilder("f")
+    b.set_result(MIR_W)
+    b.start_block()
+    seq = b.add_param(MIR_P)
+    flag = b.const_b(1)
+    b.emit_val3(MIR_SEQGET, seq, flag, MIR_W, MIR_W)
+    b.emit_ret(b.const_w(0))
+    errs = verify_function(b.finish())
+    assert any(e.code == CODE_TYPE for e in errs)
+    assert any("seqget index typed" in str(e) for e in errs)
+
+
+def test_seqget_result_tag_must_be_value_tag() -> None:
+    b = _sequence_builder()
+    elem_size = b.const_w(8)
+    count = b.const_w(1)
+    seq = b.emit_val(MIR_NEWSEQ, elem_size, count, MIR_P)
+    index = b.const_w(0)
+    b.emit_val3(MIR_SEQGET, seq, index, 9, MIR_W)
+    b.emit_ret(b.const_w(0))
+    errs = verify_function(b.finish())
+    assert any(e.code == CODE_TYPE for e in errs)
+    assert any("seqget result tag" in str(e) for e in errs)
+
+
+def test_seqset_stored_value_must_resolve() -> None:
+    b = MirBuilder("f")
+    b.set_result(MIR_W)
+    seq = b.add_param(MIR_P)
+    index = b.add_param(MIR_W)
+    ret = b.add_param(MIR_W)
+    b.start_block()
+    # No constants: -1 cannot decode to a pool entry, so arg3 reads nothing.
+    b.emit(MIR_SEQSET, -1, seq, index, -1)
+    b.emit_ret(ret)
+    errs = verify_function(b.finish())
+    assert any(e.code == CODE_TYPE for e in errs)
+    assert any("seqset stored value typed" in str(e) for e in errs)
+
+
+def test_sequence_store_must_not_write_dst() -> None:
+    b = _sequence_builder()
+    seq = b.add_param(MIR_P)
+    index = b.const_w(0)
+    value = b.const_w(1)
+    b.emit(MIR_SEQSET, 77, seq, index, value)
+    b.emit_ret(b.const_w(0))
+    errs = verify_function(b.finish())
+    assert any(e.code == CODE_USEDEF for e in errs)
+    assert any("sequence store writes dst" in str(e) for e in errs)
+
+
+def test_seqpush_item_must_resolve() -> None:
+    b = _sequence_builder()
+    seq = b.add_param(MIR_P)
+    # Pool index 0 is the first const; make it a double so the word item
+    # shape is not what this test is about: the item is a missing value.
+    b.emit(MIR_SEQPUSH, -1, seq, 99)
+    b.emit_ret(b.const_w(0))
+    errs = verify_function(b.finish())
+    assert any(e.code == CODE_USEDEF for e in errs)
+    assert any("a2 reads v99" in str(e) for e in errs)
+
+
+def test_seqlen_operand_must_be_pointer() -> None:
+    b = _sequence_builder()
+    word = b.const_w(3)
+    b.emit_val(MIR_SEQLEN, word, -1, MIR_W)
+    b.emit_ret(word)
+    errs = verify_function(b.finish())
+    assert any(e.code == CODE_TYPE for e in errs)
+    assert any("seqlen operand typed" in str(e) for e in errs)
+
+
+def test_br_on_pointer_is_type_error() -> None:
+    b = MirBuilder("f")
+    b.set_result(MIR_W)
+    b.start_block()
+    seq = b.add_param(MIR_P)
+    c = b.const_w(1)
+    b.emit_jmp(1)
+    b.start_block()
+    b.emit_ret(c)
+    b.start_block()
+    b.emit_ret(c)
+    fn = b.finish()
+    i = next(i for i, op in enumerate(fn.ops) if op == MIR_JMP)
+    fn.ops[i] = MIR_BR
+    fn.arg1[i] = seq
+    fn.arg2[i] = 2
+    fn.blocks[0].succ1 = 1
+    fn.blocks[0].succ2 = 2
+    errs = verify_function(fn)
+    assert any(e.code == CODE_TYPE for e in errs)
+    assert any("br condition typed" in str(e) for e in errs)
 
 
 # Unreachable with the current verifier, reported rather than forcing a

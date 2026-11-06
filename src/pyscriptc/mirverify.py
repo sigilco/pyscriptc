@@ -36,9 +36,15 @@ from pyscriptc.mir import (
     MIR_COPY,
     MIR_D,
     MIR_JMP,
+    MIR_NEWSEQ,
+    MIR_P,
     MIR_RAISE,
     MIR_RET,
     MIR_S,
+    MIR_SEQGET,
+    MIR_SEQLEN,
+    MIR_SEQPUSH,
+    MIR_SEQSET,
     MIR_VOID,
     MIR_W,
     MirBlock,
@@ -87,6 +93,11 @@ _OP_ARITY: dict[int, int] = {
     27: 1,  # MIR_RAISE
     28: 2,  # MIR_CALL
     29: 2,  # MIR_ANDW
+    30: 2,  # MIR_NEWSEQ
+    31: 2,  # MIR_SEQGET
+    32: 3,  # MIR_SEQSET
+    33: 2,  # MIR_SEQPUSH
+    34: 1,  # MIR_SEQLEN
 }
 
 # The verifier's own codes. They are stable: a test that pins a violation
@@ -158,6 +169,7 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
     op: int = fn.ops[i]
     arg1: int = fn.arg1[i]
     arg2: int = fn.arg2[i]
+    arg3: int = fn.arg3[i] if i < len(fn.arg3) else -1
     arity: int | None = _OP_ARITY.get(op)
     if arity is None:
         out.append(_Violation(CODE_CONTROL, f"instr {i}: unknown op {op}"))
@@ -169,19 +181,22 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
         return out
     consts: list[MirConst] = fn.consts
     n_consts: int = len(consts)
-    checks: list[list[int]] = [[1, arg1], [2, arg2]]
+    checks: list[list[int]] = [[1, arg1], [2, arg2], [3, arg3]]
     for entry_index in range(len(checks)):
         entry: list[int] = checks[entry_index]
         slot: int = entry[0]
         operand: int = entry[1]
-        # The arity floor per slot: a1 is read from arity 1, a2 from 2.
+        # The arity floor per slot: a1 is read from arity 1, a2 from 2,
+        # a3 from 3.
         needed: int = 1 if arity >= slot else 0
         if not needed:
-            continue
             continue
         # A call's arg2 carries the result tag, not a value read; the
         # callee in arg1 and the arguments in `call_args` run the checks.
         if op == MIR_CALL and slot == 2:
+            continue
+        # A seqget's arg3 carries the element result tag, not a value read.
+        if op == MIR_SEQGET and slot == 3:
             continue
         if is_const_ref(operand):
             index = const_index(operand)
@@ -246,7 +261,7 @@ def _check_call(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violatio
     """
     out: list[_Violation] = []
     tag: int = fn.arg2[i]
-    if tag != MIR_W and tag != MIR_D and tag != MIR_B and tag != MIR_S and tag != MIR_VOID:
+    if tag != MIR_W and tag != MIR_D and tag != MIR_B and tag != MIR_S and tag != MIR_P and tag != MIR_VOID:
         return [_Violation(CODE_TYPE, f"instr {i}: call result tag {tag} is not a value tag or the void tag")]
     dst: int = fn.dsts[i]
     if tag == MIR_VOID:
@@ -276,6 +291,58 @@ def _check_call(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violatio
     return out
 
 
+def _check_sequence(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violation]:
+    """The sequence ops' operand types.
+
+    `MIR_P` is the only pointer tag; the element tag rides `arg3` on
+    `MIR_SEQGET` and the stored value's own tag on `MIR_SEQSET`/`MIR_SEQPUSH`.
+    """
+    out: list[_Violation] = []
+    op: int = fn.ops[i]
+    arg3: int = fn.arg3[i] if i < len(fn.arg3) else -1
+    if op == MIR_NEWSEQ:
+        for slot in (1, 2):
+            operand: int = fn.arg1[i] if slot == 1 else fn.arg2[i]
+            got: int | None = _operand_type(fn, operand, defs)
+            if got != MIR_W:
+                out.append(_Violation(CODE_TYPE, f"instr {i}: newseq a{slot} typed non-word"))
+        return out
+    if op == MIR_SEQGET:
+        seq_type: int | None = _operand_type(fn, fn.arg1[i], defs)
+        if seq_type != MIR_P:
+            out.append(_Violation(CODE_TYPE, f"instr {i}: seqget sequence typed non-pointer"))
+        index_type: int | None = _operand_type(fn, fn.arg2[i], defs)
+        if index_type != MIR_W:
+            out.append(_Violation(CODE_TYPE, f"instr {i}: seqget index typed non-word"))
+        if not (arg3 == MIR_W or arg3 == MIR_D or arg3 == MIR_B or arg3 == MIR_P):
+            out.append(_Violation(CODE_TYPE, f"instr {i}: seqget result tag is not a value tag"))
+        return out
+    if op == MIR_SEQSET or op == MIR_SEQPUSH:
+        if fn.dsts[i] >= 0:
+            out.append(_Violation(CODE_USEDEF, f"instr {i}: sequence store writes dst"))
+        seq_type = _operand_type(fn, fn.arg1[i], defs)
+        if seq_type != MIR_P:
+            out.append(_Violation(CODE_TYPE, f"instr {i}: sequence store target typed non-pointer"))
+        if op == MIR_SEQSET:
+            index_type = _operand_type(fn, fn.arg2[i], defs)
+            if index_type != MIR_W:
+                out.append(_Violation(CODE_TYPE, f"instr {i}: seqset index typed non-word"))
+            stored: int | None = _operand_type(fn, arg3, defs)
+        else:
+            stored = _operand_type(fn, fn.arg2[i], defs)
+        if not (stored == MIR_W or stored == MIR_D or stored == MIR_B or stored == MIR_P):
+            if op == MIR_SEQSET:
+                out.append(_Violation(CODE_TYPE, f"instr {i}: seqset stored value typed non-value"))
+            else:
+                out.append(_Violation(CODE_TYPE, f"instr {i}: seqpush stored value typed non-value"))
+        return out
+    if op == MIR_SEQLEN:
+        seq_type = _operand_type(fn, fn.arg1[i], defs)
+        if seq_type != MIR_P:
+            out.append(_Violation(CODE_TYPE, f"instr {i}: seqlen operand typed non-pointer"))
+    return out
+
+
 def _result_type_of(op: int) -> int:
     """The result tag of a value op, from the local spelling of the table.
 
@@ -290,17 +357,21 @@ def _result_type_of(op: int) -> int:
     neg_d: int = 11
     ext_wd: int = 24
     not_b: int = 26
+    new_seq: int = 30
     clt_w: int = 12
     cne_d: int = 23
     tag_d: int = 1
     tag_b: int = 2
     tag_w: int = 0
+    tag_p: int = 5
     if op == neg_d:
         return tag_d
     if op == ext_wd:
         return tag_d
     if op == not_b:
         return tag_b
+    if op == new_seq:
+        return tag_p
     is_compare: int = 1 if op >= clt_w and op <= cne_d else 0
     if is_compare:
         return tag_b
@@ -373,15 +444,35 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         is_control: int = 1 if op == MIR_BR or op == MIR_RET or op == MIR_RAISE else 0
         # A call's dst and result tag run through `_check_call` below: a
         # void call legitimately writes no dst and its true tag rides
-        # arg2, so the generic value-op rules do not apply.
-        if op != MIR_CALL and arity_at is not None and (arity_at >= 2 or (arity_at == 1 and is_control == 0)):
+        # arg2, so the generic value-op rules do not apply. The sequence
+        # stores are arity-2/3 ops that produce nothing, so they are out
+        # of the value-op rule too; `MIR_SEQGET` is a value op whose tag
+        # rides `arg3`.
+        is_seq_store: int = 1 if op == MIR_SEQSET or op == MIR_SEQPUSH else 0
+        if (
+            op != MIR_CALL
+            and is_seq_store == 0
+            and arity_at is not None
+            and (arity_at >= 2 or (arity_at == 1 and is_control == 0))
+        ):
             if dst < 0:
                 out.append(_Violation(CODE_USEDEF, f"instr {i}: value op without a dst"))
             else:
                 if op == MIR_COPY:
                     defs[dst] = copy_result_type(fn, i)
+                elif op == MIR_SEQGET:
+                    seq_tag: int = fn.arg3[i] if i < len(fn.arg3) else -1
+                    if seq_tag == MIR_W or seq_tag == MIR_D or seq_tag == MIR_B or seq_tag == MIR_P:
+                        defs[dst] = seq_tag
+                    else:
+                        defs[dst] = MIR_W
                 else:
                     defs[dst] = _result_type_of(op)
+        is_seq = op == MIR_NEWSEQ or op == MIR_SEQGET or op == MIR_SEQSET or op == MIR_SEQPUSH or op == MIR_SEQLEN
+        if is_seq:
+            seq_violations: list[_Violation] = _check_sequence(fn, i, defs)
+            for s_index in range(len(seq_violations)):
+                out.append(seq_violations[s_index])
         if op == MIR_RET:
             violation: _Violation | None = _check_ret_type(fn, i, defs)
             if violation is not None:

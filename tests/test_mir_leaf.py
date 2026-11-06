@@ -30,6 +30,7 @@ from pyscriptc.mir import (
     MirFunction,
     MirModule,
     module_hash,
+    module_serialize,
     serialize,
 )
 from pyscriptc.miremit import emit_llvm_mir
@@ -69,6 +70,9 @@ LEAF_SAMPLES = [
         "leafstrcall.py",
         "leafand.py",
         "leafcast.py",
+        "leaflist.py",
+        "leaflistfloat.py",
+        "leaflistfor.py",
     )
 ]
 
@@ -90,6 +94,16 @@ class TestByteIdentity:
         mmod = lower_module(module)
         for fn in mmod.functions:
             assert verify_function(fn) == []
+
+
+def test_sequence_arg3_is_in_digest() -> None:
+    for stem, element_tag in (("leaflist", "a3=0"), ("leaflistfloat", "a3=1")):
+        module, _ = lower_file(str(_FIXTURES / f"{stem}.py"))
+        text = module_serialize(lower_module(module))
+        instr_lines = [line for line in text.splitlines() if line.startswith("instr ")]
+        assert instr_lines
+        assert all(" a3=" in line for line in instr_lines)
+        assert element_tag in text
 
 
 class TestVerifierViolations:
