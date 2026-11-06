@@ -109,6 +109,18 @@ MIR_NEWOBJ = 37
 MIR_SETATTR = 38
 MIR_GETATTR = 39
 MIR_MAP_PUT = 40
+MIR_TRYPACK = 41
+MIR_TRYCALL = 42
+MIR_FLOWLD = 43
+MIR_TRYICMP = 44
+MIR_TRYNE = 45
+MIR_EXCCODE = 46
+MIR_EXCISA = 47
+MIR_RETLOD = 48
+MIR_EXCCUR = 49
+MIR_RERAISE = 50
+MIR_RAISEEXC = 51
+MIR_UNREACH = 52
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -124,6 +136,93 @@ I64_MAX = 9223372036854775807
 # closed import table); a drift is a byte-identity failure, not a silent
 # wrong code.
 EXC_VALUE_ERROR = 51
+
+# The exception-name to code table the try handler match reads, spelled
+# as int literals per the self-host spell (`pyscriptc.builtins` is not in
+# the closed import table). It mirrors `EXCEPTIONS` then
+# `RESERVED_EXCEPTIONS`: `_exc_match` consults the first table, then the
+# second, and skips a name neither carries. A drift is a byte-identity
+# failure, not a silent wrong match.
+_MIR_EXC = {
+    "BaseException": 1,
+    "BaseExceptionGroup": 2,
+    "ExceptionGroup": 3,
+    "GeneratorExit": 4,
+    "KeyboardInterrupt": 5,
+    "SystemExit": 6,
+    "Exception": 7,
+    "ArithmeticError": 8,
+    "FloatingPointError": 9,
+    "OverflowError": 10,
+    "ZeroDivisionError": 11,
+    "AssertionError": 12,
+    "AttributeError": 13,
+    "BufferError": 14,
+    "EOFError": 15,
+    "ImportError": 16,
+    "ModuleNotFoundError": 17,
+    "LookupError": 18,
+    "IndexError": 19,
+    "KeyError": 20,
+    "MemoryError": 21,
+    "NameError": 22,
+    "UnboundLocalError": 23,
+    "OSError": 24,
+    "BlockingIOError": 25,
+    "ChildProcessError": 26,
+    "ConnectionError": 27,
+    "BrokenPipeError": 28,
+    "ConnectionAbortedError": 29,
+    "ConnectionRefusedError": 30,
+    "ConnectionResetError": 31,
+    "FileExistsError": 32,
+    "FileNotFoundError": 33,
+    "InterruptedError": 34,
+    "IsADirectoryError": 35,
+    "NotADirectoryError": 36,
+    "PermissionError": 37,
+    "ProcessLookupError": 38,
+    "TimeoutError": 39,
+    "ReferenceError": 40,
+    "RuntimeError": 41,
+    "NotImplementedError": 42,
+    "RecursionError": 43,
+    "StopAsyncIteration": 44,
+    "StopIteration": 45,
+    "SyntaxError": 46,
+    "IndentationError": 47,
+    "TabError": 48,
+    "SystemError": 49,
+    "TypeError": 50,
+    "ValueError": 51,
+    "UnicodeError": 52,
+    "UnicodeDecodeError": 53,
+    "UnicodeEncodeError": 54,
+    "UnicodeTranslateError": 55,
+    "Warning": 56,
+    "BytesWarning": 57,
+    "DeprecationWarning": 58,
+    "EncodingWarning": 59,
+    "FutureWarning": 60,
+    "ImportWarning": 61,
+    "PendingDeprecationWarning": 62,
+    "ResourceWarning": 63,
+    "RuntimeWarning": 64,
+    "SyntaxWarning": 65,
+    "UnicodeWarning": 66,
+    "UserWarning": 67,
+    "EnvironmentError": 24,
+    "IOError": 24,
+    # `RESERVED_EXCEPTIONS` names `EXCEPTIONS` does not carry; the three it
+    # shares (`GeneratorExit`, `StopAsyncIteration`, `TimeoutError`) keep
+    # the `EXCEPTIONS` codes `_exc_match` reads first.
+    "CancelledError": 2147483634,
+    "Empty": 2147483636,
+    "Full": 2147483637,
+}
+# `builtins.USER_EXC_BASE`: a handler `codes` entry at or above it is a
+# user class and lowers to an `icmp eq` the slice does not carry.
+_MIR_USER_EXC_BASE = 256
 
 
 class MirLowerError(Exception):
@@ -214,7 +313,7 @@ _EXPR_KINDS = frozenset(
         "contains",
     }
 )
-_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise", "setitem", "setattr"})
+_STMT_KINDS = frozenset({"assign", "expr", "return", "pass", "if", "while", "raise", "setitem", "setattr", "try"})
 
 
 def supported_type(typ: Dict[str, Any]) -> bool:
@@ -956,7 +1055,74 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
             if reraise:
                 return False
         return True
+    if kind == "try":
+        # The try body is outlined by the direct path's `ps.try.N`
+        # function, which the splice leaves untouched, so the body itself
+        # is not slice-checked here. What the callsite emits is: the env
+        # pack, the `ps_try_call`, the flow/exception probes, the handler
+        # match and bodies (plain try), or the `fin.*` dispatch plus
+        # `finalbody` at three outcome sites (E2 finally desugar). Those
+        # are the parts this arm checks.
+        finalbody: list[Dict[str, Any]] = _mir_items(stmt, "finalbody")
+        if finalbody:
+            # E2: body+handlers+orelse+flags ride the inner try inside
+            # the outline; only `finalbody` emits at the callsite, once
+            # per outcome, so only it must be in the slice.
+            for s in finalbody:
+                if not supported_stmt(s):
+                    return False
+            return True
+        orelse_body: list[Dict[str, Any]] = _mir_items(stmt, "orelse")
+        if orelse_body:
+            return False
+        for flag in ("brk", "cont"):
+            if flag in stmt and stmt[flag] is not None:
+                return False
+        handlers: list[Dict[str, Any]] = _mir_items(stmt, "handlers")
+        for handler in handlers:
+            if not _supported_try_handler(handler):
+                return False
+            for s in _mir_items(handler, "body"):
+                if not supported_stmt(s):
+                    return False
+        return True
     return True
+
+
+def _supported_try_handler(handler: Dict[str, Any]) -> bool:
+    """The handler-match shape the slice lowers: one builtin-name `ps_exc_isa`.
+
+    Mirrors `_exc_match`'s accounting for the admitted subset: a bare
+    handler folds to `true`, an `excslot` binds `ps_exc_current` (a slot
+    type the slice does not carry), each resolvable name contributes one
+    `ps_exc_isa` check, each `codes` entry at or above `USER_EXC_BASE`
+    contributes an `icmp eq` the slice does not carry, and several checks
+    fold through `or`. The slice admits exactly one name check and no
+    user-code checks.
+    """
+    if "bare" in handler and handler["bare"]:
+        return False
+    if "excslot" in handler and handler["excslot"] is not None:
+        return False
+    checks: int = 0
+    names: list[str] = _mir_items(handler, "exc")
+    for name in names:
+        if name in _MIR_EXC:
+            checks = checks + 1
+    codes: list[int] = _mir_items(handler, "codes")
+    for code in codes:
+        if code >= _MIR_USER_EXC_BASE:
+            return False
+    return checks == 1
+
+
+def _mir_items(node: Dict[str, Any], key: str) -> list[Dict[str, Any]]:
+    """A list field of an IR record, or [] when absent (the `_items`
+    spelling, kept local per the closed import table)."""
+    if key not in node:
+        return []
+    items: list[Dict[str, Any]] = node[key]
+    return items
 
 
 def supported_fn(fn: Dict[str, Any]) -> bool:
@@ -1060,6 +1226,18 @@ def _calls_in_slice_stmt(stmt: Dict[str, Any], callees: Dict[str, Dict[str, Any]
             if not _calls_in_slice_stmt(s, callees):
                 return False
         return True
+    if kind == "try":
+        # Only the callsite parts can carry MIR calls: the try body rides
+        # the direct-emitted outline. A finally desugar puts everything
+        # but `finalbody` inside the outline; a plain try puts the
+        # handler bodies (and `orelse`, fenced above) at the callsite.
+        finalbody: list[Dict[str, Any]] = _mir_items(stmt, "finalbody")
+        if finalbody:
+            return _calls_in_slice(finalbody, callees)
+        for handler in _mir_items(stmt, "handlers"):
+            if not _calls_in_slice(_mir_items(handler, "body"), callees):
+                return False
+        return _calls_in_slice(_mir_items(stmt, "orelse"), callees)
     return True
 
 
@@ -1165,6 +1343,123 @@ def _fn_result_tag(fn: Dict[str, Any]) -> int:
     return _param_tag(kind)
 
 
+def _mir_used_names(body: list[Dict[str, Any]]) -> Dict[str, int]:
+    """Every local name an IR fragment reads or writes, as a set-dict.
+
+    A line-for-line port of the direct emitter's `_used_names`: the try
+    env pack must name the same slots in the same sorted order, so the
+    walk keeps the same shapes (`name` expressions add `id`, assignments
+    add `target`, `for`/`with` add `target`, handler records add their
+    `excslot`) and the same skip list. Anything unrecognized contributes
+    nothing, matching the direct walk's missed-slot behavior.
+    """
+    names: Dict[str, int] = {}
+    stack: list[Any] = list(body)
+    while stack:
+        node: Any = stack.pop()
+        if isinstance(node, list):
+            stack.extend(node)
+            continue
+        if not isinstance(node, dict):
+            continue
+        kind: str | None = None
+        if "kind" in node:
+            kind = node["kind"]
+        if kind == "name":
+            names[node["id"]] = 1
+            continue
+        if kind == "assign" or kind == "annassign" or kind == "augassign":
+            names[node["target"]] = 1
+        elif kind == "for" or kind == "with":
+            target_name: str = ""
+            if "target" in node:
+                target_name = node["target"]
+            names[target_name] = 1
+        elif kind is None and "excslot" in node:
+            # An except handler: its excslot stores the bound record at
+            # the callsite, so the slot must be packed even when no
+            # statement names it.
+            slot: str | None = None
+            if node["excslot"] is not None:
+                slot = node["excslot"]
+            if slot is not None:
+                names[slot] = 1
+        for key in node:
+            value: Any = node[key]
+            if (key == "target" or key == "id" or key == "excslot") and isinstance(value, str):
+                continue
+            if isinstance(value, dict) or isinstance(value, list):
+                stack.append(value)
+    if "" in names:
+        del names[""]
+    return names
+
+
+def _mir_node_cost(node: Any) -> int:
+    """Outline count one IR node contributes, recursing lists and dicts."""
+    if isinstance(node, list):
+        return _mir_list_cost(node)
+    if not isinstance(node, dict):
+        return 0
+    if "kind" in node:
+        return _mir_stmt_cost(node)
+    total: int = 0
+    for key in node:
+        total = total + _mir_node_cost(node[key])
+    return total
+
+
+def _mir_list_cost(items: list[Dict[str, Any]]) -> int:
+    total: int = 0
+    for item in items:
+        total = total + _mir_node_cost(item)
+    return total
+
+
+def _mir_stmt_cost(stmt: Dict[str, Any]) -> int:
+    """Outline count one statement contributes when the direct emitter
+    walks it, in any function context (callsite or inside an outline)."""
+    if stmt["kind"] == "try":
+        return _mir_try_cost(stmt)
+    total: int = 0
+    for key in stmt:
+        total = total + _mir_node_cost(stmt[key])
+    return total
+
+
+def _mir_try_cost(stmt: Dict[str, Any]) -> int:
+    """The `ps.try.N` outlines one try statement consumes.
+
+    A plain try outlines its body once; the handler and `orelse`
+    callsites can hide further trys, all counted by `_mir_inner_cost`. A
+    finally desugar wraps body+handlers+orelse in an inner try inside one
+    outline (two outlines plus the inner's own nested cost) and emits
+    `finalbody` at three outcome sites, so a try inside `finalbody`
+    outlines three times. Dead code after a terminator is counted anyway:
+    the approximation only ever shifts later names in shapes the slice
+    does not admit.
+    """
+    cost: int = 1
+    finalbody: list[Dict[str, Any]] = _mir_items(stmt, "finalbody")
+    inner: int = _mir_inner_cost(stmt)
+    if finalbody:
+        cost = cost + 1 + inner + 3 * _mir_list_cost(finalbody)
+    else:
+        cost = cost + inner
+    return cost
+
+
+def _mir_inner_cost(stmt: Dict[str, Any]) -> int:
+    """The nested-try cost inside a try's body, handler bodies and
+    `orelse`: everything but the try's own outline and `finalbody`."""
+    total: int = _mir_list_cost(_mir_items(stmt, "body"))
+    handlers: list[Dict[str, Any]] = _mir_items(stmt, "handlers")
+    for handler in handlers:
+        total = total + _mir_list_cost(_mir_items(handler, "body"))
+    total = total + _mir_list_cost(_mir_items(stmt, "orelse"))
+    return total
+
+
 class _FnLowerer:
     """One function's body walk. Slots and the builder live here.
 
@@ -1192,8 +1487,14 @@ class _FnLowerer:
     # id. A forward jump's operand is rewritten once the block it names
     # opens, and the terminator is the block's last instruction.
     block_terminator: Dict[int, int]
+    # The direct emitter's `ps.try.N` counter for this function: the
+    # module walk seeds it with the outlines every earlier function
+    # consumed, and each `emit_try` advances it by the try's whole
+    # outline cost (`_mir_try_cost`), so a callsite try names the same
+    # `ps.try.N` the direct path's `_emit_outline` minted.
+    next_outline: int
 
-    def __init__(self, fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]]) -> None:
+    def __init__(self, fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]], outline_base: int = 0) -> None:
         self.fn = fn
         self.builder = MirBuilder(fn["name"])
         self.callees = callees
@@ -1202,6 +1503,7 @@ class _FnLowerer:
         self.slot_vids = {}
         self.next_label = 0
         self.block_terminator = {}
+        self.next_outline = outline_base
 
     def patch_jmp(self, bid: int, target: int) -> None:
         """Point block `bid`'s forward `MIR_JMP` at `target`.
@@ -1229,6 +1531,15 @@ class _FnLowerer:
         i: int = self.block_terminator[bid]
         fn.arg2[i] = target
         self.builder.patch_succ2(bid, target)
+
+    def patch_br_true(self, bid: int, target: int) -> None:
+        """Point block `bid`'s `MIR_BR` true edge at `target`.
+
+        The try callsite's `leave`/`susp` probes branch to blocks whose
+        ids are only final once the outcome arms lower, the same forward
+        edge `patch_br_false` covers on the other side.
+        """
+        self.builder.patch_succ1(bid, target)
 
     def _record_terminator(self) -> None:
         """Note the current block's terminator index.
@@ -1299,7 +1610,16 @@ class _FnLowerer:
         # block means the function returns None and the direct path renders
         # `ret void` at the same point, at the end of the entry flow.
         if not builder.terminated:
-            builder.emit_ret_void()
+            # A body that falls off the end returns None when the
+            # function's return type is none; a non-None function that
+            # can fall through is refused upstream (PS1004), so the only
+            # non-void fall-off the lane sees is a try merge, which the
+            # direct path renders `unreachable`.
+            rt_kind: str = self.fn["returnType"]["kind"]
+            if rt_kind == "none":
+                builder.emit_ret_void()
+            else:
+                builder.emit_unreach()
         return builder.finish()
 
     def kind_of(self, name: str) -> str:
@@ -1391,6 +1711,9 @@ class _FnLowerer:
             code = self.builder.const_w(EXC_VALUE_ERROR)
             self.builder.emit_raise(code)
             return
+        if kind == "try":
+            self.emit_try(stmt)
+            return
         raise MirLowerError(f"the MIR leaf slice cannot lower statement {kind}")
 
     def emit_if(self, stmt: Dict[str, Any]) -> None:
@@ -1480,6 +1803,225 @@ class _FnLowerer:
             builder.emit_jmp(cond_id)
         self.patch_br_false(cond_id, len(builder.fn.blocks))
         builder.start_block(hint="while.end", label_id=end_lid)
+
+    def emit_try(self, stmt: Dict[str, Any]) -> None:
+        """A `try` statement: the callsite half of the direct path's
+        `emit_try`. The body (and, for a finally desugar, the inner
+        try's handlers) rides the direct-emitted `ps.try.N` outline the
+        splice leaves in place; this walk emits only what the caller
+        emits: the env pack, the `ps_try_call`, the flow and exception
+        probes, and the handler or `fin.*` dispatch.
+
+        Label reservation mirrors `_stmts.emit_try`'s `fresh()` order so
+        the emitted `L<n>.<hint>` labels land on the direct path's, and
+        `next_outline` names the same `ps.try.N` `_emit_outline` minted.
+        """
+        finalbody: list[Dict[str, Any]] = _mir_items(stmt, "finalbody")
+        if finalbody:
+            self._emit_try_finally(stmt, finalbody)
+            return
+        self._emit_try_plain(stmt)
+
+    def _outline_name(self, stmt: Dict[str, Any]) -> str:
+        """The `ps.try.N` symbol this try's outline carries, and the
+        counter advance its whole emission costs."""
+        name: str = "ps.try." + str(self.next_outline)
+        self.next_outline = self.next_outline + _mir_try_cost(stmt)
+        return name
+
+    def _try_env_names(self, body: list[Dict[str, Any]]) -> list[str]:
+        """The env slot names, in the direct path's order: the sorted
+        intersection of the body's used names with the stored slots."""
+        used: Dict[str, int] = _mir_used_names(body)
+        touched: list[str] = []
+        for name in sorted(used):
+            if name in self.slot_vids:
+                touched.append(name)
+        return touched
+
+    def _try_pack(self, names: list[str]) -> int:
+        vid: int = self.builder.emit_val(MIR_TRYPACK, -1, -1, MIR_P)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "trypack " + " ".join(names)
+        return vid
+
+    def _try_call(self, env: int, outline: str) -> int:
+        vid: int = self.builder.emit_val(MIR_TRYCALL, env, -1, MIR_W)
+        self.builder.fn.helpers[len(self.builder.fn.ops) - 1] = "trycall " + outline
+        return vid
+
+    def _emit_handler_match(self, ecode: int, handler: Dict[str, Any]) -> int:
+        """One `ps_exc_isa` check plus the `!= 0` flag, the admitted
+        `_exc_match` shape (`_supported_try_handler` guaranteed it)."""
+        builder: MirBuilder = self.builder
+        names: list[str] = _mir_items(handler, "exc")
+        wanted: int = 0
+        for name in names:
+            if name in _MIR_EXC:
+                wanted = _MIR_EXC[name]
+        call: int = builder.emit_val(MIR_EXCISA, ecode, builder.const_w(wanted), MIR_W)
+        return builder.emit_val(MIR_TRYNE, call, -1, MIR_B)
+
+    def _emit_try_ret(self) -> None:
+        """The propagated return/suspend tail: both spell the same two
+        lines at the top level (`_emit_propagated_return` and
+        `_emit_propagated_suspend` coincide outside an outline)."""
+        builder: MirBuilder = self.builder
+        rt_kind: str = self.fn["returnType"]["kind"]
+        if rt_kind == "none":
+            builder.emit_ret_void()
+            return
+        tag: int = _fn_result_tag(self.fn)
+        value: int = builder.emit_val(MIR_RETLOD, -1, tag, tag)
+        builder.emit_ret(value)
+
+    def _emit_try_plain(self, stmt: Dict[str, Any]) -> None:
+        """`try`/`except` without `finally`: the `try.handler`/`try.cont`
+        dispatch `_stmts.emit_try` emits for the plain shape."""
+        builder: MirBuilder = self.builder
+        outline: str = self._outline_name(stmt)
+        body: list[Dict[str, Any]] = _mir_items(stmt, "body")
+        env: int = self._try_pack(self._try_env_names(body))
+        code: int = self._try_call(env, outline)
+        raised: int = builder.emit_val(MIR_TRYNE, code, -1, MIR_B)
+        hand_lid: int = self.reserve_label()
+        cont_lid: int = self.reserve_label()
+        hand_id: int = len(builder.fn.blocks)
+        header_bid: int = builder.current_bid()
+        builder.emit_br(raised, hand_id, -1, [], [])
+        self._record_terminator()
+        builder.start_block(hint="try.handler", label_id=hand_lid)
+        merge_lid: int = self.reserve_label()
+        ret_lid: int = self.reserve_label()
+        ecode: int = builder.emit_val(MIR_EXCCODE, -1, -1, MIR_W)
+        handlers: list[Dict[str, Any]] = _mir_items(stmt, "handlers")
+        jmp_bids: list[int] = []
+        for index in range(len(handlers)):
+            handler: Dict[str, Any] = handlers[index]
+            take_lid: int = self.reserve_label()
+            miss_lid: int = self.reserve_label()
+            cond: int = self._emit_handler_match(ecode, handler)
+            take_id: int = len(builder.fn.blocks)
+            br_bid: int = builder.current_bid()
+            builder.emit_br(cond, take_id, -1, [], [])
+            self._record_terminator()
+            builder.start_block(hint="try.h" + str(index), label_id=take_lid)
+            self.emit_body(_mir_items(handler, "body"))
+            if not builder.terminated:
+                builder.emit_jmp(-1)
+                self._record_terminator()
+                jmp_bids.append(builder.current_bid())
+            miss_id: int = len(builder.fn.blocks)
+            self.patch_br_false(br_bid, miss_id)
+            builder.start_block(hint="try.miss", label_id=miss_lid)
+        # Every handler missed: the direct path reraises the in-flight
+        # exception and ends the block.
+        builder.emit_reraise()
+        cont_id: int = len(builder.fn.blocks)
+        self.patch_br_false(header_bid, cont_id)
+        # The merge and the propagated-return block sit five blocks past
+        # the continuation in the fixed outcome layout (cont, notret,
+        # susp, fell, ret, merge), none of which opens a nested block.
+        merge_id: int = cont_id + 5
+        for jmp_bid in jmp_bids:
+            self.patch_jmp(jmp_bid, merge_id)
+        builder.start_block(hint="try.cont", label_id=cont_lid)
+        flow: int = builder.emit_val(MIR_FLOWLD, -1, -1, MIR_W)
+        leave: int = builder.emit_val(MIR_TRYICMP, flow, builder.const_w(1), MIR_B)
+        susp: int = builder.emit_val(MIR_TRYICMP, flow, builder.const_w(2), MIR_B)
+        susp_lid: int = self.reserve_label()
+        notret_lid: int = self.reserve_label()
+        fell_lid: int = self.reserve_label()
+        notret_id: int = cont_id + 1
+        susp_id: int = cont_id + 2
+        fell_id: int = cont_id + 3
+        ret_id: int = cont_id + 4
+        builder.emit_br(leave, ret_id, notret_id, [], [])
+        self._record_terminator()
+        builder.start_block(hint="try.notret", label_id=notret_lid)
+        builder.emit_br(susp, susp_id, fell_id, [], [])
+        self._record_terminator()
+        builder.start_block(hint="try.susp", label_id=susp_lid)
+        self._emit_try_ret()
+        builder.start_block(hint="try.fell", label_id=fell_lid)
+        builder.emit_jmp(merge_id)
+        self._record_terminator()
+        builder.start_block(hint="try.ret", label_id=ret_lid)
+        self._emit_try_ret()
+        builder.start_block(hint="try.merge", label_id=merge_lid)
+
+    def _emit_try_finally(self, stmt: Dict[str, Any], finalbody: list[Dict[str, Any]]) -> None:
+        """`try`/`finally` (the E2 desugar): body+handlers+orelse ride an
+        inner try inside one outline; the callsite runs `finalbody` at
+        the raise, return and continue outcome sites."""
+        builder: MirBuilder = self.builder
+        outline: str = self._outline_name(stmt)
+        inner: Dict[str, Any] = {
+            "kind": "try",
+            "body": _mir_items(stmt, "body"),
+            "handlers": _mir_items(stmt, "handlers"),
+            "span": stmt["span"] if "span" in stmt else {},
+        }
+        orelse: list[Dict[str, Any]] = _mir_items(stmt, "orelse")
+        if orelse:
+            inner["orelse"] = orelse
+        for flag in ("brk", "cont"):
+            if flag in stmt and stmt[flag] is not None:
+                inner[flag] = stmt[flag]
+        env: int = self._try_pack(self._try_env_names([inner]))
+        code: int = self._try_call(env, outline)
+        raised: int = builder.emit_val(MIR_TRYNE, code, -1, MIR_B)
+        raise_lid: int = self.reserve_label()
+        norm_lid: int = self.reserve_label()
+        merge_lid: int = self.reserve_label()
+        ret_lid: int = self.reserve_label()
+        raise_id: int = len(builder.fn.blocks)
+        header_bid: int = builder.current_bid()
+        builder.emit_br(raised, raise_id, -1, [], [])
+        self._record_terminator()
+        builder.start_block(hint="fin.raise", label_id=raise_lid)
+        saved: int = builder.emit_val(MIR_EXCCUR, -1, -1, MIR_P)
+        self.emit_body(finalbody)
+        if not builder.terminated:
+            builder.emit_raiseexc(saved)
+        norm_id: int = len(builder.fn.blocks)
+        self.patch_br_false(header_bid, norm_id)
+        builder.start_block(hint="fin.norm", label_id=norm_lid)
+        flow: int = builder.emit_val(MIR_FLOWLD, -1, -1, MIR_W)
+        leave: int = builder.emit_val(MIR_TRYICMP, flow, builder.const_w(1), MIR_B)
+        susp: int = builder.emit_val(MIR_TRYICMP, flow, builder.const_w(2), MIR_B)
+        cont_lid: int = self.reserve_label()
+        susp_lid: int = self.reserve_label()
+        notret_lid: int = self.reserve_label()
+        norm_br_bid: int = builder.current_bid()
+        builder.emit_br(leave, -1, -1, [], [])
+        self._record_terminator()
+        notret_bid: int = builder.start_block(hint="fin.notret", label_id=notret_lid)
+        builder.emit_br(susp, -1, -1, [], [])
+        self._record_terminator()
+        ret_bid: int = builder.start_block(hint="fin.ret", label_id=ret_lid)
+        self.emit_body(finalbody)
+        if not builder.terminated:
+            self._emit_try_ret()
+        susp_bid: int = builder.start_block(hint="fin.susp", label_id=susp_lid)
+        self._emit_try_ret()
+        cont_bid: int = builder.start_block(hint="fin.cont", label_id=cont_lid)
+        self.emit_body(finalbody)
+        cont_jmp_bid: int = -1
+        if not builder.terminated:
+            builder.emit_jmp(-1)
+            self._record_terminator()
+            cont_jmp_bid = builder.current_bid()
+        merge_bid: int = len(builder.fn.blocks)
+        # The forward edges land once every outcome block's id is final:
+        # `leave` picks the propagated return, `susp` picks the propagated
+        # suspend, and the continue arm jumps the merge.
+        self.patch_br_true(norm_br_bid, ret_bid)
+        self.patch_br_false(norm_br_bid, notret_bid)
+        self.patch_br_true(notret_bid, susp_bid)
+        self.patch_br_false(notret_bid, cont_bid)
+        if cont_jmp_bid >= 0:
+            self.patch_jmp(cont_jmp_bid, merge_bid)
+        builder.start_block(hint="fin.merge", label_id=merge_lid)
 
     def store(self, name: str, value: int) -> None:
         """A store to `name`: a `MIR_COPY` into the name's slot value.
@@ -1971,17 +2513,21 @@ class _FnLowerer:
         raise MirLowerError(f"the MIR leaf slice cannot lower {op} on {tkind}")
 
 
-def lower_function(fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]] | None = None) -> MirFunction:
+def lower_function(
+    fn: Dict[str, Any], callees: Dict[str, Dict[str, Any]] | None = None, outline_base: int = 0
+) -> MirFunction:
     """Lower one in-slice IR function to MIR. `supported_fn` must hold.
 
     `callees` is the admitted callee table (name -> IR function record);
     a call lowers to a `MIR_CALL` only when its name is in it, so a
-    function with no calls needs no table.
+    function with no calls needs no table. `outline_base` seeds the
+    `ps.try.N` counter with the outlines earlier module functions
+    consumed.
     """
     table: Dict[str, Dict[str, Any]] = {}
     if callees is not None:
         table = callees
-    return _FnLowerer(fn, table).run()
+    return _FnLowerer(fn, table, outline_base).run()
 
 
 def lower_module(module: Dict[str, Any]) -> MirModule:
@@ -2029,13 +2575,18 @@ def lower_module(module: Dict[str, Any]) -> MirModule:
         admitted = kept
     functions: list[MirFunction] = []
     skipped: list[str] = []
+    # The `ps.try.N` counter runs across the whole module in emission
+    # order: every function's body contributes its outline cost before
+    # the next function's first try names its symbol.
+    outline_base: int = 0
     for fn in fns:
         fname2: str = fn["name"]
         fn_admitted: Dict[str, Any] | None = admitted.get(fname2)
         if fn_admitted is not None and supported_module_fn(fn, admitted):
-            functions.append(_FnLowerer(fn, admitted).run())
+            functions.append(_FnLowerer(fn, admitted, outline_base).run())
         else:
             skipped.append(fname2)
+        outline_base = outline_base + _mir_list_cost(_mir_items(fn, "body"))
     source: str = module["sourceFile"]
     entry: str = module["entry"]
     mir_module: MirModule = MirModule(source_file=source, functions=functions, entry=entry)

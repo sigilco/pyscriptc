@@ -72,7 +72,11 @@ from pyscriptc.mir import (
     MIR_CNEW,
     MIR_COPY,
     MIR_D,
+    MIR_EXCCODE,
+    MIR_EXCCUR,
+    MIR_EXCISA,
     MIR_EXTWD,
+    MIR_FLOWLD,
     MIR_GETATTR,
     MIR_JMP,
     MIR_MAP_PUT,
@@ -86,7 +90,10 @@ from pyscriptc.mir import (
     MIR_ORW,
     MIR_P,
     MIR_RAISE,
+    MIR_RAISEEXC,
+    MIR_RERAISE,
     MIR_RET,
+    MIR_RETLOD,
     MIR_S,
     MIR_SEQGET,
     MIR_SEQLEN,
@@ -95,6 +102,11 @@ from pyscriptc.mir import (
     MIR_SETATTR,
     MIR_SUBD,
     MIR_SUBW,
+    MIR_TRYCALL,
+    MIR_TRYICMP,
+    MIR_TRYNE,
+    MIR_TRYPACK,
+    MIR_UNREACH,
     MIR_VOID,
     MIR_W,
     MIR_XORW,
@@ -158,7 +170,7 @@ _LLVM_D = {MIR_ADDD: "fadd", MIR_SUBD: "fsub", MIR_MULD: "fmul", MIR_NEGD: "fneg
 # The terminator ops, spelled here over the imported op constants: the
 # module-level table in `mir.py` binds a global slot, and slots do not
 # ride the package export table a cross-module import resolves against.
-_MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]
+_MIR_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE, MIR_RERAISE, MIR_RAISEEXC, MIR_UNREACH]
 
 # The op tables, spelled here for the same reason as `_MIR_TERMINATORS`:
 # `mir.py`'s module-level tables bind global slots, and slots do not ride
@@ -205,6 +217,18 @@ _OP_ARITY: Dict[int, int] = {
     MIR_SETATTR: 3,
     MIR_GETATTR: 3,
     MIR_MAP_PUT: 3,
+    MIR_TRYPACK: 0,
+    MIR_TRYCALL: 1,
+    MIR_FLOWLD: 0,
+    MIR_TRYICMP: 2,
+    MIR_TRYNE: 1,
+    MIR_EXCCODE: 0,
+    MIR_EXCISA: 2,
+    MIR_RETLOD: 0,
+    MIR_EXCCUR: 0,
+    MIR_RERAISE: 0,
+    MIR_RAISEEXC: 1,
+    MIR_UNREACH: 0,
 }
 
 _OP_RESULT_TYPE: Dict[int, int] = {
@@ -246,6 +270,18 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_SETATTR: MIR_W,
     MIR_GETATTR: MIR_P,  # a getattr's true tag rides arg3
     MIR_MAP_PUT: MIR_W,
+    MIR_TRYPACK: MIR_P,
+    MIR_TRYCALL: MIR_W,
+    MIR_FLOWLD: MIR_W,
+    MIR_TRYICMP: MIR_B,
+    MIR_TRYNE: MIR_B,
+    MIR_EXCCODE: MIR_W,
+    MIR_EXCISA: MIR_B,
+    MIR_RETLOD: MIR_W,  # a retlod's true tag rides arg2
+    MIR_EXCCUR: MIR_P,
+    MIR_RERAISE: MIR_W,
+    MIR_RAISEEXC: MIR_W,
+    MIR_UNREACH: MIR_W,
 }
 
 
@@ -306,6 +342,11 @@ class MirEmitter:
     _str_n: int
     _hoisted: list[str]
     _in_entry: int
+    # The return-slot and flow-slot allocas of the function being walked:
+    # the try callsite ops read them (`MIR_RETLOD`, `MIR_FLOWLD`,
+    # `MIR_TRYCALL`). None when the function has no return value.
+    _ret_reg: str | None
+    _flow_reg: str | None
 
     def __init__(self, module: Dict[str, Any], dwarf: DwarfEmitter | None, wasm: bool = False) -> None:
         self.module = module
@@ -331,6 +372,8 @@ class MirEmitter:
         self._str_n = 0
         self._hoisted = []
         self._in_entry = 1
+        self._ret_reg = None
+        self._flow_reg = None
 
     # ---- module driver ----
 
@@ -466,8 +509,12 @@ class MirEmitter:
             self.reg[slot_vid] = self.tmp_reg()
             self.line(f"{self.reg[slot_vid]} = alloca {_mem_llvm(self._tag_of(slot_vid))}")
         if ret != "void":
-            self.line(f"{self.tmp_reg()} = alloca {ret}")
-        self.line(f"{self.tmp_reg()} = alloca i32")
+            ret_reg = self.tmp_reg()
+            self._ret_reg = ret_reg
+            self.line(f"{ret_reg} = alloca {ret}")
+        flow_reg = self.tmp_reg()
+        self._flow_reg = flow_reg
+        self.line(f"{flow_reg} = alloca i32")
         self._in_entry = 1
         for i in self._span(0):
             self.emit_instr(fn, i)
@@ -730,6 +777,92 @@ class MirEmitter:
         if op == MIR_GETATTR:
             self._emit_getattr(fn, dst, a1, a2)
             return
+        if op == MIR_TRYPACK:
+            self._emit_trypack(fn, dst)
+            return
+        if op == MIR_TRYCALL:
+            self._emit_trycall(fn, dst, a1)
+            return
+        if op == MIR_FLOWLD:
+            needed = self.needed
+            needed.add("exc")
+            self.needed = needed
+            flow_reg = self._flow_reg
+            if flow_reg is None:
+                raise IRError("flow load outside a function with a flow slot")
+            reg = self.tmp_reg()
+            self.line(f"{reg} = load i32, ptr {flow_reg}")
+            self.reg[dst] = reg
+            return
+        if op == MIR_TRYICMP:
+            needed = self.needed
+            needed.add("exc")
+            self.needed = needed
+            reg = self.tmp_reg()
+            self.line(f"{reg} = icmp eq i32 {self.operand(fn, a1)}, {self.operand(fn, a2)}")
+            self.reg[dst] = reg
+            return
+        if op == MIR_TRYNE:
+            needed = self.needed
+            needed.add("exc")
+            self.needed = needed
+            reg = self.tmp_reg()
+            self.line(f"{reg} = icmp ne i32 {self.operand(fn, a1)}, 0")
+            self.reg[dst] = reg
+            return
+        if op == MIR_EXCCODE:
+            needed = self.needed
+            needed.add("exc")
+            self.needed = needed
+            reg = self.tmp_reg()
+            self.line(f"{reg} = call i32 @ps_exc_code()")
+            self.reg[dst] = reg
+            return
+        if op == MIR_EXCISA:
+            needed = self.needed
+            needed.add("exc")
+            self.needed = needed
+            reg = self.tmp_reg()
+            self.line(f"{reg} = call i32 @ps_exc_isa(i32 {self.operand(fn, a1)}, i32 {self.operand(fn, a2)})")
+            self.reg[dst] = reg
+            return
+        if op == MIR_RETLOD:
+            needed = self.needed
+            needed.add("exc")
+            self.needed = needed
+            ret_reg = self._ret_reg
+            if ret_reg is None:
+                raise IRError("return-slot load in a void function")
+            tag = fn.arg2[i]
+            reg = self.tmp_reg()
+            self.line(f"{reg} = load {_tag_llvm(tag)}, ptr {ret_reg}")
+            self.reg[dst] = reg
+            return
+        if op == MIR_EXCCUR:
+            needed = self.needed
+            needed.add("exc")
+            self.needed = needed
+            reg = self.tmp_reg()
+            self.line(f"{reg} = call ptr @ps_exc_current()")
+            self.reg[dst] = reg
+            return
+        if op == MIR_RERAISE:
+            needed = self.needed
+            needed.add("exc")
+            self.needed = needed
+            self.line("call void @ps_reraise() noreturn")
+            self.line("unreachable")
+            return
+        if op == MIR_RAISEEXC:
+            needed = self.needed
+            needed.add("exc")
+            self.needed = needed
+            self.line(f"call void @ps_raise_exc(ptr {self.operand(fn, a1)}) noreturn")
+            self.line("unreachable")
+            return
+        if op == MIR_UNREACH:
+            self.line("unreachable")
+            return
         if op in _HELPER_W:
             needed = self.needed
             needed.add(_HELPER_W[op])
@@ -793,6 +926,74 @@ class MirEmitter:
             self.reg[dst] = reg
             return
         raise IRError(f"the MIR leaf slice cannot emit op {op}")
+
+    def _emit_trypack(self, fn: MirFunction, dst: int) -> None:
+        """`MIR_TRYPACK`: the `[N x ptr]` env array the outline binds.
+
+        The slot names ride the helpers entry (`trypack n1 n2 ...`), in
+        the sorted order the direct path's `_used_names` walk produced;
+        the return slot trails them for a non-void function, the
+        `_env_pointers` shape. An empty pointer list packs `null` with no
+        lines, the direct `_pack_ptrs` early return.
+        """
+        needed = self.needed
+        needed.add("exc")
+        self.needed = needed
+        entry = fn.helpers.get(self._instr_index(fn, dst))
+        names: list[str] = []
+        if entry is not None:
+            names = entry.strip().split(" ")[1:]
+        ptrs: list[str] = []
+        for name in names:
+            slot_vid = self.slot_vid.get(name)
+            if slot_vid is None:
+                raise IRError(f"try env names a slot the function does not have: {name}")
+            ptrs.append(self.reg[slot_vid])
+        ir_fn = self._ir_fn(fn.name)
+        ret_type: Dict[str, Any] = ir_fn["returnType"]
+        if ret_type["kind"] != "none":
+            ret_reg = self._ret_reg
+            if ret_reg is None:
+                raise IRError("try env of a non-void function has no return slot")
+            ptrs.append(ret_reg)
+        if not ptrs:
+            self.reg[dst] = "null"
+            return
+        env = self._mir_alloca(f"[{len(ptrs)} x ptr]")
+        for index in range(len(ptrs)):
+            ptr = ptrs[index]
+            if index == 0:
+                dest = env
+            else:
+                dest = self.tmp_reg()
+                self.line(f"{dest} = getelementptr ptr, ptr {env}, i64 {index}")
+            self.line(f"store ptr {ptr}, ptr {dest}")
+        self.reg[dst] = env
+
+    def _emit_trycall(self, fn: MirFunction, dst: int, env: int) -> None:
+        """`MIR_TRYCALL`: `ps_try_call(outline, env, flow_ptr)`; the
+        outline symbol rides the helpers entry (`trycall ps.try.N`)."""
+        needed = self.needed
+        needed.add("exc")
+        self.needed = needed
+        flow_reg = self._flow_reg
+        if flow_reg is None:
+            raise IRError("try call outside a function with a flow slot")
+        index = self._instr_index(fn, dst)
+        entry = fn.helpers.get(index)
+        outline = "?"
+        if entry is not None:
+            outline = entry.split(" ")[1]
+        reg = self.tmp_reg()
+        self.line(f"{reg} = call i32 @ps_try_call(ptr @{outline}, ptr {self.operand(fn, env)}, ptr {flow_reg})")
+        self.reg[dst] = reg
+
+    def _instr_index(self, fn: MirFunction, dst: int) -> int:
+        """The instruction index defining `dst` (the helpers key)."""
+        for i in range(len(fn.ops)):
+            if fn.dsts[i] == dst:
+                return i
+        raise IRError(f"no definition of v{dst}")
 
     def _emit_call(self, fn: MirFunction, i: int, dst: int, callee_vid: int, tag: int) -> None:
         """A `MIR_CALL`: the callee's symbol, the args, the result type.
@@ -1640,6 +1841,9 @@ def _result_tag(fn: MirFunction, i: int) -> int:
         return fn.arg3[i] if i < len(fn.arg3) else MIR_W
     if op == MIR_GETATTR:
         return fn.arg3[i] if i < len(fn.arg3) else MIR_W
+    if op == MIR_RETLOD:
+        # The propagated-return load's true tag rides arg2.
+        return fn.arg2[i]
     tag: int | None = _OP_RESULT_TYPE.get(op)
     if tag is None:
         raise IRError(f"no result tag for op {op}")
