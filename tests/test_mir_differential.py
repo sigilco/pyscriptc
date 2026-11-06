@@ -17,6 +17,7 @@ import pytest
 from tests.test_mir_leaf import LEAF_SAMPLES
 
 from pyscriptc.cli import main as cli_main
+from pyscriptc.lower import lower_file
 from pyscriptc.miremit import MIR_ENV
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -31,13 +32,19 @@ def _coverage_module():
     return module
 
 
+def _has_fences(path: Path) -> bool:
+    """A fenced script fails the direct compile too, so it has nothing to diff."""
+    module, _ = lower_file(str(path))
+    return bool(module["fences"])
+
+
 def _in_slice_corpus() -> list[tuple[str, list[str]]]:
     mod = _coverage_module()
     out: list[tuple[str, list[str]]] = []
     for path in mod.script_mains(mod.DEFAULT_SCRIPTS):
         row = mod.measure_script(path)
         names = row["in_slice_names"]
-        if names:
+        if names and not _has_fences(path):
             out.append((str(path), list(names)))
     return out
 
