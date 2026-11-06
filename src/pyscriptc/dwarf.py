@@ -19,6 +19,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from pyscriptc.emit._ir import _kind, _kind_or_none, _type_of
+
 # The CPython language code (0x001e). The debug info describes the source the
 # user wrote, not the generated C-flavoured IR, so a debugger renders frames as
 # "Python" rather than falling back to C.
@@ -143,11 +145,12 @@ class DwarfEmitter:
         is the order LLVM expects. `env` marks the env-first functions (nested
         defs and lambdas), whose leading `ptr %env` is part of the signature.
         """
-        parts = [f"!{self.type_ref(ret['kind'])}" if ret.get("kind") != "none" else "null"]
+        ret_kind = _kind_or_none(ret)
+        parts = [f"!{self.type_ref(ret_kind)}" if ret_kind != "none" else "null"]
         if env:
             parts.append(f"!{self.type_ref('env')}")
-        parts.extend(f"!{self.type_ref(param['type']['kind'])}" for param in params)
-        key = ("func", env, tuple(param["type"].get("kind") for param in params), ret.get("kind"))
+        parts.extend(f"!{self.type_ref(_kind(_type_of(param)))}" for param in params)
+        key = ("func", env, tuple(_kind_or_none(_type_of(param)) for param in params), ret_kind)
         return self._add(key, f"!DISubroutineType(types: !{{{', '.join(parts)}}})")
 
     def subprogram(
