@@ -67,6 +67,7 @@ from pyscriptc.mir import (
     MIR_RET,
     MIR_SUBD,
     MIR_SUBW,
+    MIR_VOID,
     MIR_W,
     MirBlock,
     MirConst,
@@ -326,6 +327,13 @@ class MirEmitter:
         seen: set[int] = self.slot_vid_set
         for local in locs:
             lname: str = local["name"]
+            ltyp: Dict[str, Any] = local["type"]
+            lkind: str = ltyp["kind"]
+            if lkind == "none":
+                # A None-typed local is the singleton: the direct path
+                # registers it with no slot and no alloca, so it takes no
+                # value id here either.
+                continue
             self.slot_vid[lname] = vid
             seen.add(vid)
             self.slot_vid_set = seen
@@ -379,6 +387,11 @@ class MirEmitter:
         walk_locals: list[Dict[str, Any]] = ir_fn["locals"]
         for local in walk_locals:
             lname: str = local["name"]
+            ltyp: Dict[str, Any] = local["type"]
+            lkind: str = ltyp["kind"]
+            if lkind == "none":
+                # The None singleton has no slot, so it takes no alloca.
+                continue
             names.append(lname)
         vids: list[int] = []
         for name in names:
@@ -448,6 +461,11 @@ class MirEmitter:
         a1 = fn.arg1[i]
         a2 = fn.arg2[i]
         if op == MIR_RET:
+            # A void return reads no operand and renders `ret void`; a
+            # value return renders the value's type and the value.
+            if a2 == MIR_VOID:
+                self.line("ret void")
+                return
             self.line(f"ret {self.llvm_of(fn, a1)} {self.operand(fn, a1)}")
             return
         if op == MIR_JMP:
