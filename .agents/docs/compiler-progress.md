@@ -1,8 +1,11 @@
 # Compiler progress trend (refs #817)
 
-`scripts/compiler_progress.py --markdown FILE` appends a trend table that the
-nightly gates workflow writes to the job summary (`$GITHUB_STEP_SUMMARY`).
-The step is report-only: it never fails the job.
+`scripts/compiler_progress.py --markdown FILE` appends a trend table that CI
+writes to the job summary (`$GITHUB_STEP_SUMMARY`) on pull requests (the
+stage-2 fixpoint job) and on the nightly gates workflow. The step is
+report-only: it never fails the job. The table ends with a reserved
+`slice_coverage` row (batch 1, A12/D6 owns the metric; this tracker only
+holds the slot).
 
 ## How to read the table
 

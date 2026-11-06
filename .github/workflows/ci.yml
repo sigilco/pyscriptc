@@ -396,6 +396,9 @@ jobs:
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@v5
+        with:
+          # Trend vs origin/master~20; a depth-1 checkout has no baseline.
+          fetch-depth: 25
       - uses: actions/setup-python@v6
         with:
           python-version: "3.14"
@@ -409,7 +412,9 @@ jobs:
         run: uv run python -m benchmarks.compat2.fixpoint --summary "$GITHUB_STEP_SUMMARY"
       - name: Re-architecture progress by seam (trend table)
         if: always()
-        run: uv run python scripts/compiler_progress.py --summary "$GITHUB_STEP_SUMMARY" > /dev/null
+        run: |
+          git fetch origin master --depth=25
+          uv run python scripts/compiler_progress.py --summary "$GITHUB_STEP_SUMMARY" --markdown "$GITHUB_STEP_SUMMARY" > /dev/null
       - name: The headline when the lane failed
         if: failure()
         run: echo "The fixed point diverged. See the per-module table above; every DIVERGENT row is a module whose canonical IR moved between two runs of the same binary." >> "$GITHUB_STEP_SUMMARY"
