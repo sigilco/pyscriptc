@@ -38,6 +38,9 @@ from pyscriptc.mir import (
     MIR_GETATTR,
     MIR_INITCALL,
     MIR_JMP,
+    MIR_MAP_GET,
+    MIR_MAP_HAS,
+    MIR_MAP_LEN,
     MIR_MAP_PUT,
     MIR_NEWOBJ,
     MIR_NEWSEQ,
@@ -109,6 +112,9 @@ _OP_ARITY: dict[int, int] = {
     38: 3,  # MIR_SETATTR
     39: 3,  # MIR_GETATTR
     40: 3,  # MIR_MAP_PUT
+    54: 2,  # MIR_MAP_GET
+    55: 2,  # MIR_MAP_HAS
+    56: 1,  # MIR_MAP_LEN
     41: 0,  # MIR_TRYPACK
     42: 1,  # MIR_TRYCALL
     43: 0,  # MIR_FLOWLD
@@ -230,8 +236,9 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
         if op == MIR_CALL and slot == 2:
             continue
         # A seqget's arg3 carries the element result tag, not a value read;
-        # a getattr's arg3 carries the field result tag the same way.
-        if (op == MIR_SEQGET or op == MIR_GETATTR) and slot == 3:
+        # a getattr's arg3 carries the field result tag and a mapget's
+        # arg3 the dict value's tag the same way.
+        if (op == MIR_SEQGET or op == MIR_GETATTR or op == MIR_MAP_GET) and slot == 3:
             continue
         if is_const_ref(operand):
             index = const_index(operand)
@@ -448,6 +455,39 @@ def _check_class(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violati
     return out
 
 
+def _check_map(fn: MirFunction, i: int, defs: dict[int, int]) -> list[_Violation]:
+    """The dict ops' operand types.
+
+    `MIR_P` is the pointer tag a dict value rides. `MIR_MAP_GET`'s `arg3`
+    carries the result tag, not a value read (the `MIR_SEQGET`
+    convention); `MIR_MAP_PUT`'s `arg3` is the stored value and must
+    resolve like any operand.
+    """
+    out: list[_Violation] = []
+    op: int = fn.ops[i]
+    arg3: int = fn.arg3[i] if i < len(fn.arg3) else -1
+    map_type: int | None = _operand_type(fn, fn.arg1[i], defs)
+    if map_type != MIR_P:
+        out.append(_Violation(CODE_TYPE, f"instr {i}: map operand typed non-pointer"))
+        return out
+    if op == MIR_MAP_LEN:
+        return out
+    key_type: int | None = _operand_type(fn, fn.arg2[i], defs)
+    if not (key_type == MIR_W or key_type == MIR_D or key_type == MIR_B or key_type == MIR_S or key_type == MIR_P):
+        out.append(_Violation(CODE_TYPE, f"instr {i}: map key typed non-value"))
+    if op == MIR_MAP_GET:
+        if not (arg3 == MIR_W or arg3 == MIR_D or arg3 == MIR_B or arg3 == MIR_S or arg3 == MIR_P):
+            out.append(_Violation(CODE_TYPE, f"instr {i}: mapget result tag is not a value tag"))
+        return out
+    if op == MIR_MAP_HAS:
+        return out
+    # MIR_MAP_PUT: the stored value rides arg3.
+    stored: int | None = _operand_type(fn, arg3, defs)
+    if not (stored == MIR_W or stored == MIR_D or stored == MIR_B or stored == MIR_S or stored == MIR_P):
+        out.append(_Violation(CODE_TYPE, f"instr {i}: mapput stored value typed non-value"))
+    return out
+
+
 def _result_type_of(op: int) -> int:
     """The result tag of a value op, from the local spelling of the table.
 
@@ -579,6 +619,14 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                         defs[dst] = get_tag
                     else:
                         defs[dst] = MIR_W
+                elif op == MIR_MAP_GET:
+                    map_tag: int = fn.arg3[i] if i < len(fn.arg3) else -1
+                    if map_tag == MIR_W or map_tag == MIR_D or map_tag == MIR_B or map_tag == MIR_S or map_tag == MIR_P:
+                        defs[dst] = map_tag
+                    else:
+                        defs[dst] = MIR_W
+                elif op == MIR_MAP_HAS:
+                    defs[dst] = MIR_B
                 elif op == 41 or op == 49:
                     # trypack/exccur: pointer results.
                     defs[dst] = MIR_P
@@ -604,6 +652,11 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
             class_violations: list[_Violation] = _check_class(fn, i, defs)
             for c_index in range(len(class_violations)):
                 out.append(class_violations[c_index])
+        is_map_op: int = 1 if op == MIR_MAP_GET or op == MIR_MAP_HAS or op == MIR_MAP_LEN or op == MIR_MAP_PUT else 0
+        if is_map_op:
+            map_violations: list[_Violation] = _check_map(fn, i, defs)
+            for m_index in range(len(map_violations)):
+                out.append(map_violations[m_index])
         if op == MIR_RET:
             violation: _Violation | None = _check_ret_type(fn, i, defs)
             if violation is not None:

@@ -80,6 +80,9 @@ from pyscriptc.mir import (
     MIR_GETATTR,
     MIR_INITCALL,
     MIR_JMP,
+    MIR_MAP_GET,
+    MIR_MAP_HAS,
+    MIR_MAP_LEN,
     MIR_MAP_PUT,
     MIR_MULD,
     MIR_MULW,
@@ -218,6 +221,9 @@ _OP_ARITY: Dict[int, int] = {
     MIR_SETATTR: 3,
     MIR_GETATTR: 3,
     MIR_MAP_PUT: 3,
+    MIR_MAP_GET: 2,
+    MIR_MAP_HAS: 2,
+    MIR_MAP_LEN: 1,
     MIR_TRYPACK: 0,
     MIR_TRYCALL: 1,
     MIR_FLOWLD: 0,
@@ -272,6 +278,9 @@ _OP_RESULT_TYPE: Dict[int, int] = {
     MIR_SETATTR: MIR_W,
     MIR_GETATTR: MIR_P,  # a getattr's true tag rides arg3
     MIR_MAP_PUT: MIR_W,
+    MIR_MAP_GET: MIR_W,  # a mapget's true tag rides arg3
+    MIR_MAP_HAS: MIR_B,
+    MIR_MAP_LEN: MIR_W,
     MIR_TRYPACK: MIR_P,
     MIR_TRYCALL: MIR_W,
     MIR_FLOWLD: MIR_W,
@@ -767,6 +776,20 @@ class MirEmitter:
             val_tag = self._operand_tag(fn, a3)
             val_slot = self._stash_cell_tag(val_tag, self.operand(fn, a3))
             self.line(f"call void @ps_map_put(ptr {self.operand(fn, a1)}, ptr {key_slot}, ptr {val_slot})")
+            return
+        if op == MIR_MAP_GET:
+            self._emit_map_get(fn, dst, a1, a2, a3)
+            return
+        if op == MIR_MAP_HAS:
+            self._emit_map_has(fn, dst, a1, a2)
+            return
+        if op == MIR_MAP_LEN:
+            needed = self.needed
+            needed.add("map")
+            self.needed = needed
+            reg = self.tmp_reg()
+            self.line(f"{reg} = call i64 @ps_map_len(ptr {self.operand(fn, a1)})")
+            self.reg[dst] = reg
             return
         if op == MIR_CALL:
             self._emit_call(fn, i, dst, a1, a2)
@@ -1370,25 +1393,93 @@ class MirEmitter:
         self.line(f"{reg2} = call {llvm} @{symbol}({rendered})")
         self.reg[dst] = reg2
 
+    def _emit_map_get(self, fn: MirFunction, dst: int, a1: int, a2: int, a3: int) -> None:
+        """`MIR_MAP_GET`: the direct `emit_subscript` dict arm.
+
+        The key stashes into its runtime cell first, then the result
+        cell allocates, `ps_map_get` fills it, and the value reloads —
+        a str result widens the `%ps.buf` cell through `_widen_str_cell`
+        the way `_widen_cell` does. `a3` is the result tag.
+        """
+        needed: set[str] = self.needed
+        needed.add("map")
+        self.needed = needed
+        key_tag: int = self._operand_tag(fn, a2)
+        key_slot: str = self._stash_cell_tag(key_tag, self.operand(fn, a2))
+        out_slot: str = self._mir_alloca(_mem_llvm(a3))
+        self.line(f"call void @ps_map_get(ptr {self.operand(fn, a1)}, ptr {key_slot}, ptr {out_slot})")
+        if a3 == MIR_S:
+            self.reg[dst] = self._widen_str_cell(out_slot)
+            return
+        llvm: str = _tag_llvm(a3)
+        reg: str = self.tmp_reg()
+        self.line(f"{reg} = load {llvm}, ptr {out_slot}")
+        self.reg[dst] = reg
+
+    def _emit_map_has(self, fn: MirFunction, dst: int, a1: int, a2: int) -> None:
+        """`MIR_MAP_HAS`: the direct `emit_contains` dict arm.
+
+        The key stashes into its runtime cell, `ps_map_has` answers i32,
+        and the flag is the `icmp ne` against zero.
+        """
+        needed: set[str] = self.needed
+        needed.add("map")
+        self.needed = needed
+        key_tag: int = self._operand_tag(fn, a2)
+        key_slot: str = self._stash_cell_tag(key_tag, self.operand(fn, a2))
+        raw: str = self.tmp_reg()
+        self.line(f"{raw} = call i32 @ps_map_has(ptr {self.operand(fn, a1)}, ptr {key_slot})")
+        reg: str = self.tmp_reg()
+        self.line(f"{reg} = icmp ne i32 {raw}, 0")
+        self.reg[dst] = reg
+
     def _emit_method_call(self, fn: MirFunction, i: int, dst: int, args_i: list[int], name: str) -> None:
         """An admitted method call's emission: the direct `emit_method` arm.
 
-        `join` is the only admitted method: the separator (a str, the
-        receiver the IR carries as `args[0]`) splits into its buffer
-        parts, the `list[str]` argument renders as the sequence pointer,
-        and the result rides `_buf_out`'s `ps_str_join` buffer shape —
-        the direct emitter's `values[0]`/`values[1]` order.
+        `join` is the str-join form; `split`/`rsplit` are the
+        `ps_str_split_m` forms. Each spelling matches the direct
+        emitter's `values[0]`/`values[1]` order.
         """
-        if name != "join":
-            raise IRError(f"the MIR lane has no method emission for {name}")
-        needed: set[str] = self.needed
-        needed.add("str")
-        self.needed = needed
-        sep: str = self.operand(fn, args_i[0])
-        length, ptr = self._buf_parts(sep)
-        seq: str = self.operand(fn, args_i[1])
-        self._abi_decl("ps_str_join", "void", ["i64", "ptr", "ptr", "ptr"])
-        self.reg[dst] = self._buf_out("ps_str_join", [f"i64 {length}", f"ptr {ptr}", f"ptr {seq}"])
+        if name == "join":
+            needed: set[str] = self.needed
+            needed.add("str")
+            self.needed = needed
+            sep: str = self.operand(fn, args_i[0])
+            length, ptr = self._buf_parts(sep)
+            seq: str = self.operand(fn, args_i[1])
+            self._abi_decl("ps_str_join", "void", ["i64", "ptr", "ptr", "ptr"])
+            self.reg[dst] = self._buf_out("ps_str_join", [f"i64 {length}", f"ptr {ptr}", f"ptr {seq}"])
+            return
+        if name == "split" or name == "rsplit":
+            # The direct `emit_method` split arm: the receiver's buffer
+            # parts first, then the optional separator's, then the
+            # `ps_str_split_m` call. `args_i[0]` is the receiver, a
+            # lone argument means the whitespace split (`mode` 1,
+            # `maxsplit` -1), and `rsplit` rides the `right` flag.
+            needed = self.needed
+            needed.add("str")
+            self.needed = needed
+            recv: str = self.operand(fn, args_i[0])
+            length, ptr = self._buf_parts(recv)
+            if len(args_i) == 1:
+                sep_len, sep_ptr, mode, maxsplit = "0", "null", "1", "-1"
+            else:
+                sep_len, sep_ptr = self._buf_parts(self.operand(fn, args_i[1]))
+                mode = "0"
+                maxsplit = "-1"
+                if len(args_i) > 2:
+                    maxsplit = self.operand(fn, args_i[2])
+            right = "1" if name == "rsplit" else "0"
+            self._abi_decl("ps_str_split_m", "ptr", ["i64", "ptr", "i64", "ptr", "i64", "i64", "i64"])
+            reg = self.tmp_reg()
+            self.line(
+                f"{reg} = call ptr @ps_str_split_m("
+                f"i64 {length}, ptr {ptr}, i64 {sep_len}, ptr {sep_ptr}, "
+                f"i64 {mode}, i64 {maxsplit}, i64 {right})"
+            )
+            self.reg[dst] = reg
+            return
+        raise IRError(f"the MIR lane has no method emission for {name}")
 
     def _emit_format_call(self, fn: MirFunction, i: int, dst: int, args_i: list[int], style: int) -> None:
         """An admitted `builtins.format` call: the direct `_emit_abi` arm.
@@ -1911,6 +2002,8 @@ def _result_tag(fn: MirFunction, i: int) -> int:
     if op == MIR_CALL:
         return fn.arg2[i]
     if op == MIR_SEQGET:
+        return fn.arg3[i] if i < len(fn.arg3) else MIR_W
+    if op == MIR_MAP_GET:
         return fn.arg3[i] if i < len(fn.arg3) else MIR_W
     if op == MIR_GETATTR:
         return fn.arg3[i] if i < len(fn.arg3) else MIR_W

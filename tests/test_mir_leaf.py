@@ -23,6 +23,10 @@ from pyscriptc.mir import (
     MIR_GETATTR,
     MIR_INITCALL,
     MIR_JMP,
+    MIR_MAP_GET,
+    MIR_MAP_HAS,
+    MIR_MAP_LEN,
+    MIR_MAP_PUT,
     MIR_NEWOBJ,
     MIR_P,
     MIR_S,
@@ -91,6 +95,7 @@ LEAF_SAMPLES = [
         "leafstrlist.py",
         "leafstrindex.py",
         "leafuserclass.py",
+        "leafmap.py",
         "leafzip.py",
     )
 ]
@@ -637,6 +642,38 @@ class TestClassSlice:
         module, _ = lower_file(str(src))
         mir = lower_module(module)
         assert not any(fn.name == "main" for fn in mir.functions)
+
+
+class TestMapSlice:
+    """The dict lane: `d[k]` reads, `d[k] = v` stores, `k in d`
+    membership and `len(d)` lower to `MIR_MAP_GET`/`MIR_MAP_PUT`/
+    `MIR_MAP_HAS`/`MIR_MAP_LEN`, and `str.split`/`rsplit` ride the
+    marked method call; the fixture pins byte identity through
+    `LEAF_SAMPLES`."""
+
+    def test_map_functions_in_slice(self) -> None:
+        module, _ = lower_file(str(_FIXTURES / "leafmap.py"))
+        mir = lower_module(module)
+        assert mir.skipped == []
+        names = {fn.name for fn in mir.functions}
+        assert {"tally", "lookup", "parts", "main"} <= names
+        for fn in mir.functions:
+            assert verify_function(fn) == []
+
+    def test_map_ops_lower(self) -> None:
+        module, _ = lower_file(str(_FIXTURES / "leafmap.py"))
+        mir = lower_module(module)
+        by_name = {fn.name: fn for fn in mir.functions}
+        tally_fn = by_name["tally"]
+        assert MIR_MAP_GET in tally_fn.ops
+        assert MIR_MAP_PUT in tally_fn.ops
+        assert MIR_MAP_HAS in tally_fn.ops
+        assert MIR_MAP_LEN in tally_fn.ops
+        lookup_fn = by_name["lookup"]
+        assert MIR_MAP_HAS in lookup_fn.ops
+        assert MIR_MAP_GET in lookup_fn.ops
+        main_fn = by_name["main"]
+        assert MIR_MAP_LEN in main_fn.ops
 
 
 class TestShortCircuitSlice:
