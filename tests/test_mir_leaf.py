@@ -18,6 +18,7 @@ from pyscriptc.mir import (
     MIR_BR,
     MIR_CLTW,
     MIR_JMP,
+    MIR_VOID,
     MIR_W,
     MirBlock,
     MirBuilder,
@@ -51,6 +52,7 @@ LEAF_SAMPLES = [
         "leafbreak.py",
         "leafforrange.py",
         "leafelif.py",
+        "leafnone.py",
     )
 ]
 
@@ -177,5 +179,29 @@ class TestVerifierViolations:
         b.start_block()
         c = b.const_b(1)
         b.emit_ret(c)
+        errs = verify_function(b.finish())
+        assert any(e.code == CODE_TYPE for e in errs)
+
+    def test_void_ret_verifies(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_VOID)
+        b.start_block()
+        b.emit_ret_void()
+        assert verify_function(b.finish()) == []
+
+    def test_void_result_rejects_value_ret(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_VOID)
+        b.start_block()
+        c = b.const_w(1)
+        b.emit_ret(c)
+        errs = verify_function(b.finish())
+        assert any(e.code == CODE_TYPE for e in errs)
+
+    def test_value_result_rejects_void_ret(self) -> None:
+        b = MirBuilder("f")
+        b.set_result(MIR_W)
+        b.start_block()
+        b.emit_ret_void()
         errs = verify_function(b.finish())
         assert any(e.code == CODE_TYPE for e in errs)
