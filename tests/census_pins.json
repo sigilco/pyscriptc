@@ -103,7 +103,7 @@
   "pyscriptc.restlower._pathlib": 3,
   "pyscriptc.restlower._queue": 9,
   "pyscriptc.restlower._random": 4,
-  "pyscriptc.restlower._shared": 19,
+  "pyscriptc.restlower._shared": 25,
   "pyscriptc.restlower._subprocess": 9,
   "pyscriptc.restlower._system": 8,
   "pyscriptc.restlower._textwrap": 2,
