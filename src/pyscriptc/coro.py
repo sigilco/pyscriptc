@@ -390,7 +390,13 @@ class CoroMixin:
         """
         ann = fn.returns
         if ann is None:
-            self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
+            # No annotation: the yield peek proves the element type when the
+            # body allows it (`Iterator[elem]`, send and return None). No
+            # proof keeps the fence.
+            elem = self._infer_yield_type(fn)
+            if elem is None:
+                self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
+            return elem, dict(_NONE), dict(_NONE)
         form = self._typing_alias(ann.value) if isinstance(ann, ast.Subscript) else None
         if form not in _GENERATOR_FORMS:
             self.fail(ann, "PS1001", "a generator is annotated Iterator[T], Iterable[T] or Generator[T, S, R]")
