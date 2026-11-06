@@ -1026,34 +1026,61 @@ class StmtBMixin:
             typ = {"kind": "list", "elem": elem, "set": True}
             what = "set"
         else:
-            if _type_kind(elem) == "bool" or _type_kind(elem) not in {
-                "int",
-                "float",
-                "str",
-                "bytes",
-                "list",
-                "dict",
-                "class",
-            }:
+            if self.comp_pred is None and (
+                _type_kind(elem) == "bool"
+                or _type_kind(elem)
+                not in {
+                    "int",
+                    "float",
+                    "str",
+                    "bytes",
+                    "list",
+                    "dict",
+                    "class",
+                }
+            ):
                 self.fail(self.comp_elt, "PS2002", f"list[{_show(elem)}] is not lowered")
             typ = {"kind": "list", "elem": elem}
             what = "list"
         if self.comp_expect is not None and _type_kind(self.comp_expect) == _type_kind(typ):
             self._expect(self.comp_elt, typ, self.comp_expect, what)
         if not self.comp_ready:
-            self.locals[self.comp_dest] = typ
             span = span_of(self.comp_elt, self.filename)
-            empty = (
-                {"kind": "dict", "pairs": [], "type": typ, "span": span}
-                if self.comp_kind == "dict"
-                else {"kind": "list", "elems": [], "type": typ, "span": span}
-            )
-            self.comp_init = _assign(self.comp_dest, empty, span)
+            if self.comp_pred is not None:
+                self.comp_init = _assign(self.comp_pred[0], _const_bool(self.comp_pred[1], span), span)
+            else:
+                self.locals[self.comp_dest] = typ
+                empty = (
+                    {"kind": "dict", "pairs": [], "type": typ, "span": span}
+                    if self.comp_kind == "dict"
+                    else {"kind": "list", "elems": [], "type": typ, "span": span}
+                )
+                self.comp_init = _assign(self.comp_dest, empty, span)
             self.comp_ready = True
         # The push args are emitted where they sit, so key/element calls are
         # stored first: each runs once, and only inside this branch.
         kept: list[dict[str, Any]] = []
-        if self.comp_kind == "dict":
+        if self.comp_pred is not None:
+            # The `all`/`any` sink: the element's truth updates the bool
+            # accumulator in place of a list push, so a bool element never
+            # materializes a `list[bool]`.
+            pred_name = self.comp_pred[0]
+            want_all = self.comp_pred[1]
+            truth = self._truthy(elt, elt["span"])
+            if want_all:
+                upd = _if_stmt(
+                    _unary_not(truth, elt["span"]),
+                    [_assign(pred_name, _const_bool(False, elt["span"]), elt["span"])],
+                    elt["span"],
+                )
+            else:
+                upd = _if_stmt(
+                    truth,
+                    [_assign(pred_name, _const_bool(True, elt["span"]), elt["span"])],
+                    elt["span"],
+                )
+            kept = [*inner, upd]
+        elif self.comp_kind == "dict":
             kslot = self._temp("key")
             vslot = self._temp("elt")
             self.locals[kslot] = key["type"]

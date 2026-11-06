@@ -197,15 +197,20 @@ class MiscEmitMixin:
         node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp,
         span: dict[str, Any],
         expect: dict[str, Any] | None,
+        pred: tuple[str, bool] | None = None,
     ) -> dict[str, Any]:
         # GeneratorExp lowers like ListComp: the elements materialize
-        # eagerly into a list (the eager model documented for R24).
+        # eagerly into a list (the eager model documented for R24). A `pred`
+        # pair (`all`/`any` over the comprehension) swaps the materialized
+        # list for updates of the named bool accumulator.
         if isinstance(node, (ast.ListComp, ast.GeneratorExp)):
             kind = "list"
         elif isinstance(node, ast.SetComp):
             kind = "set"
         else:
             kind = "dict"
+        if pred is not None and kind != "list":
+            self.fail(node, "PS2002", "all/any over a comprehension lowers a list or generator")
         if any(gen.is_async for gen in node.generators):
             self.fail(node, "PS2002", "async comprehensions are not lowered")
         for gen in node.generators:
@@ -226,6 +231,7 @@ class MiscEmitMixin:
             self.comp_init,
             self.comp_expect,
             self.comp_ready,
+            self.comp_pred,
         )
         self.comp_elt = node.value if isinstance(node, ast.DictComp) else node.elt
         self.comp_key = node.key if isinstance(node, ast.DictComp) else None
@@ -236,6 +242,7 @@ class MiscEmitMixin:
         self.comp_init = None
         self.comp_expect = expect
         self.comp_ready = False
+        self.comp_pred = pred
         first = node.generators[0]
         loop = ast.For(target=first.target, iter=first.iter, body=[ast.Pass()], orelse=[], type_comment=None)
         ast.copy_location(loop, node)
@@ -253,11 +260,14 @@ class MiscEmitMixin:
                 self.comp_init,
                 self.comp_expect,
                 self.comp_ready,
+                self.comp_pred,
             ) = saved
         if init is None:
             self.fail(node, "PS2002", f"{kind} comprehension is not lowered")
         self.prelude.append(init)
         self.prelude.extend(lowered)
+        if pred is not None:
+            return _name(pred[0], {"kind": "bool"}, span)
         return _name(dest, self.locals[dest], span)
 
     def _store_tuple_constant(self, name: str, node: ast.Tuple, stmt: ast.AST) -> None:

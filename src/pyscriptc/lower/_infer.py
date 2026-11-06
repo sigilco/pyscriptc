@@ -90,6 +90,7 @@ class TypeInferMixin:
                     self.comp_init,
                     self.comp_expect,
                     self.comp_ready,
+                    self.comp_pred,
                 )
                 s.saved_dead = self.dead_names
                 s.saved_exc = self.exc_stack
@@ -128,6 +129,7 @@ class TypeInferMixin:
                     self.comp_init,
                     self.comp_expect,
                     self.comp_ready,
+                    self.comp_pred,
                 ) = s.saved_comp
                 self.dead_names = s.saved_dead
                 self.exc_stack = s.saved_exc

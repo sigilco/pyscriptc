@@ -224,6 +224,10 @@ class Lowerer(
         self.comp_init: dict[str, Any] | None = None
         self.comp_expect: dict[str, Any] | None = None
         self.comp_ready = False
+        # `all`/`any` over a comprehension fuses the loop into a bool
+        # accumulator instead of materializing the element list: the pair
+        # is (result name, want_all). None means the comp builds its list.
+        self.comp_pred: tuple[str, bool] | None = None
         # The inference peek (issue #500): while True, `_expr` is running
         # speculatively to learn a value's type; the emitted IR and the
         # temp counter are discarded, and any fence becomes the inference
