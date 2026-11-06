@@ -95,6 +95,67 @@ def test_the_seam_reads_an_absent_kind_tag() -> None:
     assert _ir._kind_or_none(None) is None
 
 
+def test_the_seam_reads_the_node_children() -> None:
+    """The node-shaped readers `_exprs` uses: child expressions, lists,
+    pairs, flags and payloads."""
+    from pyscriptc.emit import _ir
+
+    span = {"file": "a.py", "line": 1}
+    typ = {"kind": "int"}
+    left = {"kind": "const", "type": typ, "value": "1", "span": span}
+    right = {"kind": "name", "id": "x", "type": typ, "span": span}
+    binary = {"kind": "binary", "op": "+", "left": left, "right": right, "type": typ, "span": span}
+    assert _ir._node_op(binary) == "+"
+    assert _ir._node_left(binary) == left
+    assert _ir._node_right(binary) == right
+    assert _ir._node_id(right) == "x"
+
+    subscript = {"kind": "subscript", "value": right, "index": left, "type": typ, "span": span}
+    assert _ir._node_value_node(subscript) == right
+    assert _ir._node_index(subscript) == left
+
+    contains = {"kind": "contains", "hay": left, "needle": right, "negated": True, "type": typ, "span": span}
+    assert _ir._node_hay(contains) == left
+    assert _ir._node_needle(contains) == right
+    assert _ir._node_negated(contains) is True
+    assert _ir._node_negated({"kind": "contains", "hay": left, "needle": right, "type": typ, "span": span}) is False
+
+    unary = {"kind": "unary", "op": "-", "operand": left, "type": typ, "span": span}
+    assert _ir._node_operand(unary) == left
+
+    list_node = {"kind": "list", "elems": [left, right], "type": typ, "span": span}
+    assert _ir._node_elems(list_node) == [left, right]
+    assert _ir._node_elems({"kind": "list", "type": typ, "span": span}) == []
+
+    pair = {"key": left, "value": right}
+    assert _ir._pair_key(pair) == left
+    assert _ir._pair_value(pair) == right
+    dict_node = {"kind": "dict", "pairs": [pair], "type": typ, "span": span}
+    assert _ir._node_pairs(dict_node) == [pair]
+    assert _ir._node_pairs({"kind": "dict", "type": typ, "span": span}) == []
+
+    value_callee = {"kind": "value", "target": right}
+    assert _ir._node_target_node(value_callee) == right
+    call = {"kind": "call", "callee": value_callee, "args": [left], "type": typ, "span": span}
+    assert _ir._node_callee(call) == value_callee
+    assert _ir._node_args(call) == [left]
+    assert _ir._node_args({"kind": "call", "callee": value_callee, "type": typ, "span": span}) == []
+
+    closure = {"kind": "closure", "name": "inner", "env": [], "type": typ, "span": span}
+    assert _ir._node_name(closure) == "inner"
+    assert _ir._node_env(closure) == []
+    assert _ir._node_env({"kind": "closure", "name": "inner", "type": typ, "span": span}) == []
+
+    attr = {"kind": "attr", "name": "field", "type": typ, "value": right, "span": span}
+    assert _ir._node_name(attr) == "field"
+
+    item_init = {"init": left, "type": typ}
+    item_name = {"name": "y", "type": typ}
+    assert _ir._env_item_init(item_init) == left
+    assert _ir._env_item_init(item_name) is None
+    assert _ir._env_item_name(item_name) == "y"
+
+
 def test_the_seam_reads_the_function_record() -> None:
     """The record readers `_funcs` uses: name, params, span, return type, env, boxed."""
     from pyscriptc.emit import _ir

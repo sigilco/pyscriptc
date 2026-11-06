@@ -102,6 +102,190 @@ def _type_name(typ: dict[str, Any]) -> str:
     return name
 
 
+def _node_expr(node: dict[str, Any]) -> dict[str, Any]:
+    """The child expression a node-shaped record carries (assign value, expr
+    statement, return value). The child walk reads it through this accessor
+    instead of the raw dict key."""
+
+    child: dict[str, Any] = node["expr"]
+    return child
+
+
+def _node_target_node(node: dict[str, Any]) -> dict[str, Any]:
+    """The callee target of a value-callee record: the callable expression
+    an indirect call dispatches through."""
+
+    target: dict[str, Any] = node["target"]
+    return target
+
+
+def _node_args(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The argument records of a call node, or [] when the node omits them."""
+
+    if "args" not in node:
+        return []
+    args: list[dict[str, Any]] = node["args"]
+    return args
+
+
+def _node_operand(node: dict[str, Any]) -> dict[str, Any]:
+    """The operand expression a unary node carries."""
+
+    operand: dict[str, Any] = node["operand"]
+    return operand
+
+
+def _node_left(node: dict[str, Any]) -> dict[str, Any]:
+    """The left child expression a binary or compare node carries."""
+
+    left: dict[str, Any] = node["left"]
+    return left
+
+
+def _node_right(node: dict[str, Any]) -> dict[str, Any]:
+    """The right child expression a binary or compare node carries."""
+
+    right: dict[str, Any] = node["right"]
+    return right
+
+
+def _node_elems(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The element expressions of a list node, or [] when it omits them."""
+
+    if "elems" not in node:
+        return []
+    elems: list[dict[str, Any]] = node["elems"]
+    return elems
+
+
+def _node_pairs(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The key/value pair records of a dict node, or [] when it omits them."""
+
+    if "pairs" not in node:
+        return []
+    pairs: list[dict[str, Any]] = node["pairs"]
+    return pairs
+
+
+def _pair_key(pair: dict[str, Any]) -> dict[str, Any]:
+    """The key expression of one dict-literal pair."""
+
+    key: dict[str, Any] = pair["key"]
+    return key
+
+
+def _pair_value(pair: dict[str, Any]) -> dict[str, Any]:
+    """The value expression of one dict-literal pair."""
+
+    value: dict[str, Any] = pair["value"]
+    return value
+
+
+def _node_index(node: dict[str, Any]) -> dict[str, Any]:
+    """The index expression a subscript node carries."""
+
+    index: dict[str, Any] = node["index"]
+    return index
+
+
+def _node_hay(node: dict[str, Any]) -> dict[str, Any]:
+    """The container expression a contains node carries."""
+
+    hay: dict[str, Any] = node["hay"]
+    return hay
+
+
+def _node_needle(node: dict[str, Any]) -> dict[str, Any]:
+    """The tested expression a contains node carries."""
+
+    needle: dict[str, Any] = node["needle"]
+    return needle
+
+
+def _node_negated(node: dict[str, Any]) -> bool:
+    """Whether a contains node spells the negated (`not in`) form."""
+
+    if "negated" not in node:
+        return False
+    negated: bool = node["negated"]
+    return negated
+
+
+def _node_value_node(node: dict[str, Any]) -> dict[str, Any]:
+    """The indexed expression a subscript node carries (the container)."""
+
+    value: dict[str, Any] = node["value"]
+    return value
+
+
+def _node_callee(node: dict[str, Any]) -> dict[str, Any]:
+    """The callee record a call node carries (builtin, method, value, ...)."""
+
+    callee: dict[str, Any] = node["callee"]
+    return callee
+
+
+def _node_stub(node: dict[str, Any]) -> dict[str, Any]:
+    """The partial-shim spec a closure node carries."""
+
+    stub: dict[str, Any] = node["stub"]
+    return stub
+
+
+def _node_thread_stub(node: dict[str, Any]) -> dict[str, Any]:
+    """The thread-shim spec a closure node carries."""
+
+    thread_stub: dict[str, Any] = node["thread_stub"]
+    return thread_stub
+
+
+def _node_env(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The env entries of a closure node, or [] when it omits them."""
+
+    if "env" not in node:
+        return []
+    env: list[dict[str, Any]] = node["env"]
+    return env
+
+
+def _node_op(node: dict[str, Any]) -> str:
+    """The operator spelling an operator node carries (`+`, `not in`, ...)."""
+
+    op: str = node["op"]
+    return op
+
+
+def _node_name(node: dict[str, Any]) -> str:
+    """The name payload of a node that carries one (attr, name, closure)."""
+
+    name: str = node["name"]
+    return name
+
+
+def _node_id(node: dict[str, Any]) -> str:
+    """The bound name a name node carries."""
+
+    id_: str = node["id"]
+    return id_
+
+
+def _env_item_init(item: dict[str, Any]) -> dict[str, Any] | None:
+    """The boxed initializer of a closure env entry, or None when the entry
+    names a local instead (`name` carries it)."""
+
+    if "init" not in item:
+        return None
+    init: dict[str, Any] = item["init"]
+    return init
+
+
+def _env_item_name(item: dict[str, Any]) -> str:
+    """The local name a closure env entry packs."""
+
+    name: str = item["name"]
+    return name
+
+
 def _field_name(field: dict[str, Any]) -> str:
     """The source name of one class field."""
     name: str = field["name"]
