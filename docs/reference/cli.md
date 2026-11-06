@@ -18,7 +18,7 @@ pyscriptc compile SOURCE [options]
 | Flag | Value | Effect |
 | ---- | ----- | ------ |
 | `--program` |  | treat the directory as a program (`python -m pkg` parity): `__main__.py` is the entry point even when the directory has an `__init__.py`, and its modules are namespaced under the directory name |
-| `--emit EMIT` | `ir\|llvm\|asm\|obj\|bin\|lib\|binding` | output artifact: ir (JSON IR), llvm (textual LLVM), asm, obj, bin, lib or binding; default llvm (default `llvm`) |
+| `--emit EMIT` | `ir\|mir\|llvm\|asm\|obj\|bin\|lib\|binding` | output artifact: ir (JSON IR), mir (textual MIR of the leaf slice), llvm (textual LLVM), asm, obj, bin, lib or binding; default llvm (default `llvm`) |
 | `--out-dir DIR` | `DIR` | write artifacts to DIR/<source name> instead of beside the source (useful for directory compiles) |
 | `-o PATH` | `PATH` | output path; defaults to the source stem |
 | `--ffi MANIFEST` | `MANIFEST` | bind a typed extern manifest (TOML) and link its C sources; repeatable. Also read from the `ffi` key of pyscriptc.toml / PEP 723 metadata |

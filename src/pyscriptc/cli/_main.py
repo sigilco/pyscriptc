@@ -234,9 +234,10 @@ def build_parser() -> argparse.ArgumentParser:
     )
     compile_parser.add_argument(
         "--emit",
-        choices=("ir", "llvm", "asm", "obj", "bin", "lib", "binding"),
+        choices=("ir", "mir", "llvm", "asm", "obj", "bin", "lib", "binding"),
         default="llvm",
-        help="output artifact: ir (JSON IR), llvm (textual LLVM), asm, obj, bin, lib or binding; default llvm",
+        help="output artifact: ir (JSON IR), mir (textual MIR of the leaf slice), llvm (textual LLVM), asm, obj, "
+        "bin, lib or binding; default llvm",
     )
     compile_parser.add_argument(
         "--out-dir",
@@ -1693,6 +1694,15 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if args.emit == "ir":
             print(ir_path)
             return 0
+        if args.emit == "mir":
+            from pyscriptc.mirlower import lower_module
+            from pyscriptc.mirprint import print_module
+
+            mir_path = _output_path(args, source_path, ".mir")
+            mir_path.write_text(print_module(lower_module(module)), encoding="utf-8")
+            outputs["mir"] = str(mir_path)
+            print(mir_path)
+            return 0
         # boxed:begin
         requires_lp = bool(
             module.get("islandSource")
@@ -2216,6 +2226,8 @@ def _artifact_base(args: argparse.Namespace, source: Path) -> Path:
 
 def _output_path(args: argparse.Namespace, source: Path, suffix: str) -> Path:
     if args.output and args.emit == "ir" and suffix == ".ir.json":
+        return Path(args.output)
+    if args.output and args.emit == "mir" and suffix == ".mir":
         return Path(args.output)
     if args.output and args.emit == "llvm" and suffix == ".ll":
         return Path(args.output)
