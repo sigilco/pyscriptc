@@ -14,6 +14,7 @@ from pyscriptc.coro import EXC, STATE, STOP, YIELD_MARKER
 from pyscriptc.ir import validate_module
 from pyscriptc.lower import lower_source
 from pyscriptc.package import lower_directory
+from pyscriptc.tirserde import dict_to_type
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
@@ -339,7 +340,10 @@ def test_package_generator_lowers_and_cross_module_consumes(tmp_path: Path) -> N
     # The consumer module binds the frame class through the export table
     # (its for-loop local `.ps_it_1` carries the `gen.count` shape).
     user = next(fn for fn in module["functions"] if fn["name"] == "pkg.user.run")
-    assert any(local["type"] == {"kind": "class", "name": "gen.count"} for local in user["locals"])
+    assert any(
+        dict_to_type(local["type"]).kind == "class" and dict_to_type(local["type"]).name == "gen.count"
+        for local in user["locals"]
+    )
 
 
 def test_package_generator_runs_across_modules(tmp_path: Path) -> None:
