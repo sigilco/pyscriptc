@@ -679,7 +679,8 @@ class _FnLowerer:
                 # no runtime value, so there is no slot write. A void call
                 # still emits (its effects are the call itself), the way
                 # the direct path emits the call then skips the store.
-                if value_expr["kind"] == "call":
+                vnode: str = value_expr["kind"]
+                if vnode == "call":
                     self.emit_call_expr(value_expr)
                 return
             value = self.emit_expr(value_expr)
@@ -690,7 +691,8 @@ class _FnLowerer:
             if self.is_none(expr):
                 # The direct path skips a None const expression statement;
                 # a void call emits.
-                if expr["kind"] == "call":
+                enode: str = expr["kind"]
+                if enode == "call":
                     self.emit_call_expr(expr)
                 return
             self.emit_expr(expr)
@@ -702,7 +704,8 @@ class _FnLowerer:
             # emits first, then the void ret.
             rvalue: Dict[str, Any] = stmt["value"]
             if self.is_none(rvalue):
-                if rvalue["kind"] == "call":
+                rnode: str = rvalue["kind"]
+                if rnode == "call":
                     self.emit_call_expr(rvalue)
                 self.builder.emit_ret_void()
                 return

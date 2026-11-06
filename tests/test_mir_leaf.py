@@ -55,6 +55,7 @@ LEAF_SAMPLES = [
         "leafforrange.py",
         "leafelif.py",
         "leafnone.py",
+        "leafcall.py",
     )
 ]
 
@@ -296,3 +297,38 @@ class TestVerifierViolations:
         r = b.emit_call(p, [], MIR_D)
         b.emit_ret(r)
         assert verify_function(b.finish()) == []
+
+
+class TestCallSlice:
+    """The call slice (A3): a call to a plain module-level user function
+    with scalar args and result, and the void call, lower to `MIR_CALL`
+    and emit byte-identical to the direct emitter."""
+
+    def test_leafcall_fixture_byte_identical(self) -> None:
+        path = str(_FIXTURES / "leafcall.py")
+        module, _ = lower_file(path)
+        assert emit_llvm_mir(module) == emit_llvm(module)
+
+    def test_call_functions_lower_to_mir_call(self) -> None:
+        path = str(_FIXTURES / "leafcall.py")
+        module, _ = lower_file(path)
+        mir = lower_module(module)
+        by_name = {fn.name: fn for fn in mir.functions}
+        assert mir.skipped == ["main", "__entry__"]
+        add_fn = by_name["add"]
+        assert add_fn.call_args == {}
+        total_fn = by_name["total"]
+        assert sorted(total_fn.callees.values()) == ["add", "note", "scale"]
+        assert MIR_CALL in total_fn.ops
+        for fn in mir.functions:
+            assert verify_function(fn) == []
+
+    def test_builtin_and_method_calls_stay_out(self, tmp_path: Path) -> None:
+        src = tmp_path / "outcalls.py"
+        src.write_text(
+            "def shout(a: int) -> int:\n    return len(str(a))\n\n\ndef main() -> None:\n    pass\n",
+            encoding="utf-8",
+        )
+        module, _ = lower_file(str(src))
+        mir = lower_module(module)
+        assert "shout" in mir.skipped

@@ -141,6 +141,12 @@ def _bind(fn: MirFunction, values: list[int]) -> str:
     return ", ".join(_operand(fn, v) for v in values)
 
 
+def _call_args_text(fn: MirFunction, i: int) -> str:
+    if i not in fn.call_args:
+        return ""
+    return _bind(fn, fn.call_args[i])
+
+
 def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
     op = fn.ops[i]
     name = OP_NAMES.get(op, f"op{op}")
@@ -172,11 +178,9 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
             return f"{dst}:{tag} = call {helper.split(' ')[0]} {_operand(fn, a1)}, {_operand(fn, a2)}"
         return f"{dst}:{tag} = copy {_operand(fn, a1)}"
     if op == MIR_CALL:
-        callees = fn.callees
-        callee = callees.get(a1, "?")
-        args_i = fn.call_args.get(i, [])
-        bound = ", ".join(_operand(fn, v) for v in args_i) if args_i else ""
-        return f"{dst}:{tag} = call @{callee}({bound})"
+        callee: str = fn.callees.get(a1, "?")
+        tag = tag_name(fn.arg2[i])
+        return f"{dst}:{tag} = call @{callee}({_call_args_text(fn, i)})"
     tag = tag_name(OP_RESULT_TYPE.get(op, MIR_W))
     if OP_ARITY.get(op, 2) == 1:
         return f"{dst}:{tag} = {name} {_operand(fn, a1)}"

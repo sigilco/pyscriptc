@@ -804,7 +804,7 @@ def serialize(fn: MirFunction) -> str:
     # order. The ids are allocated in allocation order, so the bytes stay
     # construction-ordered; an empty table renders nothing.
     callees: dict[int, str] = fn.callees
-    for vid in sorted(callees):
+    for vid in callees:
         lines.append(f"callee v{vid} {callees[vid]}")
     return "\n".join(lines) + "\n"
 

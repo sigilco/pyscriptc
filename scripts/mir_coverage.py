@@ -155,8 +155,10 @@ def measure_script(path: Path) -> dict[str, object]:
             continue
         counted.append(name)
         reason = out_of_slice_reason(fn)
-        if reason is None and name in mir_names and supported_module_fn(
-            fn, {f["name"]: f for f in functions if f.get("name") in mir_names}
+        if (
+            reason is None
+            and name in mir_names
+            and supported_module_fn(fn, {f["name"]: f for f in functions if f.get("name") in mir_names})
         ):
             in_slice.append(name)
         else:

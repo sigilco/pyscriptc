@@ -326,7 +326,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
     # to resolve. Its tag is the word tag: the callee's own result type
     # rides the call's `arg2`, not the entry value.
     callees: dict[int, str] = fn.callees
-    for vid in sorted(callees):
+    for vid in callees:
         if vid in defs:
             out.append(_Violation(CODE_USEDEF, f"callee v{vid} redefined"))
         defs[vid] = MIR_W
