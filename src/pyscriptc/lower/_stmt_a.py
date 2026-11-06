@@ -394,8 +394,17 @@ class StmtAMixin:
                         # element type is the fact, or the peek refuses and
                         # the target stays out.
                         iter_typ = self._infer_type_of(loop.iter)
-                    if iter_typ is not None and _maybe_type_kind(iter_typ) == "list":
+                    if iter_typ is None:
+                        continue
+                    kind = _maybe_type_kind(iter_typ)
+                    if kind == "list":
                         self.locals[name] = iter_typ["elem"]
+                    elif kind == "dict":
+                        self.locals[name] = iter_typ["key"]
+                    elif kind == "str":
+                        self.locals[name] = {"kind": "str"}
+                    elif kind == "bytes":
+                        self.locals[name] = {"kind": "int"}
 
         def _written_value(node: ast.expr) -> dict[str, Any] | None:
             """The written value's type, read through the accumulator.
