@@ -108,7 +108,29 @@ _OP_ARITY: dict[int, int] = {
     38: 3,  # MIR_SETATTR
     39: 3,  # MIR_GETATTR
     40: 3,  # MIR_MAP_PUT
+    40: 0,  # MIR_TRYPACK
+    41: 1,  # MIR_TRYCALL
+    42: 0,  # MIR_FLOWLD
+    43: 2,  # MIR_TRYICMP
+    44: 1,  # MIR_TRYNE
+    45: 0,  # MIR_EXCCODE
+    46: 2,  # MIR_EXCISA
+    47: 0,  # MIR_RETLOD
+    48: 0,  # MIR_EXCCUR
+    49: 0,  # MIR_RERAISE
+    50: 1,  # MIR_RAISEEXC
+    51: 0,  # MIR_UNREACH
 }
+
+# The try callsite terminators, spelled as int literals for the same
+# reason as the arity table: they extend the four terminator walks
+# below without new imports.
+_EXTRA_TERMINATORS = [49, 50, 51]
+
+# The arity-0 value ops: they read no operand slot (their payload rides
+# the helpers entry or `arg2`), so the generic value-op rule would skip
+# them; the def seeding below gives each its result tag.
+_TAGLESS_VALUE_OPS = [40, 42, 45, 47, 48]
 
 # The verifier's own codes. They are stable: a test that pins a violation
 # pins the code, not the prose.
@@ -167,7 +189,7 @@ def _span_end(fn: MirFunction, start: int) -> int:
     n: int = len(ops)
     while i < n:
         op: int = ops[i]
-        if op == MIR_JMP or op == MIR_BR or op == MIR_RET or op == MIR_RAISE:
+        if op == MIR_JMP or op == MIR_BR or op == MIR_RET or op == MIR_RAISE or op in _EXTRA_TERMINATORS:
             return i + 1
         i += 1
     return n
@@ -510,7 +532,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         # the two control ops (MIR_BR, MIR_RET). The result type comes from
         # the same table through the lookup helper above.
         arity_at: int | None = _OP_ARITY.get(op)
-        is_control: int = 1 if op == MIR_BR or op == MIR_RET or op == MIR_RAISE else 0
+        is_control: int = 1 if op == MIR_BR or op == MIR_RET or op == MIR_RAISE or op in _EXTRA_TERMINATORS else 0
         # A call's dst and result tag run through `_check_call` below: a
         # void call legitimately writes no dst and its true tag rides
         # arg2, so the generic value-op rules do not apply. The sequence
@@ -522,7 +544,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
             op != MIR_CALL
             and is_seq_store == 0
             and arity_at is not None
-            and (arity_at >= 2 or (arity_at == 1 and is_control == 0))
+            and (arity_at >= 2 or (arity_at == 1 and is_control == 0) or op in _TAGLESS_VALUE_OPS)
         ):
             if dst < 0:
                 out.append(_Violation(CODE_USEDEF, f"instr {i}: value op without a dst"))
@@ -539,6 +561,19 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                     get_tag: int = fn.arg3[i] if i < len(fn.arg3) else -1
                     if get_tag == MIR_W or get_tag == MIR_D or get_tag == MIR_B or get_tag == MIR_S or get_tag == MIR_P:
                         defs[dst] = get_tag
+                    else:
+                        defs[dst] = MIR_W
+                elif op == 40 or op == 48:
+                    # trypack/exccur: pointer results.
+                    defs[dst] = MIR_P
+                elif op == 43 or op == 44 or op == 46:
+                    # tryicmp/tryne/excisa: i1 results.
+                    defs[dst] = MIR_B
+                elif op == 47:
+                    # retlod: the result tag rides arg2.
+                    ret_tag: int = fn.arg2[i]
+                    if ret_tag == MIR_W or ret_tag == MIR_D or ret_tag == MIR_B or ret_tag == MIR_S or ret_tag == MIR_P:
+                        defs[dst] = ret_tag
                     else:
                         defs[dst] = MIR_W
                 else:
@@ -581,7 +616,13 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         terms: list[int] = []
         for b_index in range(len(body)):
             term_op: int = body[b_index]
-            if term_op == MIR_JMP or term_op == MIR_BR or term_op == MIR_RET or term_op == MIR_RAISE:
+            if (
+                term_op == MIR_JMP
+                or term_op == MIR_BR
+                or term_op == MIR_RET
+                or term_op == MIR_RAISE
+                or term_op in _EXTRA_TERMINATORS
+            ):
                 terms.append(term_op)
         if not terms:
             out.append(_Violation(CODE_CONTROL, f"block {bid} has no terminator"))
@@ -648,7 +689,14 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                                     f" of type {arg.typ}",
                                 )
                             )
-        if last != MIR_JMP and last != MIR_BR and last != MIR_RET and last != MIR_RAISE and body:
+        if (
+            last != MIR_JMP
+            and last != MIR_BR
+            and last != MIR_RET
+            and last != MIR_RAISE
+            and last not in _EXTRA_TERMINATORS
+            and body
+        ):
             out.append(_Violation(CODE_CONTROL, f"block {bid} falls through without a terminator"))
 
     return out

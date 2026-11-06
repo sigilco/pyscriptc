@@ -34,7 +34,11 @@ from pyscriptc.mir import (
     MIR_CNEW,
     MIR_COPY,
     MIR_D,
+    MIR_EXCCODE,
+    MIR_EXCCUR,
+    MIR_EXCISA,
     MIR_EXTWD,
+    MIR_FLOWLD,
     MIR_GETATTR,
     MIR_JMP,
     MIR_MAP_PUT,
@@ -49,7 +53,10 @@ from pyscriptc.mir import (
     MIR_ORW,
     MIR_P,
     MIR_RAISE,
+    MIR_RAISEEXC,
+    MIR_RERAISE,
     MIR_RET,
+    MIR_RETLOD,
     MIR_S,
     MIR_SEQGET,
     MIR_SEQLEN,
@@ -58,6 +65,11 @@ from pyscriptc.mir import (
     MIR_SETATTR,
     MIR_SUBD,
     MIR_SUBW,
+    MIR_TRYCALL,
+    MIR_TRYICMP,
+    MIR_TRYNE,
+    MIR_TRYPACK,
+    MIR_UNREACH,
     MIR_VOID,
     MIR_W,
     MIR_XORW,
@@ -111,9 +123,21 @@ OP_NAMES: dict[int, str] = {
     MIR_NEWOBJ: "newobj",
     MIR_SETATTR: "setattr",
     MIR_GETATTR: "getattr",
+    MIR_TRYPACK: "trypack",
+    MIR_TRYCALL: "trycall",
+    MIR_FLOWLD: "flowld",
+    MIR_TRYICMP: "tryicmp",
+    MIR_TRYNE: "tryne",
+    MIR_EXCCODE: "exccode",
+    MIR_EXCISA: "excisa",
+    MIR_RETLOD: "retlod",
+    MIR_EXCCUR: "exccur",
+    MIR_RERAISE: "reraise",
+    MIR_RAISEEXC: "raiseexc",
+    MIR_UNREACH: "unreach",
 }
 
-_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]
+_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE, MIR_RERAISE, MIR_RAISEEXC, MIR_UNREACH]
 
 
 def tag_name(tag: int) -> str:
@@ -193,6 +217,12 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
         return f"jmp b{a1}"
     if op == MIR_RAISE:
         return f"raise {_operand(fn, a1)}"
+    if op == MIR_RERAISE:
+        return "reraise"
+    if op == MIR_RAISEEXC:
+        return f"raiseexc {_operand(fn, a1)}"
+    if op == MIR_UNREACH:
+        return "unreach"
     if op == MIR_BR:
         block = fn.blocks[bid] if bid < len(fn.blocks) else None
         if block is None:
@@ -226,8 +256,26 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
         callee: str = fn.callees.get(a1, "?")
         tag = tag_name(fn.arg2[i])
         return f"{dst}:{tag} = call @{callee}({_call_args_text(fn, i)})"
+    if op == MIR_TRYPACK:
+        helper = fn.helpers.get(i)
+        suffix = ""
+        if helper is not None:
+            suffix = " " + helper.split(" ", 1)[1]
+        return f"v{fn.dsts[i]}:p = trypack{suffix}"
+    if op == MIR_TRYCALL:
+        helper = fn.helpers.get(i)
+        suffix = ""
+        if helper is not None:
+            suffix = " " + helper.split(" ", 1)[1]
+        return f"v{fn.dsts[i]}:w = trycall {_operand(fn, a1)}{suffix}"
+    if op == MIR_RETLOD:
+        tag = tag_name(a2)
+        return f"v{fn.dsts[i]}:{tag} = retlod"
     tag = tag_name(OP_RESULT_TYPE.get(op, MIR_W))
-    if OP_ARITY.get(op, 2) == 1:
+    arity = OP_ARITY.get(op, 2)
+    if arity == 0:
+        return f"{dst}:{tag} = {name}"
+    if arity == 1:
         return f"{dst}:{tag} = {name} {_operand(fn, a1)}"
     return f"{dst}:{tag} = {name} {_operand(fn, a1)}, {_operand(fn, a2)}"
 

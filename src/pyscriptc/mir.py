@@ -173,6 +173,34 @@ MIR_SEQLEN = 34
 MIR_NEWOBJ = 37
 MIR_SETATTR = 38
 MIR_GETATTR = 39
+
+# Try/except callsite ops. The try body is outlined by the direct path's
+# `ps.try.N` function; these ops spell the callsite sequence the caller
+# emits: the env pack (`MIR_TRYPACK` builds the `[N x ptr]` env array the
+# outline binds, its slot names riding the helpers entry), the
+# `ps_try_call` (`MIR_TRYCALL`, the outline symbol riding the helpers
+# entry), the flow-slot load (`MIR_FLOWLD`), the `flow == 1`/`flow == 2`
+# probes (`MIR_TRYICMP`, the compared constant in `arg2`), the
+# `code != 0` probe (`MIR_TRYNE`), the exception probes (`MIR_EXCCODE`,
+# `MIR_EXCISA` with the exception code constant in `arg2`), the
+# propagated-return load (`MIR_RETLOD`, the result tag in `arg2`), and
+# the `ps_exc_current` read (`MIR_EXCCUR`). The terminators are the
+# handler miss (`MIR_RERAISE`), the finally raise path (`MIR_RAISEEXC`,
+# the saved exception pointer in `arg1`) and the dead merge
+# (`MIR_UNREACH`). The ids append after the class ops so existing
+# digests keep their bytes.
+MIR_TRYPACK = 40
+MIR_TRYCALL = 41
+MIR_FLOWLD = 42
+MIR_TRYICMP = 43
+MIR_TRYNE = 44
+MIR_EXCCODE = 45
+MIR_EXCISA = 46
+MIR_RETLOD = 47
+MIR_EXCCUR = 48
+MIR_RERAISE = 49
+MIR_RAISEEXC = 50
+MIR_UNREACH = 51
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table;
@@ -219,6 +247,18 @@ OP_ARITY = {
     MIR_SETATTR: 3,
     MIR_GETATTR: 3,
     MIR_MAP_PUT: 3,
+    MIR_TRYPACK: 0,
+    MIR_TRYCALL: 1,
+    MIR_FLOWLD: 0,
+    MIR_TRYICMP: 2,
+    MIR_TRYNE: 1,
+    MIR_EXCCODE: 0,
+    MIR_EXCISA: 2,
+    MIR_RETLOD: 0,
+    MIR_EXCCUR: 0,
+    MIR_RERAISE: 0,
+    MIR_RAISEEXC: 1,
+    MIR_UNREACH: 0,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -266,6 +306,18 @@ OP_RESULT_TYPE = {
     MIR_SETATTR: MIR_W,
     MIR_GETATTR: MIR_P,  # a getattr's true tag rides arg3; the tables cannot know it
     MIR_MAP_PUT: MIR_W,
+    MIR_TRYPACK: MIR_P,
+    MIR_TRYCALL: MIR_W,  # the try call's i32 code reads as a word
+    MIR_FLOWLD: MIR_W,
+    MIR_TRYICMP: MIR_B,
+    MIR_TRYNE: MIR_B,
+    MIR_EXCCODE: MIR_W,
+    MIR_EXCISA: MIR_B,
+    MIR_RETLOD: MIR_W,  # a retlod's true tag rides arg2; the tables cannot know it
+    MIR_EXCCUR: MIR_P,
+    MIR_RERAISE: MIR_W,
+    MIR_RAISEEXC: MIR_W,
+    MIR_UNREACH: MIR_W,
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -292,7 +344,7 @@ def copy_result_type(fn: MirFunction, i: int) -> int:
 
 # The ops that end a block. A list, not a set: `in` lowers for lists and
 # the table is five entries, so the membership walk costs nothing.
-TERMINATORS = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE]
+TERMINATORS = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE, MIR_RERAISE, MIR_RAISEEXC, MIR_UNREACH]
 
 # The ops that produce a value a later instruction can reference.
 VALUE_OPS = [
@@ -327,6 +379,15 @@ VALUE_OPS = [
     MIR_XORW,
     MIR_NEWOBJ,
     MIR_GETATTR,
+    MIR_TRYPACK,
+    MIR_TRYCALL,
+    MIR_FLOWLD,
+    MIR_TRYICMP,
+    MIR_TRYNE,
+    MIR_EXCCODE,
+    MIR_EXCISA,
+    MIR_RETLOD,
+    MIR_EXCCUR,
 ]
 
 
@@ -806,6 +867,30 @@ class MirBuilder:
         if current is None or self.terminated:
             raise MirError("raise outside an open block")
         self.emit(MIR_RAISE, -1, code, none_ref())
+        self.terminated = 1
+
+    def emit_reraise(self) -> None:
+        """Reraise the in-flight exception (`ps_reraise`); ends the block."""
+        current: MirBlock | None = self.current
+        if current is None or self.terminated:
+            raise MirError("reraise outside an open block")
+        self.emit(MIR_RERAISE, -1, none_ref(), none_ref())
+        self.terminated = 1
+
+    def emit_raiseexc(self, exc: int) -> None:
+        """Raise the saved exception record (`ps_raise_exc`); ends the block."""
+        current: MirBlock | None = self.current
+        if current is None or self.terminated:
+            raise MirError("raiseexc outside an open block")
+        self.emit(MIR_RAISEEXC, -1, exc, none_ref())
+        self.terminated = 1
+
+    def emit_unreach(self) -> None:
+        """An `unreachable` terminator: ends the block with no call."""
+        current: MirBlock | None = self.current
+        if current is None or self.terminated:
+            raise MirError("unreachable outside an open block")
+        self.emit(MIR_UNREACH, -1, none_ref(), none_ref())
         self.terminated = 1
 
     def emit_jmp(self, target: int) -> None:
