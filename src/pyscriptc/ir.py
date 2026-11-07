@@ -114,6 +114,10 @@ def type_key(typ: dict[str, Any]) -> str:
         head = "set" if typ.get("set") else "list"
         return f"{head}[{type_key(typ['elem'])}]"
     if kind == "dict":
+        if "key" not in typ or "value" not in typ:
+            # A bare `dict` shape (the isinstance want record carries no
+            # parameters): key on the shape alone, like `list[?]`.
+            return "dict[?]"
         return f"dict[{type_key(typ['key'])}, {type_key(typ['value'])}]"
     if kind == "class":
         if "elem" in typ:
