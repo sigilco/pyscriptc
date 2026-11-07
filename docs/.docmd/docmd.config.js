@@ -33,6 +33,10 @@ export default {
   plugins: {
     "./plugins/placeholders.js": {},
     "./plugins/og-image.js": {},
+    // The `analytics` plugin injects the PostHog EU loader on every docs
+    // page. It emits nothing unless PUBLIC_POSTHOG_TOKEN is set at build
+    // time, so a tokenless build ships no analytics code at all.
+    "./plugins/analytics.js": {},
     // The ai plugin is a core plugin and loads on every build; `assistant:
     // false` makes generateScripts()/getAssets() emit nothing
     // (plugin-ai/dist/index.js checks `pluginOptions.assistant === false`).

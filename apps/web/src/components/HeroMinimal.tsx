@@ -40,12 +40,16 @@ export const HeroMinimal: React.FC<HeroMinimalProps> = ({
           <div className="flex flex-wrap items-center gap-6">
             <a
               href={docsUrl}
+              data-ph-event="cta_click"
+              data-ph-label="hero_docs"
               className="px-6 py-3 rounded-full bg-white text-black font-medium text-xs hover:bg-slate-200 transition-all shadow-sm"
             >
               Read the documentation ↗
             </a>
             <a
               href={compatUrl}
+              data-ph-event="cta_click"
+              data-ph-label="hero_compat"
               className="text-xs font-normal text-slate-400 hover:text-white transition-colors"
             >
               View compatibility matrix ↗
