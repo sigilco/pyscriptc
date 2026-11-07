@@ -910,6 +910,33 @@ def _node_callee(node: Any) -> Any:
     return callee
 
 
+def _call_str(node: dict[str, Any], key: str, default: str = "") -> str:
+    """A dict-only string key on a marker call (`prim_op`, `recv`): the
+    typed call record has no slot for it, so the key is only ever spelled
+    on the kept whole-dict call and a typed call answers with the
+    default. Callers pass the marker call as `Any`; a typed `IrNode` is
+    not a dict and takes the default."""
+
+    if isinstance(node, dict):
+        return node.get(key, default)
+    return default
+
+
+def _call_type(node: dict[str, Any], key: str) -> dict[str, Any]:
+    """A dict-only type key on a marker call (`prim_elem`, `thread_elem`,
+    `recvType`): the kept whole-dict call carries the type dict, a typed
+    call answers with the none type. The dict is transient — every
+    consumer converts it through `dict_to_type` — so the shared `_NONE`
+    spelling is safe."""
+
+    if isinstance(node, dict):
+        if key in node:
+            typ: dict[str, Any] = node[key]
+            if typ:
+                return typ
+    return _NONE
+
+
 def _callee_kind(callee: Any) -> str:
     """The kind tag a callee record carries: builtin, module, method,
     class or value."""
@@ -1619,35 +1646,67 @@ class _Frame:
         span = _node_span(stmt)
         kind = _node_kind(stmt)
         if kind == "expr":
-            # The expansions still consume dict IR: the marker statement
-            # converts back once at this seam. Dict-only marker keys
-            # (`recv`/`recvType`, `prim_op`/`prim_elem`/`thread_elem`,
-            # `wait_for`) ride on kept whole-dict calls, so the conversion
-            # is lossless.
-            marker = stmt if isinstance(stmt, dict) else node_to_dict(stmt)
-            if _is_marker(marker, SLEEP_MARKER):
-                return self._sleep(marker, marker["span"])
-            if _is_marker(marker, AWAIT_TASK_MARKER):
-                return self._await_task(marker, marker["span"])
-            if _is_marker(marker, WAIT_FOR_MARKER):
-                return self._wait_for(marker, marker["span"])
-            if _is_marker(marker, PRIM_MARKER):
-                return self._await_prim(marker, marker["span"])
-            if _is_marker(marker, THREAD_MARKER):
-                return self._await_thread(marker, marker["span"])
-            if _is_marker(marker, self.kind.marker):
+            # The expansions read the marker through the node accessors:
+            # a typed call answers with its fields, and a marker carrying
+            # dict-only keys (`recv`/`recvType`, `prim_op`/`prim_elem`/
+            # `thread_elem`, `wait_for`) stayed a whole dict at the walk,
+            # so `_call_str`/`_call_type` still find them. Each expansion
+            # takes the marker call's argument list (and the dict-only
+            # extras it needs) so its own signature stays on lowered
+            # types.
+            expr = _node_expr(stmt)
+            args: list[Any]
+            if isinstance(expr, IrNode):
+                args = expr.args or []
+            elif isinstance(expr, dict):
+                args = expr.get("args") or []
+            else:
+                args = []
+            # The five operand expansions all read the marker's first
+            # argument — a `name` node — for its slot and type. The pair is
+            # spelled here, where the `Any`-typed statement makes the
+            # typed-or-dict reads free, and passed down as a plain record.
+            ref: dict[str, Any] = {"id": "", "type": _NONE}
+            operand = args[0] if args else None
+            operand_t: dict[str, Any] = _NONE
+            if isinstance(operand, IrNode):
+                ref["id"] = operand.id
+                operand_t = node_to_dict(operand.type)
+            elif isinstance(operand, dict):
+                ref["id"] = operand.get("id") or ""
+                operand_t = operand.get("type")
+            if operand_t:
+                ref["type"] = operand_t
+            if _is_marker(stmt, SLEEP_MARKER):
+                return self._sleep(args, span)
+            if _is_marker(stmt, AWAIT_TASK_MARKER):
+                return self._await_task(ref, span)
+            if _is_marker(stmt, WAIT_FOR_MARKER):
+                return self._wait_for(ref, args, span)
+            if _is_marker(stmt, PRIM_MARKER):
+                return self._await_prim(
+                    ref,
+                    {
+                        "prim_op": _call_str(expr, "prim_op", "lock_acquire"),
+                        "prim_elem": _call_type(expr, "prim_elem"),
+                    },
+                    span,
+                )
+            if _is_marker(stmt, THREAD_MARKER):
+                return self._await_thread(ref, {"thread_elem": _call_type(expr, "thread_elem")}, span)
+            if _is_marker(stmt, self.kind.marker):
                 if self.kind.marker == AWAIT_MARKER:
-                    return self._await(marker, marker["span"])
+                    return self._await(ref, span)
                 self.points += 1
                 point = self.points
-                value = marker["expr"]["args"][0] if marker["expr"]["args"] else _const(None, _NONE, span)
+                value = args[0] if args else _const(None, _NONE, span)
                 leave = [
                     *self.copy_out(span),
                     self.field_set(STATE, _const(point, _INT, span), span),
                     *self.kind.suspend(self, value, span),
                 ]
                 arrive = [_assign(RESUME, _const(0, _INT, span), span)]
-                recv = marker["expr"].get("recv")
+                recv = _call_str(expr, "recv") or None
                 if recv is not None:
                     # A yield used as an expression: the sent value (`.ps_send`,
                     # stored by `send()`) lands in the recv temp the lowering
@@ -1655,7 +1714,7 @@ class _Frame:
                     # send type is None has no `.ps_send` field and no `send()`
                     # method: `next()` delivers None, so the recv temp is the
                     # None singleton.
-                    typ = marker["expr"].get("recvType", dict(_NONE))
+                    typ = _call_type(expr, "recvType")
                     arrive.append(
                         _assign(
                             recv,
@@ -1857,14 +1916,13 @@ class _Frame:
         exception being handled. The frame keeps it, so a suspension in the
         handler does not lose it.
         """
-        call = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "current"},
-            "args": [],
-            "type": dict(_EXC),
-            "span": span,
-            "symbol": "ps_exc_current",
-        }
+        call = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "current"},
+            [],
+            _EXC,
+            span,
+            "ps_exc_current",
+        )
         return self.field_set(EXC, call, span)
 
     def _restore_exc(self, span: dict[str, Any]) -> dict[str, Any]:
@@ -1875,15 +1933,14 @@ class _Frame:
         handler's own exception back, so a bare `raise` after the resume
         re-raises the exception the handler caught.
         """
-        call = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "restore"},
-            "args": [self.field_get(EXC, _EXC, span)],
-            "type": dict(_NONE),
-            "span": span,
-            "symbol": "ps_exc_restore",
-        }
-        return {"kind": "expr", "expr": call, "span": span}
+        call = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "restore"},
+            [self.field_get(EXC, _EXC, span)],
+            _NONE,
+            span,
+            "ps_exc_restore",
+        )
+        return _expr_node(call, span)
 
     def _reraise(self, span: dict[str, Any]) -> list[dict[str, Any]]:
         """Re-raise the exception the frame kept, so the try dispatches again.
@@ -1893,15 +1950,14 @@ class _Frame:
         setjmp catches it, and the callsite dispatches to the same handler.
         """
         slot = self._exc_slot()
+        reraised = node_to_dict(_ir.raise_stmt("Exception", _mk_span(span), -1, None, True, slot))
+        # The re-raise dict spells no message key (the bare-raise convention
+        # `lower/_stmt_b._raise_node` documents), so the explicit null the
+        # serializer adds comes back off.
+        reraised.pop("message", None)
         return [
             _assign(slot, self.field_get(EXC, _EXC, span), span),
-            {
-                "kind": "raise",
-                "exc": "Exception",
-                "reraise": True,
-                "excslot": slot,
-                "span": span,
-            },
+            reraised,
         ]
 
     def _exc_slot(self) -> str:
@@ -1910,7 +1966,7 @@ class _Frame:
             self._exc_local = self.temp("exc", _EXC)
         return self._exc_local
 
-    def _await(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+    def _await(self, ref: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_await__(child)` into the child-poll suspension.
 
         The child frame is in the local the lowerer bound (the marker's
@@ -1930,22 +1986,20 @@ class _Frame:
         """
         self.points += 1
         point = self.points
-        child = stmt["expr"]["args"][0]
-        child_t = child["type"]
+        slot = ref["id"]
+        child_t = ref["type"]
         child_frame = child_t["name"]
-        slot = child["id"]
         result = _await_result_name(slot)
         done = self.temp("awd", _BOOL)
         failed = self.temp("awf", _BOOL)
         status = self.temp("aws", _INT)
-        poll = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "await"},
-            "args": [_name(slot, child_t, span), self.self_name(span)],
-            "type": dict(_INT),
-            "span": span,
-            "symbol": "ps_await_poll",
-        }
+        poll = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "await"},
+            [_name(slot, child_t, span), self.self_name(span)],
+            _INT,
+            span,
+            "ps_await_poll",
+        )
         read = _attr_expr(_name(slot, child_t, span), RESULT, self._await_result_type(child_frame), span)
         pending = [
             _assign(done, _compare("==", _name(status, _INT, span), _const(COMPLETE, _INT, span), span), span),
@@ -1955,18 +2009,16 @@ class _Frame:
             _if(
                 _name(failed, _BOOL, span),
                 [
-                    {
-                        "kind": "expr",
-                        "expr": {
-                            "kind": "call",
-                            "callee": {"kind": "module", "module": "asyncio", "name": "raise"},
-                            "args": [_name(slot, child_t, span)],
-                            "type": dict(_NONE),
-                            "span": span,
-                            "symbol": "ps_await_raise",
-                        },
-                        "span": span,
-                    }
+                    _expr_node(
+                        _call_node(
+                            {"kind": "module", "module": "asyncio", "name": "raise"},
+                            [_name(slot, child_t, span)],
+                            _NONE,
+                            span,
+                            "ps_await_raise",
+                        ),
+                        span,
+                    )
                 ],
                 [],
                 span,
@@ -1975,18 +2027,16 @@ class _Frame:
                 _name(done, _BOOL, span),
                 [],
                 [
-                    {
-                        "kind": "expr",
-                        "expr": {
-                            "kind": "call",
-                            "callee": {"kind": "module", "module": "asyncio", "name": "wait"},
-                            "args": [_name(slot, child_t, span), self.self_name(span)],
-                            "type": dict(_NONE),
-                            "span": span,
-                            "symbol": "ps_loop_wait",
-                        },
-                        "span": span,
-                    },
+                    _expr_node(
+                        _call_node(
+                            {"kind": "module", "module": "asyncio", "name": "wait"},
+                            [_name(slot, child_t, span), self.self_name(span)],
+                            _NONE,
+                            span,
+                            "ps_loop_wait",
+                        ),
+                        span,
+                    ),
                     _if(
                         _const(True, _BOOL, span),
                         self.kind.suspend(self, _const(0, _INT, span), span),
@@ -2024,7 +2074,7 @@ class _Frame:
                 return plan.elem
         raise CoroError(f"await of an unknown coroutine frame {child_frame}", self.span)
 
-    def _await_task(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+    def _await_task(self, ref: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_await_task__(task)` into the task-await suspension.
 
         The task is in the local the lowerer bound (the marker's argument
@@ -2040,41 +2090,36 @@ class _Frame:
         """
         self.points += 1
         point = self.points
-        task = stmt["expr"]["args"][0]
-        task_t = task["type"]
-        slot = task["id"]
+        slot = ref["id"]
+        task_t = ref["type"]
         result = _await_result_name(slot)
         elem = task_t["elem"]
         failed = self.temp("awtf", _BOOL)
         status = self.temp("awts", _INT)
-        park = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "task_await"},
-            "args": [_name(slot, task_t, span), self.self_name(span)],
-            "type": dict(_INT),
-            "span": span,
-            "symbol": "ps_task_await",
-        }
-        read = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "task_result"},
-            "args": [_name(slot, task_t, span)],
-            "type": elem,
-            "span": span,
-            "symbol": "ps_task_result",
-        }
-        raise_here = {
-            "kind": "expr",
-            "expr": {
-                "kind": "call",
-                "callee": {"kind": "module", "module": "asyncio", "name": "task_failure"},
-                "args": [_name(slot, task_t, span)],
-                "type": dict(_NONE),
-                "span": span,
-                "symbol": "ps_task_failure",
-            },
-            "span": span,
-        }
+        park = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "task_await"},
+            [_name(slot, task_t, span), self.self_name(span)],
+            _INT,
+            span,
+            "ps_task_await",
+        )
+        read = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "task_result"},
+            [_name(slot, task_t, span)],
+            elem,
+            span,
+            "ps_task_result",
+        )
+        raise_here = _expr_node(
+            _call_node(
+                {"kind": "module", "module": "asyncio", "name": "task_failure"},
+                [_name(slot, task_t, span)],
+                _NONE,
+                span,
+                "ps_task_failure",
+            ),
+            span,
+        )
         # Fresh entry: copy out, mark the point, park. Re-entry: the task
         # finished and the loop woke the parent, so fall through to the read.
         leave = [
@@ -2091,13 +2136,9 @@ class _Frame:
         cancelled = _if(
             _compare("==", _name(status, _INT, span), _const(CANCELLED, _INT, span), span),
             [
-                {
-                    "kind": "raise",
-                    "exc": "CancelledError",
-                    "code": RESERVED_EXCEPTIONS["CancelledError"],
-                    "message": None,
-                    "span": span,
-                }
+                node_to_dict(
+                    _ir.raise_stmt("CancelledError", _mk_span(span), RESERVED_EXCEPTIONS["CancelledError"], None)
+                )
             ],
             [],
             span,
@@ -2109,7 +2150,7 @@ class _Frame:
             *result_set,
         ]
 
-    def _wait_for(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+    def _wait_for(self, ref: dict[str, Any], args: list[Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_wait_for__(task, delay)` into the deadline suspension.
 
         The task wraps the awaited coroutine (the lowerer created it before
@@ -2120,35 +2161,32 @@ class _Frame:
         """
         self.points += 1
         point = self.points
-        task, delay = stmt["expr"]["args"][0], stmt["expr"]["args"][1]
-        task_t = task["type"]
-        slot = task["id"]
+        slot = ref["id"]
+        task_t = ref["type"]
+        delay = args[1]
         result = _await_result_name(slot)
         elem = task_t["elem"]
-        park = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "task_wait_for"},
-            "args": [_name(slot, task_t, span), delay, self.self_name(span)],
-            "type": dict(_INT),
-            "span": span,
-            "symbol": "ps_task_wait_for",
-        }
-        outcome = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "task_wait_outcome"},
-            "args": [self.self_name(span)],
-            "type": dict(_INT),
-            "span": span,
-            "symbol": "ps_task_wait_outcome",
-        }
-        read = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "task_result"},
-            "args": [_name(slot, task_t, span)],
-            "type": elem,
-            "span": span,
-            "symbol": "ps_task_result",
-        }
+        park = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "task_wait_for"},
+            [_name(slot, task_t, span), delay, self.self_name(span)],
+            _INT,
+            span,
+            "ps_task_wait_for",
+        )
+        outcome = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "task_wait_outcome"},
+            [self.self_name(span)],
+            _INT,
+            span,
+            "ps_task_wait_outcome",
+        )
+        read = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "task_result"},
+            [_name(slot, task_t, span)],
+            elem,
+            span,
+            "ps_task_result",
+        )
         # Fresh entry: copy out, mark the point, park while the task runs.
         leave = [
             *self.copy_out(span),
@@ -2166,7 +2204,7 @@ class _Frame:
             _assign(RESUME, _const(0, _INT, span), span),
             _if(
                 _compare("==", outcome, _const(1, _INT, span), span),
-                [{"kind": "raise", "exc": "TimeoutError", "message": None, "span": span}],
+                [node_to_dict(_ir.raise_stmt("TimeoutError", _mk_span(span), -1, None))],
                 [],
                 span,
             ),
@@ -2193,7 +2231,7 @@ class _Frame:
             ),
         ]
 
-    def _await_prim(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+    def _await_prim(self, ref: dict[str, Any], extras: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_await_prim__(prim)` into the cooperative park.
 
         The primitive is in the local the lowerer bound (the marker's
@@ -2208,22 +2246,19 @@ class _Frame:
         """
         self.points += 1
         point = self.points
-        expr = stmt["expr"]
-        prim = expr["args"][0]
-        prim_t = prim["type"]
-        slot = prim["id"]
-        op = expr.get("prim_op", "lock_acquire")
+        slot = ref["id"]
+        prim_t = ref["type"]
+        op = extras["prim_op"]
         symbol = _PRIM_SYMBOLS.get(op)
         if symbol is None:
             raise CoroError(f"the asyncio primitive operation {op} is not lowered", span)
-        park = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": op},
-            "args": [_name(slot, prim_t, span)],
-            "type": dict(_INT),
-            "span": span,
-            "symbol": symbol,
-        }
+        park = _call_node(
+            {"kind": "module", "module": "asyncio", "name": op},
+            [_name(slot, prim_t, span)],
+            _INT,
+            span,
+            symbol,
+        )
         leave = [
             *self.copy_out(span),
             self.field_set(STATE, _const(point, _INT, span), span),
@@ -2253,20 +2288,19 @@ class _Frame:
         if op == "queue_get":
             # The queue's element rides out of the record's `taken` slot: the
             # take put it there, and the frame reads it in the same resume.
-            elem = expr.get("prim_elem") or dict(_NONE)
+            elem = extras["prim_elem"]
             if elem.get("kind") != "none":
-                read = {
-                    "kind": "call",
-                    "callee": {"kind": "module", "module": "asyncio", "name": "queue_taken"},
-                    "args": [_name(slot, prim_t, span)],
-                    "type": elem,
-                    "span": span,
-                    "symbol": "ps_aqueue_taken",
-                }
+                read = _call_node(
+                    {"kind": "module", "module": "asyncio", "name": "queue_taken"},
+                    [_name(slot, prim_t, span)],
+                    elem,
+                    span,
+                    "ps_aqueue_taken",
+                )
                 out.append(_assign(_await_result_name(slot), read, span))
         return out
 
-    def _await_thread(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+    def _await_thread(self, ref: dict[str, Any], extras: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_await_thread__(call)` into the thread park.
 
         The call record is in the local the lowerer bound. The runtime call
@@ -2276,31 +2310,27 @@ class _Frame:
         """
         self.points += 1
         point = self.points
-        expr = stmt["expr"]
-        call = expr["args"][0]
-        call_t = call["type"]
-        slot = call["id"]
-        elem = expr.get("thread_elem") or dict(_NONE)
-        park = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "to_thread_park"},
-            "args": [_name(slot, call_t, span)],
-            "type": dict(_NONE),
-            "span": span,
-            "symbol": "ps_to_thread_park",
-        }
-        poll = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "to_thread_poll"},
-            "args": [_name(slot, call_t, span)],
-            "type": dict(_INT),
-            "span": span,
-            "symbol": "ps_to_thread_poll",
-        }
+        slot = ref["id"]
+        call_t = ref["type"]
+        elem = extras["thread_elem"]
+        park = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "to_thread_park"},
+            [_name(slot, call_t, span)],
+            _NONE,
+            span,
+            "ps_to_thread_park",
+        )
+        poll = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "to_thread_poll"},
+            [_name(slot, call_t, span)],
+            _INT,
+            span,
+            "ps_to_thread_poll",
+        )
         leave = [
             *self.copy_out(span),
             self.field_set(STATE, _const(point, _INT, span), span),
-            {"kind": "expr", "expr": park, "span": span},
+            _expr_node(park, span),
             _if(
                 _compare("==", poll, _const(0, _INT, span), span),
                 self.kind.suspend(self, _const(0, _INT, span), span),
@@ -2311,18 +2341,17 @@ class _Frame:
         arrive = [_assign(RESUME, _const(0, _INT, span), span)]
         out: list[dict[str, Any]] = [_if(self.fresh(span), leave, arrive, span)]
         if elem.get("kind") != "none":
-            read = {
-                "kind": "call",
-                "callee": {"kind": "module", "module": "asyncio", "name": "to_thread_result"},
-                "args": [_name(slot, call_t, span)],
-                "type": elem,
-                "span": span,
-                "symbol": "ps_to_thread_result",
-            }
+            read = _call_node(
+                {"kind": "module", "module": "asyncio", "name": "to_thread_result"},
+                [_name(slot, call_t, span)],
+                elem,
+                span,
+                "ps_to_thread_result",
+            )
             out.append(_assign(_await_result_name(slot), read, span))
         return out
 
-    def _sleep(self, stmt: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+    def _sleep(self, args: list[Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_sleep__(delay)` into arm-then-suspend.
 
         The timer table is keyed by frame; the loop re-queues this frame when
@@ -2331,19 +2360,18 @@ class _Frame:
         """
         self.points += 1
         point = self.points
-        delay = stmt["expr"]["args"][0]
-        arm = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "asyncio", "name": "sleep"},
-            "args": [_name(SELF, self.frame_t, span), delay],
-            "type": dict(_NONE),
-            "span": span,
-            "symbol": "ps_loop_sleep",
-        }
+        delay = args[0]
+        arm = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "sleep"},
+            [_name(SELF, self.frame_t, span), delay],
+            _NONE,
+            span,
+            "ps_loop_sleep",
+        )
         leave = [
             *self.copy_out(span),
             self.field_set(STATE, _const(point, _INT, span), span),
-            {"kind": "expr", "expr": arm, "span": span},
+            _expr_node(arm, span),
             *self.kind.suspend(self, _const(0, _INT, span), span),
         ]
         arrive = [_assign(RESUME, _const(0, _INT, span), span)]
