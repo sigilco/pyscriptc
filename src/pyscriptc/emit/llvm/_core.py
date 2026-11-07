@@ -13,10 +13,10 @@ from pyscriptc.emit._ir import (
     _field_type,
     _fn_symbol,
     _items,
-    _kind,
     _llvm_field_type,
     _llvm_type,
     _opt_str,
+    _record,
     _return_type,
     _safe,
     _type_of,
@@ -25,6 +25,7 @@ from pyscriptc.emit._ir import (
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.emit.llvm._runtime import _declarations, _helpers
 from pyscriptc.errors import IRError
+from pyscriptc.tirserde import dict_to_type
 
 
 class CoreMixin(EmitterBase):
@@ -38,7 +39,7 @@ class CoreMixin(EmitterBase):
         # Off by default: without `--debug-info` the emitted text is byte-identical
         # to the historical output, so the frozen gates and IR hashes do not move.
         self.dwarf = dwarf
-        self.functions = {_opt_str(fn, "name"): fn for fn in _items(module, "functions")}
+        self.functions: dict[str, dict[str, Any]] = {_opt_str(fn, "name"): fn for fn in _items(module, "functions")}
         self.out: list[str] = []
         self.globals: list[str] = []
         self.needed: set[str] = set()
@@ -115,7 +116,7 @@ class CoreMixin(EmitterBase):
         for cls in _items(self.module, "classes"):
             cls_name = _opt_str(cls, "name")
             for method in _items(cls, "methods"):
-                self.emit_function(self.functions[f"cls.{cls_name}.{_opt_str(method, 'name')}"])
+                self.emit_function(_record(self.functions, f"cls.{cls_name}.{_opt_str(method, 'name')}"))
         if call is not None:
             self.emit_main(call, args, library=library or binding)
         elif standalone:
@@ -145,7 +146,7 @@ class CoreMixin(EmitterBase):
         # Shims go last: a closure inside a module global initializer (emitted
         # in @main) can still register one.
         for name in sorted(self.clo_wrappers):
-            self._emit_clo_wrapper(self.functions[name])
+            self._emit_clo_wrapper(_record(self.functions, name))
         for symbol in sorted(self.partials):
             self._emit_partial_stub(symbol, self.partials[symbol])
         for symbol in sorted(self.threads):
@@ -211,7 +212,7 @@ class CoreMixin(EmitterBase):
     # boxed:end
 
     def _field(self, class_name: str, name: str) -> dict[str, Any]:
-        for index, field in enumerate(_items(self.class_index[class_name], "fields")):
+        for index, field in enumerate(_items(_record(self.class_index, class_name), "fields")):
             if _field_name(field) == name:
                 return {**field, "index": index}
         raise IRError(f"{class_name}.{name} is not a field")
@@ -231,7 +232,7 @@ class CoreMixin(EmitterBase):
         parts array): a str narrows to the 16-byte %ps.buf prefix the
         runtime reads, everything else stores as is."""
 
-        if _kind(typ) not in {"str", "bytes"}:
+        if dict_to_type(typ).kind not in {"str", "bytes"}:
             return self._stash(typ, value)
         slot = self._alloca("%ps.buf")
         length = self.tmp()
@@ -253,7 +254,7 @@ class CoreMixin(EmitterBase):
         runtime value: the field slot is a placeholder byte and the read
         folds to the singleton."""
 
-        typ_kind: str = _kind(typ)
+        typ_kind: str = dict_to_type(typ).kind
         if typ_kind == "any":
             # Issue #781: the read proved a concrete type, but the cell holds
             # the unresolved shape the write stored; the proven type decides
@@ -262,7 +263,7 @@ class CoreMixin(EmitterBase):
             # followed by the same count refill the str cells run.
             if proven is None:
                 raise IRError("an unresolved read needs the proven type")
-            proven_kind: str = _kind(proven)
+            proven_kind: str = dict_to_type(proven).kind
             if proven_kind in {"str", "bytes"}:
                 reg = self._load("%ps.str", slot)
                 if proven_kind == "str":
@@ -425,7 +426,7 @@ class CoreMixin(EmitterBase):
 
     def store(self, name: str, value: str) -> None:
         ptr, typ = self.slots[name]
-        store_kind: str = _kind(typ)
+        store_kind: str = dict_to_type(typ).kind
         if store_kind == "none":
             # None is not a runtime value (see the local setup): the store is
             # a no-op, the singleton is the only value the type holds.
@@ -446,7 +447,7 @@ class CoreMixin(EmitterBase):
 
     def load(self, name: str) -> str:
         ptr, typ = self.slots[name]
-        load_kind: str = _kind(typ)
+        load_kind: str = dict_to_type(typ).kind
         if load_kind == "none":
             # The local is the singleton: a read has nothing to load.
             return "null"
