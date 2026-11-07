@@ -102,15 +102,6 @@ def _type_name(typ: dict[str, Any]) -> str:
     return name
 
 
-
-def _node_value(node: dict[str, Any]) -> Any:
-    """The payload a dict-IR node carries (the const value). A consumer
-    reads it through this accessor instead of the raw dict key."""
-
-    value: Any = node["value"]
-    return value
-
-
 def _t_leaf(kind: str) -> dict[str, Any]:
     """The dict-IR type one leaf kind spells, through the T record."""
 
