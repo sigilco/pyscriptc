@@ -331,9 +331,9 @@ def _lower_units(
             if seed:
                 island_modules[name] = seed
             plan = _opt_record(module, "fallback") or {}
-            for fn_name, plane in (plan.get("functions") or {}).items():
+            for fn_name, plane in (_opt_record(plan, "functions") or {}).items():
                 plane_functions[_qualified_plane_name(name, fn_name)] = plane
-            for cls_name, plane in (plan.get("classes") or {}).items():
+            for cls_name, plane in (_opt_record(plan, "classes") or {}).items():
                 plane_classes[_qualified_plane_name(name, cls_name)] = plane
             for demoted, reason in (plan.get("demotedBy") or {}).items():
                 plane_demoted.setdefault(_qualified_plane_name(name, demoted), reason)
