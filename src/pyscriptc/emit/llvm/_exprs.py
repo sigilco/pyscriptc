@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.emit._ir import (
     _arg_type,
     _const_bool,
@@ -19,8 +20,8 @@ from pyscriptc.emit._ir import (
     _fn_name,
     _fn_params,
     _fn_symbol,
+    _has,
     _key_of,
-    _kind,
     _llvm_double,
     _llvm_type,
     _map_value_type,
@@ -46,13 +47,14 @@ from pyscriptc.emit._ir import (
     _node_value_node,
     _pair_key,
     _pair_value,
+    _record,
     _return_type,
-    _type_name,
     _type_of,
 )
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import fits_i64
+from pyscriptc.tirserde import dict_to_type
 
 _ICMP = {"<": "slt", "<=": "sle", ">": "sgt", ">=": "sge", "==": "eq", "!=": "ne"}
 
@@ -86,7 +88,7 @@ class ExprsMixin(EmitterBase):
             sub_operand: dict[str, Any] = _node_operand(expr)
             operand: str = self.emit_expr(sub_operand)
             expr_type: dict[str, Any] = _type_of(expr)
-            type_kind: str = _kind(expr_type)
+            type_kind: str = dict_to_type(expr_type).kind
             if op == "-" and type_kind == "int":
                 return self.helper_call("ineg", "i64", [operand])
             if op == "-" and type_kind == "float":
@@ -137,7 +139,7 @@ class ExprsMixin(EmitterBase):
 
     def emit_const(self, expr: dict[str, Any]) -> str:
         expr_type: dict[str, Any] = _type_of(expr)
-        kind: str = _kind(expr_type)
+        kind: str = dict_to_type(expr_type).kind
         if kind == "int":
             raw_int: str = _const_text(expr)
             number: int = int(raw_int)
@@ -163,7 +165,7 @@ class ExprsMixin(EmitterBase):
 
     def emit_binary(self, expr: dict[str, Any], left: str, right: str) -> str:
         expr_type: dict[str, Any] = _type_of(expr)
-        kind: str = _kind(expr_type)
+        kind: str = dict_to_type(expr_type).kind
         op: str = _node_op(expr)
         if kind == "int":
             if op in _INT_INS:
@@ -185,7 +187,7 @@ class ExprsMixin(EmitterBase):
             return self.helper_call("strconcat", "%ps.str", [left, right], arg_type="%ps.str")
         left_sub: dict[str, Any] = _node_left(expr)
         left_sub_type: dict[str, Any] = _type_of(left_sub)
-        left_kind: str = _kind(left_sub_type)
+        left_kind: str = dict_to_type(left_sub_type).kind
         if left_kind == "class":
             return self._emit_class_binary(expr, left, right)
         raise IRError(f"cannot emit {op} on {kind}")
@@ -195,8 +197,8 @@ class ExprsMixin(EmitterBase):
         right_expr: dict[str, Any] = _node_right(expr)
         left_type: dict[str, Any] = _type_of(left_expr)
         right_type: dict[str, Any] = _type_of(right_expr)
-        left_kind: str = _kind(left_type)
-        right_kind: str = _kind(right_type)
+        left_kind: str = dict_to_type(left_type).kind
+        right_kind: str = dict_to_type(right_type).kind
         op: str = _node_op(expr)
         if left_kind == "none" or right_kind == "none":
             if op not in {"==", "!="}:
@@ -257,7 +259,7 @@ class ExprsMixin(EmitterBase):
     def _emit_none_side(self, expr: dict[str, Any]) -> None:
         """Emit a call that returns None. A None constant or a None local is not a register."""
         expr_type: dict[str, Any] = _type_of(expr)
-        type_kind: str = _kind(expr_type)
+        type_kind: str = dict_to_type(expr_type).kind
         if type_kind != "none":
             self.emit_expr(expr)
             return
@@ -286,7 +288,7 @@ class ExprsMixin(EmitterBase):
         expr_type: dict[str, Any] = _type_of(expr)
         key_t: dict[str, Any] = _key_of(expr_type)
         val_t: dict[str, Any] = _map_value_type(expr_type)
-        key_t_kind: str = _kind(key_t)
+        key_t_kind: str = dict_to_type(key_t).kind
         key_kind: int = 1 if key_t_kind == "int" else 2
         pairs: list[dict[str, Any]] = _node_pairs(expr)
         stored_keys: list[str] = []
@@ -320,7 +322,8 @@ class ExprsMixin(EmitterBase):
         sub_idx: dict[str, Any] = _node_index(expr)
         index: str = self.emit_expr(sub_idx)
         val_type: dict[str, Any] = _type_of(sub_val)
-        kind: str = _kind(val_type)
+        val_t: _ir.T = dict_to_type(val_type)
+        kind: str = val_t.kind
         expr_type: dict[str, Any] = _type_of(expr)
         mem_type: str = _memory_type(expr_type)
         needed = self.needed
@@ -329,7 +332,7 @@ class ExprsMixin(EmitterBase):
             needed.add("seq")
             out: str = self._alloca(mem_type)
             self.line(f"call void @ps_seq_get(ptr {value}, i64 {index}, ptr {out})")
-            slot_kind: str = _kind(slot)
+            slot_kind: str = dict_to_type(slot).kind
             proven: dict[str, Any] | None = slot if slot_kind == "any" else None
             return self._widen_cell(expr_type, out, proven)
         if kind == "dict":
@@ -339,7 +342,7 @@ class ExprsMixin(EmitterBase):
             key: str = self._stash_cell(idx_type, index)
             out = self._alloca(mem_type)
             self.line(f"call void @ps_map_get(ptr {value}, ptr {key}, ptr {out})")
-            slot_kind = _kind(slot)
+            slot_kind = dict_to_type(slot).kind
             proven = slot if slot_kind == "any" else None
             return self._widen_cell(expr_type, out, proven)
         if kind == "str":
@@ -353,20 +356,18 @@ class ExprsMixin(EmitterBase):
             bparts: tuple[str, str] = self._buf_parts(value)
             blength, bptr = bparts
             return self._call_ret("i64", "ps_buf_at", [f"i64 {blength}", f"ptr {bptr}", f"i64 {index}"])
-        if kind == "class" and "name" in val_type:
-            type_name: str = _type_name(val_type)
-            if type_name == "Deque":
-                out = self._alloca(mem_type)
-                self._abi_decl("ps_deque_get", "void", ["ptr", "i64", "ptr"])
-                self._call_void("ps_deque_get", [f"ptr {value}", f"i64 {index}", f"ptr {out}"])
-                return self._widen_cell(expr_type, out)
+        if kind == "class" and val_t.name == "Deque":
+            out = self._alloca(mem_type)
+            self._abi_decl("ps_deque_get", "void", ["ptr", "i64", "ptr"])
+            self._call_void("ps_deque_get", [f"ptr {value}", f"i64 {index}", f"ptr {out}"])
+            return self._widen_cell(expr_type, out)
         raise IRError(f"cannot index {kind}")
 
     def emit_attr(self, expr: dict[str, Any]) -> str:
         sub_val: dict[str, Any] = _node_value_node(expr)
         obj: str = self.emit_expr(sub_val)
         val_type: dict[str, Any] = _type_of(sub_val)
-        class_name: str = _type_name(val_type)
+        class_name: str = dict_to_type(val_type).name
         attr_name: str = _node_name(expr)
         field: dict[str, Any] = self._field(class_name, attr_name)
         slot: str = self._field_ptr(class_name, obj, field)
@@ -379,7 +380,7 @@ class ExprsMixin(EmitterBase):
         hay_expr: dict[str, Any] = _node_hay(expr)
         hay: str = self.emit_expr(hay_expr)
         hay_type: dict[str, Any] = _type_of(hay_expr)
-        hay_kind: str = _kind(hay_type)
+        hay_kind: str = dict_to_type(hay_type).kind
         flag: str = ""
         needed = self.needed
         if hay_kind in {"str", "bytes"}:
@@ -394,7 +395,7 @@ class ExprsMixin(EmitterBase):
         elif hay_kind == "list":
             needed.add("seq")
             elem_type: dict[str, Any] = _elem_type(hay_type)
-            elem: str = _kind(elem_type)
+            elem: str = dict_to_type(elem_type).kind
             raw_flag: str = ""
             if elem == "int":
                 raw_flag = self._call_ret("i32", "ps_seq_has_i64", [f"ptr {hay}", f"i64 {needle}"])
@@ -434,19 +435,18 @@ class ExprsMixin(EmitterBase):
         value goes into a fresh heap cell).
         """
         impl: str = ""
-        if "stub" in expr:
+        if _has(expr, "stub"):
             stub: dict[str, Any] = _node_stub(expr)
             impl = self._partial_symbol(stub)
-        elif "thread_stub" in expr:
+        elif _has(expr, "thread_stub"):
             thread_stub: dict[str, Any] = _node_thread_stub(expr)
             impl = self._thread_symbol(thread_stub)
         else:
             expr_name: str = _node_name(expr)
-            functions: dict[str, dict[str, Any]] = self.functions
-            fn: dict[str, Any] = functions[expr_name]
+            fn: dict[str, Any] = _record(self.functions, expr_name)
             fn_name: str = _fn_name(fn)
             fn_sym: str = _fn_symbol(fn_name)
-            if "env" in fn:
+            if _has(fn, "env"):
                 impl = fn_sym
             else:
                 impl = f"{fn_sym}.clo"
