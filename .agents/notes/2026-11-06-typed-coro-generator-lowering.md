@@ -135,7 +135,7 @@ Out of this package, still HIR, not typed-pass work: #438 `GeneratorExit`, #181 
 
 4. **#438 before or after the typed walk?** Recommended: after. The walk is a representation change; `GeneratorExit` is a semantic change with divergence edits. Mixing them hides hash and oracle deltas.
 
-5. **MIR fallback share (PR #937).** Generators remain in the typed-HIR fallback until re-verified. The 80 percent MIR flip bar must not count a silent MIR lowering of `yield`. The M-3 try note already skips a `try` whose body yields. Confirm that `supported()` stays false for resumables through v0.9.0.
+5. **MIR fallback share (PR #937).** Generators remain in the direct-emit path until re-verified. The 80 percent MIR flip bar must not count a silent MIR lowering of `yield`. The M-3 try note already skips a `try` whose body yields. Confirm that `supported()` stays false for resumables through v0.9.0.
 
 6. **Does `@contextmanager` stay in `coro.py`?** `_manager_class` is generator-frame driving, so it belongs with the pass. Moving it next to `with` desugar (`lower/_stmt`) would split the only consumer of `plan.manager`. Recommended: keep it in the pass until the typed walk lands; split only as part of the optional module-leanness hour.
 

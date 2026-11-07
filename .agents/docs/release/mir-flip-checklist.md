@@ -45,4 +45,6 @@ only thing read at close:
 One assignment: `MIR_DEFAULT = True` in `src/pyscriptc/miremit.py`, in the same
 PR that inverts the default assertion in `tests/test_mir_escape_hatch.py`.
 After it lands, `PYSC_MIR=0` is the user-facing escape hatch until the
-typed-HIR fallback is dropped at v0.10.0.
+direct-emit path (typed HIR stays the middle stage for every function) is dropped at v0.10.0.
+
+Owner policy (2026-11-07): the direct-emit path is not a permanent home for what the MIR slice cannot lower yet. Anything outside the slice is a gap to close on the new architecture, not a reason to keep both backends maintained. The old architecture, if kept at all, lives vendored in a separate package.
