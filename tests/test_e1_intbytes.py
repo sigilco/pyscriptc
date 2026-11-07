@@ -110,7 +110,9 @@ def test_int_bytes_whitespace_and_sign_matches_cpython(tmp_path: Path) -> None:
 
 
 def test_int_bytes_invalid_literal_raises_value_error(tmp_path: Path) -> None:
-    for literal in ("b'1x'", "b''", "b'  '", "b'- 1'", "b'1_0'"):
+    # 'b'1_0'' is not here: CPython's digit separator parses it (see
+    # test_int_bytes_underscore_separator_matches_cpython).
+    for literal in ("b'1x'", "b''", "b'  '", "b'- 1'", "b'_1'", "b'1_'", "b'1__0'"):
         path = write_case(tmp_path, "bad.py", f"print(int({literal}))\n")
         got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "bad"))
         assert got.returncode != 0, literal
@@ -158,6 +160,31 @@ def test_int_bytes_out_of_i64_range_stays_a_runtime_error(tmp_path: Path) -> Non
     got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "big"))
     assert got.returncode != 0
     assert "ValueError" in got.stderr
+
+
+def test_int_bytes_underscore_separator_matches_cpython(tmp_path: Path) -> None:
+    # CPython's digit separator: '1_0' parses, '_1', '1_', '1__0' and '1_x'
+    # raise; the base-10 form has the same rule the base form has.
+    sources = [
+        "print(int('1_0'))",
+        "print(int('1_0_1'))",
+        "print(int('12_34'))",
+        "print(int(b'1_0'))",
+        "print(int('-1_0'))",
+        "print(int(' 1_0 ', 10))",
+    ]
+    for index, body in enumerate(sources):
+        path = write_case(tmp_path, f"us{index}.py", f"{body}\n")
+        got = run_cli(
+            "compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / f"us{index}")
+        )
+        assert got.returncode == 0, got.stderr
+        assert got.stdout == _oracle(path), body
+    for bad in ("'_1'", "'1_'", "'1__0'", "'1_x'", "b'_1'", "b'1_'"):
+        path = write_case(tmp_path, "badus.py", f"print(int({bad}))\n")
+        got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "badus"))
+        assert got.returncode != 0, bad
+        assert "ValueError" in got.stderr, bad
 
 
 def test_int_other_overloads_keep_fencing() -> None:
