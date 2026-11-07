@@ -358,16 +358,14 @@ ROWS: list[dict[str, Any]] = [
     _row(
         "D50",
         "a module-scope unannotated container mutated or aliased is fenced (PS2002)",
-        None,
+        "d50_container_const.py",
         docs=f"{DOC}#50",
-        note="a compile-time fence with no runtime side; add a probe in a follow-up",
     ),
     _row(
         "D51",
         "list += and *= desugar to a fresh-concat rebind, not in-place",
-        None,
+        "d51_iadd_alias.py",
         docs=f"{DOC}#51",
-        note="needs a probe with a second alias to the same list; add in a follow-up",
     ),
     _row(
         "AUDIT-D1",
