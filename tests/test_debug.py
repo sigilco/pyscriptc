@@ -73,7 +73,8 @@ def test_debug_does_not_flip_ir(tmp_path: Path) -> None:
     src = EXAMPLES / "sum_squares.py"
     proc_plain = run_cli("compile", str(src), "--emit", "llvm", "-o", str(out), env=env)
     ll_plain = out.read_text()
-    ir_plain = Path(str(out) + ".ir.json").read_text()
+    ir_ref = tmp_path / "ref.ir.json"
+    proc_ir = run_cli("compile", str(src), "--emit", "ir", "-o", str(ir_ref), env=env)
     proc_debug = run_cli(
         "compile",
         str(src),
@@ -86,9 +87,9 @@ def test_debug_does_not_flip_ir(tmp_path: Path) -> None:
         str(tmp_path / "d"),
         env=env,
     )
-    assert proc_plain.returncode == proc_debug.returncode == 0
+    assert proc_plain.returncode == proc_ir.returncode == proc_debug.returncode == 0
     assert ll_plain == out.read_text()
-    assert ir_plain == Path(str(out) + ".ir.json").read_text()
+    assert ir_ref.read_text() == (tmp_path / "d" / "ir.json").read_text()
     # No debug noise on stdout either way.
     assert proc_debug.stdout == proc_plain.stdout
 
