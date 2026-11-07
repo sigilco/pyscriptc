@@ -386,9 +386,7 @@ def _lower_units(
         # double) and an island function reading `__file__` unresolved.
         # Such a program runs whole island-side, as before.
         split_ready = (
-            not plane_top_island
-            and island_modules
-            and not any(is_package for _name, _path, is_package in units)
+            not plane_top_island and island_modules and not any(is_package for _name, _path, is_package in units)
         )
         if not split_ready:
             island = _program_island(units, root, entry, main_package, path0, staged_data=staged_data or [])
