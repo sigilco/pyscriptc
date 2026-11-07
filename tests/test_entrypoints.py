@@ -128,13 +128,18 @@ def test_validation_marks_entry_fences():
     gcd_lcm's `g`/`total` no longer fence and it drops out as well.
     #1042: the yield-type peek proves `squares`' element type, so
     generators_comp's first fence moves to its entry `print(sum(...))`
-    and the validator marks it."""
+    and the validator marks it.
+    #817: print of an exc lowers as `str(exc)`, so exceptions_flow
+    compiles end to end; generators_comp still fences on its entry
+    list-of-tuple print."""
     records = entrypoints.scan(with_fences=True)
     flips = sorted(r["path"] for r in records if r.get("predicted_flip"))
     assert flips == [
-        "benchmarks/compat2/corpus/scripts/exceptions_flow/main.py",
         "benchmarks/compat2/corpus/scripts/generators_comp/main.py",
     ]
     fib = next(r for r in records if r["path"].endswith("fib_recursive/main.py"))
     assert fib["first_fence"] is None
     assert fib["fences_at_entry"] == []
+    exc = next(r for r in records if r["path"].endswith("exceptions_flow/main.py"))
+    assert exc["first_fence"] is None
+    assert exc["fences_at_entry"] == []

@@ -21,11 +21,11 @@ _OPEN_ENCODINGS = {"utf-8", "utf8", "ascii", "latin-1", "latin1"}
 _TEMP_OPEN = {**_OPEN, "w+": 7, "w+b": 8}
 
 
-_PRINT_KINDS = {"str", "int", "float", "bool", "bytes"}
+_PRINT_KINDS = {"str", "int", "float", "bool", "bytes", "exc"}
 
 
 def _printable(lo: Any, typ: dict[str, Any]) -> bool:
-    """printable: a scalar or a tuple class whose fields are all printable."""
+    """printable: a scalar (an exc prints its str()), or a tuple class whose fields are all printable."""
 
     if typ["kind"] in _PRINT_KINDS:
         return True

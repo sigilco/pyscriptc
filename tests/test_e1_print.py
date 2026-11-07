@@ -276,3 +276,29 @@ def test_print_matches_cpython_oracle(tmp_path: Path) -> None:
     got = compile_run(tmp_path, path, "main")
     assert got.returncode == 0, got.stderr
     assert got.stdout == oracle_script(path)
+
+
+def test_print_exception_instance_matches_cpython(tmp_path: Path) -> None:
+    # An exception instance prints its str(): the message for a plain
+    # raise, the repr'd argument for KeyError (CPython's str(KeyError)).
+    path = write_case(
+        tmp_path,
+        "excprint.py",
+        "\n".join(
+            [
+                "try:",
+                "    raise KeyError('missing')",
+                "except KeyError as err:",
+                "    print('caught', err)",
+                "try:",
+                "    raise ValueError('bad')",
+                "except ValueError as err:",
+                "    print(err)",
+                "",
+            ]
+        ),
+    )
+    got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "excprint"))
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle_script(path)
+
