@@ -74,6 +74,34 @@ def _node_type_kind(node: dict[str, Any]) -> str:
     return _type_kind(_node_type(node))
 
 
+def _node_id(node: dict[str, Any]) -> str:
+    """The identifier a name node carries."""
+
+    node_id: str = node["id"]
+    return node_id
+
+
+def _node_elems(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The element list a list node carries."""
+
+    elems: list[dict[str, Any]] = node["elems"]
+    return elems
+
+
+def _node_value(node: dict[str, Any]) -> Any:
+    """The payload a const node carries."""
+
+    value: Any = node["value"]
+    return value
+
+
+def _type_name(typ: dict[str, Any]) -> str:
+    """The class name a class type record carries, or "" when absent."""
+
+    name: str = typ.get("name") or ""
+    return name
+
+
 def _t_leaf(kind: str) -> dict[str, Any]:
     """The dict-IR type one leaf kind spells, through the T record."""
 
@@ -107,6 +135,40 @@ def _if_stmt(
             _mk_span(span),
         )
     )
+
+
+def _call_builtin(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR builtin call one name, argument run and result type spell."""
+
+    return node_to_dict(
+        _ir.call(
+            _ir.builtin(name),
+            [dict_to_node(arg) for arg in args],
+            dict_to_type(typ),
+            _mk_span(span),
+            "",
+            "",
+            -1,
+        )
+    )
+
+
+def _raise_stmt(exc: str, message: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR raise statement one exception name, message and span spell."""
+
+    return node_to_dict(_ir.raise_stmt(exc, _mk_span(span), -1, dict_to_node(message)))
+
+
+def _expr_stmt(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR expression statement one expression and span spell."""
+
+    return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
+
+
+def _list_node(elems: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR list node one element run and one list type record spell."""
+
+    return node_to_dict(_ir.list_lit([dict_to_node(item) for item in elems], dict_to_type(typ), _mk_span(span)))
 
 
 def _span_to(node: ast.AST, sub: ast.AST) -> ast.AST:

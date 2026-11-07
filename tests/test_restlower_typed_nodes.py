@@ -8,8 +8,8 @@ shape so later P2 modules can copy it:
 
 - builders reconstruct the same dict IR the old literals spelled,
 - accessors are the only place a converted module subscripts a node key,
-- `_shared.py`, `_time.py` and `_argparse.py` have no raw node-key reads
-  and no raw `{"kind": ...}` node/type literals.
+- `_shared.py`, `_time.py`, `_argparse.py` and `_minmax.py` have no raw
+  node-key reads and no raw `{"kind": ...}` node/type literals.
 """
 
 from __future__ import annotations
@@ -22,7 +22,12 @@ ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "pyscriptc"
 RESTLOWER = SRC / "restlower"
 
-CONVERTED = (RESTLOWER / "_shared.py", RESTLOWER / "_time.py", RESTLOWER / "_argparse.py")
+CONVERTED = (
+    RESTLOWER / "_shared.py",
+    RESTLOWER / "_time.py",
+    RESTLOWER / "_argparse.py",
+    RESTLOWER / "_minmax.py",
+)
 
 # The dict-IR keys a node or type record carries. A converted module
 # reads them only inside the named accessors.
@@ -46,7 +51,9 @@ NODE_KEYS = frozenset(
     }
 )
 
-ACCESSORS = frozenset({"_type_kind", "_node_type", "_node_type_kind", "_node_kind"})
+ACCESSORS = frozenset(
+    {"_type_kind", "_node_type", "_node_type_kind", "_node_kind", "_node_id", "_node_elems", "_node_value"}
+)
 
 
 def _function_hits(func: ast.FunctionDef | ast.AsyncFunctionDef, path: Path) -> list[str]:
