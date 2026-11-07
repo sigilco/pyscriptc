@@ -35,7 +35,14 @@ def _jwt_call(
 
 
 def _dict_str(typ: dict[str, Any]) -> bool:
-    return typ["kind"] == "dict" and typ["key"]["kind"] == "str" and typ["value"]["kind"] == "str"
+    kind: str = typ["kind"]
+    if kind != "dict":
+        return False
+    key: dict[str, Any] = typ["key"]
+    value: dict[str, Any] = typ["value"]
+    kkind: str = key["kind"]
+    vkind: str = value["kind"]
+    return kkind == "str" and vkind == "str"
 
 
 def _buf_arg(lo: Any, node: ast.Call, expr: ast.expr, what: str) -> dict[str, Any]:

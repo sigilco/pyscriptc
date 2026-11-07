@@ -111,17 +111,29 @@ def _maybe_node_kind(node: dict[str, Any]) -> str | None:
     return kind if isinstance(kind, str) else None
 
 
+def _list_field(record: dict[str, Any], key: str) -> list[dict[str, Any]]:
+    """The list of records under `key`, or [] when the record omits it."""
+
+    out: list[dict[str, Any]] = []
+    if key in record:
+        out = record[key]
+    return out or []
+
+
 class _Scope:
     """The names a function can read: its parameters, locals and env slots."""
 
     def __init__(self, fn: dict[str, Any]) -> None:
         self.names: dict[str, str] = {}
-        for param in fn.get("params", []) or []:
-            self.names[param["name"]] = _declared_kind(param)
-        for local in fn.get("locals", []) or []:
-            self.names[local["name"]] = _declared_kind(local)
-        for item in fn.get("env", []) or []:
-            self.names[item["name"]] = _declared_kind(item)
+        for param in _list_field(fn, "params"):
+            pname: str = param["name"]
+            self.names[pname] = _declared_kind(param)
+        for local in _list_field(fn, "locals"):
+            lname: str = local["name"]
+            self.names[lname] = _declared_kind(local)
+        for item in _list_field(fn, "env"):
+            iname: str = item["name"]
+            self.names[iname] = _declared_kind(item)
 
     def has(self, name: str) -> bool:
         return name in self.names
@@ -390,22 +402,25 @@ def _always_terminates(body: list[dict[str, Any]]) -> bool:
         if kind in ("return", "raise"):
             return True
         if kind == "if":
-            then = stmt.get("then", []) or []
-            otherwise = stmt.get("else", []) or []
+            then = _list_field(stmt, "then")
+            otherwise = _list_field(stmt, "else")
             if then and otherwise and _always_terminates(then) and _always_terminates(otherwise):
                 return True
         elif kind == "while":
             # A `while True` without a break never falls out. The IR has no
             # flag for it, so treat a constant-true condition as terminating.
-            cond = stmt.get("cond")
-            if isinstance(cond, dict):
-                cond_node: dict[str, Any] = cond
-                if _maybe_node_kind(cond_node) == "const" and cond_node.get("value") == "True":
-                    return True
+            if "cond" in stmt:
+                cond: dict[str, Any] = stmt["cond"]
+                if isinstance(cond, dict):
+                    cond_node = cond
+                    if _maybe_node_kind(cond_node) == "const" and "value" in cond_node:
+                        cval: str = cond_node["value"]
+                        if cval == "True":
+                            return True
         elif kind == "try":
-            handlers = stmt.get("handlers", []) or []
-            if handlers and all(_always_terminates(handler.get("body", []) or []) for handler in handlers):
-                if _always_terminates(stmt.get("body", []) or []):
+            handlers = _list_field(stmt, "handlers")
+            if handlers and all(_always_terminates(_list_field(handler, "body")) for handler in handlers):
+                if _always_terminates(_list_field(stmt, "body")):
                     return True
     return False
 

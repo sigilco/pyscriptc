@@ -830,10 +830,9 @@ def _always_returns(body: list[dict[str, Any]]) -> bool:
             return True
         if _node_kind(stmt) == "if" and _always_returns(stmt["then"]) and _always_returns(stmt["else"]):
             return True
-        if (
-            _node_kind(stmt) == "try"
-            and _always_returns(stmt["body"])
-            and all(_always_returns(handler["body"]) for handler in stmt["handlers"])
-        ):
-            return True
+        if _node_kind(stmt) == "try":
+            body: list[dict[str, Any]] = stmt["body"]
+            handlers: list[dict[str, Any]] = stmt["handlers"]
+            if _always_returns(body) and all(_always_returns(handler["body"]) for handler in handlers):
+                return True
     return False

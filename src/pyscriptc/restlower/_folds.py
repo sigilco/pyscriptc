@@ -13,7 +13,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _const_int, _const_text
+from pyscriptc.restlower._shared import _const_int, _const_text, _flag, _node_kind, _node_type
 
 _STATIC_MISSING = object()
 _PS2005_MESSAGE = "string literals with lone surrogates are not lowered"
@@ -152,15 +152,33 @@ def _static_len(arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | N
     """len() of a collection literal folds only when every element is itself
     a const — anything else may be a call whose side effect is the point."""
 
-    if arg.get("kind") == "list" and not arg["type"].get("set"):
-        if all(elem.get("kind") == "const" for elem in arg["elems"]):
-            return _const_int(len(arg["elems"]), span)
+    if _node_kind(arg) == "list" and not _flag(_node_type(arg), "set"):
+        elems: list[dict[str, Any]] = arg["elems"]
+        if all(_node_is_const(elem) for elem in elems):
+            return _const_int(len(elems), span)
         return None
-    if arg.get("kind") == "dict":
-        if all(pair["key"].get("kind") == "const" and pair["value"].get("kind") == "const" for pair in arg["pairs"]):
-            return _const_int(len(arg["pairs"]), span)
+    if _node_kind(arg) == "dict":
+        pairs: list[dict[str, Any]] = arg["pairs"]
+        if all(_pair_is_const(pair) for pair in pairs):
+            return _const_int(len(pairs), span)
         return None
     return None
+
+
+def _node_is_const(node: dict[str, Any]) -> bool:
+    """True when a dict-IR node spells a const."""
+
+    if "kind" not in node:
+        return False
+    return _node_kind(node) == "const"
+
+
+def _pair_is_const(pair: dict[str, Any]) -> bool:
+    """True when both sides of a dict-literal pair are consts."""
+
+    key: dict[str, Any] = pair["key"]
+    value: dict[str, Any] = pair["value"]
+    return _node_is_const(key) and _node_is_const(value)
 
 
 def _eval_fold(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any] | None:

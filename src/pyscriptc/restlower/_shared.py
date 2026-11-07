@@ -42,6 +42,24 @@ def _type_kind(typ: dict[str, Any]) -> str:
     return kind
 
 
+def _node_kind(node: dict[str, Any]) -> str:
+    """The kind tag of a dict-IR node. Node dispatch reads the record
+    through this accessor instead of the raw dict key."""
+
+    kind: str = node["kind"]
+    return kind
+
+
+def _flag(record: dict[str, Any], name: str) -> bool:
+    """The truthiness of an optional bool field on a dict-IR record, or
+    False when the field is absent."""
+
+    if name not in record:
+        return False
+    flag: bool = record[name]
+    return flag
+
+
 def _node_type(node: dict[str, Any]) -> dict[str, Any]:
     """The type record a dict-IR node carries. A consumer of the node's
     type reads it through this accessor instead of the raw dict key."""

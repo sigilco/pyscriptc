@@ -46,7 +46,7 @@ NODE_KEYS = frozenset(
     }
 )
 
-ACCESSORS = frozenset({"_type_kind", "_node_type", "_node_type_kind"})
+ACCESSORS = frozenset({"_type_kind", "_node_type", "_node_type_kind", "_node_kind"})
 
 
 def _function_hits(func: ast.FunctionDef | ast.AsyncFunctionDef, path: Path) -> list[str]:

@@ -30,13 +30,14 @@ def coro_module(module: dict[str, Any]) -> dict[str, Any]:
     dict it was built from.
     """
     out: dict[str, Any] = {}
-    for key in module:
-        out[key] = module[key]
+    out.update(module)
     functions: list[dict[str, Any]] = []
-    for fn in module["functions"]:
+    fns: list[dict[str, Any]] = module["functions"]
+    for fn in fns:
         functions.append(node_to_dict(fn))
     classes: list[dict[str, Any]] = []
-    for cls in module["classes"]:
+    clss: list[dict[str, Any]] = module["classes"]
+    for cls in clss:
         classes.append(node_to_dict(cls))
     out["functions"] = functions
     out["classes"] = classes

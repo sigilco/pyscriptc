@@ -23,9 +23,11 @@ from pyscriptc.emit._ir import (
     _has,
     _items,
     _kind_or_none,
+    _name_list,
     _node_name,
     _opt_int,
     _opt_span,
+    _opt_str,
     _opt_str_or_none,
 )
 
@@ -177,8 +179,10 @@ class Debug:
                 if stats is None:
                     lines.append(f"[debug] {name:<12}{ms:>8.1f}")
                 else:
+                    rss = _opt_int(stats, "rssKb", 0)
+                    nodes = _opt_int(stats, "nodes", 0)
                     funcs = _opt_int(stats, "functions", 0)
-                    lines.append(f"[debug] {name:<12}{ms:>8.1f}{stats['rssKb']:>8}{stats['nodes']:>8}{funcs:>8}")
+                    lines.append(f"[debug] {name:<12}{ms:>8.1f}{rss:>8}{nodes:>8}{funcs:>8}")
                 if name == "emit_llvm" and mir_plan is not None:
                     mir_lowered: int = mir_plan["lowered"]
                     mir_adapter: int = mir_plan["adapter"]
@@ -257,7 +261,8 @@ class Debug:
             res["mirAdapter"] = mir_records
         # boxed:begin
         if module is not None and _has(module, "fallback"):
-            res["fallback"] = module["fallback"]
+            fallback: dict[str, Any] = module["fallback"]
+            res["fallback"] = fallback
         # boxed:end
         return res
 
@@ -339,18 +344,22 @@ def _capability_report(module: dict[str, Any]) -> dict[str, Any]:
 
 def _capability_lines(module: dict[str, Any]) -> list[str]:
     report = _capability_report(module)
-    totals = report["totals"]
+    totals: dict[str, Any] = report["totals"]
     lines = [
-        f"[debug] capability: {totals['native']} native, {totals['fenced']} fenced, "
-        f"{totals['island']} island definitions of {totals['definitions']}"
+        f"[debug] capability: {_opt_int(totals, 'native', 0)} native, {_opt_int(totals, 'fenced', 0)} fenced, "
+        f"{_opt_int(totals, 'island', 0)} island definitions of {_opt_int(totals, 'definitions', 0)}"
     ]
-    for item in report["byFile"]:
-        if not (item["fences"] or item["definitions"]):
+    for item in _items(report, "byFile"):
+        fences_n = _opt_int(item, "fences", 0)
+        defs_n = _opt_int(item, "definitions", 0)
+        if not (fences_n or defs_n):
             continue
-        mechanisms = f", reflection: {', '.join(item['mechanisms'])}" if item["mechanisms"] else ""
+        mechs = _name_list(item, "mechanisms")
+        mechanisms = f", reflection: {', '.join(mechs)}" if mechs else ""
         lines.append(
-            f"[debug]   {item['file']}: {item['native']} native, {item['fenced']} fenced, "
-            f"{item['island']} island of {item['definitions']} definitions, {item['fences']} fences{mechanisms}"
+            f"[debug]   {_opt_str(item, 'file')}: {_opt_int(item, 'native', 0)} native, "
+            f"{_opt_int(item, 'fenced', 0)} fenced, "
+            f"{_opt_int(item, 'island', 0)} island of {defs_n} definitions, {fences_n} fences{mechanisms}"
         )
     return lines
 
