@@ -31,7 +31,7 @@ Self-host spell: IR payloads are `Dict[str, Any]` and node reads go through
 
 from __future__ import annotations
 
-from typing import Any, Dict, Optional
+from typing import Any, Dict
 
 from pyscriptc.log import emit_event
 from pyscriptc.mir import MirFunction, MirModule
@@ -69,7 +69,7 @@ def _expr_reason(expr: Dict[str, Any]) -> str:
     for key in _EXPR_CHILDREN:
         if key not in expr:
             continue
-        raw: Optional[Dict[str, Any]] = expr[key]
+        raw: Dict[str, Any] | None = expr[key]
         if raw is None:
             continue
         child: Dict[str, Any] = raw
@@ -85,7 +85,7 @@ def _stmt_reason(stmt: Dict[str, Any]) -> str:
     for key in _STMT_EXPRS:
         if key not in stmt:
             continue
-        raw: Optional[Dict[str, Any]] = stmt[key]
+        raw: Dict[str, Any] | None = stmt[key]
         if raw is None:
             continue
         child: Dict[str, Any] = raw
@@ -108,7 +108,7 @@ def _stmt_reason(stmt: Dict[str, Any]) -> str:
     for key in _STMT_BODIES:
         if key not in stmt:
             continue
-        body: list[Optional[Dict[str, Any]]] = stmt[key]
+        body: list[Dict[str, Any] | None] = stmt[key]
         for item in body:
             if item is None:
                 continue
