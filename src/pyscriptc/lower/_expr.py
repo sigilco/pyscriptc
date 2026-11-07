@@ -844,7 +844,14 @@ class ExprMixin(ExprCompareMixin):
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
                 return _const_of(str(member), "int", span)
         value = self._expr(node.value)
-        return path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
+        read = path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
+        if isinstance(node.value, ast.Name):
+            # A `base.attr is not None` proof narrows the attribute read to
+            # the tagged value, the same rule a narrowed local name follows.
+            narrowed = self.opt_unwrap.get(f"{node.value.id}.{node.attr}")
+            if narrowed is not None:
+                return _attr_node(read, "_val", narrowed["elem"], span)
+        return read
 
     def _call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None = None) -> dict[str, Any]:
         if isinstance(node.func, ast.Name):

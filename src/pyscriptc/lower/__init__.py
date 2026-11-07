@@ -909,28 +909,18 @@ class Lowerer(
                     proven = when_false if then_exits and not else_exits else when_true if else_exits else set()
                     rest = statements[index + 1 :]
                     for name in proven:
-                        if not any(
-                            isinstance(inner, ast.Name)
-                            and inner.id == name
-                            and isinstance(inner.ctx, (ast.Store, ast.Del))
-                            for item in rest
-                            for inner in ast.walk(item)
-                        ):
-                            self.opt_unwrap[name] = self.locals[name]
+                        opt = self._narrow_opt_type(name)
+                        if opt is not None and not self._key_rebinds(name, rest):
+                            self.opt_unwrap[name] = opt
                 elif isinstance(stmt, ast.Assert):
                     # `assert x is not None` proves x set for the rest of
                     # this body, the same rule the if-exit arm applies.
                     proven, _ = self._narrow_names(stmt.test)
                     rest = statements[index + 1 :]
                     for name in proven:
-                        if not any(
-                            isinstance(inner, ast.Name)
-                            and inner.id == name
-                            and isinstance(inner.ctx, (ast.Store, ast.Del))
-                            for item in rest
-                            for inner in ast.walk(item)
-                        ):
-                            self.opt_unwrap[name] = self.locals[name]
+                        opt = self._narrow_opt_type(name)
+                        if opt is not None and not self._key_rebinds(name, rest):
+                            self.opt_unwrap[name] = opt
                 skips = (self.break_flag is not None and _stmt_breaks_this_loop(stmt)) or (
                     self.continue_flag is not None and _stmt_continues_this_loop(stmt)
                 )
