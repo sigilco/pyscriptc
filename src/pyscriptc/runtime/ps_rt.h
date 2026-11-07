@@ -363,10 +363,11 @@ PsSeq *ps_seq_slice(PsSeq *s, int64_t start, int64_t stop, int64_t has_start, in
 PsSeq *ps_str_split(int64_t n, const char *p, int64_t sn, const char *sp, int64_t mode);
 void ps_str_join(int64_t n, const char *sep, PsSeq *parts, PsBuf *out);
 void ps_repr_quoted(int64_t n, const char *p, PsBuf *out);
-/* The container reprs behind `print(list/dict/set)`: the element kind is
-   an `%ps.arg`-style code since a PsSeq cell carries only a byte size. */
-void ps_seq_repr(PsSeq *s, int64_t elem_kind, int64_t is_set, PsBuf *out);
-void ps_map_repr(PsMap *m, int64_t vkind, PsBuf *out);
+/* The container reprs behind `print(list/dict/set)`: the element type
+   rides as a recursive spec string (`pyscriptc.reprspec.type_spec`)
+   since a PsSeq cell carries only a byte size. */
+void ps_seq_repr(PsSeq *s, int64_t spec_len, const char *spec, int64_t is_set, PsBuf *out);
+void ps_map_repr(PsMap *m, int64_t spec_len, const char *spec, PsBuf *out);
 void ps_utf8_encode(int64_t n, const char *p, PsBuf *out);
 void ps_utf8_decode(int64_t n, const char *p, PsBuf *out);
 void ps_latin1_encode(int64_t n, const char *p, PsBuf *out);

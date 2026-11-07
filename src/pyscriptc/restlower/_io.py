@@ -6,7 +6,8 @@ import ast
 from typing import Any
 
 from pyscriptc.reflection import kwargs_call_note
-from pyscriptc.restlower._shared import _class, _const_int
+from pyscriptc.reprspec import type_spec
+from pyscriptc.restlower._shared import _class, _const_int, _const_text
 
 _OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6}
 
@@ -21,11 +22,6 @@ _TEMP_OPEN = {**_OPEN, "w+": 7, "w+b": 8}
 
 
 _PRINT_KINDS = {"str", "int", "float", "bool", "bytes"}
-
-# The `%ps.arg` kind codes the runtime reprs read (ps_fmt.c): a PsSeq cell
-# is only a byte size, so the element kind has to ride the call.
-_SEQ_KIND_CODES = {"int": 1, "float": 2, "str": 3, "bool": 4, "bytes": 6}
-_MAP_VALUE_CODES = {"int": 1, "float": 2, "str": 3, "bytes": 6}
 
 
 def _printable(lo: Any, typ: dict[str, Any]) -> bool:
@@ -43,26 +39,26 @@ def _container_repr(lo: Any, arg: dict[str, Any], span: dict[str, Any]) -> dict[
 
     `str(container)` is `repr(container)` for these types, so the argument
     becomes a `ps_seq_repr`/`ps_map_repr` abi call whose str result the
-    ordinary print walk emits. Element kinds stay at the scalar leaves the
-    runtime repr covers; every other shape keeps the PS2003 fence.
+    ordinary print walk emits. The element type rides as a recursive spec
+    string (`pyscriptc.reprspec`); every shape outside the printable set
+    keeps the PS2003 fence.
     """
 
     typ = arg["type"]
     kind = typ["kind"]
     if kind == "dict":
-        key = typ["key"]["kind"]
-        value = typ["value"]["kind"]
-        if key not in {"int", "str"} or value not in _MAP_VALUE_CODES:
+        spec = type_spec(typ)
+        if spec is None:
             return None
-        vkind = _const_int(_MAP_VALUE_CODES[value], span)
-        return lo._abi_call("builtins", "map_repr", [arg, vkind], {"kind": "str"}, "ps_map_repr", span)
+        spec_arg = _const_text(spec, "str", span)
+        return lo._abi_call("builtins", "map_repr", [arg, spec_arg], {"kind": "str"}, "ps_map_repr", span)
     if kind == "list":
-        elem = typ["elem"]["kind"]
-        if elem not in _SEQ_KIND_CODES:
+        elem_spec = type_spec(typ["elem"])
+        if elem_spec is None:
             return None
-        ekind = _const_int(_SEQ_KIND_CODES[elem], span)
+        spec_arg = _const_text(elem_spec, "str", span)
         is_set = _const_int(1 if typ.get("set") else 0, span)
-        return lo._abi_call("builtins", "seq_repr", [arg, ekind, is_set], {"kind": "str"}, "ps_seq_repr", span)
+        return lo._abi_call("builtins", "seq_repr", [arg, spec_arg, is_set], {"kind": "str"}, "ps_seq_repr", span)
     return None
 
 
@@ -117,8 +113,8 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
             lo.fail(
                 node,
                 "PS2003",
-                f"print is lowered for str, int, float, bool, and bytes values, not {arg['type']['kind']};"
-                " wrap it in str(...)",
+                f"print is lowered for str, int, float, bool, bytes and list/dict/set values,"
+                f" not {arg['type']['kind']}; wrap it in str(...)",
             )
     expr = {
         "kind": "call",

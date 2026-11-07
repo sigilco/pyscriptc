@@ -652,9 +652,10 @@ def _supported_container_repr(expr: Dict[str, Any]) -> bool:
     """The slice test for a `print` container repr call.
 
     The admitted shape is the lowering's own: the container value first
-    (a supported list or dict), then the int const kind tags the runtime
-    repr reads (a PsSeq cell is only a byte size, so the element kind
-    rides the call), and a str result. Anything else stays outside.
+    (a supported list or dict), then the str const repr spec the
+    runtime parses (`pyscriptc.reprspec.type_spec`; a PsSeq cell is only
+    a byte size, so the element type rides the call as text), the int
+    const `is_set` tag on the seq form, and a str result.
     """
     if "symbol" not in expr:
         return False
@@ -668,15 +669,19 @@ def _supported_container_repr(expr: Dict[str, Any]) -> bool:
         first: Dict[str, Any] = args[0]
         if _type_kind(first["type"]) != "list":
             return False
+        spec_arg, tag_args = args[1], args[2:]
     elif symbol == "ps_map_repr":
         if len(args) != 2:
             return False
         first = args[0]
         if _type_kind(first["type"]) != "dict":
             return False
+        spec_arg, tag_args = args[1], args[1:1]
     else:
         return False
-    for tag_arg in args[1:]:
+    if spec_arg["kind"] != "const" or _type_kind(spec_arg["type"]) != "str":
+        return False
+    for tag_arg in tag_args:
         if tag_arg["kind"] != "const" or _type_kind(tag_arg["type"]) != "int":
             return False
     return supported_expr(first)
