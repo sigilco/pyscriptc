@@ -187,14 +187,26 @@ def test_print_to_stderr_links_and_writes_to_stderr(tmp_path: Path) -> None:
 def test_print_value_outside_the_scalar_set_fences() -> None:
     mod = lower_source(
         """
-items: list[list[int]] = [[1, 2], [3]]
+items: list[int | None] = [1, None]
 print(items)
 """
     )
     assert len(mod["fences"]) == 1
     fence = mod["fences"][0]
     assert fence["code"] == "PS2003"
-    assert "print is lowered for str, int, float, bool, and bytes values" in fence["message"]
+    assert "print is lowered for str, int, float, bool, bytes and list/dict/set values" in fence["message"]
+
+
+def test_print_nested_containers_lower_without_fences() -> None:
+    mod = lower_source(
+        """
+def show(grid: list[list[int]], table: dict[str, list[int]], bags: list[set[str]]) -> None:
+    print(grid)
+    print(table)
+    print(bags)
+"""
+    )
+    assert mod["fences"] == []
 
 
 def test_print_star_args_and_double_star_fence() -> None:

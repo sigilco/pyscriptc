@@ -923,76 +923,132 @@ static void emit_dot_field(PsGrow *g, Ctx *c, const char *field, int64_t fn) {
 /* ---- container repr (print of a list, set or dict) -------------------
 
    `ps_seq_repr`/`ps_map_repr` back the lowered `print(container)` calls.
-   The element kind rides as an argument because a PsSeq cell is only a
-   byte size: int and float share 8 bytes and str and bytes share the
-   16-byte PsBuf prefix, so the IR's element type is the only place the
-   spelling is known. The codes match the `%ps.arg` kind numbers
-   (1 int, 2 float, 3 str, 4 bool, 6 bytes). */
+   The element type rides as a recursive spec string
+   (`pyscriptc.reprspec.type_spec`): a PsSeq cell is only a byte size, so
+   the spelling is the only place the shape is known. Scalars are `i`
+   int, `f` float, `s` str, `b` bool, `y` bytes; `l`/`t` prefix a
+   list/set element spec, `d` + key char + value spec a dict element
+   spec. A malformed spec raises rather than reading past its length. */
 
-static void repr_seq_cell(PsGrow *g, PsSeq *s, int64_t i, int64_t elem_kind) {
-    char *cell = (char *)s->data + (size_t)i * (size_t)s->elem;
-    switch (elem_kind) {
-        case 1: {
+static void repr_spec_cell(PsGrow *g, const char *cell, const char *sp, int64_t sn);
+
+static void repr_seq_spec(PsGrow *g, PsSeq *s, const char *sp, int64_t sn, int64_t is_set) {
+    if (is_set != 0 && s->len == 0) {
+        /* CPython spells the empty set `set()`, never `{}` (that is a dict). */
+        grow_text(g, "set()");
+        return;
+    }
+    ps_grow_byte(g, is_set != 0 ? '{' : '[');
+    for (int64_t i = 0; i < s->len; i++) {
+        char *cell;
+        if (i > 0) {
+            grow_text(g, ", ");
+        }
+        cell = (char *)s->data + (size_t)i * (size_t)s->elem;
+        repr_spec_cell(g, cell, sp, sn);
+    }
+    ps_grow_byte(g, is_set != 0 ? '}' : ']');
+}
+
+static void repr_map_spec(PsGrow *g, PsMap *m, const char *sp, int64_t sn) {
+    char *key = malloc((size_t)m->key_size);
+    char *val = malloc((size_t)m->val_size);
+    if (key == NULL || val == NULL) {
+        abort();
+    }
+    ps_grow_byte(g, '{');
+    for (int64_t i = 0; i < m->len; i++) {
+        if (i > 0) {
+            grow_text(g, ", ");
+        }
+        ps_map_key_at(m, i, key);
+        ps_map_val_at(m, i, val);
+        if (m->key_kind == 1) {
+            int64_t k;
+            memcpy(&k, key, 8);
+            grow_i64(g, k);
+        } else {
+            PsBuf k;
+            memcpy(&k, key, sizeof k);
+            repr_str_into(g, k.len, k.data, 0);
+        }
+        grow_text(g, ": ");
+        repr_spec_cell(g, val, sp, sn);
+    }
+    ps_grow_byte(g, '}');
+    free(key);
+    free(val);
+}
+
+static void repr_spec_cell(PsGrow *g, const char *cell, const char *sp, int64_t sn) {
+    char c;
+    if (sn <= 0) {
+        ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
+    }
+    c = sp[0];
+    switch (c) {
+        case 'i': {
             int64_t v;
             memcpy(&v, cell, 8);
             grow_i64(g, v);
             return;
         }
-        case 2: {
+        case 'f': {
             double v;
             memcpy(&v, cell, 8);
             grow_f64(g, v);
             return;
         }
-        case 3: {
+        case 's': {
             PsBuf b;
             memcpy(&b, cell, sizeof b);
             repr_str_into(g, b.len, b.data, 0);
             return;
         }
-        case 4:
-            grow_text(g, *(char *)cell ? "True" : "False");
+        case 'b':
+            grow_text(g, *(const char *)cell ? "True" : "False");
             return;
-        case 6: {
+        case 'y': {
             PsBuf b;
             memcpy(&b, cell, sizeof b);
             grow_bytes_repr(g, &b);
             return;
         }
+        case 'l':
+        case 't': {
+            PsSeq *sub;
+            memcpy(&sub, cell, sizeof sub);
+            repr_seq_spec(g, sub, sp + 1, sn - 1, c == 't');
+            return;
+        }
+        case 'd': {
+            PsMap *sub;
+            if (sn < 3 || (sp[1] != 'i' && sp[1] != 's')) {
+                ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
+            }
+            memcpy(&sub, cell, sizeof sub);
+            repr_map_spec(g, sub, sp + 2, sn - 2);
+            return;
+        }
         default:
-            ps_raise_cstr(PS_VALUE, "sequence repr element kind is not lowered");
+            ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
     }
 }
 
-void ps_seq_repr(PsSeq *s, int64_t elem_kind, int64_t is_set, PsBuf *out) {
+void ps_seq_repr(PsSeq *s, int64_t sn, const char *sp, int64_t is_set, PsBuf *out) {
     PsGrow g;
     ps_grow_init(&g);
-    if (is_set != 0 && s->len == 0) {
-        /* CPython spells the empty set `set()`, never `{}` (that is a dict). */
-        grow_text(&g, "set()");
-        ps_grow_finish(&g, out);
-        return;
-    }
-    ps_grow_byte(&g, is_set != 0 ? '{' : '[');
-    for (int64_t i = 0; i < s->len; i++) {
-        if (i > 0) {
-            grow_text(&g, ", ");
-        }
-        repr_seq_cell(&g, s, i, elem_kind);
-    }
-    ps_grow_byte(&g, is_set != 0 ? '}' : ']');
+    repr_seq_spec(&g, s, sp, sn, is_set);
     ps_grow_finish(&g, out);
 }
 
-void ps_map_repr(PsMap *m, int64_t vkind, PsBuf *out) {
+void ps_map_repr(PsMap *m, int64_t sn, const char *sp, PsBuf *out) {
     PsGrow g;
-    PsArg a;
     ps_grow_init(&g);
-    memset(&a, 0, sizeof a);
-    a.kind = PS_ARG_MAP;
-    a.i = vkind;
-    a.b.data = (char *)m;
-    repr_map_into(&g, &a, 0);
+    if (sn < 3 || sp[0] != 'd' || (sp[1] != 'i' && sp[1] != 's')) {
+        ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
+    }
+    repr_map_spec(&g, m, sp + 2, sn - 2);
     ps_grow_finish(&g, out);
 }
 

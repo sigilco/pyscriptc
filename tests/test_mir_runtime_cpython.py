@@ -48,14 +48,11 @@ def test_corpus_scripts_with_slice_are_in_default_set() -> None:
         assert in_slice > 0
 
 
-# Known CPython divergences that are not MIR-lane bugs: `leafmap.py`
-# exercises `str.rsplit` with `maxsplit`, which the shared runtime
-# (`ps_str_split_m`) gets wrong on both lanes (#1052); the three corpus
+# Known CPython divergences that are not MIR-lane bugs: the three corpus
 # scripts overflow the documented i64 `int` (divergence 1) where CPython
 # has bigint. Keys are path suffixes so corpus `main.py`s disambiguate.
 # The xfail is strict so the marker must be removed once fixed.
 _KNOWN_DIVERGENT = {
-    "leafmap.py": "str.rsplit ignores maxsplit (#1052)",
     "bigint_factorial/main.py": "int is i64, CPython has bigint (divergence 1)",
     "gcd_lcm/main.py": "int is i64, CPython has bigint (divergence 1)",
     "pi_digits/main.py": "int is i64, CPython has bigint (divergence 1)",
