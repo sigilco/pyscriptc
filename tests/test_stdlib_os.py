@@ -109,6 +109,24 @@ def test_os_path_stats_and_realpath(tmp_path: Path) -> None:
     )
 
 
+def test_os_path_realpath_missing_tail(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "realpath_missing.py",
+        "\n".join(
+            [
+                "import os",
+                "",
+                "def run() -> int:",
+                "    print(os.path.realpath('pyscriptc-no-such-dir-x9/deep/file.txt'))",
+                "    print(os.path.realpath('src/pyscriptc/no-such-leaf-x9/file.py'))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
 def test_os_access_and_getpid(tmp_path: Path) -> None:
     _oracle(
         tmp_path,

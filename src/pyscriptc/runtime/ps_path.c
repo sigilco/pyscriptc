@@ -707,8 +707,11 @@ void ps_path_realpath(int64_t n, const char *s, PsBuf *out) {
             PsBuf parts[2];
             parts[0].len = (int64_t)strlen(resolved);
             parts[0].data = resolved;
-            parts[1].len = abs.len - cut;
-            parts[1].data = abs.data + cut;
+            /* abs.data[cut] is the separator the prefix ended on; keeping it
+               would make ps_path_join read the tail as absolute and drop the
+               resolved prefix. */
+            parts[1].len = abs.len - cut - 1;
+            parts[1].data = abs.data + cut + 1;
             ps_path_join(parts, 2, out);
             free(resolved);
         }
