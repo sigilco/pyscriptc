@@ -40,6 +40,7 @@ import subprocess
 import sys
 import sysconfig
 import tempfile
+import threading
 import warnings
 from collections.abc import Callable, Sequence
 from pathlib import Path
@@ -186,6 +187,41 @@ def run_checker(
     if "No module named mypy" in output:
         output = "mypy is not installed; install the extra: pip install 'pyscriptc[oracle-mypy]'"
     raise CheckFailed(output)
+
+
+def start_pyrefly(path: Path, extra_paths: Sequence[Path] | None = None) -> Callable[[], None]:
+    """Launch the pyrefly preflight on a daemon thread; return a join callable.
+
+    pyrefly reads only the source and the search roots, never the lowered
+    module, so `compile --emit bin` overlaps it with emit/link and joins before
+    the first diagnostic that follows the serial check site. The join is
+    idempotent and re-raises the checker's failure. Only the plain pyrefly lane
+    is deferred: the boxed island lane filters diagnostics through `plane_map`
+    and keeps the serial call, and `PYSC_NO_CHECK_OVERLAP=1` opts the CLI out
+    before this is called.
+    """
+    roots: list[Path] = [Path(p) for p in _active_site_packages()]
+    if extra_paths is not None:
+        roots = list(extra_paths) + roots
+    outcome: list[BaseException] = []
+    done = threading.Event()
+
+    def work() -> None:
+        try:
+            _run_pyrefly(path, roots)
+        except BaseException as exc:  # noqa: BLE001 - carried to the join
+            outcome.append(exc)
+        finally:
+            done.set()
+
+    threading.Thread(target=work, daemon=True).start()
+
+    def join() -> None:
+        done.wait()
+        if outcome:
+            raise outcome[0]
+
+    return join
 
 
 _PYRIGHT_STUBS = Path(__file__).with_name("_pyright_stubs")
