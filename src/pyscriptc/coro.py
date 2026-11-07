@@ -69,6 +69,7 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from pyscriptc import _irnode as _ir
+from pyscriptc._irnode import Handler, IrNode, Span
 from pyscriptc.builtins import RESERVED_EXCEPTIONS
 from pyscriptc.errors import span_of
 from pyscriptc.tirserde import dict_to_node, dict_to_span, dict_to_type, node_to_dict
@@ -857,134 +858,221 @@ def _class_with_methods(cls: dict[str, Any], methods: list[dict[str, Any]]) -> d
     return {**cls, "methods": methods}
 
 
-# Node accessors. The statement classifiers read statement and expression
-# nodes the same way the front door reads records: through named accessors
-# instead of the raw dict key, so the classification walk is the typed
-# shape while the nodes it walks are still dicts.
+# Node accessors. The statement classifiers and the guard walk read
+# statement and expression nodes the same way the front door reads records:
+# through named accessors instead of the raw dict key. Each accessor takes
+# the typed `IrNode` the walk converted the planned body into, or the dict
+# a node the typed schema does not cover stayed as, so the classification
+# and dispatch are one shape over both spellings.
 
 
-def _node_kind(node: dict[str, Any]) -> str:
+def _node_kind(node: Any) -> str:
     """The kind tag a statement or expression node carries. A dispatch
-    reads the node through this accessor instead of the raw dict key."""
+    reads the node through this accessor instead of the raw dict key; a
+    typed node answers with its `kind` attribute."""
 
+    if isinstance(node, IrNode):
+        return node.kind
     kind: str = node["kind"]
     return kind
 
 
-def _maybe_node_kind(node: dict[str, Any]) -> str | None:
+def _maybe_node_kind(node: Any) -> str | None:
     """The kind tag a node carries, or None when the node spells none. A
     guarded dispatch reads the node through this accessor instead of the
     raw dict key."""
 
+    if isinstance(node, IrNode):
+        return node.kind
     if "kind" not in node:
         return None
     kind: str = node["kind"]
     return kind
 
 
-def _node_expr(node: dict[str, Any]) -> dict[str, Any]:
+def _node_expr(node: Any) -> Any:
     """The child expression an `expr` statement carries. The marker probe
     reads the node through this accessor instead of the raw dict key."""
 
+    if isinstance(node, IrNode):
+        return node.expr
     expr: dict[str, Any] = node["expr"]
     return expr
 
 
-def _node_callee(node: dict[str, Any]) -> dict[str, Any]:
+def _node_callee(node: Any) -> Any:
     """The callee record a call node carries. The marker probe reads the
     node through this accessor instead of the raw dict key."""
 
+    if isinstance(node, IrNode):
+        return node.callee
     callee: dict[str, Any] = node["callee"]
     return callee
 
 
-def _callee_kind(callee: dict[str, Any]) -> str:
+def _callee_kind(callee: Any) -> str:
     """The kind tag a callee record carries: builtin, module, method,
     class or value."""
 
+    if isinstance(callee, IrNode):
+        return callee.kind
     kind: str = callee["kind"]
     return kind
 
 
-def _callee_name(callee: dict[str, Any]) -> str:
+def _callee_name(callee: Any) -> str:
     """The name a builtin, module or method callee record carries."""
 
+    if isinstance(callee, IrNode):
+        return callee.name
     name: str = callee["name"]
     return name
 
 
-def _node_then(node: dict[str, Any]) -> list[dict[str, Any]]:
+def _node_cond(node: Any) -> Any:
+    """The condition an `if` or `while` node carries."""
+
+    if isinstance(node, IrNode):
+        return node.cond
+    cond: dict[str, Any] = node["cond"]
+    return cond
+
+
+def _node_value(node: Any) -> Any:
+    """The value a `return` node carries, or None when it carries none."""
+
+    if isinstance(node, IrNode):
+        return node.value
+    return node.get("value")
+
+
+def _node_span(node: Any) -> dict[str, Any]:
+    """The span a node carries, spelled as the dict the IR builders take.
+    A typed node's `Span` record converts back; a dict passes through."""
+
+    span = node.span if isinstance(node, IrNode) else node.get("span")
+    if isinstance(span, Span):
+        return {
+            "file": span.file,
+            "line": span.line,
+            "col": span.col,
+            "endLine": span.endLine,
+            "endCol": span.endCol,
+        }
+    return span
+
+
+def _walk_node(stmt: Any) -> Any:
+    """One statement as the guard walk reads it.
+
+    A dict becomes the typed node `dict_to_node` spells; an `IrNode`
+    passes through. A dict whose kind the typed schema does not cover (or
+    a call carrying dict-only marker keys, which `dict_to_node` keeps
+    whole) stays a dict, so the walk's dict fallback still reaches it.
+    """
+
+    if isinstance(stmt, dict):
+        try:
+            node = dict_to_node(stmt)
+        except TypeError:
+            return stmt
+        return node if isinstance(node, (IrNode, dict)) else stmt
+    return stmt
+
+
+def _node_then(node: Any) -> list[Any]:
     """The then-body statements an `if` node carries."""
 
+    if isinstance(node, IrNode):
+        return node.then or []
     then: list[dict[str, Any]] = node["then"]
     return then
 
 
-def _node_else(node: dict[str, Any]) -> list[dict[str, Any]]:
+def _node_else(node: Any) -> list[Any]:
     """The else-body statements an `if` node carries."""
 
+    if isinstance(node, IrNode):
+        return node.else_ or []
     else_body: list[dict[str, Any]] = node["else"]
     return else_body
 
 
-def _node_body(node: dict[str, Any]) -> list[dict[str, Any]]:
+def _node_body(node: Any) -> list[Any]:
     """The body statements a compound node (`while`, `try`) carries."""
 
+    if isinstance(node, IrNode):
+        return node.body or []
     body: list[dict[str, Any]] = node["body"]
     return body
 
 
-def _node_orelse(node: dict[str, Any]) -> list[dict[str, Any]]:
+def _node_orelse(node: Any) -> list[Any]:
     """The orelse statements a `try` node carries, or [] when it omits
     them."""
 
+    if isinstance(node, IrNode):
+        return node.orelse or []
     if "orelse" not in node:
         return []
     orelse: list[dict[str, Any]] = node["orelse"]
     return orelse
 
 
-def _node_finalbody(node: dict[str, Any]) -> list[dict[str, Any]]:
+def _node_finalbody(node: Any) -> list[Any]:
     """The finalbody statements a `try` node carries, or [] when it omits
     them."""
 
+    if isinstance(node, IrNode):
+        return node.finalbody or []
     if "finalbody" not in node:
         return []
     finalbody: list[dict[str, Any]] = node["finalbody"]
     return finalbody
 
 
-def _node_handlers(node: dict[str, Any]) -> list[dict[str, Any]]:
+def _node_handlers(node: Any) -> list[Any]:
     """The except-handler records a `try` node carries."""
 
+    if isinstance(node, IrNode):
+        return node.handlers or []
     handlers: list[dict[str, Any]] = node["handlers"]
     return handlers
 
 
-def _opt_node_handlers(node: dict[str, Any]) -> list[dict[str, Any]]:
+def _opt_node_handlers(node: Any) -> list[Any]:
     """The except-handler records a node carries, or [] when it omits
     them (the kind probe reads any node, not only `try`)."""
 
+    if isinstance(node, IrNode):
+        return node.handlers or []
     if "handlers" not in node:
         return []
     handlers: list[dict[str, Any]] = node["handlers"]
     return handlers
 
 
-def _handler_body(handler: dict[str, Any]) -> list[dict[str, Any]]:
+def _handler_body(handler: Any) -> list[Any]:
     """The body statements an except-handler record carries."""
 
+    if isinstance(handler, Handler):
+        return handler.body
     body: list[dict[str, Any]] = handler["body"]
     return body
 
 
-def _nested_blocks(node: dict[str, Any]) -> list[list[dict[str, Any]]]:
+def _nested_blocks(node: Any) -> list[list[Any]]:
     """Every statement block a node may carry (the then/else arms, the
     loop and try bodies, orelse and finalbody), each present only when the
     node spells it as a statement list. The kind probe reads the nested
     blocks through this accessor instead of probing raw keys."""
 
-    blocks: list[list[dict[str, Any]]] = []
+    blocks: list[list[Any]] = []
+    if isinstance(node, IrNode):
+        for block in (node.then, node.else_, node.body, node.orelse, node.finalbody):
+            if isinstance(block, list):
+                blocks.append(block)
+        return blocks
     for key in ("then", "else", "body", "orelse", "finalbody"):
         block = node.get(key)
         if isinstance(block, list):
@@ -1487,7 +1575,7 @@ class _Frame:
         }
 
     # guard transform
-    def _block(self, stmts: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    def _block(self, stmts: list[Any]) -> list[dict[str, Any]]:
         """Re-entrant form of a statement list.
 
         Suspend ids are numbered in preorder, so the ids under one statement
@@ -1496,21 +1584,27 @@ class _Frame:
         suspending statement whose ids all lie below the target is skipped
         (`rs <= hi`). `rs` returns to 0 at the resume point itself, so the
         statements after the last suspending one need no guard.
+
+        Each statement is read as the typed node `dict_to_node` spells
+        (`_walk_node`); the pieces this returns stay the dict IR the frame
+        record carries, so the conversion happens once on the way in and
+        the output needs no pass back out.
         """
-        suspending = [index for index, stmt in enumerate(stmts) if _suspends(stmt, self.kind.marker)]
+        nodes = [_walk_node(stmt) for stmt in stmts]
+        suspending = [index for index, stmt in enumerate(nodes) if _suspends(stmt, self.kind.marker)]
         if not suspending:
-            return [self._plain(stmt) for stmt in stmts]
+            return [self._plain(stmt) for stmt in nodes]
         last = suspending[-1]
         out: list[dict[str, Any]] = []
         pending: list[dict[str, Any]] = []
-        for index, stmt in enumerate(stmts):
+        for index, stmt in enumerate(nodes):
             if index not in suspending:
                 if index < last:
                     pending.append(self._plain(stmt))
                 else:
                     out.append(self._plain(stmt))
                 continue
-            span = stmt["span"]
+            span = _node_span(stmt)
             if pending:
                 out.append(_if(self.fresh(span), pending, [], span))
                 pending = []
@@ -1521,78 +1615,89 @@ class _Frame:
                 out.extend(lowered)
         return out
 
-    def _suspending(self, stmt: dict[str, Any]) -> list[dict[str, Any]]:
-        span = stmt["span"]
-        kind = stmt["kind"]
-        if kind == "expr" and _is_marker(stmt, SLEEP_MARKER):
-            return self._sleep(stmt, span)
-        if kind == "expr" and _is_marker(stmt, AWAIT_TASK_MARKER):
-            return self._await_task(stmt, span)
-        if kind == "expr" and _is_marker(stmt, WAIT_FOR_MARKER):
-            return self._wait_for(stmt, span)
-        if kind == "expr" and _is_marker(stmt, PRIM_MARKER):
-            return self._await_prim(stmt, span)
-        if kind == "expr" and _is_marker(stmt, THREAD_MARKER):
-            return self._await_thread(stmt, span)
-        if kind == "expr" and _is_marker(stmt, self.kind.marker):
-            if self.kind.marker == AWAIT_MARKER:
-                return self._await(stmt, span)
-            self.points += 1
-            point = self.points
-            value = stmt["expr"]["args"][0] if stmt["expr"]["args"] else _const(None, _NONE, span)
-            leave = [
-                *self.copy_out(span),
-                self.field_set(STATE, _const(point, _INT, span), span),
-                *self.kind.suspend(self, value, span),
-            ]
-            arrive = [_assign(RESUME, _const(0, _INT, span), span)]
-            recv = stmt["expr"].get("recv")
-            if recv is not None:
-                # A yield used as an expression: the sent value (`.ps_send`,
-                # stored by `send()`) lands in the recv temp the lowering
-                # allocated for the marker's continuation. A frame whose
-                # send type is None has no `.ps_send` field and no `send()`
-                # method: `next()` delivers None, so the recv temp is the
-                # None singleton.
-                typ = stmt["expr"].get("recvType", dict(_NONE))
-                arrive.append(
-                    _assign(
-                        recv,
-                        _const(None, typ, span) if typ.get("kind") == "none" else self.field_get(SEND, typ, span),
-                        span,
+    def _suspending(self, stmt: Any) -> list[dict[str, Any]]:
+        span = _node_span(stmt)
+        kind = _node_kind(stmt)
+        if kind == "expr":
+            # The expansions still consume dict IR: the marker statement
+            # converts back once at this seam. Dict-only marker keys
+            # (`recv`/`recvType`, `prim_op`/`prim_elem`/`thread_elem`,
+            # `wait_for`) ride on kept whole-dict calls, so the conversion
+            # is lossless.
+            marker = stmt if isinstance(stmt, dict) else node_to_dict(stmt)
+            if _is_marker(marker, SLEEP_MARKER):
+                return self._sleep(marker, marker["span"])
+            if _is_marker(marker, AWAIT_TASK_MARKER):
+                return self._await_task(marker, marker["span"])
+            if _is_marker(marker, WAIT_FOR_MARKER):
+                return self._wait_for(marker, marker["span"])
+            if _is_marker(marker, PRIM_MARKER):
+                return self._await_prim(marker, marker["span"])
+            if _is_marker(marker, THREAD_MARKER):
+                return self._await_thread(marker, marker["span"])
+            if _is_marker(marker, self.kind.marker):
+                if self.kind.marker == AWAIT_MARKER:
+                    return self._await(marker, marker["span"])
+                self.points += 1
+                point = self.points
+                value = marker["expr"]["args"][0] if marker["expr"]["args"] else _const(None, _NONE, span)
+                leave = [
+                    *self.copy_out(span),
+                    self.field_set(STATE, _const(point, _INT, span), span),
+                    *self.kind.suspend(self, value, span),
+                ]
+                arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+                recv = marker["expr"].get("recv")
+                if recv is not None:
+                    # A yield used as an expression: the sent value (`.ps_send`,
+                    # stored by `send()`) lands in the recv temp the lowering
+                    # allocated for the marker's continuation. A frame whose
+                    # send type is None has no `.ps_send` field and no `send()`
+                    # method: `next()` delivers None, so the recv temp is the
+                    # None singleton.
+                    typ = marker["expr"].get("recvType", dict(_NONE))
+                    arrive.append(
+                        _assign(
+                            recv,
+                            _const(None, typ, span) if typ.get("kind") == "none" else self.field_get(SEND, typ, span),
+                            span,
+                        )
                     )
-                )
-            return [_if(self.fresh(span), leave, arrive, span)]
+                return [_if(self.fresh(span), leave, arrive, span)]
         if kind == "if":
             taken = self.temp("if", _BOOL)
-            then = self._block(stmt["then"])
+            then = self._block(_node_then(stmt))
             then_hi = self.points
-            other = self._block(stmt["else"])
+            other = self._block(_node_else(stmt))
             choose = _if(
                 self.fresh(span),
-                [_assign(taken, stmt["cond"], span)],
+                [_assign(taken, _node_cond(stmt), span)],
                 [_assign(taken, _compare("<=", self.rs(span), _const(then_hi, _INT, span), span), span)],
                 span,
             )
             return [choose, _if(_name(taken, _BOOL, span), then, other, span)]
         if kind == "while":
             again = self.temp("wh", _BOOL)
-            body = self._block(stmt["body"])
+            body = self._block(_node_body(stmt))
+            cond = _node_cond(stmt)
             enter = _if(
                 self.fresh(span),
-                [_assign(again, stmt["cond"], span)],
+                [_assign(again, cond, span)],
                 [_assign(again, _const(True, _BOOL, span), span)],
                 span,
             )
             loop = {
                 "kind": "while",
                 "cond": _name(again, _BOOL, span),
-                "body": [*body, _assign(again, stmt["cond"], span)],
+                "body": [*body, _assign(again, cond, span)],
                 "span": span,
             }
             return [enter, loop]
         if kind == "try":
-            return self._try(stmt, span)
+            # `_try` and the try re-entry helpers still walk dict IR, so the
+            # node converts back at this seam like the marker expansions.
+            node = stmt if isinstance(stmt, dict) else node_to_dict(stmt)
+            return self._try(node, node["span"])
         raise CoroError("a suspension inside try or with is not lowered yet", span)
 
     # --- try ----------------------------------------------------------------
@@ -2244,38 +2349,57 @@ class _Frame:
         arrive = [_assign(RESUME, _const(0, _INT, span), span)]
         return [_if(self.fresh(span), leave, arrive, span)]
 
-    def _plain(self, stmt: dict[str, Any]) -> dict[str, Any]:
-        """A statement without suspensions: only `return` changes meaning."""
-        kind = stmt["kind"]
+    def _plain(self, stmt: Any) -> dict[str, Any]:
+        """A statement without suspensions: only `return` changes meaning.
+
+        The node arrives as the typed record `_walk_node` produced (or the
+        dict an uncovered kind stayed as). The `if`/`while` rebuilds go
+        through the typed factories for a typed node — the `{**stmt}`
+        splat has no typed spelling — while a dict node keeps the splat,
+        since its children may carry kinds the schema does not cover.
+        """
+        kind = _node_kind(stmt)
+        span = _node_span(stmt)
         if kind == "return":
-            value = stmt.get("value")
+            value = _node_value(stmt)
             if _is_return_marker(value):
                 # `return v`: the frame carries the value — a coroutine in
                 # its `result` field, a generator in its `stop` field — and
                 # completes. Wrapped in an always-true if so the caller
                 # keeps a single statement per input.
-                result = value["args"][0]
+                result = value.args[0] if isinstance(value, IrNode) else value["args"][0]
                 leave = [
-                    self.field_set(RESULT if self.plan.kind == "coroutine" else STOP, result, stmt["span"]),
-                    *self.kind.finish(self, stmt["span"]),
+                    self.field_set(RESULT if self.plan.kind == "coroutine" else STOP, result, span),
+                    *self.kind.finish(self, span),
                 ]
-                return _if(_const(True, _BOOL, stmt["span"]), leave, [], stmt["span"])
-            finish = self.kind.finish(self, stmt["span"])
-            return finish[0] if len(finish) == 1 else _if(_const(True, _BOOL, stmt["span"]), finish, [], stmt["span"])
+                return _if(_const(True, _BOOL, span), leave, [], span)
+            finish = self.kind.finish(self, span)
+            return finish[0] if len(finish) == 1 else _if(_const(True, _BOOL, span), finish, [], span)
         if kind == "if":
-            return {
-                **stmt,
-                "then": [self._plain(s) for s in stmt["then"]],
-                "else": [self._plain(s) for s in stmt["else"]],
-            }
+            then = [self._plain(s) for s in _node_then(stmt)]
+            other = [self._plain(s) for s in _node_else(stmt)]
+            if isinstance(stmt, dict):
+                return {**stmt, "then": then, "else": other}
+            else_ = None if stmt.else_ is None else [dict_to_node(s) for s in other]
+            return node_to_dict(
+                _ir.if_stmt(
+                    stmt.cond,
+                    [dict_to_node(s) for s in then],
+                    else_,
+                    _mk_span(span),
+                )
+            )
         if kind == "while":
-            return {**stmt, "body": [self._plain(s) for s in stmt["body"]]}
+            body = [self._plain(s) for s in _node_body(stmt)]
+            if isinstance(stmt, dict):
+                return {**stmt, "body": body}
+            return node_to_dict(_ir.while_stmt(stmt.cond, [dict_to_node(s) for s in body], _mk_span(span)))
         if kind == "try" and _contains_kind(stmt, "return"):
-            raise CoroError("return inside try or with in a resumable is not lowered yet", stmt["span"])
-        return stmt
+            raise CoroError("return inside try or with in a resumable is not lowered yet", span)
+        return node_to_dict(stmt) if isinstance(stmt, IrNode) else stmt
 
 
-def _suspends(stmt: dict[str, Any], marker: str) -> bool:
+def _suspends(stmt: Any, marker: str) -> bool:
     kind = _node_kind(stmt)
     if kind == "expr":
         return (
@@ -2299,7 +2423,7 @@ def _suspends(stmt: dict[str, Any], marker: str) -> bool:
     return False
 
 
-def _is_marker(stmt: dict[str, Any], marker: str) -> bool:
+def _is_marker(stmt: Any, marker: str) -> bool:
     expr = _node_expr(stmt)
     if _node_kind(expr) != "call":
         return False
@@ -2308,13 +2432,16 @@ def _is_marker(stmt: dict[str, Any], marker: str) -> bool:
 
 
 def _is_return_marker(value: Any) -> bool:
-    if not isinstance(value, dict) or _maybe_node_kind(value) != "call":
+    if isinstance(value, IrNode):
+        if value.kind != "call":
+            return False
+    elif not isinstance(value, dict) or _maybe_node_kind(value) != "call":
         return False
     callee = _node_callee(value)
     return _callee_kind(callee) == "builtin" and _callee_name(callee) == RETURN_MARKER
 
 
-def _contains_kind(stmt: dict[str, Any], kind: str) -> bool:
+def _contains_kind(stmt: Any, kind: str) -> bool:
     if _node_kind(stmt) == kind:
         return True
     blocks = _nested_blocks(stmt)
@@ -2324,8 +2451,10 @@ def _contains_kind(stmt: dict[str, Any], kind: str) -> bool:
 
 # The private dict-IR builders go through the typed constructors (`_ir`) and
 # convert back with `node_to_dict` at this boundary (the R3 pattern): the
-# pass itself still walks dicts, but the node the dict spells is built as
-# the typed record, so the dict at emit is reconstructed key for key.
+# nodes the dicts spell are built as the typed records, so the dict at emit
+# is reconstructed key for key. The guard walk reads typed nodes; the
+# expansions and the try re-entry still consume dicts at their seams until
+# their own slices land.
 
 
 def _mk_span(span: dict[str, Any]) -> Any:
