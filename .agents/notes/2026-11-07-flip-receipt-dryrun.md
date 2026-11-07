@@ -1,0 +1,44 @@
+# MIR default flip receipt, dry run
+
+Date: 2026-11-07. Branch: `work/flip-receipt-dryrun` at `origin/master` `bd3e7577`. Epic: #817. Milestone: v0.9.0. Dry run only: no source changed, `MIR_DEFAULT` untouched, scorer holdout never touched. Gate source: `.agents/plans/2026-11-06-v090-user-centered-flip.md` section 3.
+
+## Measurements
+
+`scripts/mir_coverage.py --json`: 42 of 42 non-fenced functions in slice, 100 percent, over the 20 visible corpus scripts, zero out-of-slice reasons. The 80 percent aspiration is met on the visible set; the figure still measures slice breadth over non-fenced functions only.
+
+`scripts/runtime_ab.py` (direct vs `PYSC_MIR=1`, stdout/stderr/exit): 66 programs, 62 PASS, 0 FAIL, 4 ERROR, 0 SKIP. The 4 ERROR rows are `binary_trees`, `exceptions_flow`, `generators_comp` and `json_like_dump` corpus `main.py` files, which carry module-level fences (PS1003, PS2003, PS1104) so the compile fails on the direct lane before the MIR lane is reached; recompiling `binary_trees` with `PYSC_MIR=1` fails identically, so the ERRORs are lane-symmetric fence failures, not MIR divergences.
+
+`scripts/runtime_cpython_ab.py` (MIR lane vs pinned CPython 3.14.9 oracle, stdout/exit/stderr class): 66 programs, 58 PASS, 4 FAIL, 0 ERROR, 4 SKIP. The 4 SKIP rows are the same fenced modules. The 4 FAIL rows were each root-caused by hand: `bigint_factorial`, `gcd_lcm` and `pi_digits` exit 1 with `OverflowError` where CPython succeeds, because MIR int arithmetic is i64 with overflow checks and there is no bignum int; recompiling all three with `PYSC_MIR=0` produces the identical OverflowError, so this is a pre-existing shared divergence, not a MIR regression. `leafmap.py` prints 5 where CPython prints 6 on `parts("x y,z")` (split-family count); the direct lane prints the identical 5, again a shared pre-existing divergence. No FAIL is MIR-specific.
+
+`scripts/compat_mir_flip.py`: the tool itself fails in shard mode. Its docstring offers `-- --shard 0/64` as the smoke path, but `benchmarks.compat2.score` writes shard results as `<out>.shardIofN.json` and only merges into `<out>` when all N shards exist, while `compat_mir_flip.run_lane` requires the exact `--out` path, so the run dies with "direct lane scorer wrote no result" (exit 2). A full unsharded run scores about 14k probes twice and takes hours, so it was not run in this box. As a manual equivalent of the tool's own commands, `python -m benchmarks.compat2.score benchmarks/compat2/probes --no-cache --corpus --shard 0/8` was run once per lane (`PYSC_MIR=0`/`1`, `PYTHONHASHSEED=0`, `src` on `PYTHONPATH`) and the two shard JSONs were fed through `scripts.compat_no_flip.compare`/`render_markdown`: 1725 probes per lane, oracle `2/cpython-3.14.9`, direct weighted pass 121.0 of 1219.2 vs MIR 120.0, 1 outcome flip in either direction: `lang.Constant.none.loop` flips pass to build-error on the MIR lane. Root cause reproduced by hand: `PYSC_MIR=1 pyscriptc compile` on the probe source crashes in `src/pyscriptc/emit/_mir_in.py` `_expr_reason` with `TypeError: argument of type 'NoneType' is not a container or iterable`, because an expression child key is present with a JSON null value and the walker does `"kind" not in child` without a None guard; the direct lane compiles the same probe cleanly. This is a real MIR-lane build-error flip, the first scorer parity break observed.
+
+`scripts/mir_perf_ratio.py` (kernel/stdlib/scripting suite, 30 workloads, median of 5 runs, MIR/direct wall-time ratio): geomean 0.9443 (kernel 0.8547, stdlib 0.9564, scripting 1.0234). 29 workloads are inconclusive with bootstrap 95 percent intervals containing 1.0; `deque-ring` is faster on MIR with CI 0.547..0.967 excluding 1.0. No workload is slower than direct with its interval excluding 1.0, so the perf-ratio gate reads clean within noise on this host.
+
+`mise run bench:baseline` (`uv run python -m benchmarks.baseline.run --check`): FAILED on this host, first run. Four workloads error at link time with `PS0001: clang failed to assemble LLVM IR: cannot find -lpython3.14` (`socket-host`, `cleandoc`, `log-info`, `echo-out`), an environment gap (no libpython3.14 for clang to link), not a compiler regression. The check also flagged `sys-const` (9.1x CPython vs required floor 10.9x, reference 21.9x) and `ssl-const` (18.2x vs floor 18.8x, reference 37.5x), about 2.1x and 2.3x slower than the recorded reference, plus a geomean rss artifact driven by the errored rows. A second run on the same loaded host is in flight; treat the timing flags as unconfirmed until re-measured on a quiet reference host or in CI.
+
+Census: `uv run python -m benchmarks.compat2.census_self --json` reports 3944 fences, 131 modules, 68711 lines, 2754 definitions (1471 fenced) over `src/pyscriptc`, down from 4039 fences recorded in the plan on 2026-11-06. `uv run python scripts/repin_census.py` rewrote 0 of 131 shards (pins sum 3944, identical to measured), so census non-regression holds. `uv run python scripts/gen_support_table.py --check` exits 0, so `data/compat/support.json` is in sync with no status drift. The committed `data/benchmarks/census-self.json` is stale (generated 2026-10-16, 19 modules, 542 fences) and was not regenerated; the pins shards are the live ceiling.
+
+Byte identity: `uv run pytest tests/test_mir_leaf.py tests/test_mir_hashseed.py tests/test_mir_escape_hatch.py -q -n 2` gives 239 passed, so the layered-gate byte-identity items are green today; `tests/test_mir_escape_hatch.py` inversion is part of the flip commit itself.
+
+## Gate comparison (plan section 3)
+
+Gate item 1, runtime differential clean (0 FAIL and 0 ERROR on mir_leaf fixtures plus every visible corpus script with an in-slice function): BLOCKED as written. `runtime_ab.py` reports 4 ERROR rows, all fence-blocked corpus modules that fail identically on both lanes. Either the four modules' fences must clear, or the gate/harness must classify lane-symmetric fence failures as SKIP like `runtime_cpython_ab.py` already does.
+
+Gate item 2, scorer parity (0 outcome flips in both directions on the visible corpus): BLOCKED. The receipt tool cannot run a shard (result-path bug above), the full run was not feasible in this box, and the manual 1/8-shard equivalent already shows 1 real flip (`lang.Constant.none.loop`, MIR-lane build-error from the `_mir_in.py` None-child crash). A full-corpus receipt is still owed and may hold more flips.
+
+Gate item 3, perf (mir_perf_ratio within the bootstrap 95 percent interval of 1.0 on every workload, and `mise run bench:baseline` green): PARTIAL/BLOCKED. `mir_perf_ratio.py` is clean (all intervals contain 1.0, one workload faster). `bench:baseline` is red on this host: 4 link errors from missing `-lpython3.14` plus 2 timing flags that may be shared-host noise; it must be green on a reference host or CI before the flip.
+
+Gate item 4, census and support-ledger non-regression: PASS. 3944 fences with 0 repin shard changes, support table check clean, fence total down 95 since the plan date.
+
+Gate item 5, byte identity through v0.9.0 plus escape-hatch inversion in the flip commit: PASS today (239 tests green); the inversion is scheduled with `MIR_DEFAULT = True` in `src/pyscriptc/miremit.py`.
+
+User-visible gain evidence: slice coverage is 100 percent on the visible corpus (42/42), census fences fell to 3944, and the MIR lane shows no perf regression versus direct; the compat-ledger numbers above are the receipt inputs.
+
+## Ranked fix list
+
+1. Make `bench:baseline` green on a quiet reference host or CI: provide `libpython3.14` for the four embed/link workloads (or mark them host-gated), and re-measure `sys-const` and `ssl-const`; if the ~2x slowdowns persist off this loaded box they are real regressions to investigate before any flip.
+2. Fix the `_mir_in.py` `_expr_reason`/`_stmt_reason` walkers to skip JSON-null children (guard `child is None` before the `"kind" in child` tests), which removes the `lang.Constant.none.loop` build-error flip; then fix `compat_mir_flip.py` to resolve shard result paths (`score.shard_path`/`merge_if_complete`) or document full-run-only, and run the full visible-corpus parity receipt.
+3. Resolve the `runtime_ab.py` ERROR semantics for fence-blocked corpus scripts: either clear the module fences in `binary_trees`, `exceptions_flow`, `generators_comp` and `json_like_dump`, or teach the harness to report lane-symmetric fence failures as SKIP so the gate's "0 FAIL and 0 ERROR" is measurable.
+4. Track, do not block on, the shared pre-existing divergences the cpython A/B surfaced (no bignum int behind the three OverflowError FAILs, the `leafmap` split count): they are identical on both lanes today, but they bound the user-visible correctness story the flip receipt tells.
+
+Verdict: MIR_DEFAULT must not flip today. Items 1 and 2 above are hard blockers; item 3 is a gate-definition blocker; the parity receipt owes a full-corpus run once the scorer tooling is repaired.
