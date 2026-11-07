@@ -21,11 +21,11 @@ _OPEN_ENCODINGS = {"utf-8", "utf8", "ascii", "latin-1", "latin1"}
 _TEMP_OPEN = {**_OPEN, "w+": 7, "w+b": 8}
 
 
-_PRINT_KINDS = {"str", "int", "float", "bool", "bytes"}
+_PRINT_KINDS = {"str", "int", "float", "bool", "bytes", "exc"}
 
 
 def _printable(lo: Any, typ: dict[str, Any]) -> bool:
-    """printable: a scalar or a tuple class whose fields are all printable."""
+    """printable: a scalar (an exc prints its str()), or a tuple class whose fields are all printable."""
 
     if typ["kind"] in _PRINT_KINDS:
         return True
@@ -47,13 +47,13 @@ def _container_repr(lo: Any, arg: dict[str, Any], span: dict[str, Any]) -> dict[
     typ = arg["type"]
     kind = typ["kind"]
     if kind == "dict":
-        spec = type_spec(typ)
+        spec = type_spec(typ, lo.classes)
         if spec is None:
             return None
         spec_arg = _const_text(spec, "str", span)
         return lo._abi_call("builtins", "map_repr", [arg, spec_arg], {"kind": "str"}, "ps_map_repr", span)
     if kind == "list":
-        elem_spec = type_spec(typ["elem"])
+        elem_spec = type_spec(typ["elem"], lo.classes)
         if elem_spec is None:
             return None
         spec_arg = _const_text(elem_spec, "str", span)

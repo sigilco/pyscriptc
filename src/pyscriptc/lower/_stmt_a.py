@@ -126,6 +126,63 @@ class StmtAMixin:
         typ = self.locals.get(name)
         return typ is not None and bool(typ.get("optional")) and name not in self.fn_globals
 
+    def _narrow_probe_key(self, node: ast.expr) -> str | None:
+        """The `opt_unwrap` key an `is None` probe proves: a local name,
+        or `base.attr` for a one-level attribute read off a local."""
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            return f"{node.value.id}.{node.attr}"
+        return None
+
+    def _narrow_opt_type(self, key: str) -> dict[str, Any] | None:
+        """The tagged-optional type `key` narrows to, or None when the
+        probe is not a narrowable optional. A `base.attr` key resolves
+        the field's declared type on the base's class; globals stay out
+        on either side of the dot."""
+        if "." not in key:
+            if key in self.fn_globals:
+                return None
+            typ = self.locals.get(key)
+            return typ if typ is not None and typ.get("optional") else None
+        base, _, attr = key.partition(".")
+        if base in self.fn_globals:
+            return None
+        btyp = self.locals.get(base)
+        if btyp is None or btyp.get("kind") != "class" or btyp.get("optional"):
+            return None
+        for field in self.classes.get(btyp.get("name", ""), {}).get("fields", []):
+            if field.get("name") == attr:
+                ftyp = field.get("type")
+                return ftyp if isinstance(ftyp, dict) and ftyp.get("optional") else None
+        return None
+
+    def _key_rebinds(self, key: str, scopes: list[ast.stmt] | ast.expr) -> bool:
+        """Whether `key` is rebound anywhere in `scopes`: a Store/Del of
+        the name itself, or for a `base.attr` key a Store/Del of the
+        attribute or of the base name."""
+        items = scopes if isinstance(scopes, list) else [scopes]
+        if "." not in key:
+            return any(
+                isinstance(inner, ast.Name) and inner.id == key and isinstance(inner.ctx, (ast.Store, ast.Del))
+                for item in items
+                for inner in ast.walk(item)
+            )
+        base, _, attr = key.partition(".")
+        for item in items:
+            for inner in ast.walk(item):
+                if isinstance(inner, ast.Name) and inner.id == base and isinstance(inner.ctx, (ast.Store, ast.Del)):
+                    return True
+                if (
+                    isinstance(inner, ast.Attribute)
+                    and inner.attr == attr
+                    and isinstance(inner.value, ast.Name)
+                    and inner.value.id == base
+                    and isinstance(inner.ctx, (ast.Store, ast.Del))
+                ):
+                    return True
+        return False
+
     def _narrow_names(self, test: ast.expr) -> tuple[set[str], set[str]]:
         """The tagged optionals a test proves set when it is true and when it is false.
 
@@ -143,10 +200,11 @@ class StmtAMixin:
         if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], (ast.Is, ast.IsNot)):
             left, right = test.left, test.comparators[0]
             probe = left if _is_none_expr(right) else right if _is_none_expr(left) else None
-            if isinstance(probe, ast.Name) and self._narrowable(probe.id):
+            key = self._narrow_probe_key(probe) if probe is not None else None
+            if key is not None and self._narrow_opt_type(key) is not None:
                 if isinstance(test.ops[0], ast.IsNot):
-                    return {probe.id}, none
-                return none, {probe.id}
+                    return {key}, none
+                return none, {key}
             return none, none
         if isinstance(test, ast.BoolOp):
             parts = [self._narrow_names(value) for value in test.values]
@@ -161,17 +219,13 @@ class StmtAMixin:
         """Run `body()` with `names` narrowed, minus any name rebound in `scope`."""
         scopes = scope if isinstance(scope, list) else [scope]
         usable = {
-            name
-            for name in names
-            if not any(
-                isinstance(inner, ast.Name) and inner.id == name and isinstance(inner.ctx, (ast.Store, ast.Del))
-                for item in scopes
-                for inner in ast.walk(item)
-            )
+            name for name in names if self._narrow_opt_type(name) is not None and not self._key_rebinds(name, scopes)
         }
         saved = dict(self.opt_unwrap)
         for name in usable:
-            self.opt_unwrap[name] = self.locals[name]
+            opt = self._narrow_opt_type(name)
+            if opt is not None:
+                self.opt_unwrap[name] = opt
         try:
             return body()
         finally:
