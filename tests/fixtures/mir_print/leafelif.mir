@@ -10,23 +10,22 @@ fn pick(v0:w) -> w {
   c6 = w 4
 b0 entry():
   v1:w = copy v0
-  v3:w = copy v1
-  v4:b = cltw v3, c0
-  br v4, b1(), b2()
+  v3:b = cltw v0, c0
+  br v3, b1(), b2()
 b1 then():
   v2:w = copy c1
   jmp b9
 b2 else():
-  v5:w = copy v1
-  v6:b = cltw v5, c2
-  br v6, b3(), b4()
+  v4:w = copy v1
+  v5:b = cltw v4, c2
+  br v5, b3(), b4()
 b3 then():
   v2:w = copy c3
   jmp b8
 b4 else():
-  v7:w = copy v1
-  v8:b = cltw v7, c4
-  br v8, b5(), b6()
+  v6:w = copy v1
+  v7:b = cltw v6, c4
+  br v7, b5(), b6()
 b5 then():
   v2:w = copy c5
   jmp b7
@@ -38,8 +37,8 @@ b7 merge():
 b8 merge():
   jmp b9
 b9 merge():
-  v9:w = copy v2
-  ret v9
+  v8:w = copy v2
+  ret v8
 }
 
 fn grade(v0:w) -> w {
@@ -50,33 +49,32 @@ fn grade(v0:w) -> w {
   c4 = w 1
 b0 entry():
   v1:w = copy v0
-  v3:w = copy v1
-  v4:b = cltw v3, c0
-  br v4, b1(), b2()
+  v3:b = cltw v0, c0
+  br v3, b1(), b2()
 b1 then():
-  v5:w = copy v1
-  v6:w = mulw v5, c1
-  v2:w = copy v6
+  v4:w = copy v1
+  v5:w = mulw v4, c1
+  v2:w = copy v5
   jmp b6
 b2 else():
-  v7:w = copy v1
-  v8:b = cltw v7, c2
-  br v8, b3(), b4()
+  v6:w = copy v1
+  v7:b = cltw v6, c2
+  br v7, b3(), b4()
 b3 then():
-  v9:w = copy v1
-  v10:w = addw v9, c3
-  v2:w = copy v10
+  v8:w = copy v1
+  v9:w = addw v8, c3
+  v2:w = copy v9
   jmp b5
 b4 else():
-  v11:w = copy v1
-  v12:w = subw v11, c4
-  v2:w = copy v12
+  v10:w = copy v1
+  v11:w = subw v10, c4
+  v2:w = copy v11
   jmp b5
 b5 merge():
   jmp b6
 b6 merge():
-  v13:w = copy v2
-  ret v13
+  v12:w = copy v2
+  ret v12
 }
 
 fn dead_mid(v0:w) -> w {
@@ -85,16 +83,15 @@ fn dead_mid(v0:w) -> w {
   c2 = w 2
 b0 entry():
   v1:w = copy v0
-  v3:w = copy v1
-  v4:b = cltw v3, c0
-  br v4, b1(), b2()
+  v3:b = cltw v0, c0
+  br v3, b1(), b2()
 b1 then():
   v2:w = copy c1
   jmp b6
 b2 else():
-  v5:w = copy v1
-  v6:b = ceqw v5, c0
-  br v6, b3(), b4()
+  v4:w = copy v1
+  v5:b = ceqw v4, c0
+  br v5, b3(), b4()
 b3 then():
   ret c0
 b4 else():
@@ -103,8 +100,8 @@ b4 else():
 b5 merge():
   jmp b6
 b6 merge():
-  v7:w = copy v2
-  ret v7
+  v6:w = copy v2
+  ret v6
 }
 
 fn main() -> void {

@@ -4,18 +4,16 @@ fn twice(v0:w) -> w {
   c0 = w 2
 b0 entry():
   v1:w = copy v0
-  v2:w = copy v1
-  v3:w = mulw v2, c0
-  ret v3
+  v2:w = mulw v0, c0
+  ret v2
 }
 
 fn positive(v0:w) -> b {
   c0 = w 0
 b0 entry():
   v1:w = copy v0
-  v2:w = copy v1
-  v3:b = cgtw v2, c0
-  ret v3
+  v2:b = cgtw v0, c0
+  ret v2
 }
 
 fn main() -> void {
@@ -40,43 +38,36 @@ b0 entry():
   v-1:void = call @print(c3)
   v0:w = copy c4
   v1:d = copy c5
-  v6:w = copy v0
-  v7:b = cgtw v6, c0
-  v2:b = copy v7
-  v8:w = copy v0
-  v9:d = copy v1
-  v10:b = copy v2
-  v-1:void = call @print(v8, v9, v10)
-  v12:w = call @twice(c6)
-  v14:b = call @positive(c7)
-  v-1:void = call @print(v12, v14, c8)
-  v15:w = negw c4
-  v16:b = notb c3
-  v-1:void = call @print(v15, v16)
-  v17:s = copy c9
-  v3:s = copy v17
-  v18:s = copy v3
-  v-1:void = call @print(v18)
-  v19:s = copy c10
-  v20:s = copy v3
-  v21:w = call @twice(c0)
-  v-1:void = call @print(v19, v20, v21)
+  v6:b = cgtw c4, c0
+  v2:b = copy v6
+  v-1:void = call @print(c4, c5, v6)
+  v8:w = call @twice(c6)
+  v10:b = call @positive(c7)
+  v-1:void = call @print(v8, v10, c8)
+  v11:w = negw c4
+  v12:b = notb c3
+  v-1:void = call @print(v11, v12)
+  v13:s = copy c9
+  v3:s = copy v13
+  v-1:void = call @print(v13)
+  v14:s = copy c10
+  v15:w = call @twice(c0)
+  v-1:void = call @print(v14, v13, v15)
   v4:w = copy c11
   jmp b1
 b1 while.cond():
-  v22:w = copy v4
-  v23:b = cltw v22, c7
-  br v23, b2(), b3()
+  v16:w = copy v4
+  v17:b = cltw v16, c7
+  br v17, b2(), b3()
 b2 while.body():
-  v24:w = copy v4
-  v-1:void = call @print(c12, v24)
-  v25:w = copy v4
-  v26:w = addw v25, c0
-  v4:w = copy v26
+  v18:w = copy v4
+  v-1:void = call @print(c12, v18)
+  v19:w = addw v18, c0
+  v4:w = copy v19
   jmp b1
 b3 while.end():
-  v27:b = copy v2
-  br v27, b4(), b5()
+  v20:b = copy v2
+  br v20, b4(), b5()
 b4 then():
   v-1:void = call @print(c3)
   jmp b6
