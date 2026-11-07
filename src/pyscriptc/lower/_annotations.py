@@ -460,6 +460,12 @@ class AnnotationMixin:
             handle = _IO_HANDLES.get(alias)
             if handle is not None:
                 return _type({"kind": "class", "name": handle})
+            if alias == "Any":
+                # Issue #817: bare `Any` is the unresolved leaf, the same
+                # `any` kind an Any container's value slot already spells.
+                # Reads of an `any`-typed value prove their type at the read
+                # site or fence there; the annotation itself lowers.
+                return _type({"kind": _UNRESOLVED_KIND})
             code = "PS1104" if alias in _DYNAMIC_ANNOTATIONS else "PS1103"
             self.fail(node, code, f"{alias} is not a lowered type in the IR")
         if not isinstance(node, ast.Subscript):

@@ -116,6 +116,21 @@ def test_type_dicts_spell_their_shapes() -> None:
     }
 
 
+def test_the_any_leaf_round_trips() -> None:
+    """The unresolved leaf a bare `Any` annotation spells (issue #817)."""
+    from pyscriptc._irnode import t_any
+    from pyscriptc.tirserde import dict_to_type
+
+    assert tirserde.node_to_dict(t_any()) == {"kind": "any"}
+    assert tirserde.node_to_dict(dict_to_type({"kind": "any"})) == {"kind": "any"}
+    sig = dict_to_type({"kind": "func", "params": [{"kind": "any"}], "return": {"kind": "any"}})
+    assert tirserde.node_to_dict(sig) == {
+        "kind": "func",
+        "params": [{"kind": "any"}],
+        "return": {"kind": "any"},
+    }
+
+
 def test_a_contains_node_spells_negated_either_way() -> None:
     hay = name_expr("xs", t_list(t_leaf("int")), SPAN)
     needle = name_expr("a", t_leaf("int"), SPAN)
