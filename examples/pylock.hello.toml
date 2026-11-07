@@ -1,0 +1,6 @@
+lock-version = "1.0"
+created-by = "pyscriptc"
+
+[tool.pyscriptc]
+input-digest = "697b0422cb68179a15022b72f18708cbcc5c5ffe0d9977cd33a56695d323c07e"
+python = "3.14"

@@ -243,13 +243,46 @@ def runtime_dir() -> Path | None:
     return Path(value)
 
 
+def self_pack_dir() -> Path | None:
+    """The runtime pack the running binary carries, when it carries one.
+
+    A self-compiled pyscriptc (a `--embed-python=bundle` output) has the
+    pinned runtime next to itself: `lib/libpythonX.Y.so`, `include/pythonX.Y`
+    and `lib/pythonX.Y/` beside the binary. That tree is a pack, so a bundle
+    compile of a user program can link against the runtime the binary
+    already carries, with no cache and no network. The answer is None for
+    an ordinary install (the pack lives in the cache).
+
+    The staged program-data directory (`pyscriptc-data/` beside the binary)
+    is the marker: an ordinary interpreter shares the same lib/include shape
+    (a uv-managed python-build-standalone install has `lib/libpython*` and
+    `include/python*` too) but no program-data directory, and its libpython
+    is not the stripped pack build.
+    """
+    try:
+        executable = Path(sys.executable).resolve()
+    except OSError:
+        return None
+    root = executable.parent
+    if not (root / "pyscriptc-data").is_dir():
+        return None
+    root = root.parent
+    if not list((root / "lib").glob("libpython*")):
+        return None
+    if not list((root / "include").glob("python*")):
+        return None
+    return root
+
+
 def pack_dir(pack: Pack, root: Path | None = None) -> Path:
     """The unpacked pack directory for a pack.
 
     With `PYSC_RUNTIME_DIR` set, that directory is the pack itself (offline
     and air-gapped use): the variable names the unpacked runtime, whatever
     its own directory name is. Otherwise the pack lives in the cache under
-    its pack id.
+    its pack id. A binary that carries its own runtime (the self-compiled
+    pyscriptc) uses that tree first: it is the same pinned runtime, already
+    on disk.
     """
     if root is None:
         override = runtime_dir()
@@ -258,7 +291,9 @@ def pack_dir(pack: Pack, root: Path | None = None) -> Path:
             if len(hit) > 0:
                 return override
             return override / pack.pack_id
-    if root is None:
+        carried = self_pack_dir()
+        if carried is not None:
+            return carried
         return pack_root() / pack.pack_id
     return root / pack.pack_id
 
@@ -417,7 +452,14 @@ def host_has_shared_libpython() -> bool:
     libdir = Path(base) / "lib"
     mac = platform.system() == "Darwin"
     name = f"libpython{version}.dylib" if mac else f"libpython{version}.so"
-    return (libdir / name).exists()
+    if (libdir / name).exists():
+        return True
+    # A relocatable build (a python-build-standalone install, the pinned
+    # runtime pack) reports the build machine's LIBDIR (`/install/lib`),
+    # which does not exist next to the running interpreter. The library
+    # travels with the interpreter, so the interpreter's own directory is
+    # the real answer.
+    return (Path(sys.executable).resolve().parent.parent / "lib" / name).exists()
 
 
 def resolve_mode(mode: str | None) -> str:
@@ -481,6 +523,7 @@ def stage_bundle(
     *,
     stdlib_mode: str = "safe",
     dependency_roots: list[str] | None = None,
+    with_headers: bool = False,
 ) -> Path:
     """Copy the pack runtime next to the binary: `name/bin/name` plus `name/lib/`.
 
@@ -533,6 +576,14 @@ def stage_bundle(
         stdlibzip.stage_stdlib(lib_dir, pack_directory, version, stdlib_mode)
     else:
         (lib_dir / f"python{version}" / "lib-dynload").mkdir(parents=True, exist_ok=True)
+    if with_headers:
+        # A bundle that is itself a compiler (the self-compiled pyscriptc)
+        # compiles island programs at run time, and that compile needs the
+        # CPython headers: sysconfig of the bundled interpreter resolves
+        # `include` inside this directory tree.
+        include_src = pack_directory / "include"
+        if include_src.is_dir():
+            shutil.copytree(include_src, staging / "include")
     if dependency_roots:
         sitedeps.stage_site_packages(lib_dir, version, dependency_roots)
     # Issue #661: the staged program data tree (issue #665) sits beside the

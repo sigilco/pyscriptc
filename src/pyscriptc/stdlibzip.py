@@ -37,6 +37,7 @@ import importlib.machinery
 import importlib.util
 import os
 import py_compile
+import shutil
 import sys
 import tempfile
 import zipfile
@@ -375,6 +376,35 @@ def stdlib_zip_name(version: str) -> str:
     return f"python{version.replace('.', '')}.zip"
 
 
+def pack_stdlib_zip(pack_directory: Path, version: str) -> Path | None:
+    """The stdlib zip a pack carries, when its stdlib tree is already zipped.
+
+    A bundle that is itself a compiler (the self-compiled pyscriptc) carries
+    the runtime as a zip, not as an unpacked tree: the tree it hands to a
+    user program is the zip it already has.
+    """
+
+    candidate = pack_directory / "lib" / stdlib_zip_name(version)
+    return candidate if candidate.is_file() else None
+
+
+def carried_modules(pack_directory: Path, version: str, mode: str = DEFAULT_MODE) -> set[str]:
+    """The stdlib module names a pack carries, from its tree or its zip.
+
+    The manifest check (PS4301) asks what the trim keeps. A pack with an
+    unpacked tree answers from the trim; a pack that carries the zipped
+    stdlib answers from the zip.
+    """
+
+    tree = pack_directory / "lib" / f"python{version}"
+    if tree.is_dir() and any(tree.glob("*.py")):
+        return kept_module_names(stdlib_sources(tree, mode))
+    zip_path = pack_stdlib_zip(pack_directory, version)
+    if zip_path is not None:
+        return zip_modules(zip_path)
+    return set()
+
+
 def stage_stdlib(lib_dir: Path, pack_directory: Path, version: str, mode: str = DEFAULT_MODE) -> Path:
     """Replace the unpacked stdlib tree of a staged bundle with its zip.
 
@@ -388,10 +418,20 @@ def stage_stdlib(lib_dir: Path, pack_directory: Path, version: str, mode: str = 
     pack_stdlib = pack_directory / "lib" / f"python{version}"
     if not stdlib_dir.is_dir() and not pack_stdlib.is_dir():
         raise StdlibError(f"the runtime pack has no stdlib tree at {pack_stdlib}")
-    sources = stdlib_sources(pack_stdlib if pack_stdlib.is_dir() else stdlib_dir, mode)
     zip_path = lib_dir / stdlib_zip_name(version)
+    if pack_stdlib.is_dir() and not any(pack_stdlib.glob("*.py")):
+        # A pack that carries the zipped stdlib (the self-compiled compiler's
+        # own runtime) has no sources to re-trim: the zip travels as is.
+        carried = pack_stdlib_zip(pack_directory, version)
+        if carried is not None:
+            shutil.copy2(carried, zip_path)
+            if stdlib_dir.is_dir():
+                shutil.rmtree(stdlib_dir)
+            dynload = stdlib_dir / "lib-dynload"
+            dynload.mkdir(parents=True, exist_ok=True)
+            return zip_path
+    sources = stdlib_sources(pack_stdlib if pack_stdlib.is_dir() else stdlib_dir, mode)
     write_zip(sources, pack_stdlib if pack_stdlib.is_dir() else stdlib_dir, zip_path)
-    import shutil
 
     if stdlib_dir.is_dir():
         shutil.rmtree(stdlib_dir)
@@ -474,9 +514,18 @@ def interpreter_modules(pack_directory: Path, version: str) -> set[str]:
     A stdlib name no build of this platform provides (`msvcrt`, `winreg` on
     POSIX) has no tree entry either; `_stdlib_imports` drops such a name
     before the check, and it stays out of the demand here.
+
+    A pack that carries its stdlib already zipped (the self-compiled
+    compiler's own runtime) has no tree to read; the zip names the modules
+    it carries, and what the runtime serves beyond the zip is the same set
+    the runtime binary holds.
     """
     stdlib_dir = pack_directory / "lib" / f"python{version}"
     with_source = _tree_module_names(stdlib_dir)
+    if not with_source:
+        zipped = pack_stdlib_zip(pack_directory, version)
+        if zipped is not None:
+            with_source = zip_modules(zipped)
     extensions = _extension_stems(stdlib_dir / "lib-dynload")
     return (set(sys.stdlib_module_names) - with_source) - extensions
 

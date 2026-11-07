@@ -77,6 +77,7 @@ testpaths = ["tests"]
 pythonpath = ["src", "."]
 markers = [
     "linux_container: Linux dev container suite (HEAVY=1 docker/run.sh). Shells out to clang or only passes on Linux. CI does not run these.",
+    "slow: builds the self-compiled pyscriptc and compiles through it; minutes, not seconds. CI does not run these.",
 ]
 
 [tool.ruff]
