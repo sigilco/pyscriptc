@@ -23,6 +23,7 @@ from pyscriptc.builtins import EXCEPTIONS, method_spec
 from pyscriptc.coro import DONE, STATE
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
+    Fence,
     _any_accepts,
     _assign,
     _attr,
@@ -169,7 +170,15 @@ class CallAttrMixin:
             if status == "pkg":
                 item = self._pkg_item(node, module, member)
                 if item["kind"] == "class":
-                    return self._construct(node, span, str(item["name"]))
+                    # `pkg.mod.Class(...)` spells the class through the module,
+                    # so no from-import ever installed its export: install it
+                    # here the way `_bind_one_export` does for the named form.
+                    name = str(item["name"])
+                    pending: list[Fence] = []
+                    self._install_class_export(name, item, node, pending)
+                    if pending:
+                        raise pending[0]
+                    return self._construct(node, span, name)
                 if item["kind"] != "func":
                     self.fail(node, "PS2002", f"{dotted} is not a function")
                 return self._linked_call(node, span, item, dotted)

@@ -85,7 +85,9 @@ class T:
     """A type dict: the `kind` tag plus the shape the kind carries.
 
     Leaf kinds (`str`, `int`, `float`, `bool`, `bytes`, `none`, `buf`,
-    `exc`, `typevar`) carry nothing; `class` carries `name` and, for the
+    `exc`, `typevar`, `any`) carry nothing; `any` is the unresolved leaf a
+    bare `Any` annotation spells (issue #781's container slot promoted to a
+    top-level type, issue #817). `class` carries `name` and, for the
     `X | None` spelling, `label`/`elem`/the optional bit; `list` carries
     `elem` and the set bit; `dict` carries `key`/`value`; `func` carries
     `params`/`return`. The `flags` word also carries the marker bits
@@ -230,8 +232,17 @@ class IrNode:
 
 def t_leaf(kind: str) -> T:
     """A leaf type dict: `str`, `int`, `float`, `bool`, `bytes`, `none`,
-    `buf`, `exc`, `typevar`."""
+    `buf`, `exc`, `typevar`, `any`."""
     return T(kind=kind, elem=None, key=None, value=None, params=None, ret=None)
+
+
+def t_any() -> T:
+    """The unresolved `any` leaf: the type a bare `Any` annotation spells.
+
+    It carries no shape; reads of an `any`-typed value prove their type
+    from a local source or fence at the read site (PS1107), and the
+    dict-IR emitter refuses it where no proof exists."""
+    return t_leaf("any")
 
 
 def t_class(

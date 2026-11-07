@@ -77,6 +77,7 @@ from pyscriptc._irnode import (
     setattr_stmt,
     setitem_stmt,
     subscript,
+    t_any,
     t_class,
     t_dict,
     t_func,
@@ -652,6 +653,9 @@ def dict_to_type(d: Any) -> Any:
         # The `{"kind": "typevar", "name": T}` placeholder: T carries the
         # name so `_subst_type` can resolve it at the call site.
         return T(kind=kind, elem=None, key=None, value=None, params=None, ret=None, name=d["name"])
+    if kind == "any":
+        # The unresolved leaf a bare `Any` annotation spells (issue #817).
+        return t_any()
     return t_leaf(kind)
 
 
