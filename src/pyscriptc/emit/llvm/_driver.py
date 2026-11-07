@@ -370,8 +370,23 @@ def link_binary(
             target_flags.extend(["-I", include])
             tail = [*embed_flags, *tail]
         else:
+            if include is None or not Path(include).is_dir():
+                raise IRError(
+                    f"the island link needs the CPython headers ({include or 'include'}); "
+                    "this interpreter has no usable header directory. On a self-compiled "
+                    "pyscriptc bundle, rebuild it with --embed-python=bundle --embed-headers, "
+                    "or compile this program with --embed-python=bundle so the pinned "
+                    "runtime pack supplies the headers"
+                )
             # boxed:end
             target_flags.extend(["-I", include])
+            if not Path(libdir).is_dir():
+                # A relocatable build (a python-build-standalone install)
+                # reports the build machine's LIBDIR (`/install/lib`): the
+                # library travels with the interpreter, so the interpreter's
+                # own directory is the real link directory (the same rule
+                # host_has_shared_libpython applies).
+                libdir = str(Path(sys.executable).resolve().parent.parent / "lib")
             tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]
     else:
         sources = [source for source in sources if not source.endswith("ps_island.c")]
