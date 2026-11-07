@@ -8,7 +8,6 @@ shape so later P2 modules can copy it:
 
 - builders reconstruct the same dict IR the old literals spelled,
 - accessors are the only place a converted module subscripts a node key,
-- `_shared.py`, `_time.py`, `_argparse.py`, `_threading.py`, `_minmax.py`,
 - the converted restlower modules listed in `CONVERTED` have no raw node-key
   reads and no raw `{"kind": ...}` node/type literals.
 """
