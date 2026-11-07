@@ -294,6 +294,7 @@ class MirEmitter:
         self.reg = {}
         self.slot_vid = {}
         self.slot_vid_set = set()
+        self.slot_tag = {}
         self._str_seq = []
         self._str_n = 0
         self._hoisted = []

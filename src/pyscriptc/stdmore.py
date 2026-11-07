@@ -1838,7 +1838,7 @@ def type_alias(module: str, member: str) -> str | None:
 
 
 def slot_size(typ: dict[str, Any]) -> int:
-    kind = typ["kind"]
+    kind: str = typ["kind"]
     if kind in {"int", "float", "list", "dict", "class"}:
         return 8
     if kind in {"str", "bytes"}:

@@ -37,17 +37,17 @@ ANDROID_API_DEFAULT = 24
 # The runtime files a mobile build does not carry. `ps_sub.c` forks and execs,
 # `ps_osfd.c` opens raw file descriptors: neither has a meaning inside an app
 # sandbox, and both pull in headers a phone SDK does not ship.
-MOBILE_EXCLUDED_SOURCES: tuple[str, str] = ("ps_osfd.c", "ps_sub.c")
+MOBILE_EXCLUDED_SOURCES: list[str] = ["ps_osfd.c", "ps_sub.c"]
 
 # The 16 KB page-alignment link flags Google Play requires of any shared
 # object built for Android 15+ (the 2025-11-01 rule). A static archive has no
 # ELF program headers of its own, so it inherits the consumer's alignment;
 # these flags belong on the shared-object outputs a consumer links the
 # archive into.
-ANDROID_PAGE_FLAGS: tuple[str, str] = (
+ANDROID_PAGE_FLAGS: list[str] = [
     "-Wl,-z,max-page-size=16384",
     "-Wl,-z,common-page-size=16384",
-)
+]
 
 
 class MobileRefusal(SpikeError):
@@ -132,11 +132,11 @@ def require_mobile_target(target: str | None, what: str) -> MobileTarget:
     `what` names the operation that needs a mobile target, so the message
     says which one failed.
     """
+    names = ", ".join(sorted(_mobile_targets().keys()))
+    if target is None:
+        raise MobileRefusal(f"{what} needs a mobile target: one of {names} (got None)")
     if not is_mobile_target(target):
-        raise MobileRefusal(
-            f"{what} needs a mobile target: one of {', '.join(sorted(_mobile_targets().keys()))} (got {target!r})"
-        )
-    assert target is not None
+        raise MobileRefusal(f"{what} needs a mobile target: one of {names} (got {target!r})")
     return mobile_target(target)
 
 
