@@ -334,28 +334,48 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                     # `p = functools.partial(f, 1)` / `p = dec()`: a call
                     # whose result is a callable binds like a Callable
                     # annotation.
-                    value = self._expr(stmt.value)
+                    # The shape test is speculative: when no shape matches,
+                    # the inference peek below lowers the same call again.
+                    # A value with a side effect (a comprehension that
+                    # drains an iterator, issue #1098) would then run twice
+                    # and the first run would consume the value. The
+                    # speculative IR is therefore discarded when the shape
+                    # test falls through: the prelude goes back and the temp
+                    # counter rewinds, so the real pass allocates the same
+                    # temps the peek used and the value runs once. A shape
+                    # that matches keeps its IR.
+                    saved_prelude = self.prelude
+                    saved_temp_n = self.temp_n
+                    self.prelude = []
+                    try:
+                        value = self._expr(stmt.value)
+                    except Fence:
+                        # The fence is the answer (the call does not lower):
+                        # it propagates as before, and the partial prelude is
+                        # dropped by the statement frame.
+                        self.prelude = saved_prelude
+                        raise
+                    shape = ""
                     if _node_type_kind(value) == "func":
-                        self.locals[target] = value["type"]
-                        return [_assign(target, value, span)]
+                        shape = "func"
                     # boxed:begin
-                    if value["type"].get("island"):
+                    elif value["type"].get("island"):
                         # An island call yields an opaque handle; the name owns
                         # it and the scope-exit free releases it (issue #553).
-                        self.locals[target] = value["type"]
-                        self._own_handle(target, value["type"])
-                        return [_assign(target, value, span)]
+                        shape = "island"
                     # boxed:end
-                    if _node_type_kind(value) == "class" and value["type"].get("name") in {"ArgParser", "Namespace"}:
+                    elif _node_type_kind(value) == "class" and value["type"].get("name") in {"ArgParser", "Namespace"}:
+                        shape = "argparse"
+                    if shape:
+                        self.prelude = [*saved_prelude, *self.prelude]
                         self.locals[target] = value["type"]
+                        if shape == "island":
+                            self._own_handle(target, value["type"])
                         return [_assign(target, value, span)]
-                    if self._bridge_type(stmt.value) is not None:
-                        # Checker bridge: the checker proved the call's result
-                        # type; bind the name to it instead of fencing.
-                        value = self._expr(stmt.value)
-                        if _node_type_kind(value) != "func":
-                            self.locals[target] = value["type"]
-                            return [_assign(target, value, span)]
+                    # No shape matched: the speculative IR is dropped and the
+                    # real pass below lowers the value once.
+                    self.prelude = saved_prelude
+                    self.temp_n = saved_temp_n
                 # The inference peek (issue #500) and the accumulated-type
                 # pass run before the checker bridge: a value the compiler's
                 # own analysis types stays on that path, so the bridge only
