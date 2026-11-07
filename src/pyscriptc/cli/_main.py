@@ -1771,9 +1771,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             _verify_ir(module, dbg)
             dbg.end("verify", module)
         ir_path = _output_path(args, source_path, ".ir.json")
-        ir_path.parent.mkdir(parents=True, exist_ok=True)
-        ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
-        outputs["ir"] = str(ir_path)
+        if args.emit == "ir" or module["fences"] or dbg.debug_dir is not None:
+            ir_path.parent.mkdir(parents=True, exist_ok=True)
+            ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
+            outputs["ir"] = str(ir_path)
+            log.info("emit.ir", output=str(ir_path))
         if module["fences"]:
             state["fence_count"] = len(module["fences"])
             state["fence_families"] = _fence_families(module["fences"])
@@ -1787,7 +1789,6 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             status = "fences"
             state["outcome"] = "fences"
             return 3
-        log.info("emit.ir", output=str(ir_path))
         if args.emit == "ir":
             print(ir_path)
             return 0
@@ -1796,6 +1797,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             from pyscriptc.mirprint import print_module
 
             mir_path = _output_path(args, source_path, ".mir")
+            mir_path.parent.mkdir(parents=True, exist_ok=True)
             mir_path.write_text(print_module(lower_module(module)), encoding="utf-8")
             outputs["mir"] = str(mir_path)
             print(mir_path)
@@ -1816,6 +1818,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             "islandImports": list(config.island_imports()),
         }
         report_path = _output_path(args, source_path, ".report.json")
+        report_path.parent.mkdir(parents=True, exist_ok=True)
         report_path.write_text(json.dumps(report_data, indent=2) + "\n", encoding="utf-8")
         # boxed:end
         call_args = _parse_args(args.args) if args.call else None
