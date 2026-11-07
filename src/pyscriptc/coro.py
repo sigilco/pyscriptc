@@ -790,32 +790,243 @@ class CoroMixin:
 
 
 # --- IR pass ---------------------------------------------------------------
+#
+# Record accessors. The pass still walks dict records (the module, its
+# functions, classes and methods stay dicts until the module records type,
+# the R-3 inventory); every read of one of those records goes through a
+# named accessor instead of the raw dict key, so the walk is the typed
+# shape while the records it walks are not yet.
+
+
+def _module_functions(module: dict[str, Any]) -> list[dict[str, Any]]:
+    """The function records a module carries. The module walk reads the
+    record through this accessor instead of the raw dict key."""
+
+    functions: list[dict[str, Any]] = module["functions"]
+    return functions
+
+
+def _module_classes(module: dict[str, Any]) -> list[dict[str, Any]]:
+    """The class records a module carries. The module walk reads the record
+    through this accessor instead of the raw dict key."""
+
+    classes: list[dict[str, Any]] = module["classes"]
+    return classes
+
+
+def _module_fences(module: dict[str, Any]) -> list[dict[str, Any]]:
+    """The fence records a module carries. The module walk reads the record
+    through this accessor instead of the raw dict key."""
+
+    fences: list[dict[str, Any]] = module["fences"]
+    return fences
+
+
+def _module_rewritten(
+    module: dict[str, Any],
+    functions: list[dict[str, Any]],
+    classes: list[dict[str, Any]],
+    fences: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """The module with its functions, classes and fences swapped for the
+    rewritten lists. The reassembly reads the record through this accessor
+    instead of a keyed splat."""
+
+    return {**module, "functions": functions, "classes": classes, "fences": fences}
+
+
+def _record_name(record: dict[str, Any]) -> str:
+    """The name a function, class or method record carries. A consumer
+    reads the record through this accessor instead of the raw dict key."""
+
+    name: str = record["name"]
+    return name
+
+
+def _record_span(record: dict[str, Any]) -> dict[str, Any]:
+    """The span a function, class or method record carries. A consumer
+    reads the record through this accessor instead of the raw dict key."""
+
+    span: dict[str, Any] = record["span"]
+    return span
+
+
+def _class_methods(cls: dict[str, Any]) -> list[dict[str, Any]]:
+    """The method records a class record carries. The method walk reads the
+    record through this accessor instead of the raw dict key."""
+
+    methods: list[dict[str, Any]] = cls["methods"]
+    return methods
+
+
+def _class_with_methods(cls: dict[str, Any], methods: list[dict[str, Any]]) -> dict[str, Any]:
+    """The class record with its methods swapped for the rewritten list.
+    The reassembly reads the record through this accessor instead of a
+    keyed splat."""
+
+    return {**cls, "methods": methods}
+
+
+# Node accessors. The statement classifiers read statement and expression
+# nodes the same way the front door reads records: through named accessors
+# instead of the raw dict key, so the classification walk is the typed
+# shape while the nodes it walks are still dicts.
+
+
+def _node_kind(node: dict[str, Any]) -> str:
+    """The kind tag a statement or expression node carries. A dispatch
+    reads the node through this accessor instead of the raw dict key."""
+
+    kind: str = node["kind"]
+    return kind
+
+
+def _maybe_node_kind(node: dict[str, Any]) -> str | None:
+    """The kind tag a node carries, or None when the node spells none. A
+    guarded dispatch reads the node through this accessor instead of the
+    raw dict key."""
+
+    if "kind" not in node:
+        return None
+    kind: str = node["kind"]
+    return kind
+
+
+def _node_expr(node: dict[str, Any]) -> dict[str, Any]:
+    """The child expression an `expr` statement carries. The marker probe
+    reads the node through this accessor instead of the raw dict key."""
+
+    expr: dict[str, Any] = node["expr"]
+    return expr
+
+
+def _node_callee(node: dict[str, Any]) -> dict[str, Any]:
+    """The callee record a call node carries. The marker probe reads the
+    node through this accessor instead of the raw dict key."""
+
+    callee: dict[str, Any] = node["callee"]
+    return callee
+
+
+def _callee_kind(callee: dict[str, Any]) -> str:
+    """The kind tag a callee record carries: builtin, module, method,
+    class or value."""
+
+    kind: str = callee["kind"]
+    return kind
+
+
+def _callee_name(callee: dict[str, Any]) -> str:
+    """The name a builtin, module or method callee record carries."""
+
+    name: str = callee["name"]
+    return name
+
+
+def _node_then(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The then-body statements an `if` node carries."""
+
+    then: list[dict[str, Any]] = node["then"]
+    return then
+
+
+def _node_else(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The else-body statements an `if` node carries."""
+
+    else_body: list[dict[str, Any]] = node["else"]
+    return else_body
+
+
+def _node_body(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The body statements a compound node (`while`, `try`) carries."""
+
+    body: list[dict[str, Any]] = node["body"]
+    return body
+
+
+def _node_orelse(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The orelse statements a `try` node carries, or [] when it omits
+    them."""
+
+    if "orelse" not in node:
+        return []
+    orelse: list[dict[str, Any]] = node["orelse"]
+    return orelse
+
+
+def _node_finalbody(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The finalbody statements a `try` node carries, or [] when it omits
+    them."""
+
+    if "finalbody" not in node:
+        return []
+    finalbody: list[dict[str, Any]] = node["finalbody"]
+    return finalbody
+
+
+def _node_handlers(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The except-handler records a `try` node carries."""
+
+    handlers: list[dict[str, Any]] = node["handlers"]
+    return handlers
+
+
+def _opt_node_handlers(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The except-handler records a node carries, or [] when it omits
+    them (the kind probe reads any node, not only `try`)."""
+
+    if "handlers" not in node:
+        return []
+    handlers: list[dict[str, Any]] = node["handlers"]
+    return handlers
+
+
+def _handler_body(handler: dict[str, Any]) -> list[dict[str, Any]]:
+    """The body statements an except-handler record carries."""
+
+    body: list[dict[str, Any]] = handler["body"]
+    return body
+
+
+def _nested_blocks(node: dict[str, Any]) -> list[list[dict[str, Any]]]:
+    """Every statement block a node may carry (the then/else arms, the
+    loop and try bodies, orelse and finalbody), each present only when the
+    node spells it as a statement list. The kind probe reads the nested
+    blocks through this accessor instead of probing raw keys."""
+
+    blocks: list[list[dict[str, Any]]] = []
+    for key in ("then", "else", "body", "orelse", "finalbody"):
+        block = node.get(key)
+        if isinstance(block, list):
+            blocks.append(block)
+    return blocks
 
 
 def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dict[str, Any]:
     """Rewrite every planned function into a frame class and a wrapper."""
     functions: list[dict[str, Any]] = []
-    classes = list(module["classes"])
-    fences = list(module["fences"])
-    for fn in module["functions"]:
-        plan = plans.get(fn["name"]) or _plan_by_ir_name(plans, fn["name"])
+    classes = list(_module_classes(module))
+    fences = list(_module_fences(module))
+    for fn in _module_functions(module):
+        name = _record_name(fn)
+        plan = plans.get(name) or _plan_by_ir_name(plans, name)
         if plan is None:
             functions.append(fn)
             continue
         try:
             wrapper, frame, forwarder = _Frame(fn, plan, _KINDS[plan.kind], plans).build()
         except CoroError as exc:
-            fences.append({"code": "PS2002", "message": exc.message, "function": fn["name"], "span": exc.span})
+            fences.append({"code": "PS2002", "message": exc.message, "function": name, "span": exc.span})
             continue
         functions.append(wrapper)
         if forwarder is not None:
             functions.append(forwarder)
         classes.append(frame)
         if plan.manager:
-            classes.append(_manager_class(plan, fn["span"]))
+            classes.append(_manager_class(plan, _record_span(fn)))
     classes, method_functions = _lower_method_resumables(classes, plans, fences)
     functions.extend(method_functions)
-    return {**module, "functions": functions, "classes": classes, "fences": fences}
+    return _module_rewritten(module, functions, classes, fences)
 
 
 def _lower_method_resumables(
@@ -833,18 +1044,20 @@ def _lower_method_resumables(
     method_functions: list[dict[str, Any]] = []
     for cls in classes:
         methods: list[dict[str, Any]] = []
-        for method in cls["methods"]:
-            plan = plans.get(f"{cls['name']}.{method['name']}")
+        cls_name = _record_name(cls)
+        for method in _class_methods(cls):
+            method_name = _record_name(method)
+            plan = plans.get(f"{cls_name}.{method_name}")
             if (
                 plan is None
-                or plan.frame != f"{'coro' if plan.kind == 'coroutine' else 'gen'}.{cls['name']}.{method['name']}"
+                or plan.frame != f"{'coro' if plan.kind == 'coroutine' else 'gen'}.{cls_name}.{method_name}"
             ):
                 methods.append(method)
                 continue
             try:
                 wrapper, frame, forwarder = _Frame(method, plan, _KINDS[plan.kind], plans).build()
             except CoroError as exc:
-                fences.append({"code": "PS2002", "message": exc.message, "function": method["name"], "span": exc.span})
+                fences.append({"code": "PS2002", "message": exc.message, "function": method_name, "span": exc.span})
                 methods.append(method)
                 continue
             methods.append(wrapper)
@@ -855,8 +1068,8 @@ def _lower_method_resumables(
                 # uses (`coro.<name>.resume`), so ps_loop.c stays uniform.
                 method_functions.append(forwarder)
             if plan.manager:
-                out.append(_manager_class(plan, method["span"]))
-        out.append({**cls, "methods": methods})
+                out.append(_manager_class(plan, _record_span(method)))
+        out.append(_class_with_methods(cls, methods))
     return out, method_functions
 
 
@@ -2149,7 +2362,8 @@ class _Frame:
 
 
 def _suspends(stmt: dict[str, Any], marker: str) -> bool:
-    if stmt["kind"] == "expr":
+    kind = _node_kind(stmt)
+    if kind == "expr":
         return (
             _is_marker(stmt, marker)
             or _is_marker(stmt, SLEEP_MARKER)
@@ -2158,38 +2372,39 @@ def _suspends(stmt: dict[str, Any], marker: str) -> bool:
             or _is_marker(stmt, PRIM_MARKER)
             or _is_marker(stmt, THREAD_MARKER)
         )
-    if stmt["kind"] == "if":
-        return any(_suspends(s, marker) for s in stmt["then"]) or any(_suspends(s, marker) for s in stmt["else"])
-    if stmt["kind"] == "while":
-        return any(_suspends(s, marker) for s in stmt["body"])
-    if stmt["kind"] == "try":
-        blocks = [stmt["body"], stmt.get("orelse", []), stmt.get("finalbody", [])]
-        blocks += [handler["body"] for handler in stmt["handlers"]]
+    if kind == "if":
+        return any(_suspends(s, marker) for s in _node_then(stmt)) or any(
+            _suspends(s, marker) for s in _node_else(stmt)
+        )
+    if kind == "while":
+        return any(_suspends(s, marker) for s in _node_body(stmt))
+    if kind == "try":
+        blocks = [_node_body(stmt), _node_orelse(stmt), _node_finalbody(stmt)]
+        blocks += [_handler_body(handler) for handler in _node_handlers(stmt)]
         return any(_suspends(s, marker) for block in blocks for s in block)
     return False
 
 
 def _is_marker(stmt: dict[str, Any], marker: str) -> bool:
-    expr = stmt.get("expr", {})
-    callee = expr.get("callee", {}) if expr.get("kind") == "call" else {}
-    return callee.get("kind") == "builtin" and callee.get("name") == marker
+    expr = _node_expr(stmt)
+    if _node_kind(expr) != "call":
+        return False
+    callee = _node_callee(expr)
+    return _callee_kind(callee) == "builtin" and _callee_name(callee) == marker
 
 
 def _is_return_marker(value: Any) -> bool:
-    if not isinstance(value, dict) or value.get("kind") != "call":
+    if not isinstance(value, dict) or _maybe_node_kind(value) != "call":
         return False
-    callee = value.get("callee", {})
-    return callee.get("kind") == "builtin" and callee.get("name") == RETURN_MARKER
+    callee = _node_callee(value)
+    return _callee_kind(callee) == "builtin" and _callee_name(callee) == RETURN_MARKER
 
 
 def _contains_kind(stmt: dict[str, Any], kind: str) -> bool:
-    if stmt["kind"] == kind:
+    if _node_kind(stmt) == kind:
         return True
-    blocks: list[list[dict[str, Any]]] = []
-    for key in ("then", "else", "body", "orelse", "finalbody"):
-        if isinstance(stmt.get(key), list):
-            blocks.append(stmt[key])
-    blocks += [handler["body"] for handler in stmt.get("handlers", [])]
+    blocks = _nested_blocks(stmt)
+    blocks += [_handler_body(handler) for handler in _opt_node_handlers(stmt)]
     return any(_contains_kind(s, kind) for block in blocks for s in block)
 
 
