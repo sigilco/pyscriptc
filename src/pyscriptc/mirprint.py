@@ -14,47 +14,15 @@ from __future__ import annotations
 import os
 
 from pyscriptc.mir import (
-    MIR_ADDD,
-    MIR_ADDW,
-    MIR_ANDW,
     MIR_B,
     MIR_BR,
     MIR_CALL,
-    MIR_CEQD,
-    MIR_CEQW,
-    MIR_CGED,
-    MIR_CGEW,
-    MIR_CGTD,
-    MIR_CGTW,
-    MIR_CLED,
-    MIR_CLEW,
-    MIR_CLTD,
-    MIR_CLTW,
-    MIR_CNED,
-    MIR_CNEW,
     MIR_COPY,
     MIR_D,
-    MIR_EXCCODE,
-    MIR_EXCCUR,
-    MIR_EXCISA,
-    MIR_EXTWD,
-    MIR_FLOWLD,
     MIR_GETATTR,
     MIR_INITCALL,
     MIR_JMP,
-    MIR_MAP_GET,
-    MIR_MAP_HAS,
-    MIR_MAP_LEN,
-    MIR_MAP_PUT,
-    MIR_MULD,
-    MIR_MULW,
-    MIR_NEGD,
-    MIR_NEGW,
-    MIR_NEWOBJ,
-    MIR_NEWSEQ,
     MIR_NOP,
-    MIR_NOTB,
-    MIR_ORW,
     MIR_P,
     MIR_RAISE,
     MIR_RAISEEXC,
@@ -64,101 +32,25 @@ from pyscriptc.mir import (
     MIR_RETLOD,
     MIR_S,
     MIR_SEQGET,
-    MIR_SEQLEN,
     MIR_SEQPUSH,
     MIR_SEQSET,
     MIR_SETATTR,
-    MIR_SUBD,
-    MIR_SUBW,
     MIR_TRYCALL,
-    MIR_TRYICMP,
-    MIR_TRYNE,
     MIR_TRYPACK,
     MIR_UNREACH,
     MIR_VOID,
     MIR_W,
-    MIR_XORW,
-    OP_ARITY,
-    OP_RESULT_TYPE,
     MirConst,
     MirFunction,
     MirModule,
     const_index,
     copy_result_type,
     float_bits,
+    is_terminator,
+    op_arity,
+    op_name,
+    op_result_type,
 )
-
-OP_NAMES: dict[int, str] = {
-    MIR_NOP: "nop",
-    MIR_JMP: "jmp",
-    MIR_BR: "br",
-    MIR_RET: "ret",
-    MIR_ADDW: "addw",
-    MIR_SUBW: "subw",
-    MIR_MULW: "mulw",
-    MIR_ADDD: "addd",
-    MIR_SUBD: "subd",
-    MIR_MULD: "muld",
-    MIR_NEGW: "negw",
-    MIR_NEGD: "negd",
-    MIR_CLTW: "cltw",
-    MIR_CLEW: "clew",
-    MIR_CGTW: "cgtw",
-    MIR_CGEW: "cgew",
-    MIR_CEQW: "ceqw",
-    MIR_CNEW: "cnew",
-    MIR_CLTD: "cltd",
-    MIR_CLED: "cled",
-    MIR_CGTD: "cgtd",
-    MIR_CGED: "cged",
-    MIR_CEQD: "ceqd",
-    MIR_CNED: "cned",
-    MIR_EXTWD: "extwd",
-    MIR_COPY: "copy",
-    MIR_NOTB: "notb",
-    MIR_RAISE: "raise",
-    MIR_CALL: "call",
-    MIR_ANDW: "andw",
-    MIR_NEWSEQ: "newseq",
-    MIR_SEQGET: "seqget",
-    MIR_SEQSET: "seqset",
-    MIR_SEQPUSH: "seqpush",
-    MIR_SEQLEN: "seqlen",
-    MIR_MAP_PUT: "map_put",
-    MIR_ORW: "orw",
-    MIR_XORW: "xorw",
-    MIR_NEWOBJ: "newobj",
-    MIR_SETATTR: "setattr",
-    MIR_GETATTR: "getattr",
-    MIR_TRYPACK: "trypack",
-    MIR_TRYCALL: "trycall",
-    MIR_FLOWLD: "flowld",
-    MIR_TRYICMP: "tryicmp",
-    MIR_TRYNE: "tryne",
-    MIR_EXCCODE: "exccode",
-    MIR_EXCISA: "excisa",
-    MIR_RETLOD: "retlod",
-    MIR_EXCCUR: "exccur",
-    MIR_RERAISE: "reraise",
-    MIR_RAISEEXC: "raiseexc",
-    MIR_UNREACH: "unreach",
-    MIR_INITCALL: "initcall",
-    MIR_MAP_GET: "mapget",
-    MIR_MAP_HAS: "maphas",
-    MIR_MAP_LEN: "maplen",
-    MIR_RAISEMSG: "raisemsg",
-}
-
-_TERMINATORS: list[int] = [
-    MIR_JMP,
-    MIR_BR,
-    MIR_RET,
-    MIR_RAISE,
-    MIR_RERAISE,
-    MIR_RAISEEXC,
-    MIR_UNREACH,
-    MIR_RAISEMSG,
-]
 
 
 def tag_name(tag: int) -> str:
@@ -206,7 +98,7 @@ def _block_spans(fn: MirFunction) -> list[list[int]]:
         while cursor < n:
             span.append(cursor)
             cursor += 1
-            if fn.ops[cursor - 1] in _TERMINATORS:
+            if is_terminator(fn.ops[cursor - 1]):
                 break
         spans.append(span)
     if cursor < n:
@@ -226,7 +118,7 @@ def _call_args_text(fn: MirFunction, i: int) -> str:
 
 def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
     op = fn.ops[i]
-    name = OP_NAMES.get(op, f"op{op}")
+    name = op_name(op)
     a1 = fn.arg1[i]
     a2 = fn.arg2[i]
     a3 = fn.arg3[i] if i < len(fn.arg3) else -1
@@ -298,13 +190,18 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
     if op == MIR_RETLOD:
         tag = tag_name(a2)
         return f"v{fn.dsts[i]}:{tag} = retlod"
-    tag = tag_name(OP_RESULT_TYPE.get(op, MIR_W))
-    arity = OP_ARITY.get(op, 2)
+    result_tag = op_result_type(op)
+    if result_tag < 0:
+        result_tag = MIR_W
+    tag_text = tag_name(result_tag)
+    arity = op_arity(op)
+    if arity < 0:
+        arity = 2
     if arity == 0:
-        return f"{dst}:{tag} = {name}"
+        return f"{dst}:{tag_text} = {name}"
     if arity == 1:
-        return f"{dst}:{tag} = {name} {_operand(fn, a1)}"
-    return f"{dst}:{tag} = {name} {_operand(fn, a1)}, {_operand(fn, a2)}"
+        return f"{dst}:{tag_text} = {name} {_operand(fn, a1)}"
+    return f"{dst}:{tag_text} = {name} {_operand(fn, a1)}, {_operand(fn, a2)}"
 
 
 def print_function(fn: MirFunction) -> str:

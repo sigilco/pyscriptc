@@ -33,8 +33,13 @@ from pyscriptc.mir import (
     MIR_B,
     MIR_BR,
     MIR_CALL,
+    MIR_CLTW,
+    MIR_CNED,
     MIR_COPY,
     MIR_D,
+    MIR_EXCCUR,
+    MIR_EXCISA,
+    MIR_EXTWD,
     MIR_GETATTR,
     MIR_INITCALL,
     MIR_JMP,
@@ -42,17 +47,23 @@ from pyscriptc.mir import (
     MIR_MAP_HAS,
     MIR_MAP_LEN,
     MIR_MAP_PUT,
+    MIR_NEGD,
     MIR_NEWOBJ,
     MIR_NEWSEQ,
+    MIR_NOP,
+    MIR_NOTB,
     MIR_P,
-    MIR_RAISE,
     MIR_RET,
+    MIR_RETLOD,
     MIR_S,
     MIR_SEQGET,
     MIR_SEQLEN,
     MIR_SEQPUSH,
     MIR_SEQSET,
     MIR_SETATTR,
+    MIR_TRYICMP,
+    MIR_TRYNE,
+    MIR_TRYPACK,
     MIR_VOID,
     MIR_W,
     MirBlock,
@@ -63,83 +74,20 @@ from pyscriptc.mir import (
     const_index,
     copy_result_type,
     is_const_ref,
+    is_terminator,
+    is_value_op,
+    op_arity,
 )
 
-# The op arity table, spelled here for the same reason as `mirlower`'s
-# int-literal op ids: `mir.py`'s module-level table binds a global slot,
-# and slots do not ride the package export table a cross-module import
-# resolves against. The keys are the op ids as int literals, the values
-# mirror `mir.py`'s table; a drift is a test failure, not a silent wrong
-# verification.
-_OP_ARITY: dict[int, int] = {
-    1: 0,  # MIR_JMP
-    2: 1,  # MIR_BR
-    3: 1,  # MIR_RET
-    4: 2,  # MIR_ADDW
-    5: 2,  # MIR_SUBW
-    6: 2,  # MIR_MULW
-    7: 2,  # MIR_ADDD
-    8: 2,  # MIR_SUBD
-    9: 2,  # MIR_MULD
-    10: 1,  # MIR_NEGW
-    11: 1,  # MIR_NEGD
-    12: 2,  # MIR_CLTW
-    13: 2,  # MIR_CLEW
-    14: 2,  # MIR_CGTW
-    15: 2,  # MIR_CGEW
-    16: 2,  # MIR_CEQW
-    17: 2,  # MIR_CNEW
-    18: 2,  # MIR_CLTD
-    19: 2,  # MIR_CLED
-    20: 2,  # MIR_CGTD
-    21: 2,  # MIR_CGED
-    22: 2,  # MIR_CEQD
-    23: 2,  # MIR_CNED
-    24: 1,  # MIR_EXTWD
-    26: 1,  # MIR_NOTB
-    25: 1,  # MIR_COPY
-    27: 1,  # MIR_RAISE
-    28: 2,  # MIR_CALL
-    29: 2,  # MIR_ANDW
-    30: 2,  # MIR_NEWSEQ
-    31: 2,  # MIR_SEQGET
-    32: 3,  # MIR_SEQSET
-    33: 2,  # MIR_SEQPUSH
-    34: 1,  # MIR_SEQLEN
-    35: 2,  # MIR_ORW
-    36: 2,  # MIR_XORW
-    37: 1,  # MIR_NEWOBJ
-    38: 3,  # MIR_SETATTR
-    39: 3,  # MIR_GETATTR
-    40: 3,  # MIR_MAP_PUT
-    54: 2,  # MIR_MAP_GET
-    55: 2,  # MIR_MAP_HAS
-    56: 1,  # MIR_MAP_LEN
-    41: 0,  # MIR_TRYPACK
-    42: 1,  # MIR_TRYCALL
-    43: 0,  # MIR_FLOWLD
-    44: 2,  # MIR_TRYICMP
-    45: 1,  # MIR_TRYNE
-    46: 0,  # MIR_EXCCODE
-    47: 2,  # MIR_EXCISA
-    48: 0,  # MIR_RETLOD
-    49: 0,  # MIR_EXCCUR
-    50: 0,  # MIR_RERAISE
-    51: 1,  # MIR_RAISEEXC
-    52: 0,  # MIR_UNREACH
-    53: 1,  # MIR_INITCALL
-    57: 2,  # MIR_RAISEMSG
-}
 
-# The try callsite terminators, spelled as int literals for the same
-# reason as the arity table: they extend the four terminator walks
-# below without new imports.
-_EXTRA_TERMINATORS = [50, 51, 52, 57]
+# The arity-0 value ops read no operand slot (their payload rides the
+# helpers entry or `arg2`), so the generic value-op rule would skip them;
+# the def seeding below gives each its result tag. The set is derived
+# from the op spec through the accessors: `mir.py`'s tables cannot cross
+# the closed import table, but the functions can.
+def _tagless_value_op(op: int) -> bool:
+    return is_value_op(op) and op_arity(op) == 0
 
-# The arity-0 value ops: they read no operand slot (their payload rides
-# the helpers entry or `arg2`), so the generic value-op rule would skip
-# them; the def seeding below gives each its result tag.
-_TAGLESS_VALUE_OPS = [41, 43, 46, 48, 49]
 
 # The verifier's own codes. They are stable: a test that pins a violation
 # pins the code, not the prose.
@@ -198,7 +146,7 @@ def _span_end(fn: MirFunction, start: int) -> int:
     n: int = len(ops)
     while i < n:
         op: int = ops[i]
-        if op == MIR_JMP or op == MIR_BR or op == MIR_RET or op == MIR_RAISE or op in _EXTRA_TERMINATORS:
+        if is_terminator(op):
             return i + 1
         i += 1
     return n
@@ -211,8 +159,12 @@ def _check_instr_operands(fn: MirFunction, i: int, defs: dict[int, int]) -> list
     arg1: int = fn.arg1[i]
     arg2: int = fn.arg2[i]
     arg3: int = fn.arg3[i] if i < len(fn.arg3) else -1
-    arity: int | None = _OP_ARITY.get(op)
-    if arity is None:
+    arity: int = op_arity(op)
+    # `MIR_NOP` stays unknown here: the verifier's historical arity table
+    # never listed op 0, and `test_unknown_op` pins that diagnostic. The
+    # single-source table knows the op; this guard keeps the verifier's
+    # answers byte-identical until the quirk is ruled on.
+    if op == MIR_NOP or arity < 0:
         out.append(_Violation(CODE_CONTROL, f"instr {i}: unknown op {op}"))
         return out
     # A void return reads no operand: its arg1 is the unused sentinel and
@@ -497,33 +449,18 @@ def _result_type_of(op: int) -> int:
     `MIR_D`. The compare family (the twelve `MIR_C*` ids) shares one
     arm because every comparison produces a `MIR_B`.
     """
-    # The op ids as locals: a module-level constant read from another
-    # module fences under the closed import table, so the table values
-    # are spelled here as ints.
-    neg_d: int = 11
-    ext_wd: int = 24
-    not_b: int = 26
-    new_seq: int = 30
-    new_obj: int = 37
-    init_call: int = 53
-    clt_w: int = 12
-    cne_d: int = 23
-    tag_d: int = 1
-    tag_b: int = 2
-    tag_w: int = 0
-    tag_p: int = 5
-    if op == neg_d:
-        return tag_d
-    if op == ext_wd:
-        return tag_d
-    if op == not_b:
-        return tag_b
-    if op == new_seq or op == new_obj or op == init_call:
-        return tag_p
-    is_compare: int = 1 if op >= clt_w and op <= cne_d else 0
+    if op == MIR_NEGD:
+        return MIR_D
+    if op == MIR_EXTWD:
+        return MIR_D
+    if op == MIR_NOTB:
+        return MIR_B
+    if op == MIR_NEWSEQ or op == MIR_NEWOBJ or op == MIR_INITCALL:
+        return MIR_P
+    is_compare: int = 1 if op >= MIR_CLTW and op <= MIR_CNED else 0
     if is_compare:
-        return tag_b
-    return tag_w
+        return MIR_B
+    return MIR_W
 
 
 def _check_function(fn: MirFunction) -> list[_Violation]:
@@ -588,8 +525,8 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         # two operands is a value op, and the arity-1 family splits only on
         # the two control ops (MIR_BR, MIR_RET). The result type comes from
         # the same table through the lookup helper above.
-        arity_at: int | None = _OP_ARITY.get(op)
-        is_control: int = 1 if op == MIR_BR or op == MIR_RET or op == MIR_RAISE or op in _EXTRA_TERMINATORS else 0
+        arity_at: int = op_arity(op)
+        is_control: int = 1 if is_terminator(op) and op != MIR_JMP else 0
         # A call's dst and result tag run through `_check_call` below: a
         # void call legitimately writes no dst and its true tag rides
         # arg2, so the generic value-op rules do not apply. The sequence
@@ -600,8 +537,8 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         if (
             op != MIR_CALL
             and is_seq_store == 0
-            and arity_at is not None
-            and (arity_at >= 2 or (arity_at == 1 and is_control == 0) or op in _TAGLESS_VALUE_OPS)
+            and arity_at >= 0
+            and (arity_at >= 2 or (arity_at == 1 and is_control == 0) or _tagless_value_op(op))
         ):
             if dst < 0:
                 out.append(_Violation(CODE_USEDEF, f"instr {i}: value op without a dst"))
@@ -628,13 +565,13 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                         defs[dst] = MIR_W
                 elif op == MIR_MAP_HAS:
                     defs[dst] = MIR_B
-                elif op == 41 or op == 49:
+                elif op == MIR_TRYPACK or op == MIR_EXCCUR:
                     # trypack/exccur: pointer results.
                     defs[dst] = MIR_P
-                elif op == 44 or op == 45 or op == 47:
+                elif op == MIR_TRYICMP or op == MIR_TRYNE or op == MIR_EXCISA:
                     # tryicmp/tryne/excisa: i1 results.
                     defs[dst] = MIR_B
-                elif op == 48:
+                elif op == MIR_RETLOD:
                     # retlod: the result tag rides arg2.
                     ret_tag: int = fn.arg2[i]
                     if ret_tag == MIR_W or ret_tag == MIR_D or ret_tag == MIR_B or ret_tag == MIR_S or ret_tag == MIR_P:
@@ -686,13 +623,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
         terms: list[int] = []
         for b_index in range(len(body)):
             term_op: int = body[b_index]
-            if (
-                term_op == MIR_JMP
-                or term_op == MIR_BR
-                or term_op == MIR_RET
-                or term_op == MIR_RAISE
-                or term_op in _EXTRA_TERMINATORS
-            ):
+            if is_terminator(term_op):
                 terms.append(term_op)
         if not terms:
             out.append(_Violation(CODE_CONTROL, f"block {bid} has no terminator"))
@@ -759,14 +690,7 @@ def _check_function(fn: MirFunction) -> list[_Violation]:
                                     f" of type {arg.typ}",
                                 )
                             )
-        if (
-            last != MIR_JMP
-            and last != MIR_BR
-            and last != MIR_RET
-            and last != MIR_RAISE
-            and last not in _EXTRA_TERMINATORS
-            and body
-        ):
+        if body and last is not None and not is_terminator(last):
             out.append(_Violation(CODE_CONTROL, f"block {bid} falls through without a terminator"))
 
     return out

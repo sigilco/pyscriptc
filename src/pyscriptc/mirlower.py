@@ -40,14 +40,14 @@ The MIR lane emits `w` for ints and bools, `d` for floats; comparisons
 produce `w` 0/1 values, the bool the branch op reads.
 
 Self-host spell: the payload annotations use the `Dict[str, Any]` container
-form with the read site annotating the element type, the op ids from
-`mir.py` are spelled here as int literals (a drift is a mirverify or A/B
-byte-identity failure, not a silent wrong lowering), and the two helpers
+form with the read site annotating the element type, and the two helpers
 the module used to import (`fits_i64`, `_ir_const_value`) are local,
-spelled over the same values. Four fences remain, one root: the
-`pyscriptc.mir` import (the MirBuilder/MirFunction/MirModule annotations
-and the MirBuilder reads) is not in the closed import table yet; decision
-2026-11-02 admits it in R4 and drops all four at once.
+spelled over the same values. The type tags and op ids come from
+`pyscriptc.mir` through the one import below: `mir.py` owns the op spec,
+and its constants ride the same import as the builder classes. Four
+fences remain, one root: the `pyscriptc.mir` import itself is not in the
+closed import table yet; decision 2026-11-02 admits it in R4 and drops
+all four at once.
 
 """
 
@@ -55,85 +55,65 @@ from __future__ import annotations
 
 from typing import Any, Dict
 
-from pyscriptc.mir import MirBuilder, MirFunction, MirModule
-
-# The type tags and op ids, spelled as int literals per the self-host
-# spell: `pyscriptc.mir` is not in the closed import table yet (decision
-# 2026-11-02 admits it in R4), so the values mirror `mir.py` here. A drift
-# is a mirverify or A/B byte-identity failure, not a silent wrong lowering.
-MIR_W = 0
-MIR_D = 1
-MIR_B = 2
-# The str value tag (`mir.py`'s MIR_S): a `%ps.str` aggregate at run time.
-# 3 is MIR_VOID, so the str tag is 4; 5 is the shared heap-pointer tag
-# (`mir.py`'s MIR_P) list values ride.
-MIR_S = 4
-MIR_P = 5
-
-MIR_ADDW = 4
-MIR_SUBW = 5
-MIR_MULW = 6
-MIR_ADDD = 7
-MIR_SUBD = 8
-MIR_MULD = 9
-MIR_NEGW = 10
-MIR_NEGD = 11
-
-MIR_CLTW = 12
-MIR_CLEW = 13
-MIR_CGTW = 14
-MIR_CGEW = 15
-MIR_CEQW = 16
-MIR_CNEW = 17
-MIR_CLTD = 18
-MIR_CLED = 19
-MIR_CGTD = 20
-MIR_CGED = 21
-MIR_CEQD = 22
-MIR_CNED = 23
-
-MIR_COPY = 25
-MIR_NOTB = 26
-MIR_RAISE = 27
-MIR_CALL = 28
-MIR_EXTWD = 24
-MIR_ANDW = 29
-MIR_NEWSEQ = 30
-MIR_SEQGET = 31
-MIR_SEQSET = 32
-MIR_SEQPUSH = 33
-MIR_SEQLEN = 34
-MIR_ORW = 35
-MIR_XORW = 36
-MIR_NEWOBJ = 37
-MIR_SETATTR = 38
-MIR_GETATTR = 39
-MIR_MAP_PUT = 40
-MIR_TRYPACK = 41
-MIR_TRYCALL = 42
-MIR_FLOWLD = 43
-MIR_TRYICMP = 44
-MIR_TRYNE = 45
-MIR_EXCCODE = 46
-MIR_EXCISA = 47
-MIR_RETLOD = 48
-MIR_EXCCUR = 49
-MIR_RERAISE = 50
-MIR_RAISEEXC = 51
-MIR_UNREACH = 52
-MIR_INITCALL = 53
-# The dict lane: `ps_map_get`/`ps_map_has`/`ps_map_len` behind the dict
-# subscript, `in` and `len` forms. `MIR_MAP_GET` reads `arg3` as the
-# result tag, the `MIR_SEQGET` convention.
-MIR_MAP_GET = 54
-MIR_MAP_HAS = 55
-MIR_MAP_LEN = 56
-MIR_RAISEMSG = 57
-
-# The void result tag (`mir.py`'s MIR_VOID): a function returning None has
-# no return value. Spelled as the int literal per the self-host spell, so a
-# drift is a mirverify or A/B byte-identity failure.
-MIR_VOID = 3
+from pyscriptc.mir import (
+    MIR_ADDD,
+    MIR_ADDW,
+    MIR_ANDW,
+    MIR_B,
+    MIR_CEQD,
+    MIR_CEQW,
+    MIR_CGED,
+    MIR_CGEW,
+    MIR_CGTD,
+    MIR_CGTW,
+    MIR_CLED,
+    MIR_CLEW,
+    MIR_CLTD,
+    MIR_CLTW,
+    MIR_CNED,
+    MIR_CNEW,
+    MIR_COPY,
+    MIR_D,
+    MIR_EXCCODE,
+    MIR_EXCCUR,
+    MIR_EXCISA,
+    MIR_EXTWD,
+    MIR_FLOWLD,
+    MIR_GETATTR,
+    MIR_INITCALL,
+    MIR_MAP_GET,
+    MIR_MAP_HAS,
+    MIR_MAP_LEN,
+    MIR_MAP_PUT,
+    MIR_MULD,
+    MIR_MULW,
+    MIR_NEGD,
+    MIR_NEGW,
+    MIR_NEWOBJ,
+    MIR_NEWSEQ,
+    MIR_NOTB,
+    MIR_ORW,
+    MIR_P,
+    MIR_RETLOD,
+    MIR_S,
+    MIR_SEQGET,
+    MIR_SEQLEN,
+    MIR_SEQPUSH,
+    MIR_SEQSET,
+    MIR_SETATTR,
+    MIR_SUBD,
+    MIR_SUBW,
+    MIR_TRYCALL,
+    MIR_TRYICMP,
+    MIR_TRYNE,
+    MIR_TRYPACK,
+    MIR_VOID,
+    MIR_W,
+    MIR_XORW,
+    MirBuilder,
+    MirFunction,
+    MirModule,
+)
 
 I64_MIN = -9223372036854775807 - 1
 I64_MAX = 9223372036854775807
