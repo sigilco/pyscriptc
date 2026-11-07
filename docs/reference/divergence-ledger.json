@@ -1,0 +1,1080 @@
+{
+  "version": 1,
+  "generated_by": "scripts/gen_divergence_ledger.py",
+  "rows": [
+    {
+      "id": "D1",
+      "seam": "int is i64; overflow aborts instead of growing a big int",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#1",
+      "probe": "probes/divergences/d01_int_overflow.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "9223372036854775808\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "OverflowError\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D2",
+      "seam": "// and % by zero: ZeroDivisionError message follows the running interpreter's minor",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#2",
+      "probe": "probes/divergences/d02_floordiv_zero.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d02_floordiv_zero.py\", line 1, in <module>\n    print(1 // 0)\n          ~~^^~~\nZeroDivisionError: division by zero\n"
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "ZeroDivisionError: division by zero\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D3",
+      "seam": "str model mid-migration: is* predicates needing Unicode category tables raise NotImplementedError",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#3",
+      "probe": "probes/divergences/d03_str_predicates.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "True\nFalse\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "NotImplementedError: str.isspace needs the Unicode category tables (S4) for U+00A0\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D4",
+      "seam": "re subset: L/T/DEBUG and unknown flag bits raise ValueError",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#4",
+      "probe": "probes/divergences/d04_re_flags.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "LITERAL 97\n\n 0. INFO 8 0b11 1 1 (to 9)\n      prefix_skip 1\n      prefix [0x61] ('a')\n      overlap [0]\n 9: LITERAL 0x61 ('a')\n11. SUCCESS\nb\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "ValueError: re.DEBUG is not supported\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D5",
+      "seam": "json has no non-ASCII text: non-ASCII emits raw where CPython escapes",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#5",
+      "probe": "probes/divergences/d05_json_ascii.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "{\"k\": \"caf\\u00e9\"}\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "{\"k\": \"café\"}\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D6",
+      "seam": "set and frozenset iterate in insertion order, not hash order",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#6",
+      "probe": "probes/divergences/d06_set_order.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "0\n1\n2\n3\n4\n5\n9\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "5\n4\n3\n2\n1\n0\n9\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D7",
+      "seam": "after for i in range(0) the loop target reads as 0 instead of raising",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#7",
+      "probe": "probes/divergences/d07_range0_target.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d07_range0_target.py\", line 3, in <module>\n    print(i)\n          ^\nNameError: name 'i' is not defined. Did you mean: 'id'?\n"
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "0\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D8",
+      "seam": "a subclass __init__ that never assigns an inherited field leaves the type's zero value",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#8",
+      "probe": "probes/divergences/d08_inherited_field.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d08_inherited_field.py\", line 14, in <module>\n    print(c.x)\n          ^^^\nAttributeError: 'C' object has no attribute 'x'\n"
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "0\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D9",
+      "seam": "a user exception stores a code and an optional str without calling __init__",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#9",
+      "probe": "probes/divergences/d09_user_exc_init.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "7\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d09_user_exc_init.py:11:11: PS2001: exception has no attribute code\n      print(e.code)\n            ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D10",
+      "seam": "Class.method(...) on classmethod/staticmethod does not pass the class object",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#10",
+      "probe": "probes/divergences/d10_classmethod.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "3\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d10_classmethod.py:2:5: PS1204: class fields are declared with an annotation and no value\n      total: int = 3\n      ^\nprobes/divergences/d10_classmethod.py:6:16: PS2002: cls is not a local or parameter\n          return cls.total\n                 ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D11",
+      "seam": "shutil.copyfile of the same path raises RuntimeError, not SameFileError",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#11",
+      "probe": "probes/divergences/d11_shutil_samefile.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d11_shutil_samefile.py\", line 5, in <module>\n    shutil.copyfile(p, p)\n    ~~~~~~~~~~~~~~~^^^^^^\n  File \"<oracle>/lib/python3.14/shutil.py\", line 293, in copyfile\n    raise SameFileError(\"{!r} and {!r} are the same file\".format(src, dst))\nshutil.SameFileError: 'same.txt' and 'same.txt' are the same file\n"
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "RuntimeError: copyfile source and destination are the same file\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D12",
+      "seam": "assert is always evaluated; a compiled binary has no -O",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#12",
+      "probe": "probes/divergences/d12_assert_opt.py",
+      "oracle_args": [
+        "-O"
+      ],
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "0\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D13",
+      "seam": "is on a scalar is refused; only x is None compiles (as ==)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#13",
+      "probe": "probes/divergences/d13_is_scalar.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "False\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "False\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    },
+    {
+      "id": "D14",
+      "seam": "ABC/ABCMeta/Protocol/@abstractmethod compile as plain classes with no runtime semantics",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#14",
+      "probe": "probes/divergences/d14_abc.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d14_abc.py\", line 10, in <module>\n    a: A = A()\n           ~^^\nTypeError: Can't instantiate abstract class A without an implementation for abstract method 'f'\n"
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 2,
+        "stdout": "",
+        "stderr": "probes/divergences/d14_abc.py:10: error: Cannot instantiate `A` because the following members are abstract: `f` [bad-instantiation]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D15",
+      "seam": "calls through embedded CPython follow the interpreter the binary links, not the pin",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#15",
+      "probe": null,
+      "note": "the embedded interpreter's bytes are build- and platform-dependent, so they are not ledger-recordable",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D16",
+      "seam": "dotenv compiles a closed subset of python-dotenv's parsing rules",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#16",
+      "probe": null,
+      "note": "the comparison is against python-dotenv, which the pinned oracle does not ship",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D17",
+      "seam": "yaml.safe_load covers a closed YAML subset, not all of PyYAML",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#17",
+      "probe": null,
+      "note": "the comparison is against PyYAML, which the pinned oracle does not ship",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D18",
+      "seam": "https:// rides the system libcurl; PSC_CURL_DYNAMIC=1 raises OSError instead",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#18",
+      "probe": null,
+      "note": "needs a live TLS endpoint; connection-refused text is platform-dependent",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D19",
+      "seam": "generator.send(v) on an unstarted generator ignores v where CPython raises TypeError",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#19",
+      "probe": "probes/divergences/d19_gen_send.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d19_gen_send.py\", line 9, in <module>\n    g.send(5)\n    ~~~~~~^^^\nTypeError: can't send non-None value to a just-started generator\n"
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 2,
+        "stdout": "",
+        "stderr": "probes/divergences/d19_gen_send.py:9: error: Object of class `Iterator` has no attribute `send` [missing-attribute]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D20",
+      "seam": "generator.throw(E) raises E out of the call site; the generator's own except handlers never run",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#20",
+      "probe": "probes/divergences/d20_gen_throw.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d20_gen_throw.py\", line 9, in <module>\n    g.throw(ValueError(\"x\"))\n    ~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"probes/divergences/d20_gen_throw.py\", line 4, in gen\n    def gen() -> Iterator[int]:\nValueError: x\n"
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 2,
+        "stdout": "",
+        "stderr": "probes/divergences/d20_gen_throw.py:9: error: Object of class `Iterator` has no attribute `throw` [missing-attribute]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D21",
+      "seam": "yield from discards StopIteration.value; statement form never reads it",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#21",
+      "probe": null,
+      "note": "not observable: the only lowered form is a statement, so no program reads the value",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D22",
+      "seam": "pyscriptc-jwt compiles the HMAC family only",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#22",
+      "probe": null,
+      "note": "needs the curated pyscriptc-jwt distribution on both sides",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D23",
+      "seam": "pyscriptc-orjson compiles orjson.dumps/loads over the json subset",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#23",
+      "probe": null,
+      "note": "needs the curated pyscriptc-orjson distribution on both sides",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D24",
+      "seam": "@contextmanager: the gen.throw path is unreachable, so the generator's except cannot see the exception",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#24",
+      "probe": "probes/divergences/d24_contextmanager.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "caught inside\nafter yield\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "ValueError: boom\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D25",
+      "seam": "a finally pending when a generator is abandoned does not run",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#25",
+      "probe": "probes/divergences/d25_gen_finally.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "fin\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 2,
+        "stdout": "",
+        "stderr": "probes/divergences/d25_gen_finally.py:13: error: Object of class `Iterator` has no attribute `close` [missing-attribute]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D26",
+      "seam": "second-thread threading is native-only; the wasm32 link refuses it",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#26",
+      "probe": null,
+      "note": "wasm32-target divergence; the host lane is unaffected",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D27",
+      "seam": "the HTTP client is a closed urllib.request subset; urlretrieve, openers and proxies are refused",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#27",
+      "probe": "probes/divergences/d27_urlretrieve.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"<oracle>/lib/python3.14/urllib/request.py\", line 1483, in open_local_file\n    stats = os.stat(localfile)\nFileNotFoundError: [Errno 2] No such file or directory: '/nonexistent-path'\n\nDuring handling of the above exception, another exception occurred:\n\nTraceback (most recent call last):\n  File \"probes/divergences/d27_urlretrieve.py\", line 3, in <module>\n    urllib.request.urlretrieve(\"file:///nonexistent-path\", \"out.bin\")\n    ~~~~~~~~~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<oracle>/lib/python3.14/urllib/request.py\", line 212, in urlretrieve\n    with contextlib.closing(urlopen(url, data)) as fp:\n                            ~~~~~~~^^^^^^^^^^^\n  File \"<oracle>/lib/python3.14/urllib/request.py\", line 187, in urlopen\n    return opener.open(url, data, timeout)\n           ~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^\n  File \"<oracle>/lib/python3.14/urllib/request.py\", line 487, in open\n    response = self._open(req, data)\n  File \"<oracle>/lib/python3.14/urllib/request.py\", line 504, in _open\n    result = self._call_chain(self.handle_open, protocol, protocol +\n                              '_open', req)\n  File \"<oracle>/lib/python3.14/urllib/request.py\", line 464, in _call_chain\n    result = func(*args)\n  File \"<oracle>/lib/python3.14/urllib/request.py\", line 1493, in open_local_file\n    raise URLError(exp, exp.filename)\nurllib.error.URLError: <urlopen error [Errno 2] No such file or directory: '/nonexistent-path'>\n"
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 2,
+        "stdout": "",
+        "stderr": "probes/divergences/d27_urlretrieve.py:3: error: No attribute `urlretrieve` in module `urllib.request` [missing-attribute]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D28",
+      "seam": "https:// raises OSError: the native client speaks plaintext HTTP/1.1 only",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#28",
+      "probe": null,
+      "note": "needs a live TLS endpoint; superseded in shape by D18's libcurl lane",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D29",
+      "seam": "socket, ssl, http.client, http.server and selectors do not compile (PS2001)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#29",
+      "probe": "probes/divergences/d29_socket.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "<socket.socket fd=3, family=2, type=1, proto=0, laddr=('0.0.0.0', 0)>\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d29_socket.py:3:7: PS2001: socket.socket is not in the lowered subset of socket\n  print(socket.socket(socket.AF_INET, socket.SOCK_STREAM))\n        ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D30",
+      "seam": "urlopen and Request raise URLError on wasm32 and windows targets",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#30",
+      "probe": null,
+      "note": "cross-target divergence; the host lane is unaffected",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D31",
+      "seam": "wasm32-wasi-musl produces a preview1 command module with a smaller than POSIX surface",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#31",
+      "probe": null,
+      "note": "cross-target divergence",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D32",
+      "seam": "wasm32-wasi-p2 produces a WASI 0.2 component; D31's constraints apply unchanged",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#32",
+      "probe": null,
+      "note": "cross-target divergence",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D33",
+      "seam": "*-windows-* targets produce a Win32 PE with a smaller than POSIX surface",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#33",
+      "probe": null,
+      "note": "cross-target divergence; emitted binaries are never executed",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D34",
+      "seam": "only refusals in reached dependency modules stop the compile; unreached modules are pruned",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#34",
+      "probe": null,
+      "note": "needs a multi-module package shape, which single-file probes do not cover",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D35",
+      "seam": "__getattr__ compiles for unknown-name reads only; the rest of the dynamic attribute protocol is refused",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#35",
+      "probe": "probes/divergences/d35_setattr.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "set x\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d35_setattr.py:6:4: PS1106: the annotation P names a type that is not lowered\n  p: P = P()\n     ^\nprobes/divergences/d35_setattr.py:7:1: PS2002: module assignment is not lowered\n  p.x = 1\n  ^\nprobes/divergences/d35_setattr.py:2:5: PS4201: the __setattr__ hook is refused by design\n      def __setattr__(self, name: str, value: int) -> None:\n      ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D36",
+      "seam": "the shortest float spelling sometimes picks an exponent form CPython does not use at that magnitude",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#36",
+      "probe": "probes/divergences/d36_float_repr.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "10.0\n100.0\n0.5\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1e+01\n1e+02\n0.5\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D37",
+      "seam": "round(x, n) outside 0 to 8: a constant fences at compile time, a variable raises ValueError",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#37",
+      "probe": "probes/divergences/d37_round_fence.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1.5\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d37_round_fence.py:1:7: PS2003: round ndigits must be between 0 and 8; CPython also rounds by -8 <= ndigits < 0\n  print(round(1.5, 9))\n        ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D38",
+      "seam": "newline= is refused on open; encoding= compiles a constant-subset read path",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#38",
+      "probe": "probes/divergences/d38_open_newline.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "'a\\r\\nb'\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d38_open_newline.py:2:27: PS2003: open keyword newline is not lowered; open lowers encoding= only\n  print(repr(open(\"nl.txt\", newline=\"\").read()))\n                            ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D39",
+      "seam": "int(text, base) covers bases 2 to 36; base 0 and out-of-range constants stop the compile",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#39",
+      "probe": "probes/divergences/d39_int_base0.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "16\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "ValueError: int() base must be >= 2 and <= 36\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D40",
+      "seam": "subprocess.run check=True raises the RuntimeError stand-in, not CalledProcessError",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#40",
+      "probe": "probes/divergences/d40_subprocess.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d40_subprocess.py\", line 3, in <module>\n    subprocess.run([\"false\"], capture_output=True, check=True)\n    ~~~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<oracle>/lib/python3.14/subprocess.py\", line 578, in run\n    raise CalledProcessError(retcode, process.args,\n                             output=stdout, stderr=stderr)\nsubprocess.CalledProcessError: Command '['false']' returned non-zero exit status 1.\n"
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "RuntimeError: subprocess returned a non-zero exit code\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D41",
+      "seam": "fallback mode routes refused functions and classes to embedded CPython",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#41",
+      "probe": null,
+      "note": "needs --fallback=cpython; the embedded interpreter's bytes follow the build",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D42",
+      "seam": "under fallback the module top level is all-or-nothing and sys.argv[0] is the binary path",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#42",
+      "probe": null,
+      "note": "needs --fallback=cpython; the embedded interpreter's bytes follow the build",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D43",
+      "seam": "an argparse type=Path option without required=True or a str default stops the compile",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#43",
+      "probe": "probes/divergences/d43_argparse.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "ok\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d43_argparse.py:5:1: PS2003: argparse type=Path needs required=True or a str default\n  p.add_argument(\"--out\", type=Path)\n  ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D44",
+      "seam": "a local bound to a value then assigned None is not widened to Optional",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#44",
+      "probe": "probes/divergences/d44_optional.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "None\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 2,
+        "stdout": "",
+        "stderr": "probes/divergences/d44_optional.py:4: error: `None` is not assignable to variable `lp` with type `Path`\n  The declared type does not allow `None`. Consider changing the declared type to `Path | None`. [bad-assignment]\nnote: `T | None` values (os.getenv, dict.get, re.search) stay optional in the subset; narrow with `is not None` or annotate `T | None`\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D45",
+      "seam": "shapes refused after the mechanical-delta pass, each as its own PS code",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#45",
+      "probe": "probes/divergences/d45_set_dict.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "{'a'}\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d45_set_dict.py:2:7: PS2002: set() takes a list of int or str\n  print(set(d))\n        ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D46",
+      "seam": "a fallback bundle stages non-Python program files beside the binary",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#46",
+      "probe": null,
+      "note": "needs a multi-file program and a relocated run; single-file probes do not cover it",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D47",
+      "seam": "os.walk materializes before the loop, so a dirnames edit does not prune; plus json.load/dump and the clocks",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#47",
+      "probe": "probes/divergences/d47_oswalk.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "w\nw/b\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "FileExistsError: File exists\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D48",
+      "seam": "an --embed-python=bundle output carries a trimmed runtime",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#48",
+      "probe": null,
+      "note": "needs --embed-python=bundle and a staged run",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D49",
+      "seam": "the program island carries a guarded precompiled code cache",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#49",
+      "probe": null,
+      "note": "needs an island build and a run against a moved interpreter; behavior never differs, only start time",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D50",
+      "seam": "a module-scope unannotated container mutated or aliased is fenced (PS2002)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#50",
+      "probe": null,
+      "note": "a compile-time fence with no runtime side; add a probe in a follow-up",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D51",
+      "seam": "list += and *= desugar to a fresh-concat rebind, not in-place",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#51",
+      "probe": null,
+      "note": "needs a probe with a second alias to the same list; add in a follow-up",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "AUDIT-D1",
+      "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad01_sort.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1 2 3\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1 2 3\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    },
+    {
+      "id": "AUDIT-D2",
+      "seam": "module-scope mutable containers had value semantics (audit D2)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad02_alias.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "99 99\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "99 99\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    },
+    {
+      "id": "AUDIT-D3",
+      "seam": "sum() over floats was a naive left fold (audit D3)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad03_sum_floats.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "0.6\n1.0\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "0.6\n1.0\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    },
+    {
+      "id": "AUDIT-D4",
+      "seam": "round(x, n) with n < 0 raised instead of rounding (audit D4)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad04_round_neg.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1200.0\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/ad04_round_neg.py:2:7: PS2003: round ndigits must be between 0 and 8; CPython also rounds by -8 <= ndigits < 0\n  print(round(x, -2))\n        ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "AUDIT-D5",
+      "seam": "round(x, n) with n > 8 raised instead of rounding (audit D5)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad05_round_big.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1.5\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/ad05_round_big.py:1:7: PS2003: round ndigits must be between 0 and 8; CPython also rounds by -8 <= ndigits < 0\n  print(round(1.5, 9))\n        ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "AUDIT-D6",
+      "seam": "round(x, n) scaled before rounding instead of rounding the exact decimal (audit D6)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad06_round_exact.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2.67\n16.1\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2.67\n16.1\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    },
+    {
+      "id": "AUDIT-D7",
+      "seam": "assert raised Exception, not AssertionError (audit D7)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad07_assert.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/ad07_assert.py\", line 1, in <module>\n    assert 1 == 2, \"one is not two\"\n           ^^^^^^\nAssertionError: one is not two\n"
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "AssertionError: one is not two\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "AUDIT-D8",
+      "seam": "a str tuple display omitted the quotes on its str elements (audit D8)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad08_tuple_str.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "('a', 'b')\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "('a', 'b')\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    },
+    {
+      "id": "AUDIT-D9",
+      "seam": "a NUL byte inside a str truncated the value (audit D9)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad09_nul.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "a\u0000b\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "a\u0000b\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    },
+    {
+      "id": "AUDIT-D10",
+      "seam": "text-mode reads applied no universal newline translation (audit D10)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad10_newline.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "'a\\nb'\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "'a\\nb'\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    },
+    {
+      "id": "AUDIT-D11",
+      "seam": "json.dumps does not escape non-ASCII (audit D11)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad11_json_ascii.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "{\"k\": \"caf\\u00e9\"}\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "{\"k\": \"café\"}\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "AUDIT-D12",
+      "seam": "a str literal above Latin-1 was emitted as raw bytes (audit D12)",
+      "listed": false,
+      "docs": ".agents/plans/2026-10-24-cpython-divergence-audit.md",
+      "probe": "probes/divergences/ad12_str_utf8.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "café\nĬ\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "café\nĬ\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    }
+  ]
+}
