@@ -35,18 +35,24 @@ def test_ps1104_probe_classifies_the_shapes(tmp_path: Path) -> None:
 
 
 def test_ps1104_probe_on_a_small_file_counts_the_only_fences(tmp_path: Path) -> None:
-    """A file whose definitions fence only on PS1104 reports them as such."""
+    """A file whose definitions fence only on PS1104 reports them as such.
+
+    The case uses bare `Any`, not `dict[str, Any]`: master's PS1104 option B
+    (#837) resolves the dict/list `Any` value reads through the checker
+    bridge, so the container shapes no longer fence. Bare `Any` is the
+    remaining PS1104 shape (the must_fence gate below pins it).
+    """
 
     case = tmp_path / "case.py"
     case.write_text(
-        "from typing import Any\n\n\ndef count(fence: dict[str, Any]) -> int:\n    return len(fence)\n",
+        "from typing import Any\n\n\ndef count(fence: Any) -> int:\n    return len(fence)\n",
         encoding="utf-8",
     )
     got = _run(str(case), "--json")
     assert got.returncode == 0, got.stderr
     result = json.loads(got.stdout)
     assert result["ps1104Fences"] == 1
-    assert result["byShape"] == {"dict[..., Any]": 1}
+    assert result["byShape"] == {"bare Any": 1}
     assert result["definitionsBlockedOnlyByPS1104"] == 1
     # The definition moves into the projected pool: native + 1.
     assert result["projectedNativeIfCleared"] == result["native"] + 1
@@ -56,10 +62,13 @@ def test_ps1104_probe_a_definition_with_a_second_root_stays_out(tmp_path: Path) 
     """A definition whose fences carry a second code stays out of the
     projected pool: clearing PS1104 alone would not lower it.
 
-    The compiler tree has five such definitions (the selfnative report
-    counted 683 of 688 as blocked only by PS1104). The probe's counting
-    reads every fence index of a definition, not just its root cause, so
-    the count is the definition-level one.
+    The compiler tree has ten such definitions. The selfnative report
+    counted 683 of 688 as blocked only by PS1104; after master's PS1104
+    option B (#837) resolved the dict[..., Any] and list[..., Any] reads,
+    the probe measures 329 of 339 on this tree, so the bound sits well
+    under the snapshot. The probe's counting reads every fence index of a
+    definition, not just its root cause, so the count is the
+    definition-level one.
     """
 
     from pyscriptc.coverage import build_report
@@ -76,7 +85,7 @@ def test_ps1104_probe_a_definition_with_a_second_root_stays_out(tmp_path: Path) 
                 only += 1
             else:
                 double += 1
-    assert only > 600, only
+    assert only > 300, only
     assert double >= 1, double
 
 
