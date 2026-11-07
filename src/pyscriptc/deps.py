@@ -898,6 +898,7 @@ def _wheel_import_names(data: bytes) -> list[str]:
 
 def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = None) -> Path:
     """Unpack a verified pure wheel into `src/<sha256>/` once; returns the import root."""
+    logger = get_logger()
     dest = cache / "src" / sha256
     marker = dest / ".complete"
     if marker.is_file():
@@ -907,7 +908,7 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
         if top_level:
             _write_text(dest / ".imports", "\n".join(top_level) + "\n")
         _write_text(marker, f"{sha256}\n{UNPACK_SCHEMA_VERSION}\n")
-        log.info(
+        logger.info(
             "deps.materialise",
             name=name or "",
             sha256=sha256,
@@ -943,7 +944,7 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
         if dest.exists():
             shutil.rmtree(str(dest))
         os.replace(str(tmp), str(dest))
-        log.info(
+        logger.info(
             "deps.materialise",
             name=name or "",
             sha256=sha256,
@@ -1238,7 +1239,7 @@ def source_roots(source: Path, *, cache_dir: Path | None = None) -> list[Path]:
     lane hint the way it always has.
     """
 
-    report = run_deps(source, download=True, cache_dir=cache_dir)
+    report: dict[str, Any] = run_deps(source, download=True, cache_dir=cache_dir)
     roots: list[str] = report["sourceRoots"]
     found: list[Path] = []
     for root in roots:
@@ -1317,7 +1318,7 @@ def deps_cmd(args: argparse.Namespace) -> int:
     cache_dir: Path | None = None
     if args.cache_dir:
         cache_dir = Path(args.cache_dir)
-    report = run_deps(
+    report: dict[str, Any] = run_deps(
         Path(args.source),
         frozen=args.frozen,
         upgrade=args.upgrade,
@@ -1326,7 +1327,14 @@ def deps_cmd(args: argparse.Namespace) -> int:
         cache_dir=cache_dir,
     )
     print(json.dumps(report, indent=2) if args.json else render_text(report))
-    return 0 if all(p["lane"] == "pure" for p in report["packages"]) else 3
+    packages: list[dict[str, Any]] = report["packages"]
+    all_pure: bool = True
+    for p in packages:
+        lane: str = p["lane"]
+        if lane != "pure":
+            all_pure = False
+            break
+    return 0 if all_pure else 3
 
 
 # ---------------------------------------------------------------- staging (issue #410)
@@ -1351,6 +1359,7 @@ def stage_data_files(
     """
 
     root: Path = (binary.parent / (binary.name + "-data")).resolve()
+    logger = get_logger()
     members = [(path, body) for _wheel, files in data for path, body in files]
     if not members:
         if root.exists():
@@ -1367,7 +1376,7 @@ def stage_data_files(
         if root.exists():
             shutil.rmtree(str(root))
         os.replace(str(tmp), str(root))
-        log.info("deps.stage_data", binary=str(binary), root=str(root), files=len(members))
+        logger.info("deps.stage_data", binary=str(binary), root=str(root), files=len(members))
     finally:
         if tmp.exists():
             _rmtree_quietly(tmp)

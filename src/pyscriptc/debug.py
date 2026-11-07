@@ -152,7 +152,11 @@ class Debug:
         `lower` covers the whole lowering call; `parse` is the part of it that
         went into the Python parser. The stage keeps the remainder.
         """
-        inner_ms = next((ms for name, ms, primary in self.entries if name == inner and not primary), None)
+        inner_ms: float | None = None
+        for name, ms, primary in self.entries:
+            if name == inner and not primary:
+                inner_ms = ms
+                break
         if inner_ms is None:
             return
         for index, (name, ms, primary) in enumerate(self.entries):
@@ -340,7 +344,10 @@ def _module_files(module: dict[str, Any]) -> list[str]:
             path = _opt_str_or_none(span, "file")
             if path:
                 files.add(str(path))
-    return sorted(files)
+    file_list: list[str] = []
+    for f in files:
+        file_list.append(f)
+    return sorted(file_list)
 
 
 def _capability_report(module: dict[str, Any]) -> dict[str, Any]:

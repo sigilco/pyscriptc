@@ -18,13 +18,13 @@ from pyscriptc.log import log_dir
 
 
 def _version(argv: list[str], flag: str = "--version") -> str | None:
+    lines: list[str] = []
     try:
         proc = subprocess.run([*argv, flag], capture_output=True, text=True, timeout=15)
+        if proc.returncode == 0:
+            lines = (proc.stdout or proc.stderr).strip().splitlines()
     except Exception:
         return None
-    if proc.returncode != 0:
-        return None
-    lines = (proc.stdout or proc.stderr).strip().splitlines()
     return lines[0] if lines else None
 
 
@@ -85,11 +85,14 @@ def default_target() -> str:
 
 
 def gather() -> dict[str, Any]:
-    argv, source = _resolve_pyrefly()
+    pyrefly_res: tuple[list[str], str] = _resolve_pyrefly()
+    argv: list[str] = pyrefly_res[0]
+    source: str = pyrefly_res[1]
+    own: str = "unknown"
     try:
         own = metadata.version("pyscriptc")
     except metadata.PackageNotFoundError:
-        own = "unknown"
+        pass
     return {
         "pyscriptc": own,
         "python": platform.python_version(),

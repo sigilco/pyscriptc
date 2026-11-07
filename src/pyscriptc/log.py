@@ -41,7 +41,8 @@ def log_dir() -> Path:
 
 
 def log_path(now: datetime.date | None = None) -> Path:
-    day = (now or datetime.date.today()).strftime("%Y%m%d")
+    date_val = now if now is not None else datetime.date.today()
+    day: str = date_val.strftime("%Y%m%d")
     return log_dir() / f"{day}.jsonl"
 
 
@@ -55,11 +56,11 @@ def _cap(path: Path) -> None:
     try:
         if path.stat().st_size <= _MAX_BYTES:
             return
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+        content_lines: list[str] = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
         keep: list[str] = []
-        size = 0
-        target = _MAX_BYTES * 4 // 5
-        for line in reversed(lines):
+        size: int = 0
+        target: int = _MAX_BYTES * 4 // 5
+        for line in reversed(content_lines):
             size += len(line.encode("utf-8", errors="replace"))
             if size > target:
                 break

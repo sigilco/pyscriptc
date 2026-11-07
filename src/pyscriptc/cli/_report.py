@@ -232,9 +232,12 @@ def _scripts_of(source: Path) -> dict[str, str]:
 
     from pyscriptc import project
 
+    pyproject: Path | None = None
     try:
         pyproject = project.discover_pyproject(source)
     except project.ProjectError:
+        return {}
+    if pyproject is None:
         return {}
     try:
         return entry_points(pyproject)
