@@ -4,10 +4,8 @@ fn add(v0:w, v1:w) -> w {
 b0 entry():
   v2:w = copy v0
   v3:w = copy v1
-  v4:w = copy v2
-  v5:w = copy v3
-  v6:w = addw v4, v5
-  ret v6
+  v4:w = addw v0, v1
+  ret v4
 }
 
 fn sub3(v0:w, v1:w, v2:w) -> w {
@@ -15,30 +13,25 @@ b0 entry():
   v3:w = copy v0
   v4:w = copy v1
   v5:w = copy v2
-  v6:w = copy v3
-  v7:w = copy v4
-  v8:w = subw v6, v7
-  v9:w = copy v5
-  v10:w = subw v8, v9
-  ret v10
+  v6:w = subw v0, v1
+  v7:w = subw v6, v2
+  ret v7
 }
 
 fn pick(v0:w, v1:w) -> w {
 b0 entry():
   v2:w = copy v0
   v3:w = copy v1
-  v4:w = copy v2
-  v5:w = copy v3
-  v6:b = cltw v4, v5
-  br v6, b1(), b2()
+  v4:b = cltw v0, v1
+  br v4, b1(), b2()
 b1 then():
-  v7:w = copy v3
-  ret v7
+  v5:w = copy v3
+  ret v5
 b2 else():
   jmp b3
 b3 merge():
-  v8:w = copy v2
-  ret v8
+  v6:w = copy v2
+  ret v6
 }
 
 fn main() -> void {

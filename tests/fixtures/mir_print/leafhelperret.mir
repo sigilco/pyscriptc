@@ -3,33 +3,25 @@
 fn q(v0:w) -> w {
 b0 entry():
   v1:w = copy v0
-  v2:w = copy v1
-  v3:w = copy v1
-  v4:w = call floordiv v2, v3
-  ret v4
+  v2:w = call floordiv v0, v0
+  ret v2
 }
 
 fn r(v0:w) -> w {
 b0 entry():
   v1:w = copy v0
-  v2:w = copy v1
-  v3:w = copy v1
-  v4:w = call imod v2, v3
-  ret v4
+  v2:w = call imod v0, v0
+  ret v2
 }
 
 fn mul(v0:w, v1:w) -> w {
 b0 entry():
   v2:w = copy v0
   v3:w = copy v1
-  v5:w = copy v2
-  v6:w = copy v2
-  v7:w = mulw v5, v6
-  v4:w = copy v7
-  v8:w = copy v2
-  v9:w = copy v3
-  v10:w = mulw v8, v9
-  ret v10
+  v5:w = mulw v0, v0
+  v4:w = copy v5
+  v6:w = mulw v0, v1
+  ret v6
 }
 
 fn main() -> void {

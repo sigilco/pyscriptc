@@ -6,6 +6,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from tests import test_mir_leaf
 
 from pyscriptc.debug import Debug
 from pyscriptc.emit._mir_in import last_plan, out_of_slice_reason, plan_module
@@ -20,7 +21,15 @@ FIXTURE_SAMPLES = sorted(FIXTURES.glob("*.py"))
 
 @pytest.mark.parametrize("path", [str(p) for p in FIXTURE_SAMPLES])
 def test_emit_llvm_mir_byte_identical_to_direct(path: str) -> None:
-    """Every mir_leaf fixture emits the same bytes through both lanes."""
+    """Every mir_leaf fixture emits the same bytes through both lanes.
+
+    `PYSC_MIR_BYTE_IDENTITY=0` (the default since the slot-read quirk
+    removal) replaces the byte comparison with the CPython-baselined
+    runtime check, the same swap `test_mir_leaf` makes.
+    """
+    if not test_mir_leaf.BYTE_IDENTITY:
+        test_mir_leaf._assert_cpython_baseline(path)
+        return
     module, _ = lower_file(path)
     assert emit_llvm_mir(module) == emit_llvm(module)
 

@@ -1647,6 +1647,13 @@ class _FnLowerer:
     slots: Dict[str, int]
     local_types: Dict[str, str]
     slot_vids: Dict[str, int]
+    # The value each name currently holds, as (block id, value id): the
+    # block id scopes the entry to the block that produced it, so a read
+    # in a later block (a join, a loop header, a try arm) still loads
+    # the slot. Within one block a store or a slot-read copy records the
+    # live value here and later reads reuse it directly instead of
+    # emitting one `MIR_COPY` per read.
+    slot_vals: Dict[str, tuple[int, int]]
     # The admitted callee records, keyed by the callee name the IR's
     # `function` callee carries. A call lowers only when its name is here
     # (`supported_module_fn` guaranteed it for in-slice bodies).
@@ -1685,6 +1692,7 @@ class _FnLowerer:
         self.slots = {}
         self.local_types = {}
         self.slot_vids = {}
+        self.slot_vals = {}
         self.next_label = 0
         self.block_terminator = {}
         self.next_outline = outline_base
@@ -2079,8 +2087,13 @@ class _FnLowerer:
         builder: MirBuilder = self.builder
         outline: str = self._outline_name(stmt)
         body: list[Dict[str, Any]] = _mir_items(stmt, "body")
-        env: int = self._try_pack(self._try_env_names(body))
+        env_names: list[str] = self._try_env_names(body)
+        env: int = self._try_pack(env_names)
         code: int = self._try_call(env, outline)
+        # The outline writes the packed names' slots through the env
+        # pointers, invisible to the MIR: their cached values are stale.
+        for name in env_names:
+            self.slot_vals.pop(name, None)
         raised: int = builder.emit_val(MIR_TRYNE, code, -1, MIR_B)
         hand_lid: int = self.reserve_label()
         cont_lid: int = self.reserve_label()
@@ -2166,8 +2179,13 @@ class _FnLowerer:
         for flag in ("brk", "cont"):
             if flag in stmt and stmt[flag] is not None:
                 inner[flag] = stmt[flag]
-        env: int = self._try_pack(self._try_env_names([inner]))
+        env_names: list[str] = self._try_env_names([inner])
+        env: int = self._try_pack(env_names)
         code: int = self._try_call(env, outline)
+        # The outline writes the packed names' slots through the env
+        # pointers, invisible to the MIR: their cached values are stale.
+        for name in env_names:
+            self.slot_vals.pop(name, None)
         raised: int = builder.emit_val(MIR_TRYNE, code, -1, MIR_B)
         raise_lid: int = self.reserve_label()
         norm_lid: int = self.reserve_label()
@@ -2226,33 +2244,42 @@ class _FnLowerer:
         """A store to `name`: a `MIR_COPY` into the name's slot value.
 
         The slot value is a MIR value id (never the parameter's own id), so
-        the emitter renders every definition of a name as one `store` and
-        every read as one `load`, the same shape the direct walk produces.
-        `arg2` of the copy carries the value's tag (`copy_result_type`
-        reads it), so the verifier's type walk stays true.
+        the emitter renders every definition of a name as one `store` into
+        the name's alloca; reads that cannot reuse a live SSA value render
+        as `load`s from it. `arg2` of the copy carries the value's tag
+        (`copy_result_type` reads it), so the verifier's type walk stays
+        true. The store also records the value as the name's live SSA
+        value for the rest of the block: reads in this block can use it
+        directly.
         """
         vid = self.slot_vids.get(name)
         if vid is None:
             raise MirLowerError(f"the MIR leaf slice has no slot for {name}")
         tag = _param_tag(self.kind_of(name))
         self.builder.emit(MIR_COPY, vid, value, tag)
+        self.slot_vals[name] = (self.builder.current_bid(), value)
 
     def load_slot(self, name: str) -> int:
-        """The operand for a read of `name`: an eager copy of the slot.
+        """The operand for a read of `name`: the live value when known.
 
-        Every read emits its `MIR_COPY` from the slot at the point the
-        body walk reaches it, so the loads (which the emitter renders as
-        one `load` per copy) land in the same source order the direct
-        walk produces. A lazy design that hands back the slot vid and
-        lets the emitter load at operand-render time evaluates a
-        computed right operand before an unresolved left one, which
-        reorders the loads against the direct path (issue #871).
+        MIR is SSA: when the name's current value was produced earlier in
+        this same block (a store, or an earlier read's slot copy), the
+        read reuses that value id directly and emits nothing. The slot
+        alloca still receives every store, so a read that crosses a block
+        boundary — a join, a loop header, a try arm — or the first read
+        of a block emits the `MIR_COPY` from the slot that renders as the
+        `load`, keeping the alloca authoritative across control flow.
         """
         vid = self.slot_vids.get(name)
         if vid is None:
             raise MirLowerError(f"the MIR leaf slice has no slot for {name}")
+        cached = self.slot_vals.get(name)
+        if cached is not None and cached[0] == self.builder.current_bid():
+            return cached[1]
         tag = _param_tag(self.kind_of(name))
-        return self.builder.emit_copy(vid, tag)
+        copied = self.builder.emit_copy(vid, tag)
+        self.slot_vals[name] = (self.builder.current_bid(), copied)
+        return copied
 
     def emit_expr(self, expr: Dict[str, Any]) -> int:
         kind: str = expr["kind"]

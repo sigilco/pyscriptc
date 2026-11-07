@@ -65,8 +65,11 @@ LEAF_SAMPLES = [str(p) for p in sorted(_FIXTURES.glob("*.py")) if p.name not in 
 # the CPython-baselined runtime check (`scripts/runtime_cpython_ab.py`,
 # `tests/test_mir_runtime_cpython.py`) is the acceptance gate instead, so
 # MIR codegen may diverge from the direct emitter's incidental shape.
-# Default 1 keeps the byte-identity behavior unchanged.
-BYTE_IDENTITY = os.environ.get("PYSC_MIR_BYTE_IDENTITY", "1") != "0"
+# The default is 0 since the slot-read quirk removal (#817): reads reuse
+# the defining SSA value inside a block, so MIR bytes no longer match the
+# direct walk's load-per-read shape anywhere in the slice. Set the var to
+# 1 to measure how much incidental parity remains.
+BYTE_IDENTITY = os.environ.get("PYSC_MIR_BYTE_IDENTITY", "0") != "0"
 
 
 def _assert_cpython_baseline(path: str) -> None:

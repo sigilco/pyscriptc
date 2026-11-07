@@ -1796,6 +1796,14 @@ class MirEmitter:
         if operand in self.reg and not self._is_slot(operand):
             # A value op result: infer its tag from the defining instr.
             return _tag_llvm(self._def_tag(operand))
+        current = self.fn
+        if current is None:
+            raise IRError("no function walk is active")
+        ir_params: list[Dict[str, Any]] = self._ir_fn(current.name)["params"]
+        if 0 <= operand < len(ir_params):
+            # A raw parameter vid has no defining instruction; the slot
+            # reuse in `mirlower` lets one reach `ret` directly.
+            return _llvm_type(ir_params[operand]["type"])
         return "i64"
 
     def _def_tag(self, vid: int) -> int:
