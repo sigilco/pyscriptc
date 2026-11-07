@@ -27,6 +27,7 @@ from pyscriptc.lower._core import (
     _name,
     _node_kind,
     _node_type_kind,
+    _show,
     _tuple_assign,
     _type_kind,
 )
@@ -78,10 +79,61 @@ def _mk_type(typ: dict[str, Any]) -> Any:
     return dict_to_type(typ)
 
 
+def _one_identity_note(name: str, typ: dict[str, Any]) -> str:
+    """The substitute sentence every module-constant-identity fence ends on.
+
+    `module_needs_slot` containers keep one pointer only when they take a
+    global slot, and the slot path wants an annotation (#512), so the fix the
+    diagnostics name is always the same.
+    """
+
+    return f"annotate {name} ({name}: {_show(typ)} = ...) so the container keeps one identity"
+
+
 class MiscEmitMixin:
+    def _module_const_container(self, node: ast.expr) -> tuple[str, dict[str, Any]] | None:
+        """`(name, type)` when `node` reads a module-scope container constant.
+
+        A module constant re-emits its literal at every read, so a mutation
+        bound through the name lands on a fresh copy no slot keeps (issue
+        #525): `xs.sort()` sorts a list nothing else sees, `xs[i] = v` writes
+        a throwaway, `ys = xs` freezes the value at bind time. The probe
+        walks the subscript spine — `xs[0].sort()` and `d["k"][0] = v` reach
+        the copy through the same name — and mirrors `_name`'s resolution
+        order so a shadowing local, capture or active slot is not caught.
+        Only a literal `list`/`dict` node is a fresh copy: a `call` constant
+        (a `global_get` read, a `re.compile` pattern) re-runs the same lookup
+        every read and keeps its identity.
+        """
+        while isinstance(node, ast.Subscript):
+            node = node.value
+        if not isinstance(node, ast.Name):
+            return None
+        name = node.id
+        if name in self.locals or name in self.captures:
+            return None
+        slot = self.global_slots.get(name)
+        if slot is not None and slot.get("active"):
+            return None
+        found = self.constants.get(name)
+        if found is None or found.get("frozen"):
+            return None
+        if found.get("kind") in {"list", "dict"}:
+            return name, found["type"]
+        return None
+
     def _setitem(self, stmt: ast.Assign, span: dict[str, Any]) -> dict[str, Any]:
         target = stmt.targets[0]
         assert isinstance(target, ast.Subscript)
+        const = self._module_const_container(target.value)
+        if const is not None:
+            name, typ = const
+            self.fail(
+                target,
+                "PS2002",
+                f"{name} is a module-scope constant: every read is a fresh copy, so the "
+                f"item store lands on a container nothing keeps — {_one_identity_note(name, typ)}",
+            )
         if isinstance(target.slice, ast.Slice):
             # `xs[a:b] = ys` splices a list, growing or shrinking it; a step
             # stays fenced with the slice-read message.

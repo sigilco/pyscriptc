@@ -46,6 +46,7 @@ from pyscriptc.lower._core import (
     _type_kind,  # noqa: F401  # moved-verbatim import
     _zero,  # noqa: F401  # moved-verbatim import
 )
+from pyscriptc.lower._misc_emit import _one_identity_note
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict  # noqa: F401  # moved-verbatim import
 
 if TYPE_CHECKING:
@@ -640,6 +641,18 @@ class StmtAMixin:
         The RHS lowers once; a non-name value pins to a temp when several
         targets share it or a destructuring needs repeated reads.
         """
+        if (
+            len(stmt.targets) > 1
+            and isinstance(stmt.value, ast.Name)
+            and (const := self._module_const_container(stmt.value)) is not None
+        ):
+            name, typ = const
+            self.fail(
+                stmt,
+                "PS2002",
+                f"a chained assignment from the module-scope constant {name} binds a copy: "
+                f"a copy-on-alias is not representable — {_one_identity_note(name, typ)}",
+            )
         value = self._expr(stmt.value)
         stmts: list[dict[str, Any]] = []
         for target in stmt.targets:

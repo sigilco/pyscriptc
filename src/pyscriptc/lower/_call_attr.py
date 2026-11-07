@@ -38,6 +38,7 @@ from pyscriptc.lower._core import (
     _show,
     _type_kind,
 )
+from pyscriptc.lower._misc_emit import _one_identity_note
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
 from pyscriptc.reflection import inspect_note, kwargs_call_note, typing_note
 from pyscriptc.restlower import (
@@ -51,6 +52,24 @@ from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
 from pyscriptc.tirserde import dict_to_node, node_to_dict
+
+# In-place methods per container family: the calls a module-constant
+# receiver cannot honour, since each read re-emits the literal (issue #525).
+_MUTATING_METHODS = {
+    "list": {"append", "clear", "extend", "insert", "pop", "remove", "reverse", "sort"},
+    "set": {
+        "add",
+        "clear",
+        "difference_update",
+        "discard",
+        "intersection_update",
+        "pop",
+        "remove",
+        "symmetric_difference_update",
+        "update",
+    },
+    "dict": {"clear", "move_to_end", "pop", "popitem", "setdefault", "update"},
+}
 
 
 def _get_expect(expect: dict[str, Any] | None, value_type: dict[str, Any]) -> dict[str, Any]:
@@ -228,6 +247,18 @@ class CallAttrMixin:
             named = self.class_aliases.get(node.func.value.id, node.func.value.id)
         if named is not None and named in self.classes:
             return self._named_class_call(node, span, named)
+        const = self._module_const_container(node.func.value)
+        if const is not None:
+            name, typ = const
+            family = "set" if typ.get("set") else typ["kind"]
+            if node.func.attr in _MUTATING_METHODS.get(family, ()):
+                self.fail(
+                    node,
+                    "PS2002",
+                    f"{name} is a module-scope constant: every read is a fresh copy, so "
+                    f"{_dotted(node.func)} mutates a container nothing keeps — "
+                    f"{_one_identity_note(name, typ)}",
+                )
         receiver = self._expr(node.func.value)
         # boxed:begin
         if receiver["type"].get("island"):

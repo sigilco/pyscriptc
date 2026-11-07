@@ -39,6 +39,7 @@ from pyscriptc.lower._core import (
     _type_kind,  # noqa: F401  # moved-verbatim import
     _zero,  # noqa: F401  # moved-verbatim import
 )
+from pyscriptc.lower._misc_emit import _one_identity_note  # noqa: F401  # moved-verbatim import
 from pyscriptc.lower._stmt_a import (
     StmtAMixin,  # noqa: F401  # moved-verbatim import
     _always_returns,  # noqa: F401  # re-exported for lower.__init__ and the sibling mixins
@@ -218,6 +219,14 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             if stmt.target.id in self.fn_nonlocals:
                 self.fail(stmt, "PS2002", f"nonlocal {stmt.target.id} cannot be annotated")
             typ = self._annotation(stmt.annotation)
+            if isinstance(stmt.value, ast.Name) and (const := self._module_const_container(stmt.value)) is not None:
+                name, ctyp = const
+                self.fail(
+                    stmt,
+                    "PS2002",
+                    f"{stmt.target.id} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                    f"is not representable — {_one_identity_note(name, ctyp)}",
+                )
             if _has_typevar(typ):
                 self.fail(stmt, "PS1001", f"{stmt.target.id} needs a concrete type")
             accumulated = self._infer_accumulated_type(stmt)
@@ -297,6 +306,14 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
                 return self._spread_assign(stmt, span)
             target = stmt.targets[0].id
+            if isinstance(stmt.value, ast.Name) and (const := self._module_const_container(stmt.value)) is not None:
+                name, typ = const
+                self.fail(
+                    stmt,
+                    "PS2002",
+                    f"{target} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                    f"is not representable — {_one_identity_note(name, typ)}",
+                )
             if target in self.fn_globals or (self.function == self.entry_fn_name and target in self.global_slots):
                 return self._assign_global(stmt, target, span)
             if target in self.fn_nonlocals and target in self.captures:
