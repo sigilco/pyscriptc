@@ -804,6 +804,39 @@
       "status": "unprobed"
     },
     {
+      "id": "D49",
+      "seam": "the program island carries a guarded precompiled code cache",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#49",
+      "probe": null,
+      "note": "needs an island build and a run against a moved interpreter; behavior never differs, only start time",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D50",
+      "seam": "a module-scope unannotated container mutated or aliased is fenced (PS2002)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#50",
+      "probe": null,
+      "note": "a compile-time fence with no runtime side; add a probe in a follow-up",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D51",
+      "seam": "list += and *= desugar to a fresh-concat rebind, not in-place",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#51",
+      "probe": null,
+      "note": "needs a probe with a second alias to the same list; add in a follow-up",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

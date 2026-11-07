@@ -349,6 +349,27 @@ ROWS: list[dict[str, Any]] = [
         note="needs --embed-python=bundle and a staged run",
     ),
     _row(
+        "D49",
+        "the program island carries a guarded precompiled code cache",
+        None,
+        docs=f"{DOC}#49",
+        note="needs an island build and a run against a moved interpreter; behavior never differs, only start time",
+    ),
+    _row(
+        "D50",
+        "a module-scope unannotated container mutated or aliased is fenced (PS2002)",
+        None,
+        docs=f"{DOC}#50",
+        note="a compile-time fence with no runtime side; add a probe in a follow-up",
+    ),
+    _row(
+        "D51",
+        "list += and *= desugar to a fresh-concat rebind, not in-place",
+        None,
+        docs=f"{DOC}#51",
+        note="needs a probe with a second alias to the same list; add in a follow-up",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
