@@ -533,7 +533,7 @@ def _program_island(
         encoded = _selfpack.build_payload(_selfpack.collect_package_data(root))
         selfpack_payload = encoded
         selfpack_dir = _selfpack.digest_of(encoded)
-    source = _boxed.program_island_source(
+    source, index_blob, body_blob = _boxed.program_island_source(
         units,
         entry=main,
         main_package=main_package,
@@ -543,7 +543,7 @@ def _program_island(
         selfpack=selfpack_payload,
         selfpack_dir=selfpack_dir,
     )
-    return _boxed.program_island_module(source, root)
+    return _boxed.program_island_module(source, root, (index_blob, body_blob))
 
 
 def stage_program_data(

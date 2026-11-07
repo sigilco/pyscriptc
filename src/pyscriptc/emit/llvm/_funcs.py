@@ -27,6 +27,7 @@ from pyscriptc.emit._ir import (
     _opt_int,
     _opt_span,
     _opt_str,
+    _opt_str_or_none,
     _prepare_arg,
     _return_type,
     _safe,
@@ -310,6 +311,11 @@ class FuncsMixin(EmitterBase):
 
         Issue #665: the bootstrap rebases the origins and the entry
         `__file__` onto the staged data tree at run time.
+
+        Issue #712: a program-wide island carries its module bodies as
+        marshalled bytecode in two blobs beside the bootstrap. The runtime
+        hands them to the bootstrap as the `__pyscriptc_seed__` module, and
+        the bootstrap's finder inflates one module body per import.
         """
 
         source: str = _opt_str(self.module, "islandSource")
@@ -321,14 +327,38 @@ class FuncsMixin(EmitterBase):
         path: str = _opt_str(self.module, "sourceFile")
         path_data: bytes = path.encode("utf-8")
         path_symbol: str | None = self.format_global("island.seed.path", path_data) if path_data else None
-        self._abi_decl("ps_island_top_seed", "void", ["i64", "ptr", "i64", "ptr"])
+        index_b64: str | None = _opt_str_or_none(self.module, "islandSeedIndex")
+        body_b64: str | None = _opt_str_or_none(self.module, "islandSeedBody")
+        if index_b64 is None or body_b64 is None:
+            self._abi_decl("ps_island_top_seed", "void", ["i64", "ptr", "i64", "ptr"])
+            self._call_void(
+                "ps_island_top_seed",
+                [
+                    f"i64 {size}",
+                    f"ptr {symbol}",
+                    f"i64 {len(path_data)}",
+                    f"ptr {path_symbol}" if path_symbol else "ptr null",
+                ],
+            )
+            return
+        from base64 import b64decode
+
+        index_blob: bytes = b64decode(index_b64)
+        body_blob: bytes = b64decode(body_b64)
+        index_symbol: str = self.format_global("island.seed.index", index_blob)
+        body_symbol: str = self.format_global("island.seed.body", body_blob)
+        self._abi_decl("ps_island_top_seed_payload", "void", ["i64", "ptr", "i64", "ptr", "i64", "ptr", "i64", "ptr"])
         self._call_void(
-            "ps_island_top_seed",
+            "ps_island_top_seed_payload",
             [
                 f"i64 {size}",
                 f"ptr {symbol}",
                 f"i64 {len(path_data)}",
                 f"ptr {path_symbol}" if path_symbol else "ptr null",
+                f"i64 {len(index_blob)}",
+                f"ptr {index_symbol}",
+                f"i64 {len(body_blob)}",
+                f"ptr {body_symbol}",
             ],
         )
 
