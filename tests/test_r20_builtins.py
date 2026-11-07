@@ -141,6 +141,31 @@ def test_sum_with_start(tmp_path: Path) -> None:
     )
 
 
+def test_sum_over_generator_and_iterator(tmp_path: Path) -> None:
+    _oracle_diff(
+        tmp_path,
+        "r20_sum_gen.py",
+        "\n".join(
+            [
+                "def squares(n: int):",
+                "    i = 0",
+                "    while i < n:",
+                "        yield i * i",
+                "        i = i + 1",
+                "",
+                "def probe() -> str:",
+                "    it = squares(4)",
+                "    parts: list[str] = [",
+                "        str(sum(it)), str(sum(it)),",
+                "        str(sum(squares(3), 10)), str(sum(iter([1, 2, 3]))),",
+                "    ]",
+                '    return " ".join(parts)',
+                "",
+            ]
+        ),
+    )
+
+
 def test_min_max_iterables_and_varargs(tmp_path: Path) -> None:
     _oracle_diff(
         tmp_path,
