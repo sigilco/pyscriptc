@@ -1099,7 +1099,7 @@ class StmtBMixin:
                 ),
             ]
         elif self.comp_kind == "set":
-            kept = [*inner, *self._set_insert_stmts(self.comp_dest, typ, elt, elt["span"])]
+            kept = [*inner, *self._set_insert_stmts(_name(self.comp_dest, typ, elt["span"]), typ, elt, elt["span"])]
         else:
             slot = self._temp("elt")
             self.locals[slot] = elem

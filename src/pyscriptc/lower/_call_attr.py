@@ -887,11 +887,12 @@ class CallAttrMixin:
             self._reject_keywords(node)
             if len(node.args) != 1:
                 self.fail(node, "PS2003", "list.append expects 1 argument(s)")
-            if receiver["kind"] != "name":
+            if receiver["kind"] not in {"name", "attr"}:
                 # A module-level list reads through `ps_global_get_ptr`, which
                 # hands back the shared sequence pointer: the push mutates the
-                # same object the slot holds. Other non-name receivers keep
-                # the fence.
+                # same object the slot holds. An attribute read hands back the
+                # field's own sequence pointer the same way. Other non-name
+                # receivers keep the fence.
                 recv = node.func.value
                 slot = self.global_slots.get(recv.id) if isinstance(recv, ast.Name) else None
                 if slot is None or not slot.get("active"):
@@ -1037,14 +1038,15 @@ class CallAttrMixin:
             self._reject_keywords(node)
             if len(node.args) != 1:
                 self.fail(node, "PS2003", f"set.{attr} expects 1 argument(s)")
-            if receiver["kind"] != "name":
+            if receiver["kind"] != "name" and not (attr == "add" and receiver["kind"] == "attr"):
                 self.fail(node, "PS2002", f"set.{attr} needs a name")
             elem = receiver["type"]["elem"]
             value = self._expr(node.args[0], elem)
             if not types_equal(value["type"], elem):
                 self.fail(node, "PS1003", f"set.{attr} takes an element of that set")
             if attr == "add":
-                self.prelude.extend(self._set_insert_stmts(receiver["id"], receiver["type"], value, span))
+                hay = receiver if receiver["kind"] == "attr" else _name(str(receiver["id"]), receiver["type"], span)
+                self.prelude.extend(self._set_insert_stmts(hay, receiver["type"], value, span))
                 return _const_none(span)
             # discard removes when present; remove raises KeyError when absent.
             slot = self._temp("elt")
