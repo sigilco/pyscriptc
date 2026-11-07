@@ -38,16 +38,16 @@ ROOT_UNSUPPORTED = "unsupported-construct"
 
 def is_stdlib_partial(fence: dict[str, Any]) -> bool:
     """Return True if fence is an unlowered attribute of a partially lowered stdlib module."""
-    message = str(fence.get("message", ""))
-    family = str(fence.get("family", ""))
+    message: str = fence.get("message", "")
+    family: str = fence.get("family", "")
     return "is not in the lowered subset of" in message or (family.startswith("stdlib:") and family != "queued-stdlib")
 
 
 def root_cause_of(fence: dict[str, Any]) -> str:
     """Classify a fence into reflection culprit, untyped import, or unsupported construct."""
-    message = str(fence.get("message", ""))
-    family = str(fence.get("family", ""))
-    code = str(fence.get("code", ""))
+    message: str = fence.get("message", "")
+    family: str = fence.get("family", "")
+    code: str = fence.get("code", "")
 
     if routes_to_island(message) or family == "reflection" or mechanism_of(message) is not None:
         return ROOT_REFLECTION
@@ -68,10 +68,10 @@ def root_cause_of(fence: dict[str, Any]) -> str:
 
 def nearest_typed_idiom(fence: dict[str, Any]) -> str | None:
     """Extract the nearest typed idiom if one exists for this fence."""
-    message = str(fence.get("message", ""))
+    message: str = fence.get("message", "")
     if "typed idiom: " in message:
         return message.split("typed idiom: ", 1)[1].strip()
-    hint = str(fence.get("hint", ""))
+    hint: str = fence.get("hint", "")
     if hint:
         return hint
     return None
@@ -85,7 +85,7 @@ def _extract_import_name(fence: dict[str, Any]) -> str:
     if dependency and dependency.get("policy"):
         return str(dependency["policy"])
 
-    statement = fence.get("statement", "")
+    statement: str = fence.get("statement", "")
     if statement:
         try:
             tree = ast.parse(statement)
@@ -102,7 +102,7 @@ def _extract_import_name(fence: dict[str, Any]) -> str:
         except Exception:
             pass
 
-    message = str(fence.get("message", ""))
+    message: str = fence.get("message", "")
     match = re.search(r"([\w.]+)\s+is not in the closed import table", message)
     if match:
         return match.group(1).split(".")[0]

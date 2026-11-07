@@ -299,7 +299,7 @@ class ExprMixin(ExprCompareMixin):
             # the point of evaluation, like the iterator builtins do.
             return self._comp(node, span, expect)
         if isinstance(node, ast.IfExp):
-            return self._ifexp(node, span)
+            return self._ifexp(node, span, expect)
         if isinstance(node, ast.Lambda):
             return self._lambda(node, span, expect)
         self.fail(node, "PS2002", f"{_node_text(node)} is not lowered")
@@ -930,7 +930,7 @@ class ExprMixin(ExprCompareMixin):
             self.prelude.append(_if_node(cond, inner, [], span))
         return _name(temp, typ, span)
 
-    def _ifexp(self, node: ast.IfExp, span: dict[str, Any]) -> dict[str, Any]:
+    def _ifexp(self, node: ast.IfExp, span: dict[str, Any], expect: dict[str, Any] | None = None) -> dict[str, Any]:
         """`a if cond else b` is the if statement BoolOp already uses.
 
         The condition is whatever `if` already accepts. Both operands lower to
@@ -942,10 +942,10 @@ class ExprMixin(ExprCompareMixin):
         self.prelude = []
         when_true, when_false = self._narrow_names(node.test)
         try:
-            body = self._narrowed(when_true, node, lambda: self._expr(node.body))
+            body = self._narrowed(when_true, node, lambda: self._expr(node.body, expect))
             body_pre = self.prelude
             self.prelude = []
-            orelse = self._narrowed(when_false, node, lambda: self._expr(node.orelse))
+            orelse = self._narrowed(when_false, node, lambda: self._expr(node.orelse, expect))
             orelse_pre = self.prelude
         finally:
             self.prelude = saved

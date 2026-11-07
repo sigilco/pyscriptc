@@ -36,6 +36,7 @@ from pyscriptc.lower._core import (
     _mk_type,
     _name,
     _show,
+    _type_kind,
 )
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
 from pyscriptc.reflection import inspect_note, kwargs_call_note, typing_note
@@ -50,6 +51,27 @@ from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
 from pyscriptc.tirserde import dict_to_node, node_to_dict
+
+
+def _get_expect(expect: dict[str, Any] | None, value_type: dict[str, Any]) -> dict[str, Any]:
+    """The expectation `dict.get`'s desugared read proves an `Any` element with.
+
+    A plain `d[k]` subscript proves an unresolved element from the read
+    site's expected type (the annotation, the call parameter). `d.get(k, v)`
+    lowers to the same subscript inside an `IfExp`, so the call site's
+    concrete expectation is the same proof; without one the dict's own
+    value type (`any` for `dict[K, Any]`) stands and PS1107 fences the read.
+    """
+    if _type_kind(value_type) != "any":
+        return value_type
+    if expect is None:
+        return value_type
+    if _type_kind(expect) == "any":
+        return value_type
+    optional: bool = expect.get("optional", False)
+    if optional:
+        return value_type
+    return expect
 
 
 def _contains_node(hay: dict[str, Any], needle: dict[str, Any], negated: bool, span: dict[str, Any]) -> dict[str, Any]:
@@ -366,7 +388,7 @@ class CallAttrMixin:
                 sub.lineno, sub.col_offset = node.lineno, node.col_offset
                 sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
             if len(node.args) == 2:
-                value = self._expr(ifexp, receiver["type"]["value"])
+                value = self._expr(ifexp, _get_expect(expect, receiver["type"]["value"]))
                 self._expect(node, value["type"], receiver["type"]["value"], "dict.get default")
                 return value
             return self._expr(ifexp)

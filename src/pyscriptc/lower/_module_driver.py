@@ -104,6 +104,7 @@ class ModuleDriverMixin:
         self.known_classes = {node.name for node in class_nodes}
         self.known_classes.update(name for name, info in self.classes.items() if info.get("synthetic"))
         self.known_classes.update(imported)
+        self._scan_global_aliases(functions)
         for node in class_nodes:
             self.function = node.name
             self.caught = []
