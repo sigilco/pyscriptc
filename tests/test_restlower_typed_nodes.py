@@ -34,6 +34,7 @@ CONVERTED = (
     RESTLOWER / "_collections.py",
     RESTLOWER / "_io.py",
     RESTLOWER / "_itertools.py",
+    RESTLOWER / "_urllib.py",
 )
 
 # The dict-IR keys a node or type record carries. A converted module
@@ -69,6 +70,8 @@ ACCESSORS = frozenset(
         "_node_value",
         "_node_span",
         "_type_value",
+        "_field_name",
+        "_field_type",
     }
 )
 
