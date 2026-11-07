@@ -819,22 +819,40 @@
       "seam": "a module-scope unannotated container mutated or aliased is fenced (PS2002)",
       "listed": true,
       "docs": "docs/reference/divergences.md#50",
-      "probe": null,
-      "note": "a compile-time fence with no runtime side; add a probe in a follow-up",
-      "cpython": null,
-      "pyscriptc": null,
-      "status": "unprobed"
+      "probe": "probes/divergences/d50_container_const.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "[1, 2, 3]\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d50_container_const.py:2:1: PS2002: xs is a module-scope constant: every read is a fresh copy, so xs.sort mutates a container nothing keeps — annotate xs (xs: list[int] = ...) so the container keeps one identity\n  xs.sort()\n  ^\n"
+      },
+      "status": "fenced"
     },
     {
       "id": "D51",
       "seam": "list += and *= desugar to a fresh-concat rebind, not in-place",
       "listed": true,
       "docs": "docs/reference/divergences.md#51",
-      "probe": null,
-      "note": "needs a probe with a second alias to the same list; add in a follow-up",
-      "cpython": null,
-      "pyscriptc": null,
-      "status": "unprobed"
+      "probe": "probes/divergences/d51_iadd_alias.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "[1, 2]\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "[1]\n",
+        "stderr": ""
+      },
+      "status": "divergent"
     },
     {
       "id": "AUDIT-D1",
