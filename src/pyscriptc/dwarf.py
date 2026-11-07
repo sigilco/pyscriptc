@@ -19,7 +19,7 @@ from __future__ import annotations
 import os
 from typing import Any
 
-from pyscriptc.emit._ir import _kind, _kind_or_none, _type_of
+from pyscriptc.emit._ir import _kind, _kind_or_none, _opt_int, _opt_str, _type_of
 
 # The CPython language code (0x001e). The debug info describes the source the
 # user wrote, not the generated C-flavoured IR, so a debugger renders frames as
@@ -45,17 +45,17 @@ _FIRST_RECORD = 3
 
 
 def _span_file(span: dict[str, Any]) -> str:
-    file = span.get("file") if isinstance(span, dict) else None
-    return file if isinstance(file, str) and file else "<unknown>.py"
+    file: str = _opt_str(span, "file")
+    return file if isinstance(file, str) and file != "" else "<unknown>.py"
 
 
 def _span_line(span: dict[str, Any]) -> int:
-    line = span.get("line", 1) if isinstance(span, dict) else 1
+    line: int = _opt_int(span, "line", 1)
     return line if isinstance(line, int) and line > 0 else 1
 
 
 def _span_col(span: dict[str, Any]) -> int:
-    col = span.get("col", 1) if isinstance(span, dict) else 1
+    col: int = _opt_int(span, "col", 1)
     return col if isinstance(col, int) and col > 0 else 1
 
 

@@ -370,7 +370,7 @@ def _is_int_const(node: ast.expr) -> bool:
 
 
 def _cmp_version(op: str, parts: tuple[int, ...]) -> bool:
-    current = sys.version_info
+    current: tuple[int, ...] = sys.version_info
     if op == ">=":
         return current >= parts
     if op == ">":

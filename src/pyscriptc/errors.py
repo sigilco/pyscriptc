@@ -51,12 +51,12 @@ def span_of(node: Any, filename: str) -> dict[str, Any]:
 
 def format_diagnostic(diag: dict[str, Any], source: str | None = None) -> str:
     span = diag["span"]
-    header = f"{span['file']}:{span['line']}:{span['col']}: {diag['code']}: {diag['message']}"
+    header: str = f"{span['file']}:{span['line']}:{span['col']}: {diag['code']}: {diag['message']}"
     if source is None:
         return header
     lines = source.splitlines()
     if not 1 <= span["line"] <= len(lines):
         return header
-    text = lines[span["line"] - 1]
+    text: str = lines[span["line"] - 1]
     caret_at = max(span["col"] - 1, 0)
     return f"{header}\n  {text}\n  {' ' * caret_at}^"
