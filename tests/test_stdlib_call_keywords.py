@@ -60,13 +60,40 @@ def test_int_base_keyword_and_positional_match_cpython(tmp_path: Path) -> None:
 def test_int_base_bad_underscores_raise_value_error(tmp_path: Path) -> None:
     # CPython's separator rules: one '_' between digits, none at an end,
     # none doubled, none next to a prefix letter. The message carries the
-    # base, like CPython.
+    # base and the repr'd literal, like CPython 3.14.
     for literal in ("'_1'", "'1_'", "'1__0'", "'0_x1'", "'0x__1'", "'0x1_'"):
         for base in (2, 16):
             path = write_case(tmp_path, "badus.py", f"print(int({literal}, {base}))\n")
             got = compile_run(tmp_path, path, "main")
             assert got.returncode != 0, literal
-            assert f"ValueError: invalid literal for int() with base {base}" in got.stderr, literal
+            expect = f"ValueError: invalid literal for int() with base {base}: {literal}"
+            assert expect in got.stderr, (literal, got.stderr)
+
+
+def test_int_base_unicode_whitespace_matches_cpython(tmp_path: Path) -> None:
+    # The base form strips the Unicode space set, not just ASCII, and keeps
+    # the file separators U+001C..U+001F as literal bytes.
+    sources = [
+        "print(int('\\u20031', 16))",
+        "print(int('\\u00a01\\u00a0', 2))",
+        "print(int('\\u202f42\\u202f', 10))",
+        "print(int('\\u3000  7  \\u3000', 10))",
+        "print(int(' 1 ', 16))",
+    ]
+    for index, body in enumerate(sources):
+        path = write_case(tmp_path, f"uni{index}.py", f"def run() -> int:\n    {body}\n    return 0\n")
+        got = compile_run(tmp_path, path, "run")
+        assert got.returncode == 0, got.stderr
+        assert got.stdout == oracle(path, "run"), body
+
+
+def test_int_base_message_carries_the_repr(tmp_path: Path) -> None:
+    # CPython 3.14 appends the repr'd literal to the base form too: ': x'.
+    for expr, base in (("int('x', 2)", 2), ("int('0x', 16)", 16), ("int('0x1', 10)", 10), ("int('', 2)", 2)):
+        path = write_case(tmp_path, "msg.py", f"print({expr})\n")
+        got = compile_run(tmp_path, path, "main")
+        assert got.returncode != 0, expr
+        assert f"ValueError: invalid literal for int() with base {base}: " in got.stderr, got.stderr
 
 
 def test_int_bad_base_raises_value_error(tmp_path: Path) -> None:

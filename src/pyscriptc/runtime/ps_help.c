@@ -167,8 +167,9 @@ int64_t ps_ord(int64_t n, const char *s) {
 /* int(bytes): base 10, CPython's surrounding-whitespace strip (ASCII space
    set plus the Unicode space code points; \x1c-\x1f are NOT stripped, they
    stay part of the literal, like CPython), optional sign, every remaining
-   byte a digit, no underscore subset, i64 range only. The invalid-literal
-   message carries the repr'd literal like CPython 3.14: ": 'x'". */
+   byte a digit or CPython's underscore digit separator, i64 range only. The
+   invalid-literal message carries the repr'd literal like CPython 3.14:
+   ": 'x'". */
 
 /* CPython strips these code points as surrounding whitespace for int():
    the str.isspace() Unicode set minus the file-separator group \x1c-\x1f
@@ -225,21 +226,34 @@ static int ps_int_next_cp(int64_t n, const char *s, int64_t i, uint32_t *cp) {
     return width;
 }
 
-static void ps_int_bad_literal(int64_t n, const char *s) {
-    /* CPython 3.14 appends the repr'd literal: ": '1x'". ps_repr_str is the
-       runtime's repr, quotes included, and it escapes what repr escapes. */
+/* The invalid-literal message: "invalid literal for int() with base B: <repr>".
+
+   CPython 3.14 appends the repr'd literal to the base-10 form, and the
+   base form carries the same suffix with the caller's base. The repr is the
+   runtime's own `ps_repr_str`, so the quoting and the escapes match
+   CPython's `repr`. */
+static void ps_int_bad_literal_msg(int64_t n, const char *s, int64_t base) {
     PsBuf lit;
     ps_repr_str(n, s, &lit);
-    const char prefix[] = "invalid literal for int() with base 10: ";
-    size_t plen = sizeof prefix - 1;
-    char *msg = malloc(plen + (size_t)lit.len + 1);
+    char prefix[64];
+    int plen = snprintf(prefix, sizeof prefix, "invalid literal for int() with base %lld: ", (long long)base);
+    if (plen < 0) {
+        plen = 0;
+    }
+    size_t total = (size_t)plen + (size_t)lit.len;
+    char *msg = malloc(total + 1);
     if (msg == NULL) {
         abort();
     }
-    memcpy(msg, prefix, plen);
+    memcpy(msg, prefix, (size_t)plen);
     memcpy(msg + plen, lit.data, (size_t)lit.len);
-    msg[plen + (size_t)lit.len] = '\0';
-    ps_raise_exc(ps_exc_make(PS_VALUE, (int64_t)(plen + lit.len), msg));
+    msg[total] = '\0';
+    free(lit.data);
+    ps_raise_exc(ps_exc_make(PS_VALUE, (int64_t)total, msg));
+}
+
+static void ps_int_bad_literal(int64_t n, const char *s) {
+    ps_int_bad_literal_msg(n, s, 10);
 }
 
 int64_t ps_int_from_bytes(int64_t n, const char *s) {
@@ -279,14 +293,34 @@ int64_t ps_int_from_bytes(int64_t n, const char *s) {
     if (i >= end) {
         ps_int_bad_literal(n, s);
     }
+    /* CPython's underscore digit separator: one '_' sits between two
+       digits, never at an end and never doubled ('1_0' parses; '_1', '1_',
+       '1__0' and '1_x' raise). `digits` guards the leading '_' and the
+       all-separator literal. */
+    int digits = 0;
     for (; i < end; i++) {
-        if (s[i] < '0' || s[i] > '9') {
+        char c = s[i];
+        if (c == '_') {
+            if (digits == 0 || i + 1 >= end || s[i + 1] == '_') {
+                ps_int_bad_literal(n, s);
+            }
+            char nx = s[i + 1];
+            if (nx < '0' || nx > '9') {
+                ps_int_bad_literal(n, s);
+            }
+            continue;
+        }
+        if (c < '0' || c > '9') {
             ps_int_bad_literal(n, s);
         }
-        if (mag > (UINT64_MAX - (uint64_t)(s[i] - '0')) / 10) {
+        digits++;
+        if (mag > (UINT64_MAX - (uint64_t)(c - '0')) / 10) {
             ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
         }
-        mag = mag * 10 + (uint64_t)(s[i] - '0');
+        mag = mag * 10 + (uint64_t)(c - '0');
+    }
+    if (digits == 0) {
+        ps_int_bad_literal(n, s);
     }
     if (!neg && mag > (uint64_t)INT64_MAX) {
         ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
@@ -296,25 +330,28 @@ int64_t ps_int_from_bytes(int64_t n, const char *s) {
 
 /* int(s, base): CPython's literal read over the digit table, with the
    underscore digit-separator rule (single '_' between digits, none at
-   either end, none next to a base prefix; the base-10 str/bytes path keeps
-   its no-underscore subset). Bases 2..36 only (the lowerer fences base 0
-   and out-of-range with a named code); a 0x, 0o or 0b prefix is allowed
-   for its matching base, upper case spellings too, and the sign sits in
-   front of the prefix. Messages carry the base the caller gave, like
-   CPython. */
-static void ps_int_bad_base(int64_t base) {
-    char msg[80];
-    int len = snprintf(msg, sizeof msg, "invalid literal for int() with base %lld", (long long)base);
-    ps_raise_exc(ps_exc_make(PS_VALUE, len, msg));
-}
-
+   either end, none next to a base prefix). Bases 2..36 only (the lowerer
+   fences base 0 and out-of-range with a named code); a 0x, 0o or 0b prefix
+   is allowed for its matching base, upper case spellings too, and the sign
+   sits in front of the prefix. The surrounding-whitespace strip uses the
+   Unicode space set, like the base-10 form, and every failure message
+   carries the caller's base and the repr'd literal, like CPython 3.14. */
 int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
     if (base < 2 || base > 36) {
         ps_raise_cstr(PS_VALUE, "int() base must be >= 2 and <= 36");
     }
+    /* CPython strips the surrounding whitespace with the Unicode space set
+       (the same rule the base-10 form uses), not just ASCII: the strip walk
+       decodes code points off the UTF-8 bytes, and a run that does not
+       decode cleanly stays literal. */
     int64_t i = 0;
-    while (i < n && (s[i] == ' ' || s[i] == '\t' || s[i] == '\n' || s[i] == '\r' || s[i] == '\f' || s[i] == '\v')) {
-        i++;
+    for (;;) {
+        uint32_t cp;
+        int width = ps_int_next_cp(n, s, i, &cp);
+        if (width == 0 || !ps_int_is_space(cp)) {
+            break;
+        }
+        i += width;
     }
     int neg = 0;
     if (i < n && (s[i] == '+' || s[i] == '-')) {
@@ -324,12 +361,13 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
     if (n - i >= 2 && s[i] == '0') {
         char p = (char)(s[i + 1] | 0x20);
         char want = base == 16 ? 'x' : base == 8 ? 'o' : base == 2 ? 'b' : 0;
-        /* The prefix may be followed by one '_' ('0x_f' parses); skip the
-           separator with the prefix letters. */
+        /* Only the matching prefix is prefix; '0b1' under base 16 reads the
+           b as a digit value. The prefix may be followed by one '_' ('0x_f'
+           parses); skip the separator with the prefix letters. */
         if (want && p == want) {
             if (n - i >= 3 && s[i + 2] == '_') {
                 if (i + 3 >= n) {
-                    ps_int_bad_base(base);
+                    ps_int_bad_literal_msg(n, s, base);
                 }
                 i += 3;
             } else {
@@ -337,24 +375,30 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
             }
         }
     }
-    if (i >= n) {
-        ps_int_bad_base(base);
-    }
     uint64_t mag = 0;
-    /* CPython strips the surrounding whitespace before the literal read, so
-       a trailing run sits outside the digit loop. Walk the end back over it. */
+    /* The trailing strip walks the same Unicode set. */
     int64_t end = n;
-    while (end > i && (s[end - 1] == ' ' || s[end - 1] == '\t' || s[end - 1] == '\n' || s[end - 1] == '\r'
-                       || s[end - 1] == '\f' || s[end - 1] == '\v')) {
-        end--;
-    }
-    if (i >= end) {
-        ps_int_bad_base(base);
+    for (;;) {
+        uint32_t cp;
+        int64_t last = end - 1;
+        if (last < i) {
+            break;
+        }
+        int64_t start = last;
+        while (start > i && ((unsigned char)s[start] & 0xC0) == 0x80) {
+            start--;
+        }
+        ps_int_next_cp(n, s, start, &cp);
+        if (!ps_int_is_space(cp)) {
+            break;
+        }
+        end = start;
     }
     /* Underscores: one separator sits between digits of this base, never at
        an end and never doubled: '1_0' parses, '1_', '_1', '1__0' and '1_x'
        raise, like CPython's parser. `digits` guards the leading '_' and the
-       all-separator literal. */
+       all-separator literal. Every failure carries the caller's base and the
+       repr'd literal, like CPython 3.14. */
     int digits = 0;
     for (; i < end; i++) {
         int d;
@@ -362,7 +406,7 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
         if (c == '_') {
             int64_t j = i + 1;
             if (digits == 0 || j >= end || s[j] == '_') {
-                ps_int_bad_base(base);
+                ps_int_bad_literal_msg(n, s, base);
             }
             char nx = s[j];
             int nxd;
@@ -373,10 +417,10 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
             } else if (nx >= 'A' && nx <= 'Z') {
                 nxd = nx - 'A' + 10;
             } else {
-                ps_int_bad_base(base);
+                ps_int_bad_literal_msg(n, s, base);
             }
             if (nxd >= base) {
-                ps_int_bad_base(base);
+                ps_int_bad_literal_msg(n, s, base);
             }
             continue;
         }
@@ -388,10 +432,10 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
         } else if (c >= 'A' && c <= 'Z') {
             d = c - 'A' + 10;
         } else {
-            ps_int_bad_base(base);
+            ps_int_bad_literal_msg(n, s, base);
         }
         if (d >= base) {
-            ps_int_bad_base(base);
+            ps_int_bad_literal_msg(n, s, base);
         }
         if (mag > (UINT64_MAX - (uint64_t)d) / (uint64_t)base) {
             ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
@@ -399,7 +443,7 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
         mag = mag * (uint64_t)base + (uint64_t)d;
     }
     if (digits == 0) {
-        ps_int_bad_base(base);
+        ps_int_bad_literal_msg(n, s, base);
     }
     if (!neg && mag > (uint64_t)INT64_MAX) {
         ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
