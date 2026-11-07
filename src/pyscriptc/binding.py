@@ -438,15 +438,16 @@ def render_binding_module(
         params = _items(fn, "params")
         ret_type = _opt_record(fn, "returnType")
         if ret_type is None:
-            ret_type = {}
+            ret_type: dict[str, Any] = {}
         argtypes = [_CTYPES_TYPE_MAP[_kind(_type_of(p))] for p in params]
         ret_kind = _kind_or_none(ret_type)
-        if ret_kind is None:
-            ret_kind = "none"
-        restype = _CTYPES_TYPE_MAP[ret_kind]
+        kind_key: str = "none"
+        if ret_kind is not None:
+            kind_key = ret_kind
+        restype: str = _CTYPES_TYPE_MAP[kind_key]
         # The guarded wrapper takes the resolved function pointer first, so
         # its ctypes shape is the logical one with a leading c_void_p.
-        bind_argtypes = ["ctypes.c_void_p", *argtypes]
+        bind_argtypes: list[str] = ["ctypes.c_void_p", *argtypes]
 
         sig_parts: list[str] = []
         call_parts: list[str] = []
@@ -461,7 +462,7 @@ def render_binding_module(
                 sig_parts.append(f"{pname}: {ptype_str}")
             call_parts.append(pname)
 
-        ret_annot = _PY_TYPE_MAP[ret_kind]
+        ret_annot: str = _PY_TYPE_MAP[kind_key]
         sig_str = ", ".join(sig_parts)
         call_str = ", ".join(call_parts)
 

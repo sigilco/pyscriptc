@@ -72,7 +72,7 @@ def _cap(path: Path) -> None:
 def _emit(level: str, event: str, kv: dict[str, Any]) -> None:
     if _LEVELS[level] < _min_level():
         return
-    record = {
+    record: dict[str, Any] = {
         "ts": datetime.datetime.now(datetime.UTC).isoformat(timespec="milliseconds"),
         "level": level,
         "event": event,

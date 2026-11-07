@@ -617,7 +617,7 @@ def _tuple_assign(
             -1,
         )
     )
-    stmts = [_assign(dest, made, span)]
+    stmts: list[dict[str, Any]] = [_assign(dest, made, span)]
     for index, elem in enumerate(elems):
         stmts.append(
             node_to_dict(

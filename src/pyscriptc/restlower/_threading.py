@@ -280,7 +280,7 @@ def _timeout_nanos(timeout: dict[str, Any], span: dict[str, Any]) -> dict[str, A
         return _const_int(-1, span)
     # float seconds: int(timeout * 1e9). 1e9 as a float const keeps the
     # multiply float-typed without a cast node for the literal.
-    billion = {"kind": "const", "value": "1000000000.0", "type": {"kind": "float"}, "span": span}
+    billion: dict[str, Any] = {"kind": "const", "value": "1000000000.0", "type": {"kind": "float"}, "span": span}
     return {
         "kind": "call",
         "callee": {"kind": "builtin", "name": "int"},
