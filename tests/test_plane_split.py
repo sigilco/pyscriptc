@@ -576,3 +576,273 @@ def test_island_floor_seed_imports_its_sibling(tmp_path: Path) -> None:
     want = subprocess.run([sys.executable, str(prog)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
     assert (got.returncode, got.stdout) == (want.returncode, want.stdout)
     assert got.stdout == "X!\n"
+
+
+def test_an_import_cycle_rides_the_island_and_the_rest_stays_native(tmp_path: Path) -> None:
+    """A module-level import cycle does not refuse the compile.
+
+    The three-module shape of the cycle rule: `alpha` and `beta` import
+    each other at module level, `clean` sits outside the cycle, and the
+    entry calls a clean definition and a cycle definition. The cycle
+    members ride the island group (one bootstrap under CPython resolves the
+    cycle the way CPython does), the clean module lowers native, and the
+    native lane reaches the cycle member through the boxed seam.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from clean import add\n"
+                "from driver import drive\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(add(1, 2))\n"
+                "    print(drive())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            "alpha.py": "def one() -> int:\n    return two() + 1\n\n\nfrom beta import two\n",
+            "beta.py": "from alpha import one\n\n\ndef two() -> int:\n    return 10\n",
+            "clean.py": "def add(a: int, b: int) -> int:\n    return a + b\n",
+            "driver.py": "from alpha import one\n\n\ndef drive() -> int:\n    return one()\n",
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "3\n11\n"
+    planes = _plane_map(tmp_path, prog)["functions"]
+    assert planes["clean.add"] == "native"
+    assert planes["driver.drive"] == "native"
+    assert planes["alpha.one"] == "island"
+    assert planes["beta.two"] == "island"
+
+
+def test_the_cycle_group_runs_under_one_bootstrap(tmp_path: Path) -> None:
+    """The cycle members ride one bootstrap, not one seed each.
+
+    The group's bootstrap installs a finder over the group's own sources
+    and imports every member, so the cycle resolves the way CPython
+    resolves it: the module that started the cycle sees the partially
+    initialized sibling. A second seed per member would run the bodies
+    twice, so the binary carries one group bootstrap and no per-module
+    seed for the members.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from driver import drive\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(drive())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            "alpha.py": "def one() -> int:\n    return two() + 1\n\n\nfrom beta import two\n",
+            "beta.py": "from alpha import one\n\n\ndef two() -> int:\n    return 10\n",
+            "driver.py": "from alpha import one\n\n\ndef drive() -> int:\n    return one()\n",
+        },
+    )
+    binary, comp = _compile(tmp_path, prog)
+    assert comp.returncode == 0, comp.stderr
+    llvm = (binary.parent / f"{binary.name}.ll").read_text(encoding="utf-8")
+    # One group bootstrap, no per-module seed for the two members.
+    assert "ps_island_fn_seed" in llvm
+    assert "ps_island_mod_seed" not in llvm
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run([sys.executable, str(prog)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert (got.returncode, got.stdout) == (want.returncode, want.stdout)
+    assert got.stdout == "11\n"
+
+
+def test_a_cycle_member_with_a_module_level_fence_still_runs(tmp_path: Path) -> None:
+    """A cycle member's own module-level fences drop with its top level.
+
+    The group's bootstrap execs the real body under CPython, so a lambda
+    the checker refuses (PS1001) at module level is CPython's own there:
+    the fence is the island's, not the compile's, and the compile stays at
+    zero fences with the clean sibling native.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from clean import add\n"
+                "from driver import drive\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(add(1, 2))\n"
+                "    print(drive())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            # The lambda without a Callable annotation fences the checker;
+            # `alpha` and `beta` form the cycle.
+            "alpha.py": (
+                "wrap = lambda p: p + 1\n\n\ndef one() -> int:\n    return two() + wrap(1)\n\n\nfrom beta import two\n"
+            ),
+            "beta.py": "from alpha import one\n\n\ndef two() -> int:\n    return 10\n",
+            "clean.py": "def add(a: int, b: int) -> int:\n    return a + b\n",
+            "driver.py": "from alpha import one\n\n\ndef drive() -> int:\n    return one()\n",
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "3\n12\n"
+    planes = _plane_map(tmp_path, prog)["functions"]
+    assert planes["clean.add"] == "native"
+    assert planes["alpha.one"] == "island"
+
+
+def test_a_cycle_member_namedtuple_shadowing_a_stdlib_type_does_not_collide(tmp_path: Path) -> None:
+    """A cycle member's own namedtuple named like a stdlib type stays island-side.
+
+    The merged class table is program-wide: `Time` is also the stdlib
+    `datetime.time` shape the clean modules lower against. The cycle
+    member's `collections.namedtuple('Time', ...)` is a different class
+    that only its own module sees, so it rides the group bootstrap and
+    never enters the native table — a PS2002 duplicate would refuse the
+    whole compile.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "import collections\n"
+                "from clean import add\n"
+                "from driver import drive\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(add(1, 2))\n"
+                "    print(drive())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            # The cycle: `alpha` declares a namedtuple `Time` at module
+            # level; the stdlib `datetime` synthetics also name `Time`.
+            "alpha.py": (
+                "import collections\n\n\n"
+                "_tt = collections.namedtuple('Time', ('hours', 'minutes'))\n\n\n"
+                "def one() -> int:\n    return two() + _tt(1, 2).hours\n\n\nfrom beta import two\n"
+            ),
+            "beta.py": "from alpha import one\n\n\ndef two() -> int:\n    return 10\n",
+            # The clean module uses `datetime.time`, which is the stdlib
+            # `Time` shape in the native table.
+            "clean.py": (
+                "import datetime\n\n\ndef add(a: int, b: int) -> int:\n"
+                "    t = datetime.time(3)\n    return a + b + t.hour\n"
+            ),
+            "driver.py": "from alpha import one\n\n\ndef drive() -> int:\n    return one()\n",
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "6\n11\n"
+
+
+def test_a_seed_keeps_its_import_of_a_cycle_group_member(tmp_path: Path) -> None:
+    """A module outside the cycle reads a group member's constant at class-body time.
+
+    The group bootstrap installs every group member in `sys.modules`
+    before the per-module seeds run, so a seed's import of a group member
+    resolves against that namespace even when the member's own exports
+    carry no island flag (its definitions are constants, so they lower
+    native). Dropping that import loses a binding the seed's island class
+    body reads at definition time, and the binary dies with a NameError
+    before the entry runs.
+
+    The shape: `alpha` and `beta` form the cycle and `alpha` imports
+    `version`; `version` holds only the constant `VERSION`, so its export
+    table carries no island flag; `provider` sits outside the cycle and
+    its island class body reads `VERSION`.
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "from driver import drive\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(drive())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            "alpha.py": (
+                "from version import VERSION\n\n\ndef one() -> int:\n    return two() + 1\n\n\nfrom beta import two\n"
+            ),
+            "beta.py": "from alpha import one\n\n\ndef two() -> int:\n    return 10\n",
+            # Only a constant: the export table carries no island flag for
+            # it, so the seed import of it used to drop.
+            "version.py": "VERSION = '1.2.3'\n",
+            # The class body reads the constant at definition time, so the
+            # import has to be in the seed.
+            "provider.py": (
+                "from version import VERSION\n"
+                "\n"
+                "\n"
+                "class Provider:\n"
+                "    VERSION = VERSION\n"
+                "\n"
+                "\n"
+                "    def label(self, suffix):\n"
+                "        return Provider.VERSION + suffix\n"
+            ),
+            "driver.py": "from alpha import one\n\n\ndef drive() -> int:\n    return one()\n",
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "11\n"
+
+
+def test_a_cycle_group_carries_the_package_chain(tmp_path: Path) -> None:
+    """A package unit joins the cycle group, so its chain runs in the same image.
+
+    A seeded submodule's relative import resolves through its package's
+    namespace. When the package is not in the group, its body runs from
+    disk and re-enters the submodule the group is still executing, so the
+    import fails with "cannot import name". The package unit joins the
+    group, and the group's bootstrap owns the whole chain.
+
+    The shape: `pkg/__init__.py` imports `pkg.sub`; `pkg/sub.py` and
+    `pkg/other.py` form the cycle; the entry imports the package by its
+    package name (the `python -m pkg` shape).
+    """
+    prog = tmp_path / "prog"
+    _write(
+        prog,
+        {
+            "__main__.py": (
+                "import pkg\n"
+                "\n"
+                "\n"
+                "def main() -> None:\n"
+                "    print(pkg.get())\n"
+                "\n"
+                "\n"
+                "if __name__ == '__main__':\n"
+                "    main()\n"
+            ),
+            "pkg/__init__.py": ("from .sub import value\n\n\ndef get() -> str:\n    return value\n"),
+            "pkg/sub.py": ("value = 'v'\n\n\ndef one() -> int:\n    return two() + 1\n\n\nfrom .other import two\n"),
+            "pkg/other.py": "from .sub import one\n\n\ndef two() -> int:\n    return 10\n",
+        },
+    )
+    out = _compare(tmp_path, prog)
+    assert out == "v\n"

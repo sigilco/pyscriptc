@@ -320,6 +320,22 @@ class Lowerer(
         # and the island lane side by side, so a call into another module's
         # island floor crosses the boundary instead of refusing.
         self._boxed_plane_split = False
+        # The island group (the plane split's cycle rule): this unit rides
+        # the island floor whole-module. The merge sets it from the program
+        # plan's cycle members before the catalog pass, so the export table
+        # agrees on which definitions the unit keeps.
+        self._boxed_island_unit = False
+        # The island group's own module-level fences drop with its top
+        # level: the group's bootstrap execs the real body, so a lambda the
+        # checker refuses or an empty container literal is CPython's own
+        # there, exactly as under the whole-program island.
+        self._boxed_island_unit_drops_module_fences = False
+        # The island group's member names (the cycle rule's closed set). The
+        # group bootstrap installs every member in `sys.modules` before the
+        # per-module seeds run, so a seed import of a group member resolves
+        # against that namespace even when the member's own exports carry no
+        # island flag.
+        self._boxed_island_group: set[str] = set()
         # boxed:end
         self.module_name = ""
         self.is_package = False
