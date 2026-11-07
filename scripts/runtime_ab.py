@@ -10,8 +10,9 @@ The default corpus is the MIR leaf fixtures under `tests/fixtures/mir_leaf/`
 that have at least one in-slice function (`mirlower.supported_fn`), plus every
 visible compat2 corpus script under `benchmarks/compat2/corpus/scripts/*/main.py`
 (the scripts split only; the holdout is never touched). Corpus scripts without
-an in-slice function report SKIP; ones that fail to lower or compile report
-ERROR with the compiler's note. Extra paths can be passed on the command line.
+an in-slice function report SKIP; module fences that fail both lanes report
+SKIP with the fence code; other lower or compile failures report ERROR with
+the compiler's note. Extra paths can be passed on the command line.
 
 Usage:
     uv run python scripts/runtime_ab.py
@@ -123,12 +124,26 @@ def corpus_script_paths() -> list[Path]:
     return sorted(path for path in CORPUS_SCRIPTS.glob("*/main.py") if path.is_file())
 
 
-def slice_counts(path: Path) -> tuple[int, int]:
-    """In-slice functions over total functions after `lower_file`."""
+def module_stats(path: Path) -> tuple[int, int, list[str]]:
+    """In-slice functions, total functions and fence codes after `lower_file`."""
     module, _fences = lower_file(str(path))
     functions = module["functions"]
     in_slice = sum(1 for fn in functions if supported_fn(fn))
-    return in_slice, len(functions)
+    raw_fences = module.get("fences") or []
+    codes: set[str] = set()
+    if isinstance(raw_fences, list):
+        for fence in raw_fences:
+            if isinstance(fence, dict):
+                code = fence.get("code")
+                if isinstance(code, str):
+                    codes.add(code)
+    return in_slice, len(functions), sorted(codes)
+
+
+def slice_counts(path: Path) -> tuple[int, int]:
+    """In-slice functions over total functions after `lower_file`."""
+    in_slice, total, _codes = module_stats(path)
+    return in_slice, total
 
 
 def default_programs() -> list[Path]:
@@ -208,11 +223,14 @@ def _channel_note(direct: Observation, mir: Observation) -> str:
 def compare_program(path: Path, timeout: float = DEFAULT_TIMEOUT, run_timeout: float = RUN_TIMEOUT) -> ProgramVerdict:
     """Compile `path` on both lanes, run both binaries, return the verdict."""
     try:
-        in_slice, functions = slice_counts(path)
+        in_slice, functions, fence_codes = module_stats(path)
     except (IRError, OSError) as exc:
         return ProgramVerdict(path, ERROR, 0, 0, f"lower: {exc}")
     if in_slice == 0:
         return ProgramVerdict(path, SKIP, in_slice, functions, "no function where supported_fn holds")
+    if fence_codes:
+        codes = ", ".join(fence_codes)
+        return ProgramVerdict(path, SKIP, in_slice, functions, f"module fences {codes}; compile fails on both lanes")
 
     with tempfile.TemporaryDirectory(prefix="pyscriptc-runtime-ab-") as tmp:
         root = Path(tmp)

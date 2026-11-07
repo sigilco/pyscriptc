@@ -23,6 +23,8 @@ from scripts.compat_mir_flip import (
     check_passthrough,
     lane_env,
     main,
+    result_path,
+    run_lane,
     score_command,
     split_passthrough,
 )
@@ -65,6 +67,28 @@ def test_score_command_without_corpus() -> None:
     assert "--no-cache" in cmd
 
 
+def test_result_path_follows_score_shard_output(tmp_path: Path) -> None:
+    out = tmp_path / "direct.json"
+    assert result_path(out, []) == out
+    assert result_path(out, ["--shard", "0/1"]) == out
+    assert result_path(out, ["--shard", "0/4"]) == tmp_path / "direct.shard0of4.json"
+    assert result_path(out, ["--shard=2/4"]) == tmp_path / "direct.shard2of4.json"
+    assert result_path(out, ["--shard", "1/4", "--shard", "3/8"]) == tmp_path / "direct.shard3of8.json"
+
+
+def test_run_lane_reads_the_shard_file_score_writes(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    out = tmp_path / "direct.json"
+    expected = result_path(out, ["--shard", "0/4"])
+
+    def fake_run(cmd, **kwargs):
+        expected.write_text(json.dumps(_score([("p1", "pass")])) + "\n", encoding="utf-8")
+        return subprocess.CompletedProcess(cmd, 0, "", "")
+
+    monkeypatch.setattr("scripts.compat_mir_flip.subprocess.run", fake_run)
+    result = run_lane("direct", False, "probes", out, ["--shard", "0/4"], False)
+    assert result == expected
+
+
 def test_check_passthrough_blocks_holdout_and_managed_flags() -> None:
     for bad in ("--holdout", "--headroom", "--out", "--out=x.json", "--corpus"):
         with pytest.raises(ValueError, match="not allowed"):
@@ -92,8 +116,10 @@ def test_parser_defaults_and_probes_positional() -> None:
 def _stub_lanes(monkeypatch: pytest.MonkeyPatch, direct_rows, mir_rows, calls: list) -> None:
     def fake_run_lane(name, mir, probes, out, extra, corpus):
         calls.append((name, mir, probes, str(out), tuple(extra), corpus))
+        result = result_path(out, list(extra))
         payload = _score(direct_rows if name == "direct" else mir_rows)
-        out.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        result.write_text(json.dumps(payload) + "\n", encoding="utf-8")
+        return result
 
     monkeypatch.setattr("scripts.compat_mir_flip.run_lane", fake_run_lane)
 

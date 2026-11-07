@@ -116,6 +116,20 @@ def test_out_of_slice_reason_matches_supported_fn(tmp_path: Path) -> None:
     assert out_of_slice_reason(by_name["closure.inner"]) == "fn:closure env"
 
 
+def test_reason_walkers_skip_json_null_const_values(tmp_path: Path) -> None:
+    """A `None` const carries `"value": null`; the reason walk must skip it."""
+    src = tmp_path / "nullconst.py"
+    src.write_text(
+        "def f(a: int) -> int:\n    if None is None:\n        return 1\n    return a\n",
+        encoding="utf-8",
+    )
+    module, _ = lower_file(str(src))
+    fn = module["functions"][0]
+    assert out_of_slice_reason(fn) == "expr:const none"
+    plan = plan_module(module)
+    assert plan["fallbacks"][0]["reason"] == "expr:const none"
+
+
 def _dbg_with_emit_entry(topics: set[str]) -> Debug:
     dbg = Debug(topics, None)
     dbg.entries.append(("emit_llvm", 1.0, True))

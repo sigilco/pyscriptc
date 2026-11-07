@@ -194,6 +194,20 @@ def test_unsupported_program_skips(tmp_path: Path) -> None:
     assert "supported_fn" in row.note
 
 
+def test_module_fence_skips_with_code(tmp_path: Path) -> None:
+    """A fence that blocks both compile lanes is SKIP, not a lane ERROR."""
+    source = tmp_path / "fenced.py"
+    source.write_text(
+        "def leaf(a: int) -> int:\n    return a + 1\n\n\ndef bad(x):\n    return str(x)\n\n\nprint(leaf(1))\n",
+        encoding="utf-8",
+    )
+    row = compare_program(source)
+    assert row.verdict == SKIP
+    assert row.in_slice > 0
+    assert "PS1001" in row.note
+    assert "both lanes" in row.note
+
+
 def test_harness_skips_without_c_toolchain(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr("scripts.runtime_ab.has_c_toolchain", lambda: False)
     code = main([])

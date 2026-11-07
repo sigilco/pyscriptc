@@ -69,7 +69,10 @@ def _expr_reason(expr: Dict[str, Any]) -> str:
     for key in _EXPR_CHILDREN:
         if key not in expr:
             continue
-        child: Dict[str, Any] = expr[key]
+        raw: Dict[str, Any] | None = expr[key]
+        if raw is None:
+            continue
+        child: Dict[str, Any] = raw
         if "kind" not in child:
             continue
         if not supported_expr(child):
@@ -82,7 +85,10 @@ def _stmt_reason(stmt: Dict[str, Any]) -> str:
     for key in _STMT_EXPRS:
         if key not in stmt:
             continue
-        child: Dict[str, Any] = stmt[key]
+        raw: Dict[str, Any] | None = stmt[key]
+        if raw is None:
+            continue
+        child: Dict[str, Any] = raw
         if "kind" not in child:
             continue
         none_typed = False
@@ -102,8 +108,11 @@ def _stmt_reason(stmt: Dict[str, Any]) -> str:
     for key in _STMT_BODIES:
         if key not in stmt:
             continue
-        body: list[Dict[str, Any]] = stmt[key]
-        for inner in body:
+        body: list[Dict[str, Any] | None] = stmt[key]
+        for item in body:
+            if item is None:
+                continue
+            inner: Dict[str, Any] = item
             if "kind" in inner and not supported_stmt(inner):
                 return _stmt_reason(inner)
     skind: str = stmt["kind"]
