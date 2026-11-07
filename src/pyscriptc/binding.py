@@ -92,9 +92,7 @@ def shared_library_name(stem: str, target: str | None = None) -> str:
 
 def _render_type(t: dict[str, Any]) -> str:
     """Render an IR type dictionary into human-readable type syntax."""
-    kind = _kind_or_none(t)
-    if kind is None:
-        kind = "unknown"
+    kind: str = _kind_or_none(t) or "unknown"
     if kind == "int":
         return "int"
     if kind == "float":
@@ -109,18 +107,22 @@ def _render_type(t: dict[str, Any]) -> str:
         return "None"
     if kind == "list":
         elem = _opt_record(t, "elem")
-        return f"list[{_render_type(elem if elem is not None else {})}]"
+        empty_elem: dict[str, Any] = {}
+        return f"list[{_render_type(elem if elem is not None else empty_elem)}]"
     if kind == "dict":
         key = _opt_record(t, "key")
         val = _opt_record(t, "val")
-        return f"dict[{_render_type(key if key is not None else {})}, {_render_type(val if val is not None else {})}]"
+        empty_item: dict[str, Any] = {}
+        key_str = _render_type(key if key is not None else empty_item)
+        val_str = _render_type(val if val is not None else empty_item)
+        return f"dict[{key_str}, {val_str}]"
     if kind == "class":
         name = _opt_str(t, "name")
         return name if name else "class"
     return kind
 
 
-def _python_const_repr(typ: dict[str, Any], raw_val: Any) -> str:
+def _python_const_repr(typ: dict[str, Any], raw_val: str) -> str:
     """Format a default constant value for Python source code."""
     kind = _kind_or_none(typ)
     if kind == "int":
@@ -164,7 +166,8 @@ def analyze_binding(
             ptyp = _opt_record(param, "type")
             pkind = _kind_or_none(ptyp) if ptyp is not None else None
             if pkind not in _SUPPORTED_PARAM_KINDS:
-                rendered = _render_type(ptyp if ptyp is not None else {})
+                empty_ptyp: dict[str, Any] = {}
+                rendered = _render_type(ptyp if ptyp is not None else empty_ptyp)
                 pname = _opt_str(param, "name")
                 if pkind in ("str", "bytes"):
                     reasons.append(
@@ -177,7 +180,8 @@ def analyze_binding(
         rtyp = _opt_record(fn, "returnType")
         rkind = _kind_or_none(rtyp) if rtyp is not None else None
         if rkind not in _SUPPORTED_RETURN_KINDS:
-            rendered = _render_type(rtyp if rtyp is not None else {})
+            empty_rtyp: dict[str, Any] = {}
+            rendered = _render_type(rtyp if rtyp is not None else empty_rtyp)
             if rkind in ("str", "bytes"):
                 reasons.append(
                     f"return type has unsupported type '{rendered}' (str/bytes C ABI not stabilized for bindings)"
@@ -435,7 +439,6 @@ def render_binding_module(
         ret_type = _opt_record(fn, "returnType")
         if ret_type is None:
             ret_type = {}
-
         argtypes = [_CTYPES_TYPE_MAP[_kind(_type_of(p))] for p in params]
         ret_kind = _kind_or_none(ret_type)
         if ret_kind is None:

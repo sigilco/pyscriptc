@@ -312,7 +312,7 @@ class Config:
         """Lane of each PEP 723 dependency, keyed by requirement string."""
         return dependency_lanes(self.dependencies, self.imports)
 
-    def island_imports(self) -> tuple[str, ...]:
+    def island_imports(self) -> list[str]:
         """Import names the policy table routes to the island, sorted."""
         names: set[str] = set()
         for name, lane in self.imports.items():
@@ -320,7 +320,7 @@ class Config:
                 names.add(name)
                 names.add(name.replace("-", "_"))
         out: list[str] = sorted(names)
-        return tuple(out)
+        return out
 
     def wildcard_island(self) -> bool:
         """True when `* = "island"` makes every unlisted import island-bound."""
@@ -573,10 +573,14 @@ def _deps_of(meta: Dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
 
 
 def _read_script_meta(script: Path) -> dict[str, Any]:
+    parsed: dict[str, Any] | None = None
     try:
-        return read_pep723(script.read_text(encoding="utf-8")) or {}
+        parsed = read_pep723(script.read_text(encoding="utf-8"))
     except OSError:
         return {}
+    if parsed is None:
+        return {}
+    return parsed
 
 
 def load_config(source: Path) -> Config:

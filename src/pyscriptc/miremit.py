@@ -974,7 +974,8 @@ class MirEmitter:
             ptrs.append(self.reg[slot_vid])
         ir_fn = self._ir_fn(fn.name)
         ret_type: Dict[str, Any] = ir_fn["returnType"]
-        if ret_type["kind"] != "none":
+        ret_kind: str = ret_type["kind"]
+        if ret_kind != "none":
             ret_reg = self._ret_reg
             if ret_reg is None:
                 raise IRError("try env of a non-void function has no return slot")

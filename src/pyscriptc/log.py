@@ -69,7 +69,7 @@ def _cap(path: Path) -> None:
         pass
 
 
-def _emit(level: str, event: str, kv: dict[str, object]) -> None:
+def _emit(level: str, event: str, kv: dict[str, Any]) -> None:
     if _LEVELS[level] < _min_level():
         return
     record = {
