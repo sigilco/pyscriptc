@@ -363,6 +363,13 @@ class Lowerer(
         # tree twice for the same `ast.Global` nodes. Bodies are not mutated
         # after parsing, so identity is a stable key within one lower_file run.
         self._globals_cache: dict[int, frozenset[str]] = {}
+        # `global X` names a function assigns from a function-local import
+        # (`from pyscriptc import assess as _assess` then `assess = _assess`):
+        # X resolves at module scope exactly like the top-level import would.
+        # The record carries what the replayed import bound so the write can
+        # prove it is the alias init and not some other store. Populated by
+        # `_scan_global_aliases` before any body lowers.
+        self.global_aliases: dict[str, dict[str, Any]] = {}
         # The function body being lowered, so `del name` can see a later load.
         self.fn_body: list[ast.stmt] = []
         # Names bound to frozenset(...). The value is still the set list. .add and
@@ -880,10 +887,36 @@ class Lowerer(
     def _assign_global(self, stmt: ast.Assign, target: str, span: dict[str, Any]) -> list[dict[str, Any]]:
         slot = self.global_slots.get(target)
         if slot is None or not slot.get("active"):
+            if self._global_alias_write(stmt, target):
+                return [{"kind": "pass", "span": span}]
             self.fail(stmt, "PS2002", f"global {target} is not a module slot")
         value = self._expr(stmt.value, slot["type"])
         self._expect(stmt, value["type"], slot["type"], target)
         return [self._global_set(target, value, span)]
+
+    def _global_alias_write(self, stmt: ast.Assign, target: str) -> bool:
+        """`global X` + `X = <name>` where `<name>` is the import the scan aliased.
+
+        The write needs no runtime code: X already resolves through the
+        module-scope binding the alias installed, so the statement lowers to
+        a pass. Any other store to the name keeps the module-slot fence.
+        """
+        rec = self.global_aliases.get(target)
+        if rec is None or not isinstance(stmt.value, ast.Name) or stmt.value.id == target:
+            return False
+        rhs = stmt.value.id
+        if rec["kind"] == "binding":
+            want = rec["binding"]
+            found = self.bindings.get(rhs)
+            return (
+                found is not None
+                and found.kind == want.kind
+                and found.module == want.module
+                and found.attr == want.attr
+            )
+        if rec["kind"] == "class":
+            return self.class_aliases.get(rhs) == rec["class"]
+        return self.constants.get(rhs) is rec["const"]
 
     def _slot_key(self, name: str) -> str:
         if self.module_name:
@@ -1148,6 +1181,147 @@ class Lowerer(
         # initializer expression; the literal rules above stay the fast path
         # and everything else consults the map when a bridge is wired.
         return self._bridge_type(node)
+
+    def _scan_global_aliases(self, functions: list[ast.FunctionDef]) -> None:
+        """Promote `global X` + `X = <imported name>` writes to module bindings.
+
+        The lazy-loader idiom (`def _load(): global assess; from pyscriptc
+        import assess as _assess; assess = _assess`) writes a module global
+        from inside a function. For the subset the write is a no-op: X takes
+        exactly the binding the function-local import produced, so every
+        reader resolves it like a top-level import of the same name. The
+        scan replays each body's import statements through the real bind
+        pass on a scratch state (restored afterwards), so the alias carries
+        the binding the import would really have made. A name promotes only
+        when every store to it in every body is that alias shape resolving
+        to the same target; anything else keeps today's fences.
+        """
+        records: dict[str, dict[str, Any]] = {}
+        bad: set[str] = set()
+
+        def store_names(target: ast.expr) -> list[str]:
+            if isinstance(target, ast.Name):
+                return [target.id]
+            if isinstance(target, (ast.Tuple, ast.List)):
+                return [name for elt in target.elts for name in store_names(elt)]
+            if isinstance(target, ast.Starred):
+                return store_names(target.value)
+            return []
+
+        saved = (
+            dict(self.bindings),
+            dict(self.type_aliases),
+            dict(self.constants),
+            set(self.declared),
+            dict(self.typevars),
+            dict(self.classes),
+            dict(self.class_aliases),
+            set(self.known_classes),
+            dict(self.pkg_funcs),
+            set(self.synthetics),
+        )
+        try:
+            for fn in functions:
+                declared = self._globals_for(fn.body)
+                if not declared:
+                    continue
+                stores: dict[str, list[ast.expr | None]] = {name: [] for name in declared}
+                for node in ast.walk(ast.Module(body=list(fn.body), type_ignores=[])):
+                    if isinstance(node, ast.Import):
+                        try:
+                            self._bind_import(node, [])
+                        except Fence:
+                            pass
+                    elif isinstance(node, ast.ImportFrom):
+                        try:
+                            self._bind_from(node, [])
+                        except Fence:
+                            pass
+                    elif isinstance(node, ast.Assign):
+                        for target in node.targets:
+                            for name in store_names(target):
+                                if name in stores:
+                                    stores[name].append(node.value)
+                    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                        for name in store_names(node.target):
+                            if name in stores:
+                                stores[name].append(None)
+                for name, values in stores.items():
+                    if name in bad or not values:
+                        continue
+                    found: dict[str, Any] | None = None
+                    ok = True
+                    for value in values:
+                        rec = self._alias_record(value)
+                        if rec is None or (found is not None and rec["key"] != found["key"]):
+                            ok = False
+                            break
+                        found = rec
+                    if not ok or found is None:
+                        bad.add(name)
+                        records.pop(name, None)
+                    else:
+                        records[name] = found
+        finally:
+            (
+                self.bindings,
+                self.type_aliases,
+                self.constants,
+                self.declared,
+                self.typevars,
+                self.classes,
+                self.class_aliases,
+                self.known_classes,
+                self.pkg_funcs,
+                self.synthetics,
+            ) = (
+                saved[0],
+                saved[1],
+                saved[2],
+                saved[3],
+                saved[4],
+                saved[5],
+                saved[6],
+                saved[7],
+                saved[8],
+                saved[9],
+            )
+        for name, rec in records.items():
+            if name in bad:
+                continue
+            self.global_aliases[name] = rec
+            if rec["kind"] == "binding":
+                want = rec["binding"]
+                self.bindings[name] = Binding(want.kind, want.module, want.attr, want.queued, want.type, want.rooted)
+                if want.kind == "pyfunc" and rec.get("item") is not None:
+                    self.pkg_funcs[name] = rec["item"]
+                self.declared.add(name)
+            elif rec["kind"] == "class":
+                self.class_aliases[name] = rec["class"]
+                self.known_classes.add(name)
+                self.declared.add(name)
+            else:
+                self.constants[name] = rec["const"]
+                self.declared.add(name)
+
+    def _alias_record(self, value: ast.expr | None) -> dict[str, Any] | None:
+        """The alias a `global X = <name>` store would install, else None."""
+        if not isinstance(value, ast.Name):
+            return None
+        rhs = value.id
+        found = self.bindings.get(rhs)
+        if found is not None:
+            return {
+                "kind": "binding",
+                "key": ("binding", found.kind, found.module, found.attr),
+                "binding": found,
+                "item": self.pkg_funcs.get(rhs),
+            }
+        if rhs in self.class_aliases:
+            return {"kind": "class", "key": ("class", self.class_aliases[rhs]), "class": self.class_aliases[rhs]}
+        if rhs in self.constants:
+            return {"kind": "const", "key": ("const", id(self.constants[rhs])), "const": self.constants[rhs]}
+        return None
 
 
 def lower_source(

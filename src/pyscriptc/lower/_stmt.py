@@ -270,7 +270,7 @@ class StmtMixin(StmtAMixin, StmtBMixin):
         if isinstance(stmt, ast.Global):
             for name in stmt.names:
                 slot = self.global_slots.get(name)
-                if slot is None or not slot.get("active"):
+                if (slot is None or not slot.get("active")) and name not in self.global_aliases:
                     self.fail(stmt, "PS2002", f"global {name} is not a module slot")
             return [_pass_stmt(span)]
         if isinstance(stmt, ast.Assign):
