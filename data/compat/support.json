@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-07",
-  "commit": "0c3202f395d03c8cd3c377400c9aa82a06537076",
+  "commit": "b70cf81ee7c54f5c4dcb0eeba97fbd8b16698b84",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -840,8 +840,8 @@
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "86/132",
-      "blocking": "name-resolution (27), unlowered-type-name (22), type-mismatch (17)",
+      "ratio": "84/132",
+      "blocking": "name-resolution (27), unlowered-type-name (19), type-mismatch (18)",
       "codes": "PS2002, PS1106, PS1003"
     },
     {
