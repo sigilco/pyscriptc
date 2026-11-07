@@ -55,6 +55,7 @@ from pyscriptc.lower._core import (
     _show,
     module_needs_slot,
 )
+from pyscriptc.lower._misc_emit import _one_identity_note
 from pyscriptc.lower._stdlib_bind import StdlibBindMixin
 from pyscriptc.restlower import alias_name, rest_call
 from pyscriptc.stdlib_queue import (
@@ -1105,6 +1106,14 @@ class StdlibDispatchMixin(StdlibBindMixin):
                         self._expect(stmt, folded["type"], typ, stmt.target.id)
                         self._store_constant(stmt.target.id, folded, stmt)
                         return
+                if isinstance(stmt.value, ast.Name) and (const := self._module_const_container(stmt.value)) is not None:
+                    name, typ2 = const
+                    self.fail(
+                        stmt,
+                        "PS2002",
+                        f"{stmt.target.id} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                        f"is not representable — {_one_identity_note(name, typ2)}",
+                    )
                 value = self._module_fold(stmt.value)
                 if value is None:
                     # An optional target keeps its raw constant: each read
@@ -1145,6 +1154,19 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 if tv_call is not None:
                     self._declare_typevar(target, tv_call, stmt)
                     return
+                if isinstance(stmt.value, ast.Name) and (const := self._module_const_container(stmt.value)) is not None:
+                    # `ys = xs` freezes a copy of the constant's literal at
+                    # bind time: CPython would alias the one container, and a
+                    # copy-on-alias is not representable (issue #525). In a
+                    # script the fence retracts and the statement re-fences
+                    # from the entry; in a definition-only module it stays.
+                    name, typ = const
+                    self.fail(
+                        stmt,
+                        "PS2002",
+                        f"{target} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                        f"is not representable — {_one_identity_note(name, typ)}",
+                    )
                 if (
                     not self._deferring
                     and self._script_line is None
@@ -1220,6 +1242,17 @@ class StdlibDispatchMixin(StdlibBindMixin):
             if isinstance(stmt, ast.Assign) and len(stmt.targets) > 1:
                 names = [target.id for target in stmt.targets if isinstance(target, ast.Name)]
                 if len(names) == len(stmt.targets):
+                    if (
+                        isinstance(stmt.value, ast.Name)
+                        and (const := self._module_const_container(stmt.value)) is not None
+                    ):
+                        name, typ = const
+                        self.fail(
+                            stmt,
+                            "PS2002",
+                            f"{names[0]} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                            f"is not representable — {_one_identity_note(name, typ)}",
+                        )
                     value = self._module_fold(stmt.value)
                     if value is None:
                         value = self._expr(stmt.value)
@@ -1238,6 +1271,14 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 names = [elt.id for elt in elts if isinstance(elt, ast.Name)]
                 if len(stmt.value.elts) == len(elts) and len(names) == len(elts):
                     for name, part in zip(names, stmt.value.elts, strict=True):
+                        if isinstance(part, ast.Name) and (const := self._module_const_container(part)) is not None:
+                            cname, ctyp = const
+                            self.fail(
+                                stmt,
+                                "PS2002",
+                                f"{name} = {cname} copies the module-scope constant {cname}: a copy-on-alias "
+                                f"is not representable — {_one_identity_note(cname, ctyp)}",
+                            )
                         value = self._module_fold(part)
                         if value is None:
                             value = self._expr(part)
