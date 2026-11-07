@@ -27,6 +27,7 @@ and as the escape hatch for the two builtins divergences.
 
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import shlex
@@ -217,6 +218,102 @@ def _patched_typeshed(dest: Path) -> Path:
     return dest
 
 
+# The patched tree is identical for every compile, so it is built once per
+# content digest under the user cache dir instead of being copied into a
+# fresh tempdir each time (about 160 ms per compile). The staging dir is
+# renamed into place, so concurrent compiles never see a partial tree.
+# `PYSC_NO_TYPESHED_CACHE=1` bypasses the cache (the patched copy then
+# lives next to the checker config, as before).
+_TYPESHED_COMPLETE = ".pysc-complete"
+
+_TYPESHED_PATCH_KEY_PARTS = (
+    "v1",
+    _BUILTINS_FROZENSET,
+    "class frozenset(set[_T_co]):",
+    "-> list[int]:",
+)
+
+
+def _typeshed_cache_enabled() -> bool:
+    return os.environ.get("PYSC_NO_TYPESHED_CACHE", "") not in ("1", "true", "yes")
+
+
+def _typeshed_cache_root() -> Path:
+    override = os.environ.get("PYSC_TYPESHED_CACHE_DIR")
+    if override:
+        return Path(override)
+    return Path.home() / ".cache" / "pyscriptc" / "typeshed"
+
+
+def _typeshed_digest() -> str:
+    """Content hash of the vendored tree plus the builtins patch literals."""
+    digest = hashlib.sha256()
+    for part in _TYPESHED_PATCH_KEY_PARTS:
+        digest.update(part.encode())
+        digest.update(b"\0")
+    for path in sorted(_VENDORED_TYPESHED.rglob("*")):
+        if not path.is_file():
+            continue
+        digest.update(str(path.relative_to(_VENDORED_TYPESHED)).encode())
+        digest.update(b"\0")
+        digest.update(path.read_bytes())
+        digest.update(b"\0")
+    return digest.hexdigest()[:32]
+
+
+def _typeshed_entry_valid(root: Path) -> bool:
+    """True for a complete, still-patched cache entry."""
+    builtins = root / "stdlib" / "builtins.pyi"
+    if not (root / _TYPESHED_COMPLETE).is_file() or not builtins.is_file():
+        return False
+    try:
+        text = builtins.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return "class frozenset(set[_T_co]):" in text and "-> list[int]:" in text
+
+
+def _patched_typeshed_cached(fallback: Path) -> Path:
+    """The patched typeshed, content-addressed under the user cache dir.
+
+    On a hit the entry path is handed to pyrefly directly; nothing is
+    copied. On a miss the tree is built in a staging dir and renamed into
+    place. An entry without its completion marker, or one whose
+    `builtins.pyi` lost the patch, is treated as corrupt and rebuilt.
+    Anything unusable (cache off, read-only home, a lost rename race)
+    falls back to a private copy at `fallback`.
+    """
+    if not _typeshed_cache_enabled():
+        return _patched_typeshed(fallback)
+    try:
+        digest = _typeshed_digest()
+        root = _typeshed_cache_root()
+        root.mkdir(parents=True, exist_ok=True)
+    except OSError:
+        return _patched_typeshed(fallback)
+    cached = root / f"typeshed-{digest}"
+    if _typeshed_entry_valid(cached):
+        return cached
+    stage: Path | None = None
+    try:
+        stage = Path(tempfile.mkdtemp(prefix=".typeshed-", dir=root))
+        build = stage / "tree"
+        _patched_typeshed(build)
+        (build / _TYPESHED_COMPLETE).write_text(digest + "\n", "utf-8")
+        if cached.exists() and not _typeshed_entry_valid(cached):
+            shutil.rmtree(cached, ignore_errors=True)
+        os.replace(build, cached)
+        return cached
+    except OSError:
+        # A parallel compile won the rename race: its entry is valid.
+        if _typeshed_entry_valid(cached):
+            return cached
+        return _patched_typeshed(fallback)
+    finally:
+        if stage is not None:
+            shutil.rmtree(stage, ignore_errors=True)
+
+
 def _resolve_tool_argv(name: str, env_var: str, fallback: list[str]) -> list[str]:
     """argv that launches a checker binary, preferring the running interpreter's install.
 
@@ -366,7 +463,7 @@ def _run_pyrefly(
     if extra_paths is not None:
         roots = list(extra_paths) + roots
     with tempfile.TemporaryDirectory(None, "pyscriptc-pyrefly-") as tmp:
-        typeshed = _patched_typeshed(Path(tmp) / "typeshed")
+        typeshed = _patched_typeshed_cached(Path(tmp) / "typeshed")
         search = [str(_PYRIGHT_STUBS)]
         if source.is_dir():
             # A package's own dir resolves `from .x import ...`-adjacent
