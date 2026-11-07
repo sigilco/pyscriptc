@@ -14,6 +14,7 @@ import subprocess
 import sys
 import tempfile
 import time
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -1577,6 +1578,10 @@ def _manifest_stub_roots(manifests: list[FfiManifest]) -> list[Path]:
     return roots
 
 
+def _check_overlap_disabled() -> bool:
+    return os.environ.get("PYSC_NO_CHECK_OVERLAP", "") in ("1", "true", "yes")
+
+
 def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     try:
         dbg = resolve(args.debug, args.debug_dir, getattr(args, "timings", False))
@@ -1614,6 +1619,23 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     outputs: dict[str, str] = {}
     status = "ok"
     bridge = None
+    join_check: Callable[[], None] | None = None
+
+    def await_check() -> None:
+        """Join the overlapped pyrefly preflight and re-raise its verdict.
+
+        The join keeps the serial check's position in the diagnostic order: it
+        runs before the fence report, the run note and the result print, and it
+        is awaited again on the error path so a check failure outranks an
+        emit/link error exactly as the serial order does.
+        """
+        nonlocal join_check
+        if join_check is None:
+            return
+        join, join_check = join_check, None
+        join()
+        dbg.end("check", module)
+
     try:
         if getattr(args, "bridge", None) or getattr(args, "infer", False):
             from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
@@ -1751,16 +1773,34 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         state["stage"] = "check"
         if not args.skip_check:
             dbg.begin("check")
-            run_checker(
-                source_path,
-                args.checker,
-                [*_manifest_stub_roots(manifests), *checker_roots],
-                # boxed:begin
-                plane_map=fallback_map,
-                fallback=fallback,
-                # boxed:end
-            )
-            dbg.end("check", module)
+            # The pyrefly preflight needs only the source and the search roots,
+            # never the module, so on the plain `--emit bin` path it overlaps
+            # validate/emit/link and is awaited before the first diagnostic the
+            # serial order would print after it. The boxed island lane keeps
+            # the serial call (its diagnostics filter through `plane_map`), and
+            # `PYSC_NO_CHECK_OVERLAP=1` opts out entirely.
+            overlap = args.checker == "pyrefly" and args.emit == "bin" and not _check_overlap_disabled()
+            # boxed:begin
+            overlap = overlap and not fallback
+            # boxed:end
+            if overlap:
+                from pyscriptc.check import start_pyrefly
+
+                join_check = start_pyrefly(
+                    source_path,
+                    [*_manifest_stub_roots(manifests), *checker_roots],
+                )
+            else:
+                run_checker(
+                    source_path,
+                    args.checker,
+                    [*_manifest_stub_roots(manifests), *checker_roots],
+                    # boxed:begin
+                    plane_map=fallback_map,
+                    fallback=fallback,
+                    # boxed:end
+                )
+                dbg.end("check", module)
         state["stage"] = "validate"
         dbg.begin("validate")
         validate_module(module)
@@ -1777,6 +1817,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             outputs["ir"] = str(ir_path)
             log.info("emit.ir", output=str(ir_path))
         if module["fences"]:
+            await_check()
             state["fence_count"] = len(module["fences"])
             state["fence_families"] = _fence_families(module["fences"])
             state["fence_codes"] = _histogram(module["fences"], "code")
@@ -1822,12 +1863,10 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         report_path.write_text(json.dumps(report_data, indent=2) + "\n", encoding="utf-8")
         # boxed:end
         call_args = _parse_args(args.args) if args.call else None
-        if args.run and not args.call and standalone_entry(module) is None:
-            print(
-                'note: nothing to run: the file has no module-level script and no `if __name__ == "__main__":` '
-                "body, so the binary exits 0 without output. Use --call FUNC [--args '[...]'] to run a function.",
-                file=sys.stderr,
-            )
+        # The nothing-to-run note prints after the checker's join so a pending
+        # preflight failure still surfaces without it (the serial order prints
+        # the diagnostics alone).
+        nothing_to_run = args.run and not args.call and standalone_entry(module) is None
         state["stage"] = "emit"
         dbg.begin("emit_llvm")
         emit_fn = emit_llvm
@@ -2011,6 +2050,13 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             embed_mode=getattr(args, "embed_python", None),
         )
         dbg.end("link")
+        await_check()
+        if nothing_to_run:
+            print(
+                'note: nothing to run: the file has no module-level script and no `if __name__ == "__main__":` '
+                "body, so the binary exits 0 without output. Use --call FUNC [--args '[...]'] to run a function.",
+                file=sys.stderr,
+            )
         outputs["bin"] = str(binary)
         # boxed:begin
         # A bundle link writes a relocatable directory: the binary under
@@ -2072,6 +2118,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         return code
     except Exception as exc:
         status = "error"
+        # A pending preflight verdict keeps its serial-order priority: it ran
+        # before validate/emit/link, so its failure masks a later error.
+        await_check()
         state["outcome"] = _compile_outcome(exc, state["stage"])
         raise
     finally:
