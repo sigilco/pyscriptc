@@ -207,9 +207,14 @@ class AnnotationMixin:
         # boxed:begin
         # An island class annotation is its handle type (issue #628): the
         # class lives in the embedded interpreter, and an instance crossed
-        # into a compiled local is an opaque handle.
+        # into a compiled local is an opaque handle. Another module's island
+        # class annotates the same way, with the defining module in the type
+        # name so two modules' same-named classes stay distinct.
         if isinstance(node, ast.Name) and node.id in self.island_classes:
             return _type(island_class_type(node.id))
+        floor = self.island_floor_classes.get(node.id) if isinstance(node, ast.Name) else None
+        if floor is not None:
+            return _type(island_class_type(f"{floor[0]}.{floor[1]}"))
         # boxed:end
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
             return _type({"kind": "class", "name": self.class_aliases.get(node.id, node.id)})

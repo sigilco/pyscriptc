@@ -364,6 +364,12 @@ def _node_island(node: dict[str, Any]) -> dict[str, Any]:
     return island
 
 
+def _island_mod_def(expr: dict[str, Any]) -> tuple[str, str]:
+    """The (module, class name) pair of an `island_mod_def` expression."""
+    rec: dict[str, Any] = expr["island_mod_def"]
+    return str(rec["module"]), str(rec["name"])
+
+
 def _node_island_fn(node: dict[str, Any]) -> dict[str, Any]:
     """The boxed island namespace record an island fn call names."""
 

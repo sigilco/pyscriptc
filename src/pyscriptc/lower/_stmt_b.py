@@ -757,7 +757,7 @@ class StmtBMixin:
                 names = _handler_names(self, handler.type)
                 if "Exception" not in names:
                     for name in names:
-                        codes.extend(self._exception_codes(name))
+                        codes.extend(self._exception_codes(name, handler.type))
             bind = handler.name
             if bind is not None:
                 prior = self.locals.get(bind)
