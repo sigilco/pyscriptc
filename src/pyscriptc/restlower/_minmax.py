@@ -134,6 +134,30 @@ def _sum(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     elif len(node.args) != 1:
         lo.fail(node, "PS2003", "sum expects 1 or 2 argument(s)")
     arg = lo._expr(node.args[0])
+    src = arg["type"]
+    cls = lo.classes.get(src.get("name") or "", {}) if src["kind"] == "class" else {}
+    if cls.get("iterator") or cls.get("coro") == "generator":
+        # sum over an iterator or generator: drain the remaining elements
+        # through a comprehension (the eager model materializes them into
+        # a list; the cursor or frame ends spent, like list(it)).
+        pinned = _pin(lo, arg, span, "sum")
+        var = lo._temp("v").replace(".", "_")
+        arg = lo._expr(
+            _span_to(
+                node,
+                ast.GeneratorExp(
+                    elt=ast.Name(id=var, ctx=ast.Load()),
+                    generators=[
+                        ast.comprehension(
+                            target=ast.Name(id=var, ctx=ast.Store()),
+                            iter=ast.Name(id=pinned["id"], ctx=ast.Load()),
+                            ifs=[],
+                            is_async=False,
+                        )
+                    ],
+                ),
+            )
+        )
     if arg["type"]["kind"] != "list" or arg["type"]["elem"]["kind"] not in {"int", "float"}:
         lo.fail(node, "PS2003", "sum takes a list of int or float")
     kind = arg["type"]["elem"]["kind"]
