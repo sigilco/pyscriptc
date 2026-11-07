@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import sys
+from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -53,17 +54,19 @@ def canonicalize(module: dict[str, Any]) -> dict[str, Any]:
     dict is never mutated.
     """
     out: dict[str, Any] = _strip(module)
-    classes = out.get("classes")
-    if isinstance(classes, list):
-        out["classes"] = sorted(classes, key=lambda cls: cls.get("name") or "")
+    classes_list: list[dict[str, Any]] = []
+    if "classes" in out and isinstance(out["classes"], list):
+        classes_list = out["classes"]
+        out["classes"] = sorted(classes_list, key=lambda cls: cls.get("name") or "")
     for stmt in _walk_stmts(out):
         for handler in stmt.get("handlers", ()):
             if isinstance(handler, dict) and isinstance(handler.get("codes"), list):
                 handler["codes"] = sorted(handler["codes"])
-    fences = out.get("fences")
-    if isinstance(fences, list):
+    fences_list: list[dict[str, Any]] = []
+    if "fences" in out and isinstance(out["fences"], list):
+        fences_list = out["fences"]
         out["fences"] = sorted(
-            fences,
+            fences_list,
             key=lambda fence: (
                 fence.get("code") or "",
                 fence.get("message") or "",
@@ -151,7 +154,7 @@ def _strip(value: Any) -> Any:
     return copy.copy(value)
 
 
-def _walk_stmts(value: Any):
+def _walk_stmts(value: Any) -> Iterator[dict[str, Any]]:
     """Yield every dict that looks like a statement node, recursively."""
     if isinstance(value, dict):
         if isinstance(value.get("kind"), str) and "handlers" in value:

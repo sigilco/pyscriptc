@@ -317,18 +317,29 @@ class FfiManifest:
         base = self.path.parent
         units: list[Path] = []
         for source in self.sources:
-            units.extend(source.resolved(base))
+            for u in source.resolved(base):
+                units.append(u)
         return units
 
     def compile_units(self) -> list[Path]:
         """The C sources the target cc compiles, resolved against the manifest file."""
         base = self.path.parent
-        return [unit for source in self.sources if source.is_compile_unit for unit in source.resolved(base)]
+        units: list[Path] = []
+        for source in self.sources:
+            if source.is_compile_unit:
+                for u in source.resolved(base):
+                    units.append(u)
+        return units
 
     def link_units(self) -> list[Path]:
         """The prebuilt archives and objects that go straight on the link line."""
         base = self.path.parent
-        return [unit for source in self.sources if not source.is_compile_unit for unit in source.resolved(base)]
+        units: list[Path] = []
+        for source in self.sources:
+            if not source.is_compile_unit:
+                for u in source.resolved(base):
+                    units.append(u)
+        return units
 
     def link_flags(self) -> list[str]:
         """The `-L` and `-l` arguments this manifest adds, in that order.
@@ -351,8 +362,9 @@ def parse_manifest_text(text: str, *, path: Path | None = None, ps_abi: int = CU
     `ps_abi` is the epoch the running compiler stamps; a manifest pinning a
     different epoch is refused.
     """
+    data: dict[str, Any] = {}
     try:
-        data: dict[str, Any] = tomllib.loads(text)
+        data = tomllib.loads(text)
     except tomllib.TOMLDecodeError as exc:
         raise FfiManifestError("PS4001", f"the manifest is not valid TOML: {exc}", path, "") from exc
     return _build(data, path=path, ps_abi=ps_abi)
@@ -391,12 +403,14 @@ def load_manifests(paths: list[Path | str], *, ps_abi: int = CURRENT_PS_ABI) -> 
 
 def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManifest:
     where = "[manifest]"
-    header_obj: Any = data.get("manifest")
-    if header_obj is None:
+    if "manifest" not in data:
         raise FfiManifestError("PS4002", "the manifest has no [manifest] section", path, "")
-    if not isinstance(header_obj, dict):
+    header_val: dict[str, Any] = {}
+    if isinstance(data["manifest"], dict):
+        header_val = data["manifest"]
+    else:
         raise FfiManifestError("PS4002", "[manifest] is not a table", path, where)
-    header: dict[str, Any] = header_obj
+    header = header_val
     module = _require_str(header, "module", path=path, where=where)
     if not _MODULE.match(module):
         raise FfiManifestError("PS4002", f"the module name {module!r} is not a dotted identifier", path, where)
@@ -490,8 +504,10 @@ def _build_sources(data: dict[str, Any], *, path: Path | None) -> tuple[Manifest
     if not isinstance(entries, list):
         raise FfiManifestError("PS4005", "[[source]] is not an array of tables", path, "[[source]]")
     sources: list[ManifestSource] = []
-    for index, entry in enumerate(entries):
+    index: int = 0
+    for entry in entries:
         where = f"[[source]] #{index + 1}"
+        index += 1
         if not isinstance(entry, dict):
             raise FfiManifestError("PS4005", "a source entry is not a table", path, where)
         _reject_unknown_keys(entry, _SOURCE_KEYS, path=path, where=where)
@@ -526,8 +542,10 @@ def _build_handles(data: dict[str, Any], *, path: Path | None) -> tuple[Manifest
         raise FfiManifestError("PS4005", "[[handle]] is not an array of tables", path, "[[handle]]")
     handles: list[ManifestHandle] = []
     seen: set[str] = set()
-    for index, entry in enumerate(entries):
+    index: int = 0
+    for entry in entries:
         where = f"[[handle]] #{index + 1}"
+        index += 1
         if not isinstance(entry, dict):
             raise FfiManifestError("PS4005", "a handle entry is not a table", path, where)
         _reject_unknown_keys(entry, _HANDLE_KEYS, path=path, where=where)
@@ -563,8 +581,10 @@ def _build_consts(data: dict[str, Any], *, path: Path | None) -> tuple[ManifestC
         raise FfiManifestError("PS4005", "[[const]] is not an array of tables", path, "[[const]]")
     consts: list[ManifestConst] = []
     seen: set[str] = set()
-    for index, entry in enumerate(entries):
+    index: int = 0
+    for entry in entries:
         where = f"[[const]] #{index + 1}"
+        index += 1
         if not isinstance(entry, dict):
             raise FfiManifestError("PS4005", "a const entry is not a table", path, where)
         _reject_unknown_keys(entry, _CONST_KEYS, path=path, where=where)
@@ -611,8 +631,10 @@ def _build_functions(
         raise FfiManifestError("PS4005", "[[fn]] is not an array of tables", path, "[[fn]]")
     functions: list[ManifestFunction] = []
     seen: set[str] = set()
-    for index, entry in enumerate(entries):
+    index: int = 0
+    for entry in entries:
         where = f"[[fn]] #{index + 1}"
+        index += 1
         if not isinstance(entry, dict):
             raise FfiManifestError("PS4005", "a fn entry is not a table", path, where)
         _reject_unknown_keys(entry, _FN_KEYS, path=path, where=where)
@@ -1085,36 +1107,42 @@ def _reject_unknown_keys(table: dict[str, Any], allowed: set[str], *, path: Path
 def _require_str(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> str:
     if key not in table:
         raise FfiManifestError("PS4005", f"the key {key!r} is required", path, where)
-    value: Any = table[key]
-    if not isinstance(value, str) or not value:
+    if not isinstance(table[key], str) or not table[key]:
         raise FfiManifestError("PS4005", f"the key {key!r} must be a non-empty string", path, where)
+    value: str = table[key]
     return value
 
 
 def _optional_str(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> str:
     if key not in table:
         return ""
-    value: Any = table[key]
-    if not isinstance(value, str) or not value:
+    if not isinstance(table[key], str) or not table[key]:
         raise FfiManifestError("PS4005", f"the key {key!r} must be a non-empty string", path, where)
+    value: str = table[key]
     return value
 
 
 def _optional_str_list(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> tuple[str, ...]:
     if key not in table:
         return ()
-    value: Any = table[key]
-    if not isinstance(value, list) or not all(isinstance(item, str) and item for item in value):
+    raw = table[key]
+    if not isinstance(raw, list):
         raise FfiManifestError("PS4005", f"the key {key!r} must be a list of strings", path, where)
-    return tuple(value)
+    value_list: list[str] = []
+    for item in raw:
+        if not isinstance(item, str) or not item:
+            raise FfiManifestError("PS4005", f"the key {key!r} must be a list of strings", path, where)
+        val_str: str = item
+        value_list.append(val_str)
+    return tuple(value_list)
 
 
 def _require_int(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> int:
     if key not in table:
         raise FfiManifestError("PS4005", f"the key {key!r} is required", path, where)
-    value: Any = table[key]
-    if not isinstance(value, int) or isinstance(value, bool):
+    if not isinstance(table[key], int) or isinstance(table[key], bool):
         raise FfiManifestError("PS4005", f"the key {key!r} must be an integer", path, where)
+    value: int = table[key]
     return value
 
 
@@ -1122,9 +1150,9 @@ def _require_pin_int(table: dict[str, Any], key: str, *, code: str, path: Path |
     """Read a version pin. A missing or malformed pin gets the pin's own code."""
     if key not in table:
         raise FfiManifestError(code, f"the pin {key!r} is required", path, where)
-    value: Any = table[key]
-    if not isinstance(value, int) or isinstance(value, bool):
+    if not isinstance(table[key], int) or isinstance(table[key], bool):
         raise FfiManifestError(code, f"the pin {key!r} must be an integer", path, where)
+    value: int = table[key]
     return value
 
 

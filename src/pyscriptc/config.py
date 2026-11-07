@@ -255,10 +255,6 @@ class Config:
                 if tier == "cpython":
                     enabled = True
             return enabled
-        if isinstance(self.fallback, str):
-            return self.fallback == "definitions" or self.fallback == "cpython"
-        if isinstance(self.fallback, bool):
-            return self.fallback
         return False
 
     def island_embed(self) -> str | None:
@@ -319,7 +315,10 @@ class Config:
             if lane == "island" and name != "*":
                 names.add(name)
                 names.add(name.replace("-", "_"))
-        out: list[str] = sorted(names)
+        names_list: list[str] = []
+        for n in names:
+            names_list.append(n)
+        out: list[str] = sorted(names_list)
         return out
 
     def wildcard_island(self) -> bool:
@@ -470,9 +469,9 @@ def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
         for name, lane in imports.items():
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*|\*", name):
                 raise ConfigError(f"{_where(table, 'imports')}: invalid module name {name!r}")
-            lane_str: str = lane
-            if not isinstance(lane, str) or lane_str not in LANES:
+            if not isinstance(lane, str) or lane not in LANES:
                 lane_want = "|".join(LANES)
+                lane_str = str(lane)
                 raise ConfigError(f"{_where(table, 'imports')}.{name} must be one of {lane_want}, got {lane_str!r}")
     return data
 
@@ -615,7 +614,10 @@ def load_config(source: Path) -> Config:
                 meta_project = _from_table(meta_table, start, "pep723")
     if project is None and not meta:
         return Config(origin=None, source="default")
-    requires, deps = _deps_of(meta) if meta else (None, ())
+    requires: str | None = None
+    deps: tuple[str, ...] = ()
+    if meta:
+        requires, deps = _deps_of(meta)
     if project is None and meta_project is not None:
         return Config(
             origin=meta_project.origin,
@@ -635,8 +637,12 @@ def load_config(source: Path) -> Config:
     if project is None:
         return Config(origin=start, source=meta_source, requires_python=requires, dependencies=deps)
     if meta:
-        merged_imports = dict(meta_project.imports if meta_project else {})
-        merged_imports.update(project.imports)
+        merged_imports: dict[str, str] = {}
+        if meta_project is not None:
+            for k, v in meta_project.imports.items():
+                merged_imports[k] = v
+        for k, v in project.imports.items():
+            merged_imports[k] = v
         return Config(
             origin=project.origin,
             source=project.source,

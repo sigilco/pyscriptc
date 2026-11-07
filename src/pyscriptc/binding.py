@@ -165,11 +165,11 @@ def analyze_binding(
         for param in _items(fn, "params"):
             ptyp = _opt_record(param, "type")
             pkind = _kind_or_none(ptyp) if ptyp is not None else None
-            if pkind not in _SUPPORTED_PARAM_KINDS:
+            if pkind is None or pkind not in _SUPPORTED_PARAM_KINDS:
                 empty_ptyp: dict[str, Any] = {}
                 rendered = _render_type(ptyp if ptyp is not None else empty_ptyp)
                 pname = _opt_str(param, "name")
-                if pkind in ("str", "bytes"):
+                if pkind == "str" or pkind == "bytes":
                     reasons.append(
                         f"parameter {pname!r} has unsupported type '{rendered}' "
                         "(str/bytes C ABI not stabilized for bindings)"
@@ -179,10 +179,10 @@ def analyze_binding(
 
         rtyp = _opt_record(fn, "returnType")
         rkind = _kind_or_none(rtyp) if rtyp is not None else None
-        if rkind not in _SUPPORTED_RETURN_KINDS:
+        if rkind is None or rkind not in _SUPPORTED_RETURN_KINDS:
             empty_rtyp: dict[str, Any] = {}
             rendered = _render_type(rtyp if rtyp is not None else empty_rtyp)
-            if rkind in ("str", "bytes"):
+            if rkind == "str" or rkind == "bytes":
                 reasons.append(
                     f"return type has unsupported type '{rendered}' (str/bytes C ABI not stabilized for bindings)"
                 )
@@ -195,7 +195,8 @@ def analyze_binding(
             emitted.append(fn)
 
     for cls in _items(module, "classes"):
-        if _opt_str_or_none(cls, "name") in ("BytesIO", "TextIO"):
+        cls_name = _opt_str_or_none(cls, "name")
+        if cls_name == "BytesIO" or cls_name == "TextIO":
             continue
         skipped.append((_node_name(cls), "classes are not exported in the first-cut ctypes binding"))
 
@@ -436,18 +437,19 @@ def render_binding_module(
         name = _node_name(fn)
         target_symbol = _fn_symbol(name)
         params = _items(fn, "params")
-        ret_type = _opt_record(fn, "returnType")
-        if ret_type is None:
-            ret_type: dict[str, Any] = {}
+        ret_type: dict[str, Any] | None = _opt_record(fn, "returnType")
+        resolved_ret_type: dict[str, Any] = ret_type if ret_type is not None else {}
         argtypes = [_CTYPES_TYPE_MAP[_kind(_type_of(p))] for p in params]
-        ret_kind = _kind_or_none(ret_type)
+        ret_kind = _kind_or_none(resolved_ret_type)
         kind_key: str = "none"
         if ret_kind is not None:
             kind_key = ret_kind
         restype: str = _CTYPES_TYPE_MAP[kind_key]
         # The guarded wrapper takes the resolved function pointer first, so
         # its ctypes shape is the logical one with a leading c_void_p.
-        bind_argtypes: list[str] = ["ctypes.c_void_p", *argtypes]
+        bind_argtypes: list[str] = ["ctypes.c_void_p"]
+        for a in argtypes:
+            bind_argtypes.append(a)
 
         sig_parts: list[str] = []
         call_parts: list[str] = []

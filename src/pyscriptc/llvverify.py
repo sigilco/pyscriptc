@@ -59,7 +59,10 @@ def _opt_command(ll_path: Path, opt: str) -> list[str]:
 def _driver_command(ll_path: Path, driver: str, target: str | None) -> list[str]:
     """The driver's own module check: `clang -c` on a `.ll` verifies the module."""
     cc = "zig cc" if driver == "zig" else driver
-    argv: list[str] = [*cc.split(), "-c"]
+    argv: list[str] = []
+    for part in cc.split():
+        argv.append(part)
+    argv.append("-c")
     if driver != "zig":
         # clang needs `-x ir` to read a `.ll` as IR. zig rejects the flag
         # ("language not recognized: ir") and reads the file as IR by its
@@ -90,13 +93,14 @@ def verify_module_text(
     else:
         argv = _driver_command(ll_path, driver, target)
         tool = f"{driver} module verifier"
+    message: str = ""
     try:
         proc = subprocess.run(argv, capture_output=True, text=True, timeout=120)
+        if proc.returncode == 0:
+            return VerifyResult(tool=tool, ok=True, message="")
+        message = (proc.stderr or proc.stdout).strip()
     except (OSError, subprocess.SubprocessError) as exc:
         return VerifyResult(tool=tool, ok=False, message=f"could not run {tool}: {exc}", skipped=True)
-    if proc.returncode == 0:
-        return VerifyResult(tool=tool, ok=True, message="")
-    message = (proc.stderr or proc.stdout).strip()
     return VerifyResult(tool=tool, ok=False, message=message)
 
 
