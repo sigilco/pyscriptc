@@ -595,11 +595,7 @@ class TypeInferMixin:
         """
         if self.bridge is None:
             return False
-        returns = [
-            stmt.value
-            for stmt in ast.walk(fn)
-            if isinstance(stmt, ast.Return) and stmt.value is not None
-        ]
+        returns = [stmt.value for stmt in ast.walk(fn) if isinstance(stmt, ast.Return) and stmt.value is not None]
         if not returns:
             # A def with no value return returns None; the checker must
             # have proved None too.
