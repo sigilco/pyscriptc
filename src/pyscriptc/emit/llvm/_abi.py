@@ -17,6 +17,7 @@ from pyscriptc.emit._ir import (
     _flag_of,
     _fn_symbol,
     _island_key,
+    _island_mod_def,
     _island_text,
     _island_want,
     _key_of,
@@ -480,7 +481,7 @@ class AbiMixin(EmitterBase):
         the single-namespace seam. The seed order guarantees the defining
         module's namespace exists by the time the consumer's init reads it.
         """
-        mod, name = expr["island_mod_def"]["module"], expr["island_mod_def"]["name"]
+        mod, name = _island_mod_def(expr)
         mod_data = mod.encode("utf-8")
         name_data = name.encode("utf-8")
         mod_sym = self.format_global(f"island.mod.{mod}", mod_data)
