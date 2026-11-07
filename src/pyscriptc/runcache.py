@@ -75,8 +75,10 @@ def compiler_digest() -> str:
     global _MEM_STAMP, _MEM_DIGEST
     root: Path = Path(pyscriptc.__file__).parent
     stamp = _compiler_stamp(root)
-    if _MEM_STAMP == stamp and _MEM_DIGEST is not None:
-        return _MEM_DIGEST
+    if _MEM_STAMP == stamp:
+        cached: str | None = _MEM_DIGEST
+        if cached is not None:
+            return cached
 
     stamp_path = cache_root() / "compiler_digest.json"
     if stamp_path.is_file():

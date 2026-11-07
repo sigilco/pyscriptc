@@ -39,7 +39,7 @@ def _spec(t: T) -> str | None:
     if kind == "dict":
         if t.key is None or t.value is None:
             return None
-        key = t.key.kind
+        key: str = t.key.kind
         if key not in ("int", "str"):
             return None
         inner = _spec(t.value)

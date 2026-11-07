@@ -99,7 +99,7 @@ def script_file(pyproject: Path, module: str) -> Path:
 
     base = pyproject.parent
     for root in config.project_roots(pyproject):
-        candidate: Path = base / root / Path("/".join(module.split("."))).with_suffix(".py")
+        candidate: Path = base / root / Path("/".join(module.split(".")) + ".py")
         if candidate.is_file():
             return candidate
         package: Path = base / root / Path("/".join(module.split("."))) / "__init__.py"

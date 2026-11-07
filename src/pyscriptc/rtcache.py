@@ -79,7 +79,7 @@ def _read_ccid(path: Path, resolved: str, stamp: os.stat_result) -> str | None:
 
 def _write_ccid(path: Path, resolved: str, stamp: os.stat_result, identity: str) -> None:
     """Persist the probe result atomically; a read-only cache dir just skips it."""
-    body = f"{resolved}\n{stamp.st_mtime_ns}\n{stamp.st_size}\n---\n{identity}"
+    body: str = f"{resolved}\n{stamp.st_mtime_ns}\n{stamp.st_size}\n---\n{identity}"
     tmp: str | None = None
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
