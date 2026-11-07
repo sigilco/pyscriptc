@@ -128,12 +128,13 @@ _OP_ARITY: dict[int, int] = {
     51: 1,  # MIR_RAISEEXC
     52: 0,  # MIR_UNREACH
     53: 1,  # MIR_INITCALL
+    57: 2,  # MIR_RAISEMSG
 }
 
 # The try callsite terminators, spelled as int literals for the same
 # reason as the arity table: they extend the four terminator walks
 # below without new imports.
-_EXTRA_TERMINATORS = [50, 51, 52]
+_EXTRA_TERMINATORS = [50, 51, 52, 57]
 
 # The arity-0 value ops: they read no operand slot (their payload rides
 # the helpers entry or `arg2`), so the generic value-op rule would skip

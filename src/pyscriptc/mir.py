@@ -215,6 +215,7 @@ MIR_INITCALL = 53
 MIR_MAP_GET = 54
 MIR_MAP_HAS = 55
 MIR_MAP_LEN = 56
+MIR_RAISEMSG = 57
 # The op arity table. `MIR_NOP` through `MIR_COPY`: the branch reads its
 # condition from `arg1`, and its two successors carry the block arguments
 # (see `MirBlock`). Every value op reads `arg1`/`arg2` per this table;
@@ -277,6 +278,7 @@ OP_ARITY = {
     MIR_MAP_GET: 2,
     MIR_MAP_HAS: 2,
     MIR_MAP_LEN: 1,
+    MIR_RAISEMSG: 2,
 }
 
 # The result type of each value op, in the constant-pool tag space.
@@ -340,6 +342,7 @@ OP_RESULT_TYPE = {
     MIR_MAP_GET: MIR_W,  # a mapget's true tag rides arg3; the tables cannot know it
     MIR_MAP_HAS: MIR_B,
     MIR_MAP_LEN: MIR_W,
+    MIR_RAISEMSG: MIR_W,
 }
 
 # The true result type of a `MIR_COPY`: the tag packed into `arg2`.
@@ -366,7 +369,7 @@ def copy_result_type(fn: MirFunction, i: int) -> int:
 
 # The ops that end a block. A list, not a set: `in` lowers for lists and
 # the table is five entries, so the membership walk costs nothing.
-TERMINATORS = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE, MIR_RERAISE, MIR_RAISEEXC, MIR_UNREACH]
+TERMINATORS = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE, MIR_RERAISE, MIR_RAISEEXC, MIR_UNREACH, MIR_RAISEMSG]
 
 # The ops that produce a value a later instruction can reference.
 VALUE_OPS = [
@@ -893,6 +896,19 @@ class MirBuilder:
         if current is None or self.terminated:
             raise MirError("raise outside an open block")
         self.emit(MIR_RAISE, -1, code, none_ref())
+        self.terminated = 1
+
+    def emit_raisemsg(self, code: int, message: int) -> None:
+        """Raise the exception `code` with a str `message`
+        (`ps_raise_msg`); ends the block.
+
+        `code` is a constant-pool operand like `emit_raise`'s; `message`
+        is the `%ps.str` value operand (a const ref or a value id).
+        """
+        current: MirBlock | None = self.current
+        if current is None or self.terminated:
+            raise MirError("raisemsg outside an open block")
+        self.emit(MIR_RAISEMSG, -1, code, message)
         self.terminated = 1
 
     def emit_reraise(self) -> None:

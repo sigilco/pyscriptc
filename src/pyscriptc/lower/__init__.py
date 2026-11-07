@@ -224,6 +224,10 @@ class Lowerer(
         self.comp_init: dict[str, Any] | None = None
         self.comp_expect: dict[str, Any] | None = None
         self.comp_ready = False
+        # `all`/`any` over a comprehension fuses the loop into a bool
+        # accumulator instead of materializing the element list: the pair
+        # is (result name, want_all). None means the comp builds its list.
+        self.comp_pred: tuple[str, bool] | None = None
         # The inference peek (issue #500): while True, `_expr` is running
         # speculatively to learn a value's type; the emitted IR and the
         # temp counter are discarded, and any fence becomes the inference
@@ -707,6 +711,20 @@ class Lowerer(
                     )
                     else_exits = bool(stmt.orelse) and _ast_exits(stmt.orelse)
                     proven = when_false if then_exits and not else_exits else when_true if else_exits else set()
+                    rest = statements[index + 1 :]
+                    for name in proven:
+                        if not any(
+                            isinstance(inner, ast.Name)
+                            and inner.id == name
+                            and isinstance(inner.ctx, (ast.Store, ast.Del))
+                            for item in rest
+                            for inner in ast.walk(item)
+                        ):
+                            self.opt_unwrap[name] = self.locals[name]
+                elif isinstance(stmt, ast.Assert):
+                    # `assert x is not None` proves x set for the rest of
+                    # this body, the same rule the if-exit arm applies.
+                    proven, _ = self._narrow_names(stmt.test)
                     rest = statements[index + 1 :]
                     for name in proven:
                         if not any(

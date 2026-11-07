@@ -261,6 +261,12 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             dropped = self._rebind_handle(stmt.target.id, typ, stmt.value, span)
             self._note_frozen(stmt.target.id, stmt.value)
             return [*dropped, _assign(stmt.target.id, value, span)]
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Attribute):
+            # `self.f: T = v` declares the field and stores like an
+            # assignment; a bare `self.f: T` is annotation-only, no store.
+            if stmt.value is None:
+                return [_pass_stmt(span)]
+            return [self._setattr_target(stmt.target, stmt.value, stmt, span)]
         if isinstance(stmt, ast.Global):
             for name in stmt.names:
                 slot = self.global_slots.get(name)

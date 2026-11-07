@@ -128,6 +128,7 @@ MIR_INITCALL = 53
 MIR_MAP_GET = 54
 MIR_MAP_HAS = 55
 MIR_MAP_LEN = 56
+MIR_RAISEMSG = 57
 
 # The void result tag (`mir.py`'s MIR_VOID): a function returning None has
 # no return value. Spelled as the int literal per the self-host spell, so a
@@ -869,6 +870,26 @@ def _rt_call_shape(cmodule: str, mname: str, expr: Dict[str, Any]) -> bool:
                 and supported_expr(first)
                 and supported_expr(second)
             )
+    if cmodule == "builtins" and mname == "global_get":
+        # A module-global read: the key is a str const and the result
+        # rides the pointer (`ps_global_get_ptr`) or i64
+        # (`ps_global_get_i64`) ABI shapes the `rt:` call already spells.
+        # The str/path forms return through a buffer out-param, outside
+        # the slice.
+        if symbol != "ps_global_get_ptr" and symbol != "ps_global_get_i64":
+            return False
+        if len(args) != 1:
+            return False
+        rkind: str = _type_kind(expr["type"])
+        if symbol == "ps_global_get_i64":
+            if rkind != "int":
+                return False
+        elif rkind in ("int", "float", "bool", "str", "none"):
+            return False
+        if not supported_type(expr["type"]):
+            return False
+        key_arg: Dict[str, Any] = args[0]
+        return _type_kind(key_arg["type"]) == "str" and supported_expr(key_arg)
     return False
 
 
@@ -909,6 +930,8 @@ def _rt_call_symbol(cmodule: str, mname: str, expr: Dict[str, Any]) -> str:
     if cmodule == "builtins" and mname == "int":
         return symbol
     if cmodule == "builtins" and mname == "dict.keys":
+        return symbol
+    if cmodule == "builtins" and mname == "global_get":
         return symbol
     return ""
 
@@ -1175,19 +1198,29 @@ def supported_stmt(stmt: Dict[str, Any]) -> bool:
                 return False
         return True
     if kind == "raise":
-        # The one raise the slice covers: `range`'s zero-step check, a
-        # `ValueError` with no message. It raises the exception code
-        # (`ps_raise_code`) and ends its block, the way the direct path's
-        # `emit_raise` does. The absence reads spell "not present" (`_nd_key`
-        # drops a None message/cause and a non-raising reraise), spelled as
-        # membership tests to keep `Any` out of the locals.
+        # The raises the slice covers: `range`'s zero-step check and the
+        # optional-cell guards (`AssertionError` bare, `AttributeError`
+        # with a str const message — the `_opt_payload` shape). Each ends
+        # its block through `ps_raise_code`/`ps_raise_msg`, the way the
+        # direct path's `emit_raise` does. The absence reads spell "not
+        # present" (`_nd_key` drops a None message/cause and a
+        # non-raising reraise), spelled as membership tests to keep `Any`
+        # out of the locals.
         exc: str = stmt["exc"]
-        if exc != "ValueError":
+        if exc != "ValueError" and exc != "AssertionError" and exc != "AttributeError":
             return False
+        raw_message: Dict[str, Any] | None = None
         if "message" in stmt:
-            message: Dict[str, Any] | None = stmt["message"]
-            if message is not None:
+            raw_message = stmt["message"]
+        if raw_message is not None:
+            if exc != "AttributeError":
                 return False
+            mnode: str = raw_message["kind"]
+            mtyp: Dict[str, Any] = raw_message["type"]
+            if mnode != "const" or _type_kind(mtyp) != "str":
+                return False
+        elif exc == "AttributeError":
+            return False
         if "cause" in stmt:
             cause: Dict[str, Any] | None = stmt["cause"]
             if cause is not None:
@@ -1881,10 +1914,21 @@ class _FnLowerer:
             self.emit_while(stmt)
             return
         if kind == "raise":
-            # `range`'s zero-step check: a `ValueError` with no message,
-            # which the direct path raises as `ps_raise_code`.
-            code = self.builder.const_w(EXC_VALUE_ERROR)
-            self.builder.emit_raise(code)
+            # `range`'s zero-step check and the optional-cell guards: a
+            # bare `ps_raise_code` for ValueError/AssertionError, and
+            # `ps_raise_msg` for AttributeError's str const message, the
+            # direct path's `emit_raise` arms.
+            exc_name: str = stmt["exc"]
+            exc_code: int = _MIR_EXC[exc_name]
+            code = self.builder.const_w(exc_code)
+            raw_message: Dict[str, Any] | None = None
+            if "message" in stmt:
+                raw_message = stmt["message"]
+            if raw_message is None:
+                self.builder.emit_raise(code)
+            else:
+                message = self.emit_expr(raw_message)
+                self.builder.emit_raisemsg(code, message)
             return
         if kind == "try":
             self.emit_try(stmt)

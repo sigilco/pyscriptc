@@ -30,6 +30,7 @@ from pyscriptc.lower._core import (
     _const_int,  # noqa: F401  # moved-verbatim import
     _const_none,  # noqa: F401  # moved-verbatim import
     _const_str,  # noqa: F401  # moved-verbatim import
+    _dotted,  # noqa: F401  # moved-verbatim import
     _has_typevar,  # noqa: F401  # moved-verbatim import
     _is_none_expr,  # noqa: F401  # moved-verbatim import
     _item,  # noqa: F401  # moved-verbatim import
@@ -614,7 +615,7 @@ class StmtAMixin:
         star = -1
         for index, elt in enumerate(elts):
             inner = elt.value if isinstance(elt, ast.Starred) else elt
-            if not isinstance(inner, (ast.Name, ast.Tuple, ast.List)):
+            if not isinstance(inner, (ast.Name, ast.Tuple, ast.List, ast.Subscript, ast.Attribute)):
                 self.fail(elt, "PS2002", "unpack targets are names")
             if isinstance(elt, ast.Starred):
                 if star >= 0:
@@ -742,13 +743,66 @@ class StmtAMixin:
         return stmts
 
     def _unpack_name(self, elt: ast.expr, member: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
-        """One unpack element: a Name binds; a nested tuple/list recurses."""
+        """One unpack element: a Name binds; a nested tuple/list recurses; a
+        subscript or attribute target stores the member through the same
+        nodes a plain `t[i] = v` / `o.f = v` assignment emits."""
         if isinstance(elt, ast.Starred):
             elt = elt.value
         if isinstance(elt, ast.Name):
             return [self._store_target(elt, elt.id, member, span)]
+        if isinstance(elt, ast.Subscript):
+            return [self._unpack_setitem(elt, member, span)]
+        if isinstance(elt, ast.Attribute):
+            return [self._unpack_setattr(elt, member, span)]
         assert isinstance(elt, (ast.Tuple, ast.List))
         return self._unpack(elt, elt.elts, member, span)
+
+    def _unpack_setitem(self, target: ast.Subscript, member: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """`t[i]` as an unpack target: the `_setitem` store with the member
+        value already lowered (the RHS evaluated once, before any store)."""
+        if isinstance(target.slice, ast.Slice):
+            self.fail(target, "PS2002", "slices are not lowered")
+        container = self._expr(target.value)
+        index = self._expr(target.slice)
+        kind = _node_type_kind(container)
+        if kind == "list" and container["type"].get("set"):
+            self.fail(target, "PS2002", "a set has no item assignment")
+        if kind == "list":
+            if _node_type_kind(index) != "int":
+                self.fail(target, "PS1003", "a list index is int")
+            self._expect(target, member["type"], container["type"]["elem"], "list item")
+        elif kind == "dict":
+            self._expect(target, index["type"], container["type"]["key"], "dict key")
+            self._expect(target, member["type"], container["type"]["value"], "dict value")
+        else:
+            self.fail(target, "PS2002", "item assignment targets a list or dict")
+        return node_to_dict(
+            _ir.setitem_stmt(dict_to_node(container), dict_to_node(index), dict_to_node(member), _mk_span_of(span))
+        )
+
+    def _unpack_setattr(self, target: ast.Attribute, member: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """`o.f` as an unpack target: the `_setattr` store with the member
+        value already lowered."""
+        obj = self._expr(target.value)
+        if _node_type_kind(obj) != "class":
+            self.fail(target, "PS2001", f"attribute assignment is not lowered ({_dotted(target)})")
+        class_name = obj["type"]["name"]
+        # boxed:begin
+        if obj["type"].get("island"):
+            self.fail(
+                target,
+                "PS2001",
+                f"{class_name} is an island handle: mutate it on the island, or read the result back",
+            )
+        # boxed:end
+        info = self.classes[class_name]
+        if info.get("namedtuple"):
+            self.fail(target, "PS2002", f"{class_name}.{target.attr} is read-only on a namedtuple")
+        field = next((item for item in info["fields"] if item["name"] == target.attr), None)
+        if field is None:
+            self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
+        self._expect(target, member["type"], field["type"], target.attr)
+        return node_to_dict(_ir.setattr_stmt(dict_to_node(obj), target.attr, dict_to_node(member), _mk_span_of(span)))
 
 
 def _is_main_guard(stmt: ast.stmt) -> bool:

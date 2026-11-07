@@ -58,6 +58,7 @@ from pyscriptc.mir import (
     MIR_P,
     MIR_RAISE,
     MIR_RAISEEXC,
+    MIR_RAISEMSG,
     MIR_RERAISE,
     MIR_RET,
     MIR_RETLOD,
@@ -145,9 +146,19 @@ OP_NAMES: dict[int, str] = {
     MIR_MAP_GET: "mapget",
     MIR_MAP_HAS: "maphas",
     MIR_MAP_LEN: "maplen",
+    MIR_RAISEMSG: "raisemsg",
 }
 
-_TERMINATORS: list[int] = [MIR_JMP, MIR_BR, MIR_RET, MIR_RAISE, MIR_RERAISE, MIR_RAISEEXC, MIR_UNREACH]
+_TERMINATORS: list[int] = [
+    MIR_JMP,
+    MIR_BR,
+    MIR_RET,
+    MIR_RAISE,
+    MIR_RERAISE,
+    MIR_RAISEEXC,
+    MIR_UNREACH,
+    MIR_RAISEMSG,
+]
 
 
 def tag_name(tag: int) -> str:
@@ -227,6 +238,8 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
         return f"jmp b{a1}"
     if op == MIR_RAISE:
         return f"raise {_operand(fn, a1)}"
+    if op == MIR_RAISEMSG:
+        return f"raisemsg {_operand(fn, a1)}, {_operand(fn, a2)}"
     if op == MIR_RERAISE:
         return "reraise"
     if op == MIR_RAISEEXC:

@@ -76,11 +76,12 @@ def test_corpus_script_paths_are_visible_scripts_only() -> None:
         assert "holdout" not in path.parts
 
 
-def test_corpus_script_without_slice_skips() -> None:
-    """A corpus script with no in-slice function reports SKIP, never crashes."""
-    skips = [path for path in corpus_script_paths() if slice_counts(path)[0] == 0]
-    assert skips, "expected at least one corpus script outside the MIR slice"
-    row = compare_program(skips[0])
+def test_script_without_slice_skips(tmp_path: Path) -> None:
+    """A script with no in-slice function reports SKIP, never crashes."""
+    path = tmp_path / "noslice.py"
+    path.write_text("async def g():\n    return 1\n")
+    assert slice_counts(path)[0] == 0
+    row = compare_program(path)
     assert row.verdict == SKIP
     assert row.in_slice == 0
     assert "supported_fn" in row.note
