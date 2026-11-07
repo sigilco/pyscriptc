@@ -82,12 +82,15 @@ def plane_map(
 
     fenced: set[str] = set()
     top_import_fences = 0
+    top_fence_message = ""
     for fence in fences:
         owner = fence.get("function") or fence.get("definition")
         if owner is not None:
             fenced.add(owner)
         elif fence.get("code") in ("PS2001", "PS2002"):
             top_import_fences += 1
+            if not top_fence_message:
+                top_fence_message = str(fence.get("message") or fence.get("code") or "")
 
     if not top_level_island and top_import_fences > 0:
         top_level_island = True
@@ -120,6 +123,18 @@ def plane_map(
             island_classes.add(name)
 
     demotions: dict[str, str] = dict(demoted_by or {})
+    if top_level_island:
+        # Issue #678: an island top level demotes every definition that
+        # would otherwise lower native (there is no island-to-native call
+        # seam for the seed body). Record the cause per definition so
+        # `assess` and the plane map name the top-level fence - usually an
+        # untyped import - that collapsed the module's native share.
+        reason = (
+            f"module top level is island ({top_fence_message})" if top_fence_message else "module top level is island"
+        )
+        for name in planes:
+            if name not in fenced:
+                demotions.setdefault(name, reason)
     fn_nodes: dict[str, Any] = {}
     if tree is not None:
         fn_nodes = {
