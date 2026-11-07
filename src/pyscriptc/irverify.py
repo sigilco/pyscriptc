@@ -107,7 +107,7 @@ def _maybe_node_kind(node: dict[str, Any]) -> str | None:
     """
     if "kind" not in node:
         return None
-    kind = node["kind"]
+    kind: str = node["kind"]
     return kind if isinstance(kind, str) else None
 
 
@@ -117,7 +117,7 @@ def _list_field(record: dict[str, Any], key: str) -> list[dict[str, Any]]:
     out: list[dict[str, Any]] = []
     if key in record:
         out = record[key]
-    return out or []
+    return out
 
 
 class _Scope:

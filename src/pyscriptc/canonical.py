@@ -77,10 +77,9 @@ def canonicalize(module: dict[str, Any]) -> dict[str, Any]:
 
 def hash_module(module: dict[str, Any]) -> str:
     """SHA-256 hex of the schema-versioned canonical form of a module IR dict."""
-    canonical = {
-        "schema": CANONICAL_SCHEMA_VERSION,
-        "ir": canonicalize(module),
-    }
+    canonical: dict[str, Any] = {}
+    canonical["schema"] = CANONICAL_SCHEMA_VERSION
+    canonical["ir"] = canonicalize(module)
     # allow_nan=False on purpose: a NaN reaching IR means a compiler bug and
     # should surface here instead of silently hashing into a digest.
     payload: str = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)

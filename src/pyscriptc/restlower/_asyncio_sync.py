@@ -40,7 +40,7 @@ _BOOL = {"kind": "bool"}
 _NONE = {"kind": "none"}
 
 # The primitive constructors and the class each one lowers to.
-_PRIMS: dict[str, tuple[dict[str, Any], str]] = {
+_PRIMS: dict[str, tuple[dict[str, str], str]] = {
     "Lock": (_ASYNC_LOCK, "ps_alock_new"),
     "Event": (_ASYNC_EVENT, "ps_aevent_new"),
     "Semaphore": (_ASYNC_SEM, "ps_asem_new"),

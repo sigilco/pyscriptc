@@ -264,7 +264,7 @@ def track(event: str, properties: dict | None = None) -> None:
     """Queue one event on a daemon thread. Every failure is swallowed."""
     if not enabled() or not _notice_acknowledged():
         return
-    payload = {
+    payload: dict[str, Any] = {
         "api_key": _token(),
         "event": event,
         "distinct_id": _install_id(),
@@ -357,7 +357,7 @@ def compile_properties(
     `binary_bytes` is the size of the linked binary in bytes, or None when
     no binary was produced.
     """
-    props = dict(base_properties())
+    props = base_properties()
     props.update(
         duration_ms=duration_ms,
         outcome=outcome,
@@ -392,7 +392,7 @@ def run_properties(
     content-hash cache, the size of the linked binary and the toolchain
     flags. Never the program name, its path, its arguments or its output.
     """
-    props = dict(base_properties())
+    props = base_properties()
     props.update(
         duration_ms=duration_ms,
         exit_code=int(exit_code),
@@ -424,7 +424,7 @@ def coverage_properties(summary: dict) -> dict:
         if family.startswith("stdlib:"):
             family = "stdlib"
         families[family] = families.get(family, 0) + count
-    props = dict(base_properties())
+    props = base_properties()
     props.update(
         definitions=definitions,
         nativeDefinitions=native_definitions,

@@ -53,7 +53,7 @@ def resolve(flag: str | None, debug_dir: str | None, timings: bool = False) -> D
     value = flag if flag is not None else os.environ.get("PYSC_DEBUG")
     if flag is None and not value and debug_dir is None and not timings:
         return None
-    topics = parse_topics(value) if (flag is not None or value) else set()
+    topics: set[str] = parse_topics(value) if (flag is not None or (value is not None and value != "")) else set()
     if debug_dir is not None:
         # The dump is the point of `--debug-dir`: it carries the verification
         # verdicts, so the directory always turns the verifier on.
@@ -187,7 +187,7 @@ class Debug:
                     mir_lowered: int = mir_plan["lowered"]
                     mir_adapter: int = mir_plan["adapter"]
                     lines.append(f"[debug] mir  lowered {mir_lowered}  adapter {mir_adapter}")
-            total = (time.perf_counter() - self._t0) * 1000.0
+            total: float = (time.perf_counter() - self._t0) * 1000.0
             lines.append(f"[debug] {'total':<12}{total:>8.1f}")
         if mir_plan is not None and self.wants("mir"):
             records: list[dict[str, Any]] = mir_plan["records"]
@@ -202,7 +202,10 @@ class Debug:
             fences = _items(module, "fences")
             lines.append(f"[debug] fences: {len(fences)}")
             for fence in fences:
-                span = _opt_span(fence) or {}
+                span: dict[str, Any] = {}
+                span_opt = _opt_span(fence)
+                if span_opt is not None:
+                    span = span_opt
                 lines.append(
                     f"[debug]   {_opt_str_or_none(span, 'file')}:{span.get('line')}:{span.get('col')}"
                     f" {fence.get('code')} {fence.get('message')}"
@@ -321,13 +324,19 @@ def _module_files(module: dict[str, Any]) -> list[str]:
 
     files: set[str] = set()
     for fence in _items(module, "fences"):
-        span = _opt_span(fence) or {}
+        span: dict[str, Any] = {}
+        span_opt = _opt_span(fence)
+        if span_opt is not None:
+            span = span_opt
         path = _opt_str_or_none(span, "file")
         if path:
             files.add(str(path))
     for key in ("functions", "classes"):
         for item in _items(module, key):
-            span = _opt_span(item) or {}
+            span: dict[str, Any] = {}
+            span_opt = _opt_span(item)
+            if span_opt is not None:
+                span = span_opt
             path = _opt_str_or_none(span, "file")
             if path:
                 files.add(str(path))
