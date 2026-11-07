@@ -144,6 +144,29 @@ def test_directory_exports_a_class_and_an_exception(tmp_path: Path) -> None:
     assert caught.stdout == "7\n"
 
 
+def test_a_pkg_module_class_call_lowers(tmp_path: Path) -> None:
+    # `pkg.mod.Class(...)` resolves through `_pkg_item` to a class export,
+    # but no from-import ever installed it: `_construct` crashed with
+    # KeyError on `self.classes[name]`. The call site installs the export
+    # the way `_bind_one_export` does for the named form.
+    from pyscriptc.package import lower_directory
+
+    root = tmp_path / "tree"
+    (root / "pkg").mkdir(parents=True)
+    (root / "__main__.py").write_text(
+        "import pkg.mod\n\nw = pkg.mod.Widget(1)\nprint(w.n)\n",
+        encoding="utf-8",
+    )
+    (root / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "pkg" / "mod.py").write_text(
+        "class Widget:\n    def __init__(self, n: int) -> None:\n        self.n = n\n",
+        encoding="utf-8",
+    )
+    module, _source = lower_directory(root)
+    assert module["fences"] == []
+    assert "Widget" in {cls["name"] for cls in module["classes"]}
+
+
 def test_differing_classes_with_one_name_still_fence(tmp_path: Path) -> None:
     root = tmp_path / "clash"
     root.mkdir()
