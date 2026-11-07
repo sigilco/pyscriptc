@@ -586,7 +586,7 @@ def _program_island(
         encoded = _selfpack.build_payload(_selfpack.collect_package_data(root))
         selfpack_payload = encoded
         selfpack_dir = _selfpack.digest_of(encoded)
-    source, code_cache = _boxed.program_island_source(
+    source, seed, code_cache = _boxed.program_island_source(
         units,
         entry=main,
         main_package=main_package,
@@ -597,7 +597,7 @@ def _program_island(
         selfpack_dir=selfpack_dir,
         package_mode=package_mode,
     )
-    module = _boxed.program_island_module(source, root, code_cache)
+    module = _boxed.program_island_module(source, root, seed, code_cache)
     # The `python -m pkg` shape (issue #765): the bootstrap's `__file__` is
     # the entry file path, the value CPython records for `-m`, so the
     # runtime keeps the mirrored argv[0] (the emitted binary's path)
