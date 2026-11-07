@@ -321,7 +321,14 @@ class FuncsMixin(EmitterBase):
         path: str = _opt_str(self.module, "sourceFile")
         path_data: bytes = path.encode("utf-8")
         path_symbol: str | None = self.format_global("island.seed.path", path_data) if path_data else None
-        self._abi_decl("ps_island_top_seed", "void", ["i64", "ptr", "i64", "ptr"])
+        # The `python -m pkg` shape (issue #765): the runtime keeps the
+        # mirrored argv[0] (the binary path) instead of overriding it with
+        # the source path, because the program bootstrap's exec'd entry
+        # already sets `__file__` to the entry file path - the value CPython
+        # records for `-m`. The override exists for the single-file script
+        # shape, where CPython's argv[0] is the script path itself.
+        program_mode: bool = _flag_of(self.module, "islandProgram")
+        self._abi_decl("ps_island_top_seed", "void", ["i64", "ptr", "i64", "ptr", "i32"])
         self._call_void(
             "ps_island_top_seed",
             [
@@ -329,6 +336,7 @@ class FuncsMixin(EmitterBase):
                 f"ptr {symbol}",
                 f"i64 {len(path_data)}",
                 f"ptr {path_symbol}" if path_symbol else "ptr null",
+                f"i32 {'1' if program_mode else '0'}",
             ],
         )
 

@@ -82,12 +82,15 @@ def plane_map(
 
     fenced: set[str] = set()
     top_import_fences = 0
+    top_fence_message = ""
     for fence in fences:
         owner = fence.get("function") or fence.get("definition")
         if owner is not None:
             fenced.add(owner)
         elif fence.get("code") in ("PS2001", "PS2002"):
             top_import_fences += 1
+            if not top_fence_message:
+                top_fence_message = str(fence.get("message") or fence.get("code") or "")
 
     if not top_level_island and top_import_fences > 0:
         top_level_island = True
@@ -120,6 +123,18 @@ def plane_map(
             island_classes.add(name)
 
     demotions: dict[str, str] = dict(demoted_by or {})
+    if top_level_island:
+        # Issue #678: an island top level demotes every definition that
+        # would otherwise lower native (there is no island-to-native call
+        # seam for the seed body). Record the cause per definition so
+        # `assess` and the plane map name the top-level fence - usually an
+        # untyped import - that collapsed the module's native share.
+        reason = (
+            f"module top level is island ({top_fence_message})" if top_fence_message else "module top level is island"
+        )
+        for name in planes:
+            if name not in fenced:
+                demotions.setdefault(name, reason)
     fn_nodes: dict[str, Any] = {}
     if tree is not None:
         fn_nodes = {
@@ -292,8 +307,24 @@ def is_island_diagnostic(
         target_file = source_path
     elif err_path_str:
         candidate = Path(err_path_str)
-        if not candidate.is_absolute() and tmp_dir is not None:
-            candidate = (tmp_dir / candidate).resolve()
+        if not candidate.is_absolute():
+            # The checker prints paths relative to the compiler's working
+            # directory (it runs with that CWD); the temp dir anchor is the
+            # fallback for a path it relativized against its own scratch
+            # config. A `..` chain past the root resolves against the CWD
+            # and lands on the real file (found on yt_dlp: every one of
+            # 8,379 diagnostics in a `--program` compile of a package kept
+            # the whole preflight failing because the anchor was wrong).
+            anchors = [Path.cwd(), *([tmp_dir] if tmp_dir is not None else [])]
+            resolved = None
+            for anchor in anchors:
+                found = (anchor / candidate).resolve()
+                if found.is_file():
+                    resolved = found
+                    break
+            if resolved is None:
+                resolved = candidate.resolve()
+            candidate = resolved
         else:
             candidate = candidate.resolve()
         if candidate.is_file():
@@ -461,6 +492,16 @@ _sys.meta_path.insert(0, _PsFinder())
 _sys.path.insert(0, _ps_rebase(%(path0)s))
 __file__ = _ps_rebase(%(main_path)s)
 __package__ = %(package)s
+if %(package_mode)s:
+    # The `python -m pkg` shape (issue #765): CPython records the entry
+    # module's own path as argv[0], so argparse's default `prog` is
+    # `__main__.py` and the usage line names the script, not the binary.
+    # `__file__` is that path, rebased onto the staged tree when the
+    # program staged data.
+    if _sys.argv:
+        _sys.argv[0] = __file__
+    else:
+        _sys.argv = [__file__]
 exec(compile(%(main_source)s, __file__, "exec"), globals())
 """
 
@@ -475,6 +516,7 @@ def program_island_source(
     staged_data: tuple[str, str] | None = None,
     selfpack: str = "",
     selfpack_dir: str = "",
+    package_mode: bool = False,
 ) -> str:
     """The island seed of a whole program: finder bootstrap plus the entry.
 
@@ -507,6 +549,7 @@ def program_island_source(
         "path0": repr(str(path0)),
         "main_path": repr(main_path),
         "package": repr(main_package),
+        "package_mode": repr(package_mode),
         "main_source": repr(main_source),
         "selfpack": repr(selfpack),
         "selfpack_dir": repr(selfpack_dir),

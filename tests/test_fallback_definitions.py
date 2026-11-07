@@ -909,6 +909,39 @@ if __name__ == "__main__":
     assert native.stdout == "UTC\n"
 
 
+def test_fallback_island_top_level_demoted_by_names_the_fence(tmp_path: Path) -> None:
+    """Issue #678: an island module top level demotes every lowerable
+    function; the plane map records the top-level fence as the cause so
+    the owner can see which import to type or move."""
+    from pyscriptc import assess
+
+    source_text = """from datetime import datetime, timezone
+
+
+def helper() -> int:
+    return 41
+
+
+def main() -> None:
+    print(helper())
+    print(timezone.utc)
+
+
+if __name__ == "__main__":
+    main()
+"""
+    src = tmp_path / "demoted_by_top.py"
+    src.write_text(source_text, encoding="utf-8")
+    report = assess.assess(src)
+    plane_map = report["planeMap"]
+    assert plane_map["moduleTopLevel"] == "island"
+    assert plane_map["functions"]["helper"] == "island"
+    assert plane_map["demotedBy"]["helper"].startswith("module top level is island")
+    # `main` fences on its own (`timezone.utc`), so its cause is the fence,
+    # not the top level.
+    assert "main" not in plane_map["demotedBy"]
+
+
 def test_fallback_module_import_fence_ps2002_relative_runs_island(tmp_path: Path) -> None:
     """Module-level relative import (PS2002) runs module top level on island (issue #627)."""
     from pyscriptc import assess
