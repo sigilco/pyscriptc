@@ -95,6 +95,13 @@ def _node_value(node: dict[str, Any]) -> Any:
     return value
 
 
+def _node_span(node: dict[str, Any]) -> dict[str, Any]:
+    """The span record a dict-IR node carries."""
+
+    span: dict[str, Any] = node["span"]
+    return span
+
+
 def _type_value(typ: dict[str, Any]) -> dict[str, Any]:
     """The value type a dict type record carries."""
 
@@ -119,6 +126,24 @@ def _t_list(elem: dict[str, Any]) -> dict[str, Any]:
     """The dict-IR `list` type one element type spells."""
 
     return node_to_dict(_ir.t_list(dict_to_type(elem)))
+
+
+def _t_dict(
+    key: dict[str, Any],
+    value: dict[str, Any],
+    counter: bool = False,
+    defaultdict: bool = False,
+    ordered: bool = False,
+) -> dict[str, Any]:
+    """The dict-IR `dict` type record one key/value pair and marker bits spell."""
+
+    return node_to_dict(_ir.t_dict(dict_to_type(key), dict_to_type(value), counter, defaultdict, ordered))
+
+
+def _class_elem(name: str, elem: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR `class` type record carrying an element type."""
+
+    return node_to_dict(_ir.t_class(name, "", dict_to_type(elem)))
 
 
 def _list_lit(elems: list[dict[str, Any]], elem: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
@@ -176,6 +201,48 @@ def _list_node(elems: list[dict[str, Any]], typ: dict[str, Any], span: dict[str,
     """The dict-IR list node one element run and one list type record spell."""
 
     return node_to_dict(_ir.list_lit([dict_to_node(item) for item in elems], dict_to_type(typ), _mk_span(span)))
+
+
+def _dict_node(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR empty dict literal one type record and span spell."""
+
+    return node_to_dict(_ir.dict_lit([], dict_to_type(typ), _mk_span(span)))
+
+
+def _cast_float(arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR int-to-float cast one int node and span spell."""
+
+    return node_to_dict(_ir.cast("int_to_float", dict_to_node(arg), _ir.t_leaf("float"), _mk_span(span)))
+
+
+def _const_json(value: Any, span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR int const carrying the JSON int payload, where
+    `_const_int` spells the decimal str."""
+
+    return node_to_dict(_ir.const_node(_ir.P_INT, value, _ir.t_leaf("int"), _mk_span(span)))
+
+
+def _call_module(
+    module: str,
+    name: str,
+    symbol: str,
+    args: list[dict[str, Any]],
+    typ: dict[str, Any],
+    span: dict[str, Any],
+) -> dict[str, Any]:
+    """The dict-IR module call one module attribute, symbol, argument run and result type spell."""
+
+    return node_to_dict(
+        _ir.call(
+            _ir.module_callee(module, name),
+            [dict_to_node(arg) for arg in args],
+            dict_to_type(typ),
+            _mk_span(span),
+            symbol,
+            "",
+            -1,
+        )
+    )
 
 
 def _span_to(node: ast.AST, sub: ast.AST) -> ast.AST:
