@@ -373,8 +373,13 @@ class ClassesMoreMixin:
         raise AssertionError("unreachable")
 
     def _isinstance_holds(self, got: dict[str, Any], want: dict[str, Any]) -> bool:
-        if want.get("bare") and _type_kind(got) == _type_kind(want):
-            return True
+        if want.get("bare"):
+            if _type_kind(got) == _type_kind(want):
+                return True
+            # A bare list/dict target the kind check missed is a definite
+            # False: no lowered operand kind is a subclass of the bare
+            # container, and `type_key` cannot spell the bare dict anyway.
+            return False
         if _type_kind(want) == "int" and _type_kind(got) == "bool":
             return True
         if _type_kind(want) == "class" and _type_kind(got) == "class":
