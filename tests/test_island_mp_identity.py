@@ -1,4 +1,4 @@
-"""Island `sys.executable` and seed-module registration (issues #688, #689).
+"""Island `sys.executable`, seed-module registration and exitfuncs (issues #679, #688, #689).
 
 macOS-safe tests only compile and run island binaries that touch no
 multiprocessing sync primitive (the host POSIX semaphore pool is exhausted);
@@ -57,6 +57,28 @@ if __name__ == "__main__":
         print(pool.map(square, [1, 2, 3, 4]))
 """
 
+ATEXIT_PROBE = """\
+import atexit
+
+def first():
+    print("first")
+
+def second():
+    print("second")
+
+atexit.register(first)
+atexit.register(second)
+atexit.register(lambda: print("lambda bye"))
+print("body done")
+"""
+
+ATEXIT_SYSEXIT_PROBE = """\
+import atexit
+
+atexit.register(lambda: print("atexit ran"))
+raise SystemExit(3)
+"""
+
 
 def _cli(*args: str, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run([sys.executable, "-m", "pyscriptc", *args], cwd=ROOT, capture_output=True, text=True)
@@ -89,6 +111,25 @@ def test_island_pickle_round_trip_of_module_function(tmp_path: Path) -> None:
     assert got.returncode == want.returncode == 0, got.stderr
     assert got.stdout == want.stdout
     assert got.stdout.startswith("49 ")
+
+
+def test_island_atexit_handlers_run_at_exit(tmp_path: Path) -> None:
+    """Island `atexit.register` handlers run when the binary exits (#679)."""
+    binary = _compile_binary(tmp_path, ATEXIT_PROBE, "atexit_probe.py")
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
+    want = subprocess.run([sys.executable, "-c", ATEXIT_PROBE], capture_output=True, text=True, timeout=60)
+    assert got.returncode == want.returncode == 0, got.stderr
+    assert got.stdout == want.stdout
+    assert got.stdout.splitlines() == ["body done", "lambda bye", "second", "first"]
+
+
+def test_island_atexit_handlers_run_before_system_exit(tmp_path: Path) -> None:
+    """A `raise SystemExit(3)` still delivers the island exitfuncs (#679)."""
+    binary = _compile_binary(tmp_path, ATEXIT_SYSEXIT_PROBE, "atexit_sysexit.py")
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
+    want = subprocess.run([sys.executable, "-c", ATEXIT_SYSEXIT_PROBE], capture_output=True, text=True, timeout=60)
+    assert got.returncode == want.returncode == 3, (got.returncode, got.stdout, got.stderr)
+    assert got.stdout == want.stdout == "atexit ran\n"
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
