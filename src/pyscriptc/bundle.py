@@ -100,9 +100,9 @@ def bundle_project(entry: Path) -> Bundle:
 
 
 def _module_name(root: Path, path: Path) -> str | None:
-    rel = path.relative_to(root)
-    parts = list(rel.parts[:-1])
-    stem = rel.stem
+    rel: Path = path.relative_to(root)
+    parts: list[str] = list(rel.parts[:-1])
+    stem: str = rel.stem
     if stem == "__init__":
         if not parts:
             return None

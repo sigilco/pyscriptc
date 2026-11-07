@@ -52,7 +52,7 @@ def canonicalize(module: dict[str, Any]) -> dict[str, Any]:
     Idempotent: canonicalize(canonicalize(x)) == canonicalize(x). The input
     dict is never mutated.
     """
-    out = _strip(module)
+    out: dict[str, Any] = _strip(module)
     classes = out.get("classes")
     if isinstance(classes, list):
         out["classes"] = sorted(classes, key=lambda cls: cls.get("name") or "")
@@ -83,7 +83,7 @@ def hash_module(module: dict[str, Any]) -> str:
     }
     # allow_nan=False on purpose: a NaN reaching IR means a compiler bug and
     # should surface here instead of silently hashing into a digest.
-    payload = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    payload: str = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 

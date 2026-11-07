@@ -9,7 +9,7 @@ _COPY_SCALARS = {"int", "float", "bool", "str", "bytes"}
 
 
 def _copyable(typ: dict[str, Any]) -> bool:
-    kind = typ["kind"]
+    kind: str = typ["kind"]
     if kind in {"int", "float", "str", "bytes"}:
         return True
     if kind == "list":

@@ -104,7 +104,7 @@ def _read_config() -> dict[str, str]:
 def _write_config(values: dict[str, str]) -> None:
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f"{key} = {_toml_value(value)}" for key, value in sorted(values.items())]
+    lines: list[str] = [f"{key} = {_toml_value(value)}" for key, value in sorted(values.items())]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 

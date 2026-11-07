@@ -73,7 +73,7 @@ def compiler_digest() -> str:
     A full re-hash only runs on cache miss or when a file modification time or size changes.
     """
     global _MEM_STAMP, _MEM_DIGEST
-    root = Path(pyscriptc.__file__).parent
+    root: Path = Path(pyscriptc.__file__).parent
     stamp = _compiler_stamp(root)
     if _MEM_STAMP == stamp and _MEM_DIGEST is not None:
         return _MEM_DIGEST
@@ -83,7 +83,7 @@ def compiler_digest() -> str:
         try:
             data = json.loads(stamp_path.read_text())
             if data.get("version") == pyscriptc.__version__ and data.get("stamp") == stamp:
-                digest = data["digest"]
+                digest: str = data["digest"]
                 _MEM_STAMP = stamp
                 _MEM_DIGEST = digest
                 return str(digest)

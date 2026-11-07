@@ -207,7 +207,7 @@ def _instr_text(fn: MirFunction, bid: int, i: int) -> str:
 def print_function(fn: MirFunction) -> str:
     """One function's text, ending in a newline."""
     params = ", ".join(f"v{p.vid}:{tag_name(p.typ)}" for p in fn.params)
-    lines = [f"fn {fn.name}({params}) -> {tag_name(fn.result)} {{"]
+    lines: list[str] = [f"fn {fn.name}({params}) -> {tag_name(fn.result)} {{"]
     for index in range(len(fn.consts)):
         lines.append(f"  {_const_text(fn, index)}")
     spans = _block_spans(fn)
@@ -215,7 +215,7 @@ def print_function(fn: MirFunction) -> str:
         if bid < len(fn.blocks):
             block = fn.blocks[bid]
             bargs = ", ".join(f"v{a.vid}:{tag_name(a.typ)}" for a in block.args)
-            label = f"b{block.bid}"
+            label: str = f"b{block.bid}"
             if bid == fn.entry:
                 label += " entry"
             elif block.hint:
@@ -232,7 +232,7 @@ def print_function(fn: MirFunction) -> str:
 def print_module(module: MirModule) -> str:
     """A whole module: a header, the skipped names, then each function."""
     entry = "None" if module.entry is None else module.entry
-    parts = [f"; module {os.path.basename(module.source_file)} entry={entry}"]
+    parts: list[str] = [f"; module {os.path.basename(module.source_file)} entry={entry}"]
     if module.skipped:
         parts.append(f"; skipped (direct path): {', '.join(module.skipped)}")
     for fn in module.functions:
