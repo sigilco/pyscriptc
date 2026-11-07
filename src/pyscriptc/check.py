@@ -142,7 +142,8 @@ def run_checker(
         return
     if checker != "mypy":
         raise CheckFailed(f"checker {checker!r} is not wired; the preflight uses pyrefly")
-    with tempfile.TemporaryDirectory(None, "pyscriptc-mypy-") as cache:
+    cache = tempfile.mkdtemp()
+    try:
         config = Path(cache) / "mypy.ini"
         # The manifest's directory carries the adapter's `.pyi`, so mypy
         # finds the module the same way pyrefly and pyright do (issue #66).
@@ -170,6 +171,8 @@ def run_checker(
             capture_output=True,
             text=True,
         )
+    finally:
+        shutil.rmtree(cache)
     if proc.returncode == 0:
         return
     output: str = (proc.stdout or proc.stderr).strip()
@@ -319,13 +322,13 @@ def _active_interpreter() -> str:
     venv = os.environ.get("VIRTUAL_ENV")
     if venv:
         for candidate in (
-            Path(venv) / "bin" / "python",
-            Path(venv) / "bin" / "python3",
-            Path(venv) / "Scripts" / "python.exe",
-            Path(venv) / "python.exe",
+            str(Path(venv) / "bin" / "python"),
+            str(Path(venv) / "bin" / "python3"),
+            str(Path(venv) / "Scripts" / "python.exe"),
+            str(Path(venv) / "python.exe"),
         ):
-            if candidate.is_file() and os.access(str(candidate), os.X_OK):
-                return str(candidate)
+            if Path(candidate).is_file() and os.access(candidate, os.X_OK):
+                return candidate
     return sys.executable
 
 
@@ -340,11 +343,11 @@ def _active_site_packages() -> list[str]:
     if not venv:
         return roots
     for sp_candidate in (
-        Path(venv) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages",
-        Path(venv) / "Lib" / "site-packages",
+        str(Path(venv) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}" / "site-packages"),
+        str(Path(venv) / "Lib" / "site-packages"),
     ):
-        if sp_candidate.is_dir() and str(sp_candidate) not in roots:
-            roots.append(str(sp_candidate))
+        if Path(sp_candidate).is_dir() and sp_candidate not in roots:
+            roots.append(sp_candidate)
     return roots
 
 
