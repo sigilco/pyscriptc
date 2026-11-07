@@ -251,7 +251,10 @@ def _import_names_relative(source: str, package: str) -> set[str]:
 
     A `from . import sibling` inside a package resolves against the package,
     and the frozen closure must follow it or a kept submodule loses a peer
-    (`xml.etree.ElementTree` pulls `ElementPath` that way).
+    (`zipfile` pulls `_path` that way). A `from pkg import submod` names the
+    submodule only through the alias, so `pkg.submod` joins the candidates
+    too (`email._policybase` pulls `email.header` that way); names that are
+    not modules simply find no file in the closure walk.
     """
 
     found = _import_names(source)
@@ -260,7 +263,11 @@ def _import_names_relative(source: str, package: str) -> set[str]:
     except SyntaxError:
         return found
     for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom) or node.level == 0:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level == 0:
+            module = node.module or ""
+            found.update(f"{module}.{alias.name}" for alias in node.names if alias.name != "*" and module)
             continue
         parts = package.split(".") if package else []
         if node.level > 1:
@@ -268,6 +275,7 @@ def _import_names_relative(source: str, package: str) -> set[str]:
         base = ".".join(parts)
         if node.module:
             found.add(f"{base}.{node.module}" if base else node.module)
+            base = f"{base}.{node.module}" if base else node.module
         for alias in node.names:
             if alias.name != "*":
                 found.add(f"{base}.{alias.name}" if base else alias.name)
@@ -363,6 +371,10 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
                 prefix = ".".join(parts[:cut])
                 if prefix.split(".")[0] not in SAFE_TRIM:
                     keep.add(prefix)
+                    # A parent package's `__init__` runs on the submodule
+                    # import, so its own imports belong to the closure too
+                    # (`importlib.resources.__init__` pulls `._common`).
+                    queue.append(prefix)
     tree = stdlib_dir if stdlib_dir is not None else source_tree
     files: list[Path] = []
     seen: set[Path] = set()
