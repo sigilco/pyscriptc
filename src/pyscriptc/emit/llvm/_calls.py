@@ -14,7 +14,6 @@ from pyscriptc.emit._ir import (
     _callee_tuple,
     _elem_of,
     _elem_size,
-    _kind,
     _mark_fmt,
     _memory_type,
     _node_args,
@@ -22,7 +21,6 @@ from pyscriptc.emit._ir import (
     _node_symbol,
     _opt_int,
     _opt_str_or_none,
-    _type_name,
     _type_of,
 )
 from pyscriptc.emit._ir import (
@@ -34,13 +32,7 @@ from pyscriptc.emit.llvm._base import EmitterBase
 
 # boxed:end
 from pyscriptc.errors import IRError
-
-
-def _name_of(typ: dict[str, Any], default: str) -> str:
-    """The class name of a type record, or the default when absent."""
-    if _has(typ, "name"):
-        return _type_name(typ)
-    return default
+from pyscriptc.tirserde import dict_to_type
 
 
 def _has(expr: dict[str, Any], key: str) -> bool:
@@ -82,7 +74,7 @@ class CallsMixin(EmitterBase):
         # The kind of the first argument, read only for the builtins that
         # dispatch on it.
         at0: dict[str, Any] = arg_types[0]
-        arg_kind: str = _kind(at0)
+        arg_kind: str = dict_to_type(at0).kind
         if name == "len" and arg_kind == "str":
             # The code-point count: field 2 (field 0 is the byte length).
             reg = self.tmp()
@@ -100,7 +92,7 @@ class CallsMixin(EmitterBase):
             needed = self.needed
             needed.add("map")
             return self._call_ret("i64", "ps_map_len", [f"ptr {values[0]}"])
-        if name == "len" and arg_kind == "class" and _name_of(at0, "") == "Deque":
+        if name == "len" and arg_kind == "class" and dict_to_type(at0).name == "Deque":
             self._abi_decl("ps_deque_len", "i64", ["ptr"])
             return self._call_ret("i64", "ps_deque_len", [f"ptr {values[0]}"])
         if name == "id":
@@ -170,7 +162,7 @@ class CallsMixin(EmitterBase):
             if kind == "exc":
                 self._abi_decl("ps_exc_str", "void", ["ptr", "ptr"])
                 return self._buf_out("ps_exc_str", [f"ptr {values[0]}"])
-            if kind == "class" and _name_of(at0, "") == "Path":
+            if kind == "class" and dict_to_type(at0).name == "Path":
                 self._abi_decl("ps_path_posix", "void", ["ptr", "ptr"])
                 return self._buf_out("ps_path_posix", [f"ptr {values[0]}"])
         raise IRError(f"no LLVM lowering for builtin {name}")
@@ -266,7 +258,7 @@ class CallsMixin(EmitterBase):
             if symbol == "ps_dict_items":
                 # The element is a synthetic tuple_N class; the C side packs key
                 # and value cells at byte offsets read off the class layout.
-                tname: str = _type_name(_elem_of(typ))
+                tname: str = dict_to_type(_elem_of(typ)).name
                 size_ptr = self.tmp()
                 size = self.tmp()
                 self.line(f"{size_ptr} = getelementptr %cls.{tname}, ptr null, i64 1")
@@ -283,7 +275,7 @@ class CallsMixin(EmitterBase):
                 # class layout (path cell, dirs cell, files cell).
                 needed = self.needed
                 needed.add("seq")
-                tname = _type_name(_elem_of(typ))
+                tname = dict_to_type(_elem_of(typ)).name
                 size_ptr = self.tmp()
                 size = self.tmp()
                 self.line(f"{size_ptr} = getelementptr %cls.{tname}, ptr null, i64 1")
