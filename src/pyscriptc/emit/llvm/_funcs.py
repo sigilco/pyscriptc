@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.emit._ir import (
     _const_bool,
     _const_text,
@@ -16,7 +17,6 @@ from pyscriptc.emit._ir import (
     _has,
     _ir_const_value,
     _items,
-    _kind,
     _llvm_type,
     _memory_type,
     _name_list,
@@ -25,6 +25,7 @@ from pyscriptc.emit._ir import (
     _none_type,
     _opt_default,
     _opt_int,
+    _opt_record,
     _opt_span,
     _opt_str,
     _prepare_arg,
@@ -36,11 +37,13 @@ from pyscriptc.emit._ir import (
 )
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
+from pyscriptc.tirserde import dict_to_type
 
 
 class FuncsMixin(EmitterBase):
     def emit_function(self, fn: dict[str, Any]) -> None:
         return_type: dict[str, Any] = _return_type(fn)
+        ret_kind: str = dict_to_type(return_type).kind
         ret: str = _llvm_type(return_type)
         # Env-first functions (nested defs and lambdas) take the caller's env
         # cell array as a leading `ptr %env` and bind those slots by pointer.
@@ -74,7 +77,7 @@ class FuncsMixin(EmitterBase):
         for local in _items(fn, "locals"):
             local_name: str = _opt_str(local, "name")
             local_type: dict[str, Any] = _type_of(local)
-            if _kind(local_type) == "none":
+            if dict_to_type(local_type).kind == "none":
                 # None is not a runtime value. The local is the singleton, so it has no slot.
                 self.slots[local_name] = ("", local_type)
                 continue
@@ -87,7 +90,7 @@ class FuncsMixin(EmitterBase):
                 ptr = self.tmp()
                 self.line(f"{ptr} = alloca {_memory_type(local_type)}")
                 # boxed:begin
-                if _flag_of(local_type, "island") or _flag_of(local_type, "handle"):
+                if dict_to_type(local_type).flags & (_ir.F_TMARK_ISLAND | _ir.F_TMARK_HANDLE):
                     self.line(f"store ptr null, ptr {ptr}")
                 # boxed:end
             self.slots[local_name] = (ptr, local_type)
@@ -102,7 +105,7 @@ class FuncsMixin(EmitterBase):
             self.slots[item_name] = (ptr, item_type)
             self.slot_order.append(item_name)
             self.slot_types[item_name] = item_type
-        self.ret_llvm = None if _kind(return_type) == "none" else _llvm_type(return_type)
+        self.ret_llvm = None if ret_kind == "none" else _llvm_type(return_type)
         self.ret_ptr = None if self.ret_llvm is None else self._alloca(self.ret_llvm)
         self.flow_ptr = self._alloca("i32")
         for param in params:
@@ -110,7 +113,7 @@ class FuncsMixin(EmitterBase):
             self.store(param_name, f"%{_safe(param_name)}")
         self.emit_body(_items(fn, "body"))
         if not self.terminated:
-            if _kind(return_type) == "none":
+            if ret_kind == "none":
                 self.line("ret void")
             else:
                 self.line("unreachable")
@@ -121,8 +124,7 @@ class FuncsMixin(EmitterBase):
             dwarf.exit_function()
 
     def emit_main(self, name: str, args: list[Any], library: bool = False) -> None:
-        functions: dict[str, dict[str, Any]] = self.functions
-        fn: dict[str, Any] | None = functions.get(name)
+        fn: dict[str, Any] | None = _opt_record(self.functions, name)
         if fn is None:
             raise IRError(f"no function {name} to call")
         params: list[dict[str, Any]] = _items(fn, "params")
@@ -131,10 +133,10 @@ class FuncsMixin(EmitterBase):
         filled: list[Any] = list(args)
         for param in params[len(args) :]:
             default: dict[str, Any] | None = _opt_default(param)
-            if default is None or _kind(default) != "const":
+            if default is None or _node_kind(default) != "const":
                 raise FitError(f"{name} expects {len(params)} argument(s), got {len(args)}")
             default_type: dict[str, Any] = _type_of(default)
-            if _kind(default_type) == "bool":
+            if dict_to_type(default_type).kind == "bool":
                 filled.append(_ir_const_value(_type_of(param), _const_bool(default)))
             else:
                 filled.append(_ir_const_value(_type_of(param), _const_text(default)))
@@ -212,7 +214,7 @@ class FuncsMixin(EmitterBase):
             values.append(self.materialize_arg(_type_of(param), value))
         result: str = self.call_function(fn, values)
         return_type: dict[str, Any] = _return_type(fn)
-        if _kind(return_type) != "none":
+        if dict_to_type(return_type).kind != "none":
             self.print_value(return_type, result)
         self.line("ret i32 0")
         self._flush_allocas()
@@ -231,8 +233,8 @@ class FuncsMixin(EmitterBase):
         merge recorded.
         """
 
-        for name in self.module.get("moduleInits", []):
-            fn = self.functions.get(name)
+        for name in _name_list(self.module, "moduleInits"):
+            fn: dict[str, Any] | None = _opt_record(self.functions, name)
             if fn is None:
                 continue
             self.call_function(fn, [])
@@ -413,7 +415,7 @@ class FuncsMixin(EmitterBase):
         for index in range(len(params)):
             param: dict[str, Any] = params[index]
             param_type: dict[str, Any] = _type_of(param)
-            param_kind: str = _kind(param_type)
+            param_kind: str = dict_to_type(param_type).kind
             if param_kind == "none":
                 continue
             param_name: str = _opt_str(param, "name")
@@ -438,7 +440,7 @@ class FuncsMixin(EmitterBase):
     def _emit_return(self, stmt: dict[str, Any]) -> None:
         expr: dict[str, Any] = _node_value_node(stmt)
         expr_type: dict[str, Any] = _type_of(expr)
-        kind: str = _kind(expr_type)
+        kind: str = dict_to_type(expr_type).kind
         if self.outline_depth:
             if kind != "none":
                 value: str = self.emit_expr(expr)
