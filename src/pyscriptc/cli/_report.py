@@ -77,6 +77,7 @@ def infer_cmd(args: argparse.Namespace) -> int:
     # with what the lowerer will apply.
     from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
     from pyscriptc.inferrunner import facts_as_pins, pinned_facts
+    from pyscriptc.lower import _record_kind
 
     pin_map = facts_as_pins(facts)
     started = time.perf_counter()
@@ -111,7 +112,7 @@ def infer_cmd(args: argparse.Namespace) -> int:
     seen_records: set[tuple[Any, ...]] = set()
     records = []
     for record in provider.records:
-        key = (record["kind"], record["module"], record["name"], record["type"])
+        key = (_record_kind(record), record["module"], record["name"], record["type"])
         if key in seen_records:
             continue
         seen_records.add(key)
