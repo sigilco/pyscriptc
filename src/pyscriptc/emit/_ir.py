@@ -457,6 +457,14 @@ def _opt_record(record: dict[str, Any], key: str) -> dict[str, Any] | None:
     return value
 
 
+def _record(record: dict[str, Any], key: str) -> dict[str, Any]:
+    """A record-valued field of a record, required: the read raises on an
+    absent key, like the raw subscript it replaces."""
+
+    value: dict[str, Any] = record[key]
+    return value
+
+
 def _mark_fmt(typ: dict[str, Any]) -> dict[str, Any]:
     """The %ps.arg record one formatted argument stores: the type with the
     `fmt` marker set."""
