@@ -790,32 +790,108 @@ class CoroMixin:
 
 
 # --- IR pass ---------------------------------------------------------------
+#
+# Record accessors. The pass still walks dict records (the module, its
+# functions, classes and methods stay dicts until the module records type,
+# the R-3 inventory); every read of one of those records goes through a
+# named accessor instead of the raw dict key, so the walk is the typed
+# shape while the records it walks are not yet.
+
+
+def _module_functions(module: dict[str, Any]) -> list[dict[str, Any]]:
+    """The function records a module carries. The module walk reads the
+    record through this accessor instead of the raw dict key."""
+
+    functions: list[dict[str, Any]] = module["functions"]
+    return functions
+
+
+def _module_classes(module: dict[str, Any]) -> list[dict[str, Any]]:
+    """The class records a module carries. The module walk reads the record
+    through this accessor instead of the raw dict key."""
+
+    classes: list[dict[str, Any]] = module["classes"]
+    return classes
+
+
+def _module_fences(module: dict[str, Any]) -> list[dict[str, Any]]:
+    """The fence records a module carries. The module walk reads the record
+    through this accessor instead of the raw dict key."""
+
+    fences: list[dict[str, Any]] = module["fences"]
+    return fences
+
+
+def _module_rewritten(
+    module: dict[str, Any],
+    functions: list[dict[str, Any]],
+    classes: list[dict[str, Any]],
+    fences: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """The module with its functions, classes and fences swapped for the
+    rewritten lists. The reassembly reads the record through this accessor
+    instead of a keyed splat."""
+
+    return {**module, "functions": functions, "classes": classes, "fences": fences}
+
+
+def _record_name(record: dict[str, Any]) -> str:
+    """The name a function, class or method record carries. A consumer
+    reads the record through this accessor instead of the raw dict key."""
+
+    name: str = record["name"]
+    return name
+
+
+def _record_span(record: dict[str, Any]) -> dict[str, Any]:
+    """The span a function, class or method record carries. A consumer
+    reads the record through this accessor instead of the raw dict key."""
+
+    span: dict[str, Any] = record["span"]
+    return span
+
+
+def _class_methods(cls: dict[str, Any]) -> list[dict[str, Any]]:
+    """The method records a class record carries. The method walk reads the
+    record through this accessor instead of the raw dict key."""
+
+    methods: list[dict[str, Any]] = cls["methods"]
+    return methods
+
+
+def _class_with_methods(cls: dict[str, Any], methods: list[dict[str, Any]]) -> dict[str, Any]:
+    """The class record with its methods swapped for the rewritten list.
+    The reassembly reads the record through this accessor instead of a
+    keyed splat."""
+
+    return {**cls, "methods": methods}
 
 
 def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dict[str, Any]:
     """Rewrite every planned function into a frame class and a wrapper."""
     functions: list[dict[str, Any]] = []
-    classes = list(module["classes"])
-    fences = list(module["fences"])
-    for fn in module["functions"]:
-        plan = plans.get(fn["name"]) or _plan_by_ir_name(plans, fn["name"])
+    classes = list(_module_classes(module))
+    fences = list(_module_fences(module))
+    for fn in _module_functions(module):
+        name = _record_name(fn)
+        plan = plans.get(name) or _plan_by_ir_name(plans, name)
         if plan is None:
             functions.append(fn)
             continue
         try:
             wrapper, frame, forwarder = _Frame(fn, plan, _KINDS[plan.kind], plans).build()
         except CoroError as exc:
-            fences.append({"code": "PS2002", "message": exc.message, "function": fn["name"], "span": exc.span})
+            fences.append({"code": "PS2002", "message": exc.message, "function": name, "span": exc.span})
             continue
         functions.append(wrapper)
         if forwarder is not None:
             functions.append(forwarder)
         classes.append(frame)
         if plan.manager:
-            classes.append(_manager_class(plan, fn["span"]))
+            classes.append(_manager_class(plan, _record_span(fn)))
     classes, method_functions = _lower_method_resumables(classes, plans, fences)
     functions.extend(method_functions)
-    return {**module, "functions": functions, "classes": classes, "fences": fences}
+    return _module_rewritten(module, functions, classes, fences)
 
 
 def _lower_method_resumables(
@@ -833,18 +909,20 @@ def _lower_method_resumables(
     method_functions: list[dict[str, Any]] = []
     for cls in classes:
         methods: list[dict[str, Any]] = []
-        for method in cls["methods"]:
-            plan = plans.get(f"{cls['name']}.{method['name']}")
+        cls_name = _record_name(cls)
+        for method in _class_methods(cls):
+            method_name = _record_name(method)
+            plan = plans.get(f"{cls_name}.{method_name}")
             if (
                 plan is None
-                or plan.frame != f"{'coro' if plan.kind == 'coroutine' else 'gen'}.{cls['name']}.{method['name']}"
+                or plan.frame != f"{'coro' if plan.kind == 'coroutine' else 'gen'}.{cls_name}.{method_name}"
             ):
                 methods.append(method)
                 continue
             try:
                 wrapper, frame, forwarder = _Frame(method, plan, _KINDS[plan.kind], plans).build()
             except CoroError as exc:
-                fences.append({"code": "PS2002", "message": exc.message, "function": method["name"], "span": exc.span})
+                fences.append({"code": "PS2002", "message": exc.message, "function": method_name, "span": exc.span})
                 methods.append(method)
                 continue
             methods.append(wrapper)
@@ -855,8 +933,8 @@ def _lower_method_resumables(
                 # uses (`coro.<name>.resume`), so ps_loop.c stays uniform.
                 method_functions.append(forwarder)
             if plan.manager:
-                out.append(_manager_class(plan, method["span"]))
-        out.append({**cls, "methods": methods})
+                out.append(_manager_class(plan, _record_span(method)))
+        out.append(_class_with_methods(cls, methods))
     return out, method_functions
 
 
