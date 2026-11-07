@@ -19,6 +19,7 @@ from typing import Any
 from pyscriptc.emit._ir import _items, _opt_int, _opt_str, _span_of
 from pyscriptc.errors import IRError, format_diagnostic
 from pyscriptc.imports import REQUIRES_LIBPYTHON
+from pyscriptc.ir import IR_VERSION, SUBSET
 from pyscriptc.lower import lower_file
 from pyscriptc.package import _discover, lower_directory
 from pyscriptc.reflection import mechanism_of, routes_to_island
@@ -286,9 +287,20 @@ def _read(path: str, cache: dict[str, str | None]) -> str | None:
     if path not in cache:
         try:
             cache[path] = Path(path).read_text(encoding="utf-8")
-        except OSError:
+        except OSError, UnicodeDecodeError:
             cache[path] = None
     return cache[path]
+
+
+def _parse_defs(path: str, sources: dict[str, str | None]) -> list[_Def]:
+    """The definitions of one file, or none when the file cannot be parsed."""
+    text = _read(path, sources)
+    if text is None:
+        return []
+    try:
+        return _definitions(ast.parse(text, filename=path))
+    except SyntaxError:
+        return []
 
 
 def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
@@ -320,8 +332,7 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
     all_codes: set[str] = set()
     all_mechanisms: set[str] = set()
     for path in paths:
-        text = _read(path, sources)
-        defs = _definitions(ast.parse(text, filename=path)) if text is not None else []
+        defs = _parse_defs(path, sources)
         local = fences_by_file.get(path, [])
         owned: dict[str, list[dict[str, Any]]] = {item.name: [] for item in defs}
         module_fences = 0
@@ -374,19 +385,72 @@ def _definition_capability(entries: list[dict[str, Any]], indexes: list[int]) ->
     return CAP_NATIVE
 
 
-def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str]]:
+def _unusable_files(root: Path) -> tuple[set[Path], list[dict[str, Any]]]:
+    """The tree's files that cannot be analysed, each with the reason.
+
+    A real package tree holds files the lowering cannot take: migrations
+    and template modules whose names are not identifiers, namespace
+    directories the package table cannot name, and files the parser
+    rejects (issue #730). The report drops them from the unit set and
+    lists them instead of aborting, so the rest of the tree still scores.
+    """
+
+    resolved = root.resolve()
+    excluded: set[Path] = set()
+    failures: list[dict[str, Any]] = []
+    for path in sorted(resolved.rglob("*.py")):
+        relative = path.relative_to(resolved)
+        if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
+            continue
+        reason = ""
+        if not all(part.isidentifier() for part in relative.with_suffix("").parts):
+            reason = f"{relative.as_posix()} is not a module name"
+        else:
+            try:
+                ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+            except (OSError, SyntaxError, UnicodeDecodeError, ValueError) as exc:
+                reason = str(exc)
+        if reason:
+            excluded.add(path)
+            failures.append({"file": str(path), "reason": reason})
+    return excluded, failures
+
+
+def _empty_module(target: Path) -> dict[str, Any]:
+    """A module with no units: the report reads fences and totals from it."""
+
+    return {
+        "irVersion": IR_VERSION,
+        "subset": SUBSET,
+        "sourceFile": str(target),
+        "functions": [],
+        "classes": [],
+        "fences": [],
+    }
+
+
+def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str], list[dict[str, Any]]]:
     from pyscriptc.config import load_config
 
     config = load_config(target)
     if target.is_dir():
-        module, _ = lower_directory(target, bridge=bridge, config=config)
-        files = [str(path) for _, path, _ in _discover(target)[0]]
-        return module, files
+        excluded, failures = _unusable_files(target)
+        exclude = frozenset(excluded) if excluded else None
+        unit_failures: list[dict[str, Any]] = []
+        module, _ = lower_directory(target, bridge=bridge, config=config, exclude=exclude, unit_failures=unit_failures)
+        failed_paths = {item["file"] for item in unit_failures}
+        files = [str(path) for _, path, _ in _discover(target, exclude=exclude)[0] if str(path) not in failed_paths]
+        failures.extend(unit_failures)
+        failures.sort(key=lambda item: item["file"])
+        return module, files, failures
     if target.is_file():
         if bridge is not None and not hasattr(bridge, "inferred_type"):
             bridge = bridge.for_file(target)
-        module, _ = lower_file(str(target), bridge=bridge, config=config)
-        return module, [str(target)]
+        try:
+            module, _ = lower_file(str(target), bridge=bridge, config=config)
+        except Exception as exc:
+            return _empty_module(target), [str(target)], [{"file": str(target), "reason": str(exc)}]
+        return module, [str(target)], []
     raise IRError(f"source not found: {target}")
 
 
@@ -464,16 +528,13 @@ def _wheel_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
-    module, files = _lower(target, bridge)
+    module, files, failed_files = _lower(target, bridge)
     known = _dependency_map(target)
     sources: dict[str, str | None] = {}
     trees: dict[str, list[_Def]] = {}
     total_defs: dict[str, int] = {}
     for path in files:
-        text = _read(path, sources)
-        if text is None:
-            continue
-        defs = _definitions(ast.parse(text, filename=path))
+        defs = _parse_defs(path, sources)
         trees[path] = defs
         total_defs[path] = len(defs)
 
@@ -552,12 +613,13 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
     return {
         "schemaVersion": SCHEMA_VERSION,
         "target": str(target),
-        "summary": _summary(entries, definitions, files, total_defs, _island_imports(target, known)),
+        "summary": _summary(entries, definitions, files, total_defs, _island_imports(target, known), failed_files),
         "fences": entries,
         "definitions": definitions,
         "moduleFences": module_fences,
         "capabilities": capabilities(module, files),
         "chain": _chain(entries, definitions),
+        "failedFiles": failed_files,
     }
 
 
@@ -630,12 +692,14 @@ def _summary(
     files: list[str],
     total_defs: dict[str, int],
     island_imports: list[str],
+    failed_files: list[dict[str, Any]],
 ) -> dict[str, Any]:
     fences_by_family = Counter(e["family"] for e in entries)
     total_definitions = sum(total_defs.values())
     fenced_definitions = len(definitions)
     return {
         "files": len(files),
+        "filesFailed": len(failed_files),
         "definitions": total_definitions,
         "nativeDefinitions": max(0, total_definitions - fenced_definitions),
         "fencedDefinitions": fenced_definitions,
@@ -693,6 +757,11 @@ def render_text(report: dict[str, Any]) -> str:
             f"  {item['file']}: {item['native']} native, {item['fenced']} fenced, {item['island']} island "
             f"of {item['definitions']} definitions, {item['fences']} fences{mechanisms}"
         )
+    failed = report.get("failedFiles", [])
+    if failed:
+        parts.append(f"could not analyse {len(failed)} file(s):")
+        for item in failed:
+            parts.append(f"  {item['file']}: {item['reason']}")
     entries = report["fences"]
     for entry in entries:
         parts.append(entry["frame"])

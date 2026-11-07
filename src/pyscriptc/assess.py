@@ -311,6 +311,12 @@ def assess(
         fpath = str(Path(fence["file"]).resolve())
         fences_by_file.setdefault(fpath, []).append(fence)
 
+    # Files the tree could not analyse at all (issue #730): each is a
+    # refused file carrying the reason, not a silent zero.
+    failed_by_file = {
+        str(Path(item["file"]).resolve()): str(item["reason"]) for item in cov_report.get("failedFiles", [])
+    }
+
     file_results: list[dict[str, Any]] = []
     untyped_imports_needed: dict[str, dict[str, Any]] = {}
     stays_blocked: list[dict[str, Any]] = []
@@ -337,12 +343,13 @@ def assess(
                 pass
 
         has_error = bool(cov_report.get("error"))
-        if has_error:
+        failed_reason = failed_by_file.get(fpath_resolved)
+        if has_error or failed_reason is not None:
             status = STATUS_REFUSED
             local_fences = [
                 {
                     "code": "PS3001",
-                    "message": cov_report["error"],
+                    "message": failed_reason if failed_reason is not None else cov_report["error"],
                     "family": "construct-other",
                     "line": 1,
                     "col": 1,

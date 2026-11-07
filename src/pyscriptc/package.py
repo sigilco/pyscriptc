@@ -77,6 +77,8 @@ def lower_directory(
     resource_root: str = "",
     config: Any = None,
     staged_data: list[tuple[Path, bytes]] | None = None,
+    exclude: frozenset[Path] | None = None,
+    unit_failures: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], str]:
     """Lower a directory tree into one IR module.
 
@@ -111,7 +113,7 @@ def lower_directory(
         except Exception:
             config = None
 
-    units, skipped = _discover(root, program_mode, entry=entry, prefix=prefix)
+    units, skipped = _discover(root, program_mode, entry=entry, prefix=prefix, exclude=exclude)
     program = program_mode or _is_program_dir(root)
     dep_units, dep_fences = _discover_dep_roots(dep_roots or [])
     if dep_fences:
@@ -136,6 +138,7 @@ def lower_directory(
         if (program_mode or entry is not None) and not _is_program_dir(root)
         else root.resolve(),
         staged_data=staged_data or [],
+        unit_failures=unit_failures,
     )
     if skipped:
         notes = [*notes, *[_skip_note(root, rel) for rel in skipped]]
@@ -229,6 +232,7 @@ def _lower_units(
     path0: Path | None = None,
     staged_data: list[tuple[Path, bytes]] | None = None,
     package_mode: bool = False,
+    unit_failures: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Lower a set of module units into one IR module.
 
@@ -285,6 +289,7 @@ def _lower_units(
         config=config,
         bridge=bridge_for,
         island_group=island_group,
+        unit_failures=unit_failures,
     )
 
     if program:
@@ -314,83 +319,87 @@ def _lower_units(
     plane_top_island = False  # boxed
     with ffi_modules(ffi or []), dependency_lanes(dep_lane_report or {}), staged_resources(resource_root):
         for name, path, is_package in units:
-            text = path.read_text(encoding="utf-8")
-            tree = ast.parse(text, filename=str(path))
-            if program:
-                tree = _inject_inits(tree, owners.get(name, []), exports, name, is_package)
-            lowerer = Lowerer(str(path), text, target=target, config=config)
-            lowerer.module_name = name
-            lowerer.is_package = is_package
-            lowerer.package = exports
-            lowerer.exc_n = exc_n
-            lowerer.program = program
-            lowerer.program_roots = dep_names
-            lowerer.module_init = program and name != "__main__" and name != entry
-            lowerer.entry_module = entry is not None and name == entry
-            # The per-module plane split: a program compile keeps the native
-            # lane and the island lane side by side, so a call into another
-            # module's island floor crosses the boundary instead of refusing.
-            lowerer._boxed_plane_split = program and _boxed.definitions_tier()
-            # The island group: this unit rides the island floor whole, so
-            # its seed is its own source and CPython resolves the cycle.
-            lowerer._boxed_island_unit = name in island_group
-            lowerer._boxed_island_group = island_group
-            per_file_bridge = bridge_for(path)
-            lowerer.bridge = per_file_bridge
-            # The package-wide pin map rides the per-file bridge: the
-            # lowerer reads it through the same handle (`pyscriptc infer`).
-            lowerer.call_site_facts = getattr(per_file_bridge, "call_site_facts", None)
-            module = lowerer.module(tree)
-            # boxed:begin
-            needs_island = needs_island or _boxed.unit_needs_island(module)
-            # The per-module island seeds: one fenced unit keeps its own
-            # seed, so the program does not run whole island-side. An island
-            # group member does not: the group's bootstrap execs its body
-            # (its imports need the finder), so a second seed would run it
-            # twice.
-            seed = _opt_str_or_none(module, "islandSource")
-            if seed and name not in island_group:
-                island_modules[name] = seed
-            plan = _opt_record(module, "fallback") or {}
-            for fn_name, plane in (_opt_record(plan, "functions") or {}).items():
-                plane_functions[_qualified_plane_name(name, fn_name)] = plane
-            for cls_name, plane in (_opt_record(plan, "classes") or {}).items():
-                plane_classes[_qualified_plane_name(name, cls_name)] = plane
-            for demoted, reason in (plan.get("demotedBy") or {}).items():
-                plane_demoted.setdefault(_qualified_plane_name(name, demoted), reason)
-            if name == (entry or "__main__") and plan.get("moduleTopLevel") == _boxed.ISLAND:
-                plane_top_island = True
-            # Refs #641: the module-level island refusals (a cross-package
-            # import of a definition the other module planned for the island)
-            # belong to no definition, so the unit's own island planning
-            # drops them with the module-level fences. The merge keeps them.
-            if lowerer._boxed_module_fences:
-                module["fences"] = [
-                    *_items(module, "fences"),
-                    *(f.as_dict() for f in lowerer._boxed_module_fences),
-                ]
-            # boxed:end
-            exc_n = lowerer.exc_n
-            for fn in _items(module, "functions"):
-                functions.append(fn)
-            for cls in _items(module, "classes"):
-                previous = class_names.get(_node_name(cls))
-                if previous is not None:
-                    if _items(previous, "fields") == _items(cls, "fields"):
-                        if _items(previous, "methods") == _items(cls, "methods"):
-                            continue
-                    fences.append(
-                        {
-                            "code": "PS2002",
-                            "message": f"class {_node_name(cls)} is defined in more than one module",
-                            "span": _span_of(cls),
-                            "function": None,
-                        }
-                    )
-                    continue
-                class_names[_node_name(cls)] = cls
-                classes.append(cls)
-            fences.extend(_items(module, "fences"))
+            try:
+                text = path.read_text(encoding="utf-8")
+                tree = ast.parse(text, filename=str(path))
+                if program:
+                    tree = _inject_inits(tree, owners.get(name, []), exports, name, is_package)
+                lowerer = Lowerer(str(path), text, target=target, config=config)
+                lowerer.module_name = name
+                lowerer.is_package = is_package
+                lowerer.package = exports
+                lowerer.exc_n = exc_n
+                lowerer.program = program
+                lowerer.program_roots = dep_names
+                lowerer.module_init = program and name != "__main__" and name != entry
+                lowerer.entry_module = entry is not None and name == entry
+                # The per-module plane split: a program compile keeps the native
+                # lane and the island lane side by side, so a call into another
+                # module's island floor crosses the boundary instead of refusing.
+                lowerer._boxed_plane_split = program and _boxed.definitions_tier()
+                # The island group: this unit rides the island floor whole, so
+                # its seed is its own source and CPython resolves the cycle.
+                lowerer._boxed_island_unit = name in island_group
+                lowerer._boxed_island_group = island_group
+                per_file_bridge = bridge_for(path)
+                lowerer.bridge = per_file_bridge
+                # The package-wide pin map rides the per-file bridge: the
+                # lowerer reads it through the same handle (`pyscriptc infer`).
+                lowerer.call_site_facts = getattr(per_file_bridge, "call_site_facts", None)
+                module = lowerer.module(tree)
+                # boxed:begin
+                needs_island = needs_island or _boxed.unit_needs_island(module)
+                # The per-module island seeds: one fenced unit keeps its own
+                # seed, so the program does not run whole island-side. An island
+                # group member does not: the group's bootstrap execs its body
+                # (its imports need the finder), so a second seed would run it
+                # twice.
+                seed = _opt_str_or_none(module, "islandSource")
+                if seed and name not in island_group:
+                    island_modules[name] = seed
+                plan = _opt_record(module, "fallback") or {}
+                for fn_name, plane in (_opt_record(plan, "functions") or {}).items():
+                    plane_functions[_qualified_plane_name(name, fn_name)] = plane
+                for cls_name, plane in (_opt_record(plan, "classes") or {}).items():
+                    plane_classes[_qualified_plane_name(name, cls_name)] = plane
+                for demoted, reason in (plan.get("demotedBy") or {}).items():
+                    plane_demoted.setdefault(_qualified_plane_name(name, demoted), reason)
+                if name == (entry or "__main__") and plan.get("moduleTopLevel") == _boxed.ISLAND:
+                    plane_top_island = True
+                # Refs #641: the module-level island refusals (a cross-package
+                # import of a definition the other module planned for the island)
+                # belong to no definition, so the unit's own island planning
+                # drops them with the module-level fences. The merge keeps them.
+                if lowerer._boxed_module_fences:
+                    module["fences"] = [
+                        *_items(module, "fences"),
+                        *(f.as_dict() for f in lowerer._boxed_module_fences),
+                    ]
+                # boxed:end
+                exc_n = lowerer.exc_n
+                for fn in _items(module, "functions"):
+                    functions.append(fn)
+                for cls in _items(module, "classes"):
+                    previous = class_names.get(_node_name(cls))
+                    if previous is not None:
+                        if _items(previous, "fields") == _items(cls, "fields"):
+                            if _items(previous, "methods") == _items(cls, "methods"):
+                                continue
+                        fences.append(
+                            {
+                                "code": "PS2002",
+                                "message": f"class {_node_name(cls)} is defined in more than one module",
+                                "span": _span_of(cls),
+                                "function": None,
+                            }
+                        )
+                        continue
+                    class_names[_node_name(cls)] = cls
+                    classes.append(cls)
+                fences.extend(_items(module, "fences"))
+            except Exception as exc:
+                if not _note_unit_failure(unit_failures, path, exc):
+                    raise
     # boxed:begin
     if program and (needs_island or fences):
         # The per-module plane split: the entry's own top level decides
@@ -1447,6 +1456,22 @@ def _init_call(local: str, anchor: ast.stmt) -> ast.stmt:
     return expr
 
 
+def _note_unit_failure(unit_failures: list[dict[str, Any]] | None, path: Path, exc: Exception) -> bool:
+    """Record one unit that could not be analysed (issue #730); True when handled.
+
+    Report mode collects the file and the reason instead of aborting the
+    whole tree; the compile path passes no list and the exception
+    propagates unchanged.
+    """
+
+    if unit_failures is None:
+        return False
+    text = str(path)
+    if not any(item["file"] == text for item in unit_failures):
+        unit_failures.append({"file": text, "reason": f"{type(exc).__name__}: {exc}"})
+    return True
+
+
 def _catalog(
     units: list[tuple[str, Path, bool]],
     program: bool = False,
@@ -1455,6 +1480,7 @@ def _catalog(
     config: Any = None,
     bridge: Any = None,
     island_group: set[str] | None = None,
+    unit_failures: list[dict[str, Any]] | None = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     """Repeat until a subclass can see a base exported by an earlier pass.
 
@@ -1483,6 +1509,7 @@ def _catalog(
             bridge=bridge,
             memo=memo,
             island_group=island_group or set(),
+            unit_failures=unit_failures,
         )
         if nxt == exports:
             return nxt, nxt_failed
@@ -1518,6 +1545,7 @@ def _catalog_once(
     bridge: Any = None,
     memo: dict[str, _CatalogMemo] | None = None,
     island_group: set[str] | None = None,
+    unit_failures: list[dict[str, Any]] | None = None,
 ) -> tuple[
     dict[str, dict[str, dict[str, Any]]],
     dict[str, dict[str, dict[str, Any]]],
@@ -1538,50 +1566,54 @@ def _catalog_once(
             exc_n += cached.exc_used
             round_memo[name] = cached
             continue
-        text = path.read_text(encoding="utf-8")
-        tree = ast.parse(text, filename=str(path))
-        lowerer = Lowerer(str(path), text, target=target, config=config)
-        lowerer.module_name = name
-        lowerer.is_package = is_package
-        lowerer.cataloguing = True
-        lowerer.package = exports
-        lowerer.exc_n = exc_n
-        lowerer.program = program
-        lowerer.module_init = program and name != "__main__" and name != entry
-        lowerer.entry_module = entry is not None and name == entry
-        # The per-module plane split: the catalog pass resolves the same
-        # cross-module island bindings the real pass does, so the export
-        # table agrees on which definitions ride the island.
-        lowerer._boxed_plane_split = program and _boxed.definitions_tier()
-        # The island group: a unit of the group rides the island floor whole,
-        # so the catalog pass must agree on the routing before the real pass.
-        lowerer._boxed_island_unit = name in (island_group or set())
-        lowerer._boxed_island_group = island_group or set()
-        if bridge is not None:
-            unit_bridge = bridge(path) if callable(bridge) else bridge
-            lowerer.bridge = unit_bridge
-            lowerer.call_site_facts = getattr(unit_bridge, "call_site_facts", None)
-        module = lowerer.module(tree)
-        exc_used = lowerer.exc_n - exc_n
-        exc_n = lowerer.exc_n
-        found[name] = _exports_of(name, lowerer)
-        found[name]["__all__"] = {"kind": "all", "names": _all_names(tree)}
-        # A re-export in an `__init__.py` (`from .core import where`,
-        # issue #405) makes the name part of the package's public surface,
-        # so `from pkg import where` binds the way it does in CPython.
-        for local, item in _reexports_of(name, tree, exports, is_package, lowerer._export_reads).items():
-            if local not in found[name]:
-                found[name][local] = item
-        missed = _unexported_definitions(tree, lowerer, _items(module, "fences"))
-        if missed:
-            failed[name] = missed
-        round_memo[name] = _CatalogMemo(
-            reads=_export_entries_read(lowerer, exports),
-            exports=found[name],
-            failed=failed.get(name, {}),
-            exc_used=exc_used,
-            exc_base=exc_n - exc_used,
-        )
+        try:
+            text = path.read_text(encoding="utf-8")
+            tree = ast.parse(text, filename=str(path))
+            lowerer = Lowerer(str(path), text, target=target, config=config)
+            lowerer.module_name = name
+            lowerer.is_package = is_package
+            lowerer.cataloguing = True
+            lowerer.package = exports
+            lowerer.exc_n = exc_n
+            lowerer.program = program
+            lowerer.module_init = program and name != "__main__" and name != entry
+            lowerer.entry_module = entry is not None and name == entry
+            # The per-module plane split: the catalog pass resolves the same
+            # cross-module island bindings the real pass does, so the export
+            # table agrees on which definitions ride the island.
+            lowerer._boxed_plane_split = program and _boxed.definitions_tier()
+            # The island group: a unit of the group rides the island floor whole,
+            # so the catalog pass must agree on the routing before the real pass.
+            lowerer._boxed_island_unit = name in (island_group or set())
+            lowerer._boxed_island_group = island_group or set()
+            if bridge is not None:
+                unit_bridge = bridge(path) if callable(bridge) else bridge
+                lowerer.bridge = unit_bridge
+                lowerer.call_site_facts = getattr(unit_bridge, "call_site_facts", None)
+            module = lowerer.module(tree)
+            exc_used = lowerer.exc_n - exc_n
+            exc_n = lowerer.exc_n
+            found[name] = _exports_of(name, lowerer)
+            found[name]["__all__"] = {"kind": "all", "names": _all_names(tree)}
+            # A re-export in an `__init__.py` (`from .core import where`,
+            # issue #405) makes the name part of the package's public surface,
+            # so `from pkg import where` binds the way it does in CPython.
+            for local, item in _reexports_of(name, tree, exports, is_package, lowerer._export_reads).items():
+                if local not in found[name]:
+                    found[name][local] = item
+            missed = _unexported_definitions(tree, lowerer, _items(module, "fences"))
+            if missed:
+                failed[name] = missed
+            round_memo[name] = _CatalogMemo(
+                reads=_export_entries_read(lowerer, exports),
+                exports=found[name],
+                failed=failed.get(name, {}),
+                exc_used=exc_used,
+                exc_base=exc_n - exc_used,
+            )
+        except Exception as exc:
+            if not _note_unit_failure(unit_failures, path, exc):
+                raise
     return found, failed, round_memo
 
 
@@ -2048,7 +2080,11 @@ def _dep_name_fence(name: str) -> dict[str, Any]:
 
 
 def _discover(
-    root: Path, program_mode: bool = False, entry: str | None = None, prefix: str = ""
+    root: Path,
+    program_mode: bool = False,
+    entry: str | None = None,
+    prefix: str = "",
+    exclude: frozenset[Path] | None = None,
 ) -> tuple[list[tuple[str, Path, bool]], list[str]]:
     """Find every module in the tree.
 
@@ -2066,6 +2102,12 @@ def _discover(
     path relative to the root. That module keeps its own dotted name (its
     relative imports resolve against it), and the tree keeps the package
     namespace.
+
+    ``exclude`` is the report mode's drop list (issue #730): the coverage
+    and assess reports name the files that cannot be analysed and lower
+    the rest of the tree without them, instead of refusing the whole tree.
+    When it is set, a tree whose every module is excluded yields no units
+    instead of raising.
     """
 
     root = root.resolve()
@@ -2083,6 +2125,8 @@ def _discover(
     found: list[tuple[str, Path, bool]] = []
     skipped: list[str] = []
     for path in sorted(root.rglob("*.py")):
+        if exclude is not None and path in exclude:
+            continue
         relative = path.relative_to(root)
         if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
             continue
@@ -2114,7 +2158,7 @@ def _discover(
             found.append((".".join(stem.parts), path, False))
             continue
         found.append(((".".join((package, *stem.parts))), path, False))
-    if not found:
+    if not found and exclude is None:
         raise IRError(f"no Python files in {root}")
     return found, skipped
 

@@ -177,6 +177,79 @@ def test_coverage_walks_a_program_graph(tmp_path: Path) -> None:
     assert report["summary"]["definitions"] == 2
 
 
+def test_coverage_survives_a_real_package_tree(tmp_path: Path) -> None:
+    """Issue #730: unnameable and unparsable files are listed, not fatal."""
+    pkg = tmp_path / "pkg"
+    (pkg / "migrations").mkdir(parents=True)
+    (pkg / "nspkg").mkdir()
+    (pkg / "__init__.py").write_text("from . import a\n", encoding="utf-8")
+    (pkg / "a.py").write_text("from . import b\n\n\ndef f() -> int:\n    return b.g()\n", encoding="utf-8")
+    (pkg / "b.py").write_text("from . import a\n\n\ndef g() -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "migrations" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "migrations" / "0001_initial.py").write_text("def mig() -> int:\n    return 7\n", encoding="utf-8")
+    (pkg / "broken.py").write_text("def broken(:\n", encoding="utf-8")
+    (pkg / "nspkg" / "mod.py").write_text("def h() -> int:\n    return 3\n", encoding="utf-8")
+    got = run_cli("coverage", str(pkg), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["summary"]["files"] == 5
+    assert report["summary"]["filesFailed"] == 2
+    failed = {item["file"].rsplit("/", 1)[-1]: item["reason"] for item in report["failedFiles"]}
+    assert "not a module name" in failed["0001_initial.py"]
+    assert "invalid syntax" in failed["broken.py"]
+    analysed = {item["file"].rsplit("/", 1)[-1] for item in report["capabilities"]["byFile"]}
+    assert "mod.py" in analysed
+    assert "0001_initial.py" not in analysed
+
+
+def test_coverage_text_lists_unanalysed_files(tmp_path: Path) -> None:
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "ok.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "broken.py").write_text("def broken(:\n", encoding="utf-8")
+    got = run_cli("coverage", str(pkg))
+    assert got.returncode == 0, got.stderr
+    assert "could not analyse 1 file(s)" in got.stdout
+    assert "broken.py: invalid syntax" in got.stdout
+
+
+def test_coverage_single_file_parse_failure(tmp_path: Path) -> None:
+    bad = write_case(tmp_path, "bad.py", "def broken(:\n")
+    got = run_cli("coverage", str(bad), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["summary"]["files"] == 1
+    assert report["summary"]["filesFailed"] == 1
+    assert "invalid syntax" in report["failedFiles"][0]["reason"]
+
+
+def test_coverage_survives_a_unit_lowerer_crash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A unit that raises inside the lowering is listed, not fatal (issue #730)."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "ok.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "boom.py").write_text("def g() -> int:\n    return 2\n", encoding="utf-8")
+
+    import pyscriptc.package as package
+
+    real_module = package.Lowerer.module
+
+    def flaky(self: object, tree: ast.Module) -> dict:
+        if self.filename.endswith("boom.py"):
+            raise RuntimeError("synthetic crash")
+        return real_module(self, tree)
+
+    monkeypatch.setattr(package.Lowerer, "module", flaky)
+    report = coverage.build_report(pkg)
+    assert report["summary"]["files"] == 2
+    assert report["summary"]["filesFailed"] == 1
+    assert report["failedFiles"] == [
+        {"file": str((pkg / "boom.py").resolve()), "reason": "RuntimeError: synthetic crash"}
+    ]
+
+
 def test_coverage_marks_island_imports_from_the_policy_table(tmp_path: Path) -> None:
     script = write_case(
         tmp_path,
