@@ -226,6 +226,28 @@ class BoxedResolveMixin:
                         msg = f"{fn.name} runs on the island and cannot call the compiled function {callee}: {reason}"
                         fences.append(Fence("PS2002", msg, span_of(node, self.filename), fn.name))
                         self._boxed_sibling_fences.append(fences[-1])
+        # The per-module plane split: an island definition calling a native
+        # definition of another module is the same island-to-compiled seam,
+        # one module further out. The sibling above demotes a definition of
+        # the same module; a definition of another module cannot be
+        # demoted from here, so the call refuses with the same diagnostic.
+        for fn in self._boxed_functions:
+            if fn.name not in self.island_fns:
+                continue
+            for node in ast.walk(fn):
+                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+                    continue
+                callee = node.func.id
+                binding = self.bindings.get(callee)
+                if binding is None or binding.kind != "pyfunc":
+                    continue
+                module = binding.module
+                msg = (
+                    f"{fn.name} runs on the island and cannot call the compiled function "
+                    f"{module}.{callee}: the island-to-compiled seam is the `--emit binding` surface"
+                )
+                fences.append(Fence("PS2002", msg, span_of(node, self.filename), fn.name))
+                self._boxed_sibling_fences.append(fences[-1])
 
     def _island_call_passes_mutable(self, callee: str) -> bool:
         """Whether the island callee has a mutable container parameter
@@ -602,6 +624,17 @@ class BoxedResolveMixin:
             elem = typ.get("elem") or {}
             return not elem.get("optional") and _maybe_type_kind(elem) in {"bool", "int", "float", "str", "bytes"}
         return False
+
+    def _boxed_cross_module_island(self) -> bool:
+        """Whether a call may cross into another module's island floor.
+
+        The plane split (the per-module island granularity) is on when the
+        compile runs the fallback tier and the program keeps both planes.
+        The merge sets the flag once it knows the program is not one whole
+        island.
+        """
+
+        return self._boxed_plane_split
 
     # boxed:end
 

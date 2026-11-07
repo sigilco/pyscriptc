@@ -324,6 +324,11 @@ class AbiMixin(EmitterBase):
         nkw, kws, want, pad, &out)` unboxes through the same `want`
         mechanism as `ps_island_call_value`. The namespace is seeded once
         with the module's own source before `main` runs.
+
+        The per-module plane split: a definition that rides another
+        module's island floor is called through
+        `ps_island_mod_fn_invoke(module, name, ...)`, the same seam with
+        the defining module's name in front of the callee key.
         """
         npos: int = _opt_int(expr, "island_npos", len(values)) or 0
         nkw: int = _opt_int(expr, "island_nkw", 0)
@@ -338,7 +343,58 @@ class AbiMixin(EmitterBase):
         data = name.encode("utf-8")
         size = len(data)
         symbol = self.format_global(f"island.fn.{name}", data)
-        want: dict[str, Any] | None = _opt_record(fn, "want")
+        module: str | None = _opt_str_or_none(fn, "module")
+        if module is not None:
+            mod_data = module.encode("utf-8")
+            mod_size = len(mod_data)
+            mod_symbol = self.format_global(f"island.mod.{module}", mod_data)
+            want: dict[str, Any] | None = _opt_record(fn, "want")
+            if want is not None:
+                code = self._island_code(want)
+                pad = self._island_pad(want)
+                out = self._alloca("%ps.arg")
+                self._abi_decl(
+                    "ps_island_mod_fn_invoke_value",
+                    "void",
+                    ["i64", "ptr", "i64", "ptr", "i64", "ptr", "i64", "ptr", "i32", "i32", "ptr"],
+                )
+                self._call_void(
+                    "ps_island_mod_fn_invoke_value",
+                    [
+                        f"i64 {mod_size}",
+                        f"ptr {mod_symbol}",
+                        f"i64 {size}",
+                        f"ptr {symbol}",
+                        f"i64 {npos}",
+                        f"ptr {pos_ptr}",
+                        f"i64 {nkw}",
+                        f"ptr {kw_ptr}",
+                        f"i32 {code}",
+                        f"i32 {pad}",
+                        f"ptr {out}",
+                    ],
+                )
+                return self._load_island_result(out, want)
+            self._abi_decl(
+                "ps_island_mod_fn_invoke",
+                "ptr",
+                ["i64", "ptr", "i64", "ptr", "i64", "ptr", "i64", "ptr"],
+            )
+            return self._call_ret(
+                "ptr",
+                "ps_island_mod_fn_invoke",
+                [
+                    f"i64 {mod_size}",
+                    f"ptr {mod_symbol}",
+                    f"i64 {size}",
+                    f"ptr {symbol}",
+                    f"i64 {npos}",
+                    f"ptr {pos_ptr}",
+                    f"i64 {nkw}",
+                    f"ptr {kw_ptr}",
+                ],
+            )
+        want = _opt_record(fn, "want")
         if want is not None:
             code = self._island_code(want)
             pad = self._island_pad(want)
@@ -420,6 +476,22 @@ class AbiMixin(EmitterBase):
         source: str | None = _opt_str_or_none(self.module, "islandSource")
         if source:
             self._emit_island_seed(source)
+        # The per-module plane split: every program module's island floor
+        # seed runs beside the single-namespace seed, in the merge's module
+        # order (the import order the merge recorded).
+        modules = _opt_record(self.module, "islandModules") or {}
+        for mod_name, mod_source in modules.items():
+            data = mod_name.encode("utf-8")
+            mod_size = len(data)
+            mod_symbol = self.format_global(f"island.mod.{mod_name}", data)
+            src = mod_source.encode("utf-8")
+            src_size = len(src)
+            src_symbol = self.format_global(f"island.seed.{mod_name}", src)
+            self._abi_decl("ps_island_mod_seed", "void", ["i64", "ptr", "i64", "ptr"])
+            self._call_void(
+                "ps_island_mod_seed",
+                [f"i64 {mod_size}", f"ptr {mod_symbol}", f"i64 {src_size}", f"ptr {src_symbol}"],
+            )
 
     # boxed:end
 
