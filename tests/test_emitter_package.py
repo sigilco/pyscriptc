@@ -195,6 +195,7 @@ def test_the_seam_reads_the_abi_and_call_records() -> None:
 
     assert _ir._opt_record({"want": typ}, "want") == typ
     assert _ir._opt_record({}, "want") is None
+    assert _ir._record({"want": typ}, "want") == typ
     marked = _ir._mark_fmt(typ)
     assert marked["fmt"] == 1
     assert {k: v for k, v in marked.items() if k != "fmt"} == typ

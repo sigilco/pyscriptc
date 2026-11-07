@@ -4,21 +4,23 @@ from __future__ import annotations
 
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.emit._ir import (
     _field_name,
     _field_type,
     _items,
-    _kind,
     _llvm_bytes,
     _llvm_double,
     _llvm_type,
     _opt_node_end,
     _opt_node_sep,
+    _opt_record,
     _opt_str_or_none,
-    _type_name,
+    _record,
 )
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
+from pyscriptc.tirserde import dict_to_type
 
 
 class PrintMixin(EmitterBase):
@@ -52,7 +54,7 @@ class PrintMixin(EmitterBase):
         return third
 
     def materialize_arg(self, typ: dict[str, Any], value: Any) -> str:
-        kind = _kind(typ)
+        kind = dict_to_type(typ).kind
         if kind == "int":
             return str(value)
         if kind == "float":
@@ -64,7 +66,7 @@ class PrintMixin(EmitterBase):
         raise FitError(f"cannot pass a {kind} argument into main")
 
     def print_value(self, typ: dict[str, Any], value: str) -> None:
-        kind = _kind(typ)
+        kind = dict_to_type(typ).kind
         self.needed.add("printf")
         if kind == "int":
             fmt = self.format_global("int", b"%lld\n")
@@ -101,7 +103,8 @@ class PrintMixin(EmitterBase):
         end_expr: dict[str, Any] | None = _opt_node_end(expr)
         sep = self.emit_expr(sep_expr) if sep_expr is not None else None
         end = self.emit_expr(end_expr) if end_expr is not None else None
-        for index, (value, typ) in enumerate(zip(values, arg_types, strict=True)):
+        arg_ts: list[_ir.T] = [dict_to_type(typ) for typ in arg_types]
+        for index, (value, typ) in enumerate(zip(values, arg_ts, strict=True)):
             if index:
                 if sep is None:
                     self._print_fmt("space", b" ", err=err)
@@ -162,14 +165,14 @@ class PrintMixin(EmitterBase):
         self.line(f"{reg} = trunc i64 {arg[4:]} to i32")
         return f"i32 {reg}"
 
-    def _print_one(self, typ: dict[str, Any], value: str, err: bool) -> None:
+    def _print_one(self, typ: _ir.T, value: str, err: bool) -> None:
         """One print argument: scalars spell directly, a tuple class recurses.
 
         Each branch here is a field of `_emit_print`'s loop; the tuple case
         writes CPython's `(a, b)` shape field by field.
         """
 
-        kind = _kind(typ)
+        kind = typ.kind
         if kind == "int":
             self._print_fmt("int", b"%lld", [f"i64 {value}"], err=err)
         elif kind == "float":
@@ -195,8 +198,8 @@ class PrintMixin(EmitterBase):
             out = self._buf_out("ps_exc_str", [f"ptr {value}"])
             length, ptr = self._buf_parts(out)
             self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
-        elif kind == "class" and self._is_tuple(_type_name(typ)):
-            self._print_tuple(_type_name(typ), value, err)
+        elif kind == "class" and self._is_tuple(typ.name):
+            self._print_tuple(typ.name, value, err)
         else:
             length, ptr = self._buf_parts(value)
             self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
@@ -204,7 +207,7 @@ class PrintMixin(EmitterBase):
     def _is_tuple(self, name: str) -> bool:
         """Tuple classes the lowerer synthesizes: `tuple_N_*` over fields _0.._n."""
 
-        info = self.class_index.get(name)
+        info = _opt_record(self.class_index, name)
         if info is None or not name.startswith("tuple_"):
             return False
         return all(_field_name(field) == f"_{index}" for index, field in enumerate(_items(info, "fields")))
@@ -218,28 +221,28 @@ class PrintMixin(EmitterBase):
         spelling). Scalars keep their direct shapes.
         """
 
-        fields = _items(self.class_index[name], "fields")
+        fields = _items(_record(self.class_index, name), "fields")
         self._print_fmt("lparen", b"(", err=err)
         for index, field in enumerate(fields):
             if index:
                 self._print_fmt("tsep", b", ", err=err)
             slot = self._field_ptr(name, value, self._field(name, _field_name(field)))
-            fkind = _kind(_field_type(field))
-            if fkind in {"str", "bytes"}:
+            ftype_dict: dict[str, Any] = _field_type(field)
+            ftype: _ir.T = dict_to_type(ftype_dict)
+            if ftype.kind in {"str", "bytes"}:
                 length = self.tmp()
                 ptr = self.tmp()
                 self.line(f"{length} = load i64, ptr {slot}")
                 data_ptr = self.tmp()
                 self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
                 self.line(f"{ptr} = load ptr, ptr {data_ptr}")
-                if fkind == "str":
+                if ftype.kind == "str":
                     self._abi_decl("ps_repr_quoted", "void", ["i64", "ptr", "ptr"])
                     out = self._buf_out("ps_repr_quoted", [f"i64 {length}", f"ptr {ptr}"])
                     length, ptr = self._buf_parts(out)
                 self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
             else:
-                ftype = _field_type(field)
-                loaded = self._load(_llvm_type(ftype), slot)
+                loaded = self._load(_llvm_type(ftype_dict), slot)
                 self._print_one(ftype, loaded, err)
         if len(fields) == 1:
             self._print_fmt("tsep", b",", err=err)
