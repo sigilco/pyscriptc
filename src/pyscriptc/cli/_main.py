@@ -827,13 +827,13 @@ def run_cmd(args: argparse.Namespace) -> int:
     if not source.exists():
         raise IRError(f"source not found: {source}")
     run_env = _run_environment(source)
-    use_cache = runcache.enabled() and not args.no_cache
+    use_cache: bool = runcache.enabled() and not args.no_cache
     key = _run_key(args)
-    name = (source.resolve().name if source.is_dir() else source.stem) or "app"
-    binary = runcache.binary_path(key, name)
+    name: str = (source.resolve().name if source.is_dir() else source.stem) or "app"
+    binary: Path = runcache.binary_path(key, name)
     if use_cache and binary.is_file():
         log.info("run.cache_hit", key=key, binary=str(binary))
-        code = _exec_binary(binary, args.run_argv, env=run_env)
+        code: int = _exec_binary(binary, args.run_argv, env=run_env)
         _track_run(
             args,
             code,
@@ -862,7 +862,7 @@ def run_cmd(args: argparse.Namespace) -> int:
                 if not binary.is_file():
                     raise
             else:
-                code = _exec_binary(binary, args.run_argv, env=run_env)
+                code: int = _exec_binary(binary, args.run_argv, env=run_env)
                 _track_run(
                     args,
                     code,
@@ -875,7 +875,7 @@ def run_cmd(args: argparse.Namespace) -> int:
                     _handle_run_report(args.report, binary, source)
                 # boxed:end
                 return code
-        code = _exec_binary(build / name, args.run_argv, env=run_env)
+        code: int = _exec_binary(build / name, args.run_argv, env=run_env)
         _track_run(
             args,
             code,
@@ -945,8 +945,8 @@ def _run_key(args: argparse.Namespace) -> str:
     two different programs would claim the same cache entry.
     """
     source = Path(args.source)
-    name = (source.resolve().name if source.is_dir() else source.stem) or "app"
-    ffi_paths = [str(p) for p in getattr(args, "ffi", None) or []]
+    name: str = (source.resolve().name if source.is_dir() else source.stem) or "app"
+    ffi_paths: list[str] = [str(p) for p in getattr(args, "ffi", None) or []]
     ffi_paths.extend(str(p) for p in load_config(source).ffi_manifests)
     return runcache.key_for(
         source,
@@ -1046,8 +1046,8 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
 
 
 def _run_environment(source_path: Path) -> dict[str, str]:
-    env = dict(os.environ)
-    prog_dir = str((source_path if source_path.is_dir() else source_path.parent).resolve())
+    env: dict[str, str] = dict(os.environ)
+    prog_dir: str = str((source_path if source_path.is_dir() else source_path.parent).resolve())
     env.setdefault("PYSC_PROGRAM_DIR", prog_dir)
     if "VIRTUAL_ENV" not in env and sys.prefix != sys.base_prefix:
         env["VIRTUAL_ENV"] = sys.prefix
@@ -1056,7 +1056,7 @@ def _run_environment(source_path: Path) -> dict[str, str]:
 
 def _exec_binary(binary: Path, argv: list[str], env: dict[str, str] | None = None) -> int:
     completed = subprocess.run([str(binary.absolute()), *argv], env=env)
-    code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
+    code: int = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
     log.info("run.exit", binary=str(binary), code=code)
     return code
 
@@ -1080,10 +1080,10 @@ def verify_cmd(args: argparse.Namespace) -> int:
         raise IRError("--timeout must be a positive number of seconds")
     if args.input is not None and not Path(args.input).exists():
         raise IRError(f"--input file not found: {args.input}")
-    stdin = Path(args.input).read_bytes() if args.input is not None else b""
+    stdin: bytes = Path(args.input).read_bytes() if args.input is not None else b""
     oracle = verify.find_oracle()
     call_args = _parse_args(args.args) if args.call else []
-    name = source.stem or "app"
+    name: str = source.stem or "app"
     key = _run_key(args)
     with tempfile.TemporaryDirectory(prefix="pyscriptc-verify-") as scratch_name:
         scratch = Path(scratch_name)
@@ -1167,8 +1167,8 @@ def _verify_binary(args: argparse.Namespace, name: str, key: str, scratch: Path)
     `run` compiles and shares its content-hash cache. The compiler's own stderr
     is captured: a fence report belongs in the receipt, not above it.
     """
-    use_cache = runcache.enabled() and not args.no_cache
-    cached = runcache.binary_path(key, name)
+    use_cache: bool = runcache.enabled() and not args.no_cache
+    cached: Path = runcache.binary_path(key, name)
     if use_cache and cached.is_file():
         log.info("verify.cache_hit", key=key, binary=str(cached))
         return cached, True, 0, ""
@@ -1177,7 +1177,7 @@ def _verify_binary(args: argparse.Namespace, name: str, key: str, scratch: Path)
     output = io.StringIO()
     try:
         with contextlib.redirect_stderr(output):
-            code = _build_for_run(args, build / name)
+            code: int = _build_for_run(args, build / name)
     except BaseException:
         sys.stderr.write(output.getvalue())
         raise
@@ -1213,7 +1213,7 @@ def build_cmd(args: argparse.Namespace) -> int:
     if not scripts:
         print(f"{pyproject}: no [project.scripts] table, nothing to build", file=sys.stderr)
         return 1
-    names = sorted(scripts) if args.script is None else [args.script]
+    names: list[str] = sorted(scripts) if args.script is None else [args.script]
     for name in names:
         if name not in scripts:
             known = ", ".join(sorted(scripts))
@@ -1221,7 +1221,7 @@ def build_cmd(args: argparse.Namespace) -> int:
             return 2
     state: dict[str, Any] = {"outcome": None, "stage": "lower", "fence_count": 0, "fence_families": {}}
     try:
-        out_dir = Path(args.out_dir) if args.out_dir else pyproject.parent / "build"
+        out_dir: Path = Path(args.out_dir) if args.out_dir else pyproject.parent / "build"
         out_dir.mkdir(parents=True, exist_ok=True)
         built: list[Path] = []
         for name in names:
@@ -1251,7 +1251,7 @@ def build_cmd(args: argparse.Namespace) -> int:
                     target=args.target,
                     link_driver=args.linker,
                 )
-                binary = out_dir / name
+                binary: Path = out_dir / name
                 shutil.move(str(staged), str(binary))
             built.append(binary)
             print(binary)
@@ -1357,7 +1357,7 @@ def _compile_env_defaults(args: argparse.Namespace) -> None:
     mode defaults the driver to clang. An explicit `--driver zig` is left in
     place so `build_library` refuses it with the message that says why.
     """
-    explicit_driver = args.driver is not None
+    explicit_driver: bool = args.driver is not None
     _apply_env_defaults(args)
     if args.emit == "lib" and not explicit_driver:
         args.driver = "clang"
@@ -1380,7 +1380,7 @@ def _sanitize_list(value: str | None) -> list[str]:
 
 def _require_sanitize(args: argparse.Namespace) -> list[str]:
     """Resolve `--sanitize` and refuse the combinations that cannot honor it."""
-    names = _sanitize_list(getattr(args, "sanitize", None))
+    names: list[str] = _sanitize_list(getattr(args, "sanitize", None))
     if not names:
         return []
     if args.emit not in ("bin", "binding"):
@@ -1416,7 +1416,7 @@ def _library_dir(args: argparse.Namespace, source: Path) -> Path:
     """
     if args.output:
         return Path(args.output)
-    base = (Path(args.out_dir) / source.stem) if args.out_dir else source.with_suffix("")
+    base: Path = (Path(args.out_dir) / source.stem) if args.out_dir else source.with_suffix("")
     return base.with_name(base.name + "lib")
 
 
@@ -1450,7 +1450,7 @@ def _require_toolchain(args: argparse.Namespace) -> None:
         # The library mode resolves its own toolchain (the Xcode SDK clang or
         # the NDK clang), and the resolution errors name what is missing.
         return
-    driver = args.driver
+    driver: str | None = args.driver
     if driver is None:
         raise IRError(
             "no C toolchain found on PATH (neither zig nor clang), and compiling to a binary needs a C toolchain. "
@@ -1465,7 +1465,7 @@ def _require_toolchain(args: argparse.Namespace) -> None:
         # is gone) is not trusted and gets rebuilt or rejected here.
         zigshim.ensure_on_path()
     if shutil.which(driver) is None:
-        hint = (
+        hint: str = (
             zigshim.install_hint()
             if driver == "zig"
             else ("install clang (xcode-select --install, apt install clang, ...) or pick zig with --driver zig")
@@ -1583,16 +1583,16 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         dbg.begin("lower")
         # boxed:begin
         island_names = set(config.island_imports())
-        fallback = (
+        fallback: bool = (
             getattr(args, "fallback", None) == "cpython"
             or bool(getattr(args, "island", False))
             or config.fallback_definitions()
         )
-        island_default = fallback or config.wildcard_island()
+        island_default: bool = fallback or config.wildcard_island()
         island_ctx = island_policy(island_names, island_default)
         # boxed:end
         dep_roots, checker_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
-        binary = Path(args.output) if args.output else _artifact_base(args, source_path)
+        binary: Path = Path(args.output) if args.output else _artifact_base(args, source_path)
         if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
             binary = binary.with_suffix(".exe")
         data_root = _stage_dependency_data(source_path, config, args, binary, island_default=island_default)
@@ -1657,7 +1657,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         from pyscriptc import boxed as _boxed
 
         if fallback_map is None:
-            all_names = [record["name"] for record in module.get("functions", [])]
+            all_names: list[str] = [record["name"] for record in module.get("functions", [])]
             fallback_map = _boxed.plane_map(
                 [],
                 [{"name": n} for n in dict.fromkeys(all_names)],
@@ -1785,7 +1785,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         if args.emit == "lib":
             # The library bundle carries its own .ll: the archive's module
             # member is <stem>.o, so the stem must not be the -o directory.
-            ll_path = _library_dir(args, source_path) / f"{source_path.stem}.ll"
+            ll_path: Path = _library_dir(args, source_path) / f"{source_path.stem}.ll"
         else:
             ll_path = _output_path(args, source_path, ".ll")
         ll_path.parent.mkdir(parents=True, exist_ok=True)
@@ -1798,7 +1798,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             _verify_llvm(ll_path, dbg, driver=args.driver or "clang", target=args.target)
             dbg.end("llvmverify")
         if args.emit == "llvm":
-            print(ll_path)
+            print(str(ll_path))
             return 0
         if args.emit == "lib":
             state["stage"] = "archive"
@@ -1835,11 +1835,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
 
             state["stage"] = "binding"
             dbg.begin("binding")
-            base = Path(args.output) if args.output else _artifact_base(args, source_path)
+            base: Path = Path(args.output) if args.output else _artifact_base(args, source_path)
             stem = base.stem.removesuffix("_binding")
             shlib_name = binding.shared_library_name(stem, target=args.target)
-            shlib_path = base.parent / shlib_name
-            binding_path = base.parent / f"{stem}_binding.py"
+            shlib_path: Path = base.parent / shlib_name
+            binding_path: Path = base.parent / f"{stem}_binding.py"
 
             # The exported calls need an exception guard at the C ABI edge: a
             # raise unwinds with longjmp, and a ctypes caller leaves no handler
@@ -1848,7 +1848,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             # from the same function list the loader module is built from.
             emitted, skipped = binding.analyze_binding(module)
             dbg.set_binding(emitted, skipped)
-            shim_path = base.parent / f"{stem}_binding_shim.c"
+            shim_path: Path = base.parent / f"{stem}_binding_shim.c"
             shim_path.parent.mkdir(parents=True, exist_ok=True)
             shim_path.write_text(binding.render_binding_shim(stem, emitted), encoding="utf-8")
 
@@ -1886,10 +1886,10 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 skipped=len(skipped),
             )
             dbg.end("binding")
-            print(binding_path)
+            print(str(binding_path))
             return 0
         if args.emit in ("asm", "obj"):
-            suffix = ".s" if args.emit == "asm" else ".o"
+            suffix: str = ".s" if args.emit == "asm" else ".o"
             unit_path = _output_path(args, source_path, suffix)
             state["stage"] = "link"
             compile_unit(
@@ -1938,13 +1938,13 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # The direct third-party import roots of the program, for the bundle's
         # site-packages tree (issue #660). A native-backed distribution among
         # them refuses the compile (PS4302) before anything is staged.
-        dep_roots = sitedeps.third_party_roots(source_path) if resolved_embed == "bundle" else []
+        dep_roots: list[str] = sitedeps.third_party_roots(source_path) if resolved_embed == "bundle" else []
         if resolved_embed == "bundle":
             sitedeps.check_pure(dep_roots)
             pack = embed.lock_pack()
             pack_directory = embed.ensure_pack(pack)
             embed_version = embed.python_version()
-            trim = getattr(args, "embed_stdlib", None) or stdlibzip.DEFAULT_MODE
+            trim: str = getattr(args, "embed_stdlib", None) or stdlibzip.DEFAULT_MODE
             carried = stdlibzip.kept_module_names(
                 stdlibzip.stdlib_sources(pack_directory / "lib" / f"python{embed_version}", trim)
             )
@@ -1956,7 +1956,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             )
         if resolved_embed == "bundle":
             pack = embed.lock_pack()
-            staged = embed.stage_bundle(
+            staged: Path = embed.stage_bundle(
                 binary,
                 embed.pack_dir(pack),
                 embed.python_version(),
@@ -1970,7 +1970,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         state["binary_bytes"] = binary.stat().st_size if binary.is_file() else None
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)
         if not args.run:
-            print(binary)
+            print(str(binary))
             return 0
         state["stage"] = "run"
         log.info("run.start", binary=str(binary))
@@ -1978,7 +1978,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         run_env = _run_environment(source_path)
         completed = subprocess.run([str(binary.absolute()), *args.run_argv], env=run_env)
         dbg.end("run")
-        code = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
+        code: int = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
         log.info("run.exit", binary=str(binary), code=code)
         return code
     except Exception as exc:
@@ -2216,14 +2216,14 @@ def _verify_llvm(ll_path: Path, dbg: Debug, driver: str, target: str | None) -> 
         raise LLVMVerifyError(f"the emitted LLVM module did not verify: {result.message}")
 
 
-def _histogram(fences: list[dict[str, Any]], key: str) -> dict[str, int]:
+def _histogram(fences: list[dict[str, str]], key: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for fence in fences:
         counts[fence.get(key, "")] = counts.get(fence.get(key, ""), 0) + 1
     return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
 
 
-def _fence_families(fences: list[dict[str, Any]]) -> dict[str, int]:
+def _fence_families(fences: list[dict[str, str]]) -> dict[str, int]:
     """Count fences per diagnostic family; `stdlib:<module>` collapses to `stdlib`."""
     counts: dict[str, int] = {}
     for fence in fences:

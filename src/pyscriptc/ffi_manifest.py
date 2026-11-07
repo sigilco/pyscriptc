@@ -155,8 +155,8 @@ class ManifestSource:
     are mutually exclusive (the validator refuses both or neither).
     """
 
-    path: str = ""
-    objects: tuple[str, ...] = ()
+    path: str
+    objects: tuple[str, ...]
 
     def resolved(self, base: Path) -> list[Path]:
         """The paths of this source, resolved relative to the manifest file."""
@@ -222,11 +222,11 @@ class ManifestFunction:
     py: str
     c_symbol: str
     abi: str
-    params: tuple[ManifestParam, ...] = ()
-    returns: str = "None"
-    borrows: tuple[HandleRef, ...] = ()
-    consumes: tuple[HandleRef, ...] = ()
-    handle_names: frozenset[str] = frozenset()
+    params: tuple[ManifestParam, ...]
+    returns: str
+    borrows: tuple[HandleRef, ...]
+    consumes: tuple[HandleRef, ...]
+    handle_names: set[str]
 
     @property
     def arity(self) -> int:
@@ -274,13 +274,13 @@ class FfiManifest:
     ps_abi: int
     format: int
     path: Path
-    sources: tuple[ManifestSource, ...] = ()
-    handles: tuple[ManifestHandle, ...] = ()
-    consts: tuple[ManifestConst, ...] = ()
-    functions: tuple[ManifestFunction, ...] = ()
-    handle_names: frozenset[str] = frozenset()
-    libs: tuple[str, ...] = ()
-    lib_dirs: tuple[str, ...] = ()
+    sources: tuple[ManifestSource, ...]
+    handles: tuple[ManifestHandle, ...]
+    consts: tuple[ManifestConst, ...]
+    functions: tuple[ManifestFunction, ...]
+    handle_names: set[str]
+    libs: tuple[str, ...]
+    lib_dirs: tuple[str, ...]
 
     def function(self, name: str) -> ManifestFunction | None:
         """The function bound to a Python-visible name, if any."""
@@ -448,7 +448,7 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
         handles,
         consts,
         functions,
-        frozenset(handle.name for handle in handles),
+        handle_names,
         libs,
         lib_dirs,
     )
@@ -659,7 +659,7 @@ def _build_functions(
                 returns,
                 resolved_borrows,
                 resolved_consumes,
-                frozenset(handle_names),
+                handle_names,
             )
         )
     return tuple(functions)
