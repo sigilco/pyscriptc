@@ -281,7 +281,7 @@
         "stage": "compile",
         "exit": 2,
         "stdout": "",
-        "stderr": "probes/divergences/d14_abc.py:10: error: Cannot instantiate `A` because the following members are abstract: `f` [bad-instantiation]\n"
+        "stderr": "probes/divergences/d14_abc.py:10: error: Cannot instantiate `A` because the following members are abstract: `f` [bad-instantiation]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
       },
       "status": "fenced"
     },
@@ -345,7 +345,7 @@
         "stage": "compile",
         "exit": 2,
         "stdout": "",
-        "stderr": "probes/divergences/d19_gen_send.py:9: error: Object of class `Iterator` has no attribute `send` [missing-attribute]\n"
+        "stderr": "probes/divergences/d19_gen_send.py:9: error: Object of class `Iterator` has no attribute `send` [missing-attribute]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
       },
       "status": "fenced"
     },
@@ -365,7 +365,7 @@
         "stage": "compile",
         "exit": 2,
         "stdout": "",
-        "stderr": "probes/divergences/d20_gen_throw.py:9: error: Object of class `Iterator` has no attribute `throw` [missing-attribute]\n"
+        "stderr": "probes/divergences/d20_gen_throw.py:9: error: Object of class `Iterator` has no attribute `throw` [missing-attribute]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
       },
       "status": "fenced"
     },
@@ -438,7 +438,7 @@
         "stage": "compile",
         "exit": 2,
         "stdout": "",
-        "stderr": "probes/divergences/d25_gen_finally.py:13: error: Object of class `Iterator` has no attribute `close` [missing-attribute]\n"
+        "stderr": "probes/divergences/d25_gen_finally.py:13: error: Object of class `Iterator` has no attribute `close` [missing-attribute]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
       },
       "status": "fenced"
     },
@@ -469,7 +469,7 @@
         "stage": "compile",
         "exit": 2,
         "stdout": "",
-        "stderr": "probes/divergences/d27_urlretrieve.py:3: error: No attribute `urlretrieve` in module `urllib.request` [missing-attribute]\n"
+        "stderr": "probes/divergences/d27_urlretrieve.py:3: error: No attribute `urlretrieve` in module `urllib.request` [missing-attribute]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
       },
       "status": "fenced"
     },
@@ -737,7 +737,7 @@
         "stage": "compile",
         "exit": 2,
         "stdout": "",
-        "stderr": "probes/divergences/d44_optional.py:4: error: `None` is not assignable to variable `lp` with type `Path`\n  The declared type does not allow `None`. Consider changing the declared type to `Path | None`. [bad-assignment]\n"
+        "stderr": "probes/divergences/d44_optional.py:4: error: `None` is not assignable to variable `lp` with type `Path`\n  The declared type does not allow `None`. Consider changing the declared type to `Path | None`. [bad-assignment]\nnote: `T | None` values (os.getenv, dict.get, re.search) stay optional in the subset; narrow with `is not None` or annotate `T | None`\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
       },
       "status": "fenced"
     },
