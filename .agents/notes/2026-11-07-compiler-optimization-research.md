@@ -2,7 +2,7 @@
 
 Date: 2026-11-07. Branch: `work/optres` at `b2f28bfe`. Epic: #817. Milestone: v0.9.0. Docs only: no source file, no test file and no frozen gate file was touched. The scorer holdout was never read.
 
-This note fact-checks `/Users/josocjoq/Downloads/compiler-optimizations.md` (an LLM-written survey of how LLVM compilers handle dynamic typing) against primary sources and against our own code and measurements, then adds the optimizations and adversarial techniques the survey does not mention but that our measured bottlenecks actually call for. The survey's framing is wrong for us in one important way, and the measurements below show why: we are not a dynamically typed compiler that needs a value representation, we are a typed-subset compiler whose measured bottlenecks are overflow-checked arithmetic, runtime C helper calls, and the compile-time floor.
+This note fact-checks the input survey at `~/Downloads/compiler-optimizations.md` (an LLM-written survey of how LLVM compilers handle dynamic typing) against primary sources and against our own code and measurements, then adds the optimizations and adversarial techniques the survey does not mention but that our measured bottlenecks actually call for. The survey's framing is wrong for us in one important way, and the measurements below show why: we are not a dynamically typed compiler that needs a value representation, we are a typed-subset compiler whose measured bottlenecks are overflow-checked arithmetic, runtime C helper calls, and the compile-time floor.
 
 ## 0. What we measured before judging anything
 
