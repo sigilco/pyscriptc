@@ -248,6 +248,14 @@ class MirEmitter:
     # `MIR_TRYCALL`). None when the function has no return value.
     _ret_reg: str | None
     _flow_reg: str | None
+    # Per-function indexes `_index_fn` builds in one pass: each block's
+    # instruction indexes (`_spans`), the block an instruction belongs
+    # to (`_instr_bid`, -1 outside every span) and the first instruction
+    # defining each value id (`_def_at`). The scans they replace were
+    # O(function size) per call, which is quadratic on large bodies.
+    _spans: list[list[int]]
+    _instr_bid: list[int]
+    _def_at: Dict[int, int]
 
     def __init__(self, module: Dict[str, Any], dwarf: DwarfEmitter | None, wasm: bool = False) -> None:
         self.module = module
@@ -276,6 +284,9 @@ class MirEmitter:
         self._in_entry = 1
         self._ret_reg = None
         self._flow_reg = None
+        self._spans = []
+        self._instr_bid = []
+        self._def_at = {}
 
     # ---- module driver ----
 
@@ -369,6 +380,7 @@ class MirEmitter:
         self.fn = fn
         self.tid = 0
         self.reg = {}
+        self._index_fn(fn)
         ir_fn = self._ir_fn(fn.name)
         # The slot value ids follow the lowerer's allocation: one per
         # parameter, then one per local. Recomputing here keeps the emitter
@@ -493,9 +505,8 @@ class MirEmitter:
         fn = self.fn
         if fn is None:
             raise IRError("no function walk is active")
-        for i in range(len(fn.ops)):
-            if fn.dsts[i] == vid:
-                return copy_result_type(fn, i)
+        if vid in self._def_at:
+            return copy_result_type(fn, self._def_at[vid])
         # A name slot no MIR op defines (a desugar temp the lane never
         # writes) still needs its alloca: the declared local type is the
         # tag the direct path's slot carries.
@@ -503,24 +514,40 @@ class MirEmitter:
             return self.slot_vid_tag[vid]
         raise IRError(f"no definition of v{vid}")
 
-    def _span(self, bid: int) -> list[int]:
-        """The instruction indexes of block `bid` (construction order spans)."""
-        fn = self.fn
-        if fn is None:
-            raise IRError("no function walk is active")
-        cursor: int = 0
+    def _index_fn(self, fn: MirFunction) -> None:
+        """One pass over the ops: block spans, instr-to-block and
+        vid-to-first-def maps. Blocks are contiguous runs ending at a
+        terminator, the construction order `_span` used to rescan."""
         n: int = len(fn.ops)
-        for _ in range(bid):
+        spans: list[list[int]] = []
+        instr_bid: list[int] = [-1] * n
+        def_at: Dict[int, int] = {}
+        cursor: int = 0
+        bid: int = 0
+        while cursor < n:
+            start: int = cursor
             while cursor < n and not is_terminator(fn.ops[cursor]):
                 cursor += 1
-            cursor += 1
-        start = cursor
-        while cursor < n and not is_terminator(fn.ops[cursor]):
-            cursor += 1
-        out: list[int] = []
-        for i in range(start, cursor + 1):
-            out.append(i)
-        return out
+            end: int = cursor if cursor < n else n - 1
+            span: list[int] = []
+            for i in range(start, end + 1):
+                span.append(i)
+                instr_bid[i] = bid
+            spans.append(span)
+            bid += 1
+            cursor = end + 1
+        dsts: list[int] = fn.dsts
+        for i in range(n):
+            d: int = dsts[i]
+            if d >= 0 and d not in def_at:
+                def_at[d] = i
+        self._spans = spans
+        self._instr_bid = instr_bid
+        self._def_at = def_at
+
+    def _span(self, bid: int) -> list[int]:
+        """The instruction indexes of block `bid` (construction order spans)."""
+        return self._spans[bid]
 
     def _label(self, bid: int) -> str:
         """The direct path's label spelling of MIR block `bid`.
@@ -1581,10 +1608,10 @@ class MirEmitter:
         self.reg[dst] = reg
 
     def _block_of(self, fn: MirFunction, i: int) -> MirBlock:
-        for span_bid in range(len(fn.blocks)):
-            if i in self._span(span_bid):
-                return fn.blocks[span_bid]
-        raise IRError(f"instr {i} belongs to no block")
+        bid: int = self._instr_bid[i]
+        if bid < 0:
+            raise IRError(f"instr {i} belongs to no block")
+        return fn.blocks[bid]
 
     def _str_const(self, fn: MirFunction, const: MirConst) -> str:
         """Materialize a `MIR_S` constant as a `%ps.str` SSA value.
@@ -1821,9 +1848,8 @@ class MirEmitter:
         fn = self.fn
         if fn is None:
             raise IRError("no function walk is active")
-        for i in range(len(fn.ops)):
-            if fn.dsts[i] == vid:
-                return _result_tag(fn, i)
+        if vid in self._def_at:
+            return _result_tag(fn, self._def_at[vid])
         raise IRError(f"no definition of v{vid}")
 
     def _is_slot(self, vid: int) -> bool:
