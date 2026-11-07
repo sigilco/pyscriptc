@@ -12,12 +12,24 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _class, _const_int, _node_kind
+from pyscriptc import _irnode as _ir
+from pyscriptc.restlower._shared import (
+    _class,
+    _const_int,
+    _mk_span,
+    _node_kind,
+    _node_type,
+    _node_type_kind,
+    _node_value,
+    _t_leaf,
+    _type_kind,
+)
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
 _LOCK = _class("Lock")
-_INT = {"kind": "int"}
-_BOOL = {"kind": "bool"}
-_NONE = {"kind": "none"}
+_INT = _t_leaf("int")
+_BOOL = _t_leaf("bool")
+_NONE = _t_leaf("none")
 _THREAD = _class("Thread")
 _EVENT = _class("Event")
 _COND = _class("Condition")
@@ -68,14 +80,7 @@ def _threading_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) ->
 
 def _cond_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`Condition()`: a class-shaped record initialized by `ps_cond_init`."""
-    return {
-        "kind": "call",
-        "callee": {"kind": "module", "module": "threading", "name": "Condition"},
-        "args": [],
-        "type": _COND,
-        "symbol": "ps_cond_init",
-        "span": span,
-    }
+    return lo._abi_call("threading", "Condition", [], _COND, "ps_cond_init", span)
 
 
 def _semaphore_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -126,20 +131,20 @@ def _thread_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, An
         lo.fail(slots[0], "PS2002", "threading.Thread ignores group")
     if slots[5] is not None:
         arg = lo._expr(slots[5])
-        if arg["kind"] == "const" and arg["type"]["kind"] in {"bool", "int"}:
-            daemon = bool(arg["value"])
+        if _node_kind(arg) == "const" and _node_type_kind(arg) in {"bool", "int"}:
+            daemon = bool(_node_value(arg))
         else:
             lo.fail(slots[5], "PS1003", "threading.Thread daemon is a constant bool")
     if slots[4] is not None:
         lo.fail(slots[4], "PS2002", "threading.Thread kwargs are not lowered")
     if slots[1] is not None:
         target = lo._expr(slots[1])
-        if target["type"]["kind"] != "func":
+        if _node_type_kind(target) != "func":
             lo.fail(slots[1], "PS1003", "threading.Thread target is a callable")
     if slots[2] is not None:
         arg = lo._expr(slots[2])
-        if arg["kind"] == "const" and arg["type"]["kind"] == "str":
-            name_value = str(arg["value"])
+        if _node_kind(arg) == "const" and _node_type_kind(arg) == "str":
+            name_value = str(_node_value(arg))
         else:
             lo.fail(slots[2], "PS1003", "threading.Thread name is a constant str")
     if slots[3] is not None:
@@ -157,48 +162,36 @@ def _thread_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, An
     if len(args_node.elts) > 3:
         lo.fail(args_node, "PS2002", "threading.Thread args takes at most 3 arguments")
     fields = [lo._expr(elt) for elt in args_node.elts]
-    if target["type"]["kind"] == "func":
-        want = target["type"]["params"]
+    if _node_type_kind(target) == "func":
+        want = _node_type(target)["params"]
         if len(want) != len(fields):
             lo.fail(args_node, "PS2003", f"threading.Thread target expects {len(want)} argument(s)")
         for field, expect in zip(fields, want, strict=True):
-            if field["type"]["kind"] != expect["kind"]:
+            if _node_type_kind(field) != _type_kind(expect):
                 lo.fail(args_node, "PS1003", "threading.Thread arg has the wrong type for the target")
     if name_value is None:
         name_value = "Thread"
     # The bound arguments ride in the callable's env, the same way
     # `functools.partial` binds them: the trampoline calls the pair with the
     # env, and the synthesized stub prepends the bound values.
-    bound = target["type"]["params"][: len(fields)]
-    env: list[dict[str, Any]] = [{"init": field, "type": field["type"]} for field in fields]
-    env.append({"init": target, "type": target["type"]})
-    call = {
-        "kind": "call",
-        "callee": {"kind": "module", "module": "threading", "name": "Thread"},
-        "args": [],
-        "type": _THREAD,
-        "symbol": "ps_thread_new",
-        "span": span,
-    }
+    target_type = _node_type(target)
+    bound = target_type["params"][: len(fields)]
+    env: list[_ir.EnvItem] = [_ir.EnvItem(dict_to_node(field), dict_to_type(_node_type(field))) for field in fields]
+    env.append(_ir.EnvItem(dict_to_node(target), dict_to_type(target_type)))
+    ret = target_type["return"]
+    call = lo._abi_call("threading", "Thread", [], _THREAD, "ps_thread_new", span)
     call["thread"] = {
         "daemon": 1 if daemon else 0,
         "name": name_value,
-        "closure": {
-            "kind": "closure",
-            "name": "ps.thread",
-            "env": env,
-            "type": {
-                "kind": "func",
-                "params": [],
-                "return": target["type"]["return"],
-            },
-            "stub": {
-                "bound": bound,
-                "params": [],
-                "return": target["type"]["return"],
-            },
-            "span": span,
-        },
+        "closure": node_to_dict(
+            _ir.closure(
+                "ps.thread",
+                env,
+                _ir.t_func([], dict_to_type(ret)),
+                _mk_span(span),
+                stub=_ir.Stub([dict_to_type(param) for param in bound], [], dict_to_type(ret)),
+            )
+        ),
     }
     return call
 
@@ -253,23 +246,24 @@ def _keyword_bool(lo: Any, value: ast.expr, what: str) -> bool:
     the blocking and the non-blocking acquire in the runtime.
     """
     arg = lo._expr(value)
-    if arg["kind"] == "const" and arg["type"]["kind"] == "bool":
-        return bool(arg["value"])
-    if arg["kind"] == "const" and arg["type"]["kind"] == "int":
-        return int(arg["value"]) != 0
+    if _node_kind(arg) == "const" and _node_type_kind(arg) == "bool":
+        return bool(_node_value(arg))
+    if _node_kind(arg) == "const" and _node_type_kind(arg) == "int":
+        return int(_node_value(arg)) != 0
     lo.fail(value, "PS1003", f"Lock.acquire {what} is a constant bool")
     raise AssertionError("unreachable")
 
 
 def _keyword_timeout(lo: Any, value: ast.expr, span: dict[str, Any]) -> dict[str, Any]:
     arg = lo._expr(value)
-    if arg["type"]["kind"] == "none":
-        return {"kind": "none"}
-    if arg["type"]["kind"] == "float":
+    kind = _node_type_kind(arg)
+    if kind == "none":
+        return _t_leaf("none")
+    if kind == "float":
         return arg
-    if arg["type"]["kind"] == "int":
+    if kind == "int":
         # The multiply below is float, so widen the int first.
-        return {"kind": "cast", "op": "int_to_float", "value": arg, "type": {"kind": "float"}, "span": span}
+        return node_to_dict(_ir.cast("int_to_float", dict_to_node(arg), _ir.t_leaf("float"), _mk_span(span)))
     lo.fail(value, "PS1003", "Lock.acquire timeout is a number or None")
     raise AssertionError("unreachable")
 
@@ -280,34 +274,20 @@ def _timeout_nanos(timeout: dict[str, Any], span: dict[str, Any]) -> dict[str, A
         return _const_int(-1, span)
     # float seconds: int(timeout * 1e9). 1e9 as a float const keeps the
     # multiply float-typed without a cast node for the literal.
-    billion: dict[str, Any] = {"kind": "const", "value": "1000000000.0", "type": {"kind": "float"}, "span": span}
-    return {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": "int"},
-        "args": [
-            {
-                "kind": "binary",
-                "op": "*",
-                "left": timeout,
-                "right": billion,
-                "type": {"kind": "float"},
-                "span": span,
-            }
-        ],
-        "type": _INT,
-        "span": span,
-    }
+    billion = _ir.const_node(_ir.P_FLOAT, "1000000000.0", _ir.t_leaf("float"), _mk_span(span))
+    product = _ir.binary("*", dict_to_node(timeout), billion, _ir.t_leaf("float"), _mk_span(span))
+    return node_to_dict(_ir.call(_ir.builtin("int"), [product], _ir.t_leaf("int"), _mk_span(span), "", "", -1))
 
 
 def _const_number(lo: Any, value: ast.expr, what: str) -> int | None:
     """A constant int, including the unary-minus spelling."""
     arg = lo._expr(value)
-    if arg["kind"] == "const" and arg["type"]["kind"] in {"int", "bool"}:
-        return int(arg["value"])
+    if _node_kind(arg) == "const" and _node_type_kind(arg) in {"int", "bool"}:
+        return int(_node_value(arg))
     if isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.USub):
         inner = lo._expr(value.operand)
-        if inner["kind"] == "const" and inner["type"]["kind"] == "int":
-            return -int(inner["value"])
+        if _node_kind(inner) == "const" and _node_type_kind(inner) == "int":
+            return -int(_node_value(inner))
     lo.fail(value, "PS1003", f"{what} is a constant int")
     raise AssertionError("unreachable")
 
@@ -357,7 +337,7 @@ def _thread_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
     """Method dispatch for Thread, Event, Condition and Semaphore receivers."""
     assert isinstance(node.func, ast.Attribute)
     attr = node.func.attr
-    cls = receiver["type"]["name"]
+    cls = dict_to_type(_node_type(receiver)).name
 
     def call(typ: dict[str, Any], symbol: str, args: list[dict[str, Any]], what: str) -> dict[str, Any]:
         return lo._abi_call("threading", what, [receiver, *args], typ, symbol, span)
@@ -393,7 +373,7 @@ def _thread_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
         if attr == "name":
             lo._reject_keywords(node)
             _no_args(lo, node, "Thread.name")
-            return call({"kind": "str"}, "ps_thread_name2", [], "Thread.name")
+            return call(_t_leaf("str"), "ps_thread_name2", [], "Thread.name")
         lo.fail(node, "PS2001", f"Thread.{attr} is not lowered")
     if cls == "Event":
         if attr == "set":

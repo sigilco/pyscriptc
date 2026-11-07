@@ -8,8 +8,8 @@ shape so later P2 modules can copy it:
 
 - builders reconstruct the same dict IR the old literals spelled,
 - accessors are the only place a converted module subscripts a node key,
-- `_shared.py`, `_time.py`, `_argparse.py` and `_minmax.py` have no raw
-  node-key reads and no raw `{"kind": ...}` node/type literals.
+- `_shared.py`, `_time.py`, `_argparse.py`, `_minmax.py` and `_threading.py`
+  have no raw node-key reads and no raw `{"kind": ...}` node/type literals.
 """
 
 from __future__ import annotations
@@ -26,6 +26,7 @@ CONVERTED = (
     RESTLOWER / "_shared.py",
     RESTLOWER / "_time.py",
     RESTLOWER / "_argparse.py",
+    RESTLOWER / "_threading.py",
     RESTLOWER / "_minmax.py",
 )
 
@@ -51,9 +52,7 @@ NODE_KEYS = frozenset(
     }
 )
 
-ACCESSORS = frozenset(
-    {"_type_kind", "_node_type", "_node_type_kind", "_node_kind", "_node_id", "_node_elems", "_node_value"}
-)
+ACCESSORS = frozenset({"_type_kind", "_node_type", "_node_type_kind", "_node_kind", "_node_value"})
 
 
 def _function_hits(func: ast.FunctionDef | ast.AsyncFunctionDef, path: Path) -> list[str]:
