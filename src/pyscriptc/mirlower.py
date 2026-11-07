@@ -547,6 +547,10 @@ def _supported_call(expr: Dict[str, Any]) -> bool:
     """
     callee: Dict[str, Any] = expr["callee"]
     ckind: str = callee["kind"]
+    if ckind == "value":
+        # A call through a variable target carries `target`, not `name`,
+        # and is outside the slice either way.
+        return False
     cname: str = callee["name"]
     # The str builtins admit first; a `len` of a list falls through to
     # the list arm below, and the `builtins` module's bin/hex/oct admit
