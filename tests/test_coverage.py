@@ -240,6 +240,42 @@ def test_coverage_names_a_wildcard_island_policy(tmp_path: Path) -> None:
     assert any("island lane" in e["message"] for e in report["fences"] if "scipy" in e["message"])
 
 
+def test_bare_isinstance_target_is_a_report_not_a_traceback(tmp_path: Path) -> None:
+    """Issue #484: `isinstance(x, dict)` on a non-dict must not crash the report.
+
+    The want record a bare `dict` isinstance target carries is a shape only
+    (`{"kind": "dict"}`): when the object's kind differed, `_isinstance_holds`
+    fell through to `types_equal` and `type_key` indexed `typ["key"]` on a
+    record that has none. The langchain-core tree tripped it. The pin is the
+    minimal shape plus the lowered result: a kind mismatch folds to False.
+    """
+    from pyscriptc.ir import type_key
+
+    assert type_key({"kind": "dict", "bare": True}) == "dict[?]"
+    source = "\n".join(
+        [
+            "def f(x: str) -> bool:",
+            "    return isinstance(x, dict)",
+            "",
+            "def g(items: list[int]) -> bool:",
+            "    return isinstance(items, dict)",
+            "",
+            "def h(d: dict[str, int]) -> bool:",
+            "    return isinstance(d, dict)",
+        ]
+    )
+    module = lower_source(source, "case.py")
+    assert module["fences"] == []
+    path = write_case(tmp_path, "bare_isinstance.py", source)
+    got = run_cli("coverage", str(path), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["summary"]["fences"] == 0
+    assert report["summary"]["nativeDefinitions"] == 3
+    emitted = run_cli("compile", str(path), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "bare.ir.json"))
+    assert emitted.returncode == 0, emitted.stderr
+
+
 def test_a_cycle_fence_carries_its_own_family(tmp_path: Path) -> None:
     prog = tmp_path / "cyc"
     prog.mkdir()
