@@ -73,6 +73,8 @@ from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 from pyscriptc.tirserde import dict_to_span as dict_to_span_local
 
+WHOLE_TABLE = "*"
+
 
 def _mk_span(span: dict[str, Any]) -> Any:
     """The Span record the dict-IR span spells."""
@@ -413,6 +415,34 @@ class Lowerer(
         # inferred-type map. None means no bridge: lowering keeps every
         # inference fence exactly as before.
         self.bridge: Any = None
+        # Cross-module parameter pinning (issue #87, `pyscriptc infer`):
+        # the checker's call-site facts, keyed by module stem and qualified
+        # name, with the source line/col of each call. Set by `pyscriptc
+        # infer`; None means the compiler's own same-module pin stands.
+        self.call_site_facts: Any = None
+        # Every fact the checker proved and the lowerer accepted this run,
+        # for `compile --debug` and `pyscriptc infer`. A record carries the
+        # module, qualified name, the accepted IR type and a render of the
+        # checker's proof. The bridge owns the list when one is wired, so
+        # a package compile gathers every file's records in one place.
+        self.infer_records: list[dict[str, Any]] = []
+        # The pin-pass caller caches (issue #500, per pin round): the
+        # def-independent facts of each caller, reused across the pending
+        # defs of one `_pin_call_site_params` run. The calls list is the
+        # caller's Name-callee call nodes (a pure AST walk); the locals
+        # table is what `_call_site_locals` derives, keyed by the pin epoch
+        # so a pin landing mid-round (a new caller-parameter annotation, a
+        # new signature) recomputes the callers it can now see differently.
+        # Both reset at the start of every pin pass.
+        self._pin_epoch: int = 0
+        self._pin_caller_calls: dict[int, list[ast.Call]] = {}
+        self._pin_caller_locals: dict[tuple[int, int], dict[str, dict[str, Any]]] = {}
+        # The export-table reads this run made (issue #424, the catalog
+        # fixpoint): (module, member) pairs, or (module, None) for a
+        # module-presence check. The catalog memo compares exactly these
+        # entries between rounds, so a unit whose imports did not change
+        # reuses its previous round's result instead of re-lowering.
+        self._export_reads: set[tuple[str, str | None]] = set()
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
@@ -578,8 +608,7 @@ class Lowerer(
         brings in what the module exports.
         """
 
-        package = self.package or {}
-        exported = package.get(module)
+        exported = self._export_lookup(module, None)
         if exported is None:
             fences.append(
                 Fence(
@@ -602,9 +631,34 @@ class Lowerer(
                 continue
             self._bind_one_export(module, name, name, stmt, fences)
 
-    def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
+    def _export_lookup(self, module: str, member: str | None) -> Any:
+        """One export-table read, recorded for the catalog memo.
+
+        Every read the lowerer makes goes through here (or through the
+        helpers that call it), so the catalog memo can compare exactly the
+        entries a unit consumed: when they are unchanged, the unit's
+        lowering is unchanged and the previous round's result stands.
+        """
+
         package = self.package or {}
-        item = package.get(module, {}).get(name)
+        self._export_reads.add((module, member))
+        bucket = package.get(module)
+        if bucket is None:
+            return None
+        return bucket if member is None else bucket.get(member)
+
+    def _export_table(self) -> dict[str, dict[str, dict[str, Any]]]:
+        """The whole export table, recorded as one table-wide read.
+
+        A scan over every bucket sees everything, so the catalog memo
+        invalidates the unit when any part of the table changes.
+        """
+
+        self._export_reads.add((WHOLE_TABLE, None))
+        return self.package or {}
+
+    def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        item = self._export_lookup(module, name)
         if item is None:
             fences.append(
                 Fence(
@@ -657,6 +711,19 @@ class Lowerer(
             # `pkg/__init__.py`, issue #405): the name binds the submodule.
             self._bind_pkg_module(local, str(item["module"]), stmt, fences)
             return
+        if item["kind"] == "global":
+            # A module-level global that lives in a runtime slot in the
+            # defining module. The consumer reads it through the defining
+            # module's qualified key, so the slot is installed locally with
+            # a foreign key and no initializer: the defining module's own
+            # `ps_global_set_*` runs in its module init.
+            self.global_slots[local] = {
+                "type": dict(item["type"]),
+                "active": True,
+                "foreign_key": f"{item['module']}.{item['name']}",
+            }
+            self.declared.add(local)
+            return
         fences.append(
             Fence("PS2002", f"{module}.{name} is not a function or constant", span_of(stmt, self.filename), None)
         )
@@ -672,7 +739,7 @@ class Lowerer(
         """
         if _maybe_type_kind(typ) != "class" or typ["name"] in self.classes:
             return
-        item = (self.package or {}).get(module, {}).get(typ["name"])
+        item = self._export_lookup(module, typ["name"])
         if item is None or _record_kind(item) != "class":
             return
         self._install_class_export(typ["name"], item, stmt, fences)
@@ -689,7 +756,7 @@ class Lowerer(
         return module == root or module.startswith(root + ".")
 
     def _pkg_item(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
-        item = (self.package or {}).get(module, {}).get(member)
+        item = self._export_lookup(module, member)
         if item is None:
             self.fail(node, "PS2001", f"{module}.{member} is not exported by this package")
         return item
@@ -926,7 +993,10 @@ class Lowerer(
     def _global_get(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
         slot = self.global_slots[name]
         typ = slot["type"]
-        key = _text_ir(self._slot_key(name), "str", span)
+        # A slot imported from another module reads the defining module's
+        # qualified key: the runtime registry is process-wide and the
+        # defining module's init wrote the value there.
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         # boxed:begin
         # The island top level (issue #613): a global the island bound is a
         # read of the once-unboxed shadow slot, under the island-prefixed key.
@@ -964,7 +1034,7 @@ class Lowerer(
                 "write it in a function that runs on the island, or annotate the global so it lowers native",
             )
         # boxed:end
-        key = _text_ir(self._slot_key(name), "str", span)
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         if _type_kind(typ) == "str":
             symbol = "ps_global_set_str"
         elif _type_kind(typ) == "int":
@@ -985,7 +1055,8 @@ class Lowerer(
         )
 
     def _global_is_set(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
-        key = _text_ir(self._slot_key(name), "str", span)
+        slot = self.global_slots.get(name, {})
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         return self._abi_call("builtins", "global_is_set", [key], {"kind": "bool"}, "ps_global_is_set", span)
 
     def _bind_deferred_module(self, fences: list[Fence]) -> None:

@@ -870,10 +870,9 @@ class StdlibDispatchMixin(StdlibBindMixin):
             return dotted, binding.module, member, "erased"
         if binding.kind == "pkg":
             module = binding.module
-            package = self.package or {}
             for attr in attrs[:-1]:
                 child = f"{module}.{attr}"
-                if child not in package:
+                if self._export_lookup(child, None) is None:
                     return dotted, module, ".".join(attrs), "missing"
                 module = child
             if not attrs:

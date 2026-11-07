@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-07",
-  "commit": "eb64538144b8f39eb10666ba035e824507b890f8",
+  "commit": "56240b89f41b0cb6b83d33d5214df8bce420a6b9",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2675
+    "fences": 2674
   },
   "builtins": [
     {
@@ -1806,7 +1806,7 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 203,
+      "fences": 202,
       "definitions": 132,
       "fenced_definitions": 86,
       "top_families": [
@@ -1826,7 +1826,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 101
+          "count": 100
         },
         {
           "code": "PS1106",
@@ -2083,7 +2083,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1286,
+      "count": 1285,
       "packages": 16
     },
     {
@@ -2255,12 +2255,12 @@
     },
     {
       "date": "2026-11-07",
-      "commit": "eb64538144b8f39eb10666ba035e824507b890f8",
+      "commit": "56240b89f41b0cb6b83d33d5214df8bce420a6b9",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2675
+      "fences": 2674
     }
   ]
 }
