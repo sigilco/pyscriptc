@@ -228,6 +228,10 @@ class MirEmitter:
     reg: Dict[int, str]
     slot_vid: Dict[str, int]
     slot_vid_set: set[int]
+    # The declared MIR tag of each name-slot vid, from the IR local's
+    # type: `_tag_of` falls back to it for a slot no MIR op defines
+    # (a desugar temp the lane never writes, like a dead break flag).
+    slot_vid_tag: Dict[int, int]
     # Per-function str state: `_str_seq` is the ordered list of `@ps.str.N`
     # indices the direct emitter's body for the function being spliced
     # references — one per `string_value` materialization, in emission
@@ -265,6 +269,7 @@ class MirEmitter:
         self.reg = {}
         self.slot_vid = {}
         self.slot_vid_set = set()
+        self.slot_vid_tag = {}
         self._str_seq = []
         self._str_n = 0
         self._hoisted = []
@@ -370,6 +375,7 @@ class MirEmitter:
         # independent of the lowerer's internals.
         self.slot_vid = {}
         self.slot_vid_set = set()
+        self.slot_vid_tag = {}
         fns: list[Dict[str, Any]] = ir_fn["params"]
         vid: int = len(fns)
         locs: list[Dict[str, Any]] = ir_fn["locals"]
@@ -384,6 +390,7 @@ class MirEmitter:
                 # value id here either.
                 continue
             self.slot_vid[lname] = vid
+            self.slot_vid_tag[vid] = _kind_tag(lkind)
             seen.add(vid)
             self.slot_vid_set = seen
             vid += 1
@@ -489,6 +496,11 @@ class MirEmitter:
         for i in range(len(fn.ops)):
             if fn.dsts[i] == vid:
                 return copy_result_type(fn, i)
+        # A name slot no MIR op defines (a desugar temp the lane never
+        # writes) still needs its alloca: the declared local type is the
+        # tag the direct path's slot carries.
+        if vid in self.slot_vid_tag:
+            return self.slot_vid_tag[vid]
         raise IRError(f"no definition of v{vid}")
 
     def _span(self, bid: int) -> list[int]:
@@ -1456,15 +1468,23 @@ class MirEmitter:
         raise IRError(f"{cls_name}.{field_name} is not a field")
 
     def _class_field_key(self, fn: MirFunction, operand: int) -> tuple[str, str]:
-        """The `<class>.<field>` key a class op's `MIR_S` constant carries."""
+        """The `<class>.<field>` key a class op's `MIR_S` constant carries.
+
+        Class names may themselves contain dots (`gen.count`,
+        `gen.C.m`): the class is the longest module class name that
+        prefixes the key at a `.` boundary, and the field is the
+        remainder (field names keep their own leading dot, `.ps_state`).
+        """
         const: MirConst = fn.consts[const_index(operand)]
         key: str = const.sval
-        dot: int = key.find(".")
-        if dot < 0:
+        best: str = ""
+        for cls in _items(self.module, "classes"):
+            name: str = _opt_str(cls, "name")
+            if name and key.startswith(name + ".") and len(name) > len(best):
+                best = name
+        if not best:
             raise IRError(f"the MIR lane cannot read class key {key!r}")
-        cls_name: str = key[:dot]
-        field_name: str = key[dot + 1 :]
-        return cls_name, field_name
+        return best, key[len(best) + 1 :]
 
     def _emit_newobj(self, fn: MirFunction, dst: int, a1: int) -> None:
         """A class constructor call: the direct `emit_constructor` shape.
@@ -1635,16 +1655,7 @@ class MirEmitter:
         ir_params: list[Dict[str, Any]] = self._ir_fn(current.name)["params"]
         if operand < len(ir_params):
             p_type: Dict[str, Any] = ir_params[operand]["type"]
-            kind: str = p_type["kind"]
-            if kind == "float":
-                return MIR_D
-            if kind == "bool":
-                return MIR_B
-            if kind == "str":
-                return MIR_S
-            if kind == "list" or kind == "dict" or kind == "class":
-                return MIR_P
-            return MIR_W
+            return _kind_tag(p_type["kind"])
         if operand in self.slot_vid_set:
             return self._tag_of(operand)
         return self._def_tag(operand)
@@ -1880,6 +1891,21 @@ def _str_refs(lines: list[str]) -> list[int]:
             digits += ch
         refs.append(int(digits))
     return refs
+
+
+def _kind_tag(kind: str) -> int:
+    """The MIR tag an HIR type kind lowers to: the `_param_tag` spelling
+    `mirlower` applies on the lowerer side, kept local so the emitter
+    reads no lowerer internals."""
+    if kind == "float":
+        return MIR_D
+    if kind == "bool":
+        return MIR_B
+    if kind == "str":
+        return MIR_S
+    if kind == "list" or kind == "dict" or kind == "class":
+        return MIR_P
+    return MIR_W
 
 
 def _tag_llvm(tag: int) -> str:
