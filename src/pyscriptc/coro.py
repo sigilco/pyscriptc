@@ -68,8 +68,10 @@ import os
 from dataclasses import dataclass, field
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.builtins import RESERVED_EXCEPTIONS
 from pyscriptc.errors import span_of
+from pyscriptc.tirserde import dict_to_node, dict_to_span, dict_to_type, node_to_dict
 
 YIELD_MARKER = "__ps_yield__"
 AWAIT_MARKER = "__ps_await__"
@@ -781,12 +783,19 @@ class CoroMixin:
         return child
 
     def _coro_finish(self, module: dict[str, Any]) -> dict[str, Any]:
-        """Run the IR pass; a module without resumables is returned as is."""
+        """Run the IR pass; a module without resumables is returned as is.
+
+        The dict-IR conversion (`coro_module`) runs only when a plan exists:
+        a module without resumables never pays `node_to_dict` for its
+        functions and classes, and the lowered module returns unchanged.
+        """
         plans = self._coro_plans()
         self.__dict__["_coro_active"] = None
         if not plans:
             return module
-        return lower_resumables(module, plans)
+        from pyscriptc.lower._coro_adapter import coro_module
+
+        return lower_resumables(coro_module(module), plans)
 
 
 # --- IR pass ---------------------------------------------------------------
@@ -2408,34 +2417,68 @@ def _contains_kind(stmt: dict[str, Any], kind: str) -> bool:
     return any(_contains_kind(s, kind) for block in blocks for s in block)
 
 
+# The private dict-IR builders go through the typed constructors (`_ir`) and
+# convert back with `node_to_dict` at this boundary (the R3 pattern): the
+# pass itself still walks dicts, but the node the dict spells is built as
+# the typed record, so the dict at emit is reconstructed key for key.
+
+
+def _mk_span(span: dict[str, Any]) -> Any:
+    """The Span record one dict-IR span spells."""
+
+    return dict_to_span(span)
+
+
+def _mk_type(typ: dict[str, Any]) -> Any:
+    """The T record one dict-IR type spells."""
+
+    return dict_to_type(typ)
+
+
 def _name(name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "name", "id": name, "type": typ, "span": span}
+    return node_to_dict(_ir.name_expr(name, _mk_type(typ), _mk_span(span)))
 
 
 def _const(value: Any, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    if typ["kind"] == "int":
-        value = str(value)
-    return {"kind": "const", "value": value, "type": typ, "span": span}
+    """The const node one dict-IR const spells (same payload rules as the
+    lowerer's `_const_node`: bool as true/false, none as the empty str,
+    int as its decimal str, any under the unresolved slot's str spelling)."""
+    kind = typ["kind"]
+    if kind == "bool":
+        ptag, svalue = _ir.P_BOOL, "true" if value else "false"
+    elif kind == "none":
+        ptag, svalue = _ir.P_NONE, ""
+    elif kind == "int":
+        ptag, svalue = _ir.P_INT, str(value)
+    elif kind == "float":
+        ptag, svalue = _ir.P_FLOAT, value
+    elif kind == "any":
+        ptag, svalue = _ir.P_STR, "" if value is None else str(value)
+    else:
+        ptag, svalue = _ir.P_STR, value
+    return node_to_dict(_ir.const_node(ptag, svalue, _mk_type(typ), _mk_span(span)))
 
 
 def _const_str(value: str, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": value, "type": {"kind": "str"}, "span": span}
+    return node_to_dict(_ir.const_node(_ir.P_STR, value, _ir.t_leaf("str"), _mk_span(span)))
 
 
 def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "assign", "target": target, "value": value, "span": span}
+    return node_to_dict(_ir.assign(target, dict_to_node(value), _mk_span(span)))
 
 
 def _compare(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "compare", "op": op, "left": left, "right": right, "type": _BOOL, "span": span}
+    return node_to_dict(
+        _ir.compare(op, dict_to_node(left), dict_to_node(right), _ir.t_leaf("bool"), _mk_span(span))
+    )
 
 
 def _attr_expr(value: dict[str, Any], name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "attr", "value": value, "name": name, "type": typ, "span": span}
+    return node_to_dict(_ir.attr(name, _mk_type(typ), dict_to_node(value), _mk_span(span)))
 
 
 def _attr_set(target: dict[str, Any], name: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "setattr", "object": target, "name": name, "value": value, "span": span}
+    return node_to_dict(_ir.setattr_stmt(dict_to_node(target), name, dict_to_node(value), _mk_span(span)))
 
 
 def _await_result_name(slot: str) -> str:
@@ -2451,4 +2494,36 @@ def _await_result_name(slot: str) -> str:
 def _if(
     cond: dict[str, Any], then: list[dict[str, Any]], other: list[dict[str, Any]], span: dict[str, Any]
 ) -> dict[str, Any]:
-    return {"kind": "if", "cond": cond, "then": then, "else": other, "span": span}
+    out = node_to_dict(
+        _ir.if_stmt(
+            dict_to_node(cond),
+            [dict_to_node(item) for item in then],
+            [dict_to_node(item) for item in other],
+            _mk_span(span),
+        )
+    )
+    _restamp(out.get("then") or [], then)
+    _restamp(out.get("else") or [], other)
+    return out
+
+
+def _restamp(out: Any, orig: Any) -> None:
+    """Put the dict-only marker keys the typed schema omits back.
+
+    The suspend `return` (the suspension flag the emitter reads) and the
+    yield marker's `recv`/`recvType` ride outside the typed node: the
+    conversion drops them, and this walk spells them back by position, so
+    the dict at emit keeps the exact keys the pass wrote. The owner decision
+    (2026-11-07) is to omit the extra keys from the typed nodes: no schema
+    change, no new key on `_irnode` or `tirserde`.
+    """
+    if isinstance(out, list) and isinstance(orig, list):
+        for item, orig_item in zip(out, orig, strict=True):
+            _restamp(item, orig_item)
+    elif isinstance(out, dict) and isinstance(orig, dict):
+        for key in ("suspend", "recv", "recvType"):
+            if key in orig and key not in out:
+                out[key] = orig[key]
+        for key, value in out.items():
+            if key in orig:
+                _restamp(value, orig[key])

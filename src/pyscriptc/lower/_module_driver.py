@@ -16,7 +16,6 @@ from pyscriptc.errors import span_of
 from pyscriptc.ffi_manifest import is_handle_type
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 from pyscriptc.lower._core import Fence, _has_typevar, _type_kind
-from pyscriptc.lower._coro_adapter import coro_module
 from pyscriptc.lower._stmt import _always_returns
 
 # Issue #587: the deepest AST nesting the recursive lowering passes handle.
@@ -473,4 +472,4 @@ class ModuleDriverMixin:
         # boxed:end
         if self.global_inits:
             module["globals"] = self.global_inits
-        return self._coro_finish(coro_module(module))
+        return self._coro_finish(module)
