@@ -70,7 +70,7 @@ def _expr_reason(expr: Dict[str, Any]) -> str:
         if key not in expr:
             continue
         child: Dict[str, Any] = expr[key]
-        if "kind" not in child:
+        if child is None or "kind" not in child:
             continue
         if not supported_expr(child):
             return _expr_reason(child)
@@ -83,7 +83,7 @@ def _stmt_reason(stmt: Dict[str, Any]) -> str:
         if key not in stmt:
             continue
         child: Dict[str, Any] = stmt[key]
-        if "kind" not in child:
+        if child is None or "kind" not in child:
             continue
         none_typed = False
         if "type" in child:
@@ -104,7 +104,7 @@ def _stmt_reason(stmt: Dict[str, Any]) -> str:
             continue
         body: list[Dict[str, Any]] = stmt[key]
         for inner in body:
-            if "kind" in inner and not supported_stmt(inner):
+            if inner is not None and "kind" in inner and not supported_stmt(inner):
                 return _stmt_reason(inner)
     skind: str = stmt["kind"]
     return f"stmt:{skind}"
