@@ -31,7 +31,7 @@ Self-host spell: IR payloads are `Dict[str, Any]` and node reads go through
 
 from __future__ import annotations
 
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 from pyscriptc.log import emit_event
 from pyscriptc.mir import MirFunction, MirModule
@@ -69,8 +69,11 @@ def _expr_reason(expr: Dict[str, Any]) -> str:
     for key in _EXPR_CHILDREN:
         if key not in expr:
             continue
-        child: Dict[str, Any] = expr[key]
-        if child is None or "kind" not in child:
+        raw: Optional[Dict[str, Any]] = expr[key]
+        if raw is None:
+            continue
+        child: Dict[str, Any] = raw
+        if "kind" not in child:
             continue
         if not supported_expr(child):
             return _expr_reason(child)
@@ -82,8 +85,11 @@ def _stmt_reason(stmt: Dict[str, Any]) -> str:
     for key in _STMT_EXPRS:
         if key not in stmt:
             continue
-        child: Dict[str, Any] = stmt[key]
-        if child is None or "kind" not in child:
+        raw: Optional[Dict[str, Any]] = stmt[key]
+        if raw is None:
+            continue
+        child: Dict[str, Any] = raw
+        if "kind" not in child:
             continue
         none_typed = False
         if "type" in child:
@@ -102,9 +108,12 @@ def _stmt_reason(stmt: Dict[str, Any]) -> str:
     for key in _STMT_BODIES:
         if key not in stmt:
             continue
-        body: list[Dict[str, Any]] = stmt[key]
-        for inner in body:
-            if inner is not None and "kind" in inner and not supported_stmt(inner):
+        body: list[Optional[Dict[str, Any]]] = stmt[key]
+        for item in body:
+            if item is None:
+                continue
+            inner: Dict[str, Any] = item
+            if "kind" in inner and not supported_stmt(inner):
                 return _stmt_reason(inner)
     skind: str = stmt["kind"]
     return f"stmt:{skind}"
