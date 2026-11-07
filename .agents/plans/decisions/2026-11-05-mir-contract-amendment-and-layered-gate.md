@@ -4,7 +4,7 @@ Status: Draft 2026-11-05, awaiting owner signature (tasks D4 and D5 of the v0.9.
 
 ## Decision (proposed)
 
-Amendment to `2026-11-02-mir-backend-only-contract.md`. MIR is the backend contract for every function the MIR slice covers. The typed-HIR fallback is a bounded, measured exception: its share is tracked as slice coverage percent and reaches zero as the tail (str, list and dict values, try handlers, closures) lands. The clause "no backend reads the HIR" holds again at the v0.10.0 drop.
+Amendment to `2026-11-02-mir-backend-only-contract.md`. MIR is the backend contract for every function the MIR slice covers. The direct-emit path (typed HIR remains the middle stage for every function) is a bounded, measured exception: its share is tracked as slice coverage percent and reaches zero as the tail (str, list and dict values, try handlers, closures) lands. The clause "no backend reads the HIR" holds again at the v0.10.0 drop.
 
 Flip bar for v0.9.0: at least 80 percent of non-fenced corpus functions lower to MIR, with the typed-HIR adapter carrying the rest. A strict 85 percent bar needs the str value type (A8) on the critical path and costs about one week; the default taken is 80 percent with A8 in the v0.10.0 tail.
 
