@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING, Any  # noqa: F401  # moved-verbatim import
 from pyscriptc import _irnode as _ir  # noqa: F401  # moved-verbatim import
 from pyscriptc.ir import types_equal  # noqa: F401  # moved-verbatim import
 from pyscriptc.lower._core import (
+    _BARE_CONTAINER_NAMES,  # noqa: F401  # moved-verbatim import
     Fence,  # noqa: F401  # moved-verbatim import
     _any_contains,  # noqa: F401  # moved-verbatim import
     _assign,  # noqa: F401  # moved-verbatim import
@@ -66,6 +67,19 @@ def _pass_stmt(span: dict[str, Any]) -> dict[str, Any]:
 
 def _expr_wrap(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span_of(span)))
+
+
+def _empty_container_expr(node: ast.expr) -> bool:
+    """An initializer that carries no element type (issue #483): an empty
+    `[]`/`{}`/set display or a nullary `list()`/`dict()`/`set()` call, so
+    the body's mutations are what pin the bare annotation's `any` slots."""
+    if isinstance(node, (ast.List, ast.Set)):
+        return not node.elts
+    if isinstance(node, ast.Dict):
+        return not node.keys
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and not node.args:
+        return node.func.id in _BARE_CONTAINER_NAMES
+    return False
 
 
 def _mk_span_of(span: dict[str, Any]) -> Any:
@@ -318,7 +332,7 @@ class StmtAMixin:
             visit(stmt)
         return (not state["seen"]) or state["hit"]
 
-    def _infer_accumulated_type(self, stmt: ast.Assign) -> dict[str, Any] | None:
+    def _infer_accumulated_type(self, stmt: ast.Assign | ast.AnnAssign) -> dict[str, Any] | None:
         """The container type an empty display accumulates in this body.
 
         An empty `[]` or `{}` says nothing about its element type: the uses
@@ -332,18 +346,38 @@ class StmtAMixin:
         mutation that is not a plain append or item write is a refusal
         (None): the name keeps its annotation fence. A display that is not
         empty has its own element type and never reaches here.
+
+        An `x: list`, `x: dict` or `x: set` annotated assignment (issue
+        #483) scans the same way and pins the bare annotation's `any`
+        slots: `set` reads `name.add(v)` writes, `list` reads `append` and
+        int-subscript writes, and `dict` reads `setdefault` and item writes
+        (the key type pins too, so an int-keyed write keeps a concrete
+        dict). A mutation that does not match the annotated shape refuses.
         """
-        if not isinstance(stmt.value, (ast.List, ast.Dict, ast.Set)):
-            return None
-        if isinstance(stmt.value, ast.List) and stmt.value.elts:
-            return None
-        if isinstance(stmt.value, ast.Set) and stmt.value.elts:
-            return None
-        if isinstance(stmt.value, ast.Dict) and stmt.value.keys:
-            return None
+        bare: str | None = None
+        if isinstance(stmt, ast.AnnAssign):
+            if (
+                not isinstance(stmt.target, ast.Name)
+                or not isinstance(stmt.annotation, ast.Name)
+                or stmt.annotation.id not in _BARE_CONTAINER_NAMES
+            ):
+                return None
+            if stmt.value is not None and not _empty_container_expr(stmt.value):
+                return None
+            target = stmt.target.id
+            bare = stmt.annotation.id
+        else:
+            if not isinstance(stmt.value, (ast.List, ast.Dict, ast.Set)):
+                return None
+            if isinstance(stmt.value, ast.List) and stmt.value.elts:
+                return None
+            if isinstance(stmt.value, ast.Set) and stmt.value.elts:
+                return None
+            if isinstance(stmt.value, ast.Dict) and stmt.value.keys:
+                return None
+            target = stmt.targets[0].id
         if self.function is None or self.inf_peek:
             return None
-        target = stmt.targets[0].id
 
         def _locals_upto(node: ast.AST) -> None:
             """Bind the names assigned before `node` in source order.
@@ -447,6 +481,7 @@ class StmtAMixin:
 
         saved_locals = dict(self.locals)
         elem: dict[str, Any] | None = None
+        key_t: dict[str, Any] | None = None
         value: dict[str, Any] | None = None
         try:
             _bind_for_targets()
@@ -456,7 +491,7 @@ class StmtAMixin:
                         continue
                     if node.func.attr != "append" or not isinstance(node.func.value, ast.Name):
                         continue
-                    if node.func.value.id != target or len(node.args) != 1:
+                    if node.func.value.id != target or len(node.args) != 1 or bare == "set":
                         continue
                     _locals_upto(node)
                     _bind_for_targets()
@@ -470,9 +505,25 @@ class StmtAMixin:
                 for node in ast.walk(item):
                     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
                         continue
+                    if node.func.attr != "add" or not isinstance(node.func.value, ast.Name):
+                        continue
+                    if node.func.value.id != target or len(node.args) != 1 or bare != "set":
+                        continue
+                    _locals_upto(node)
+                    _bind_for_targets()
+                    typ = self._infer_type_of(node.args[0])
+                    if typ is None or _type_kind(typ) not in {"int", "str"}:
+                        return None
+                    if elem is None:
+                        elem = typ
+                    elif not types_equal(elem, typ):
+                        return None
+                for node in ast.walk(item):
+                    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                        continue
                     if node.func.attr != "setdefault" or not isinstance(node.func.value, ast.Name):
                         continue
-                    if node.func.value.id != target or len(node.args) != 2:
+                    if node.func.value.id != target or len(node.args) != 2 or bare in {"list", "set"}:
                         continue
                     _locals_upto(node)
                     _bind_for_targets()
@@ -480,6 +531,11 @@ class StmtAMixin:
                     val = self._infer_type_of(node.args[1])
                     if key is None or val is None or _type_kind(key) not in {"int", "str"}:
                         return None
+                    if bare == "dict":
+                        if key_t is None:
+                            key_t = key
+                        elif not types_equal(key_t, key):
+                            return None
                     if value is None:
                         value = val
                     elif not types_equal(value, val):
@@ -494,18 +550,43 @@ class StmtAMixin:
                         _locals_upto(node)
                         _bind_for_targets()
                         key = self._infer_type_of(node.targets[0].slice)
+                        if bare == "list":
+                            # `x[i] = v` on a `list` annotee pins the element
+                            # like an append does; a non-int subscript write
+                            # refuses, and the real write keeps its own fence.
+                            val = self._infer_type_of(node.value)
+                            if key is None or val is None or _type_kind(key) != "int":
+                                return None
+                            if elem is None:
+                                elem = val
+                            elif not types_equal(elem, val):
+                                return None
+                            continue
+                        if bare == "set":
+                            continue
                         val = _written_value(node.value)
                         if key is None or val is None or _type_kind(key) not in {"int", "str"}:
                             return None
+                        if bare == "dict":
+                            if key_t is None:
+                                key_t = key
+                            elif not types_equal(key_t, key):
+                                return None
                         if value is None:
                             value = val
                         elif not types_equal(value, val):
                             return None
         finally:
             self.locals = saved_locals
+        if bare == "dict":
+            if value is not None and key_t is not None:
+                return {"kind": "dict", "key": key_t, "value": value}
+            return None
+        if bare == "set":
+            return {"kind": "list", "elem": elem, "set": True} if elem is not None else None
         if elem is not None:
             return {"kind": "list", "elem": elem}
-        if value is not None:
+        if bare is None and value is not None:
             return {"kind": "dict", "key": {"kind": "str"}, "value": value}
         return None
 

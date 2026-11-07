@@ -220,6 +220,12 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             typ = self._annotation(stmt.annotation)
             if _has_typevar(typ):
                 self.fail(stmt, "PS1001", f"{stmt.target.id} needs a concrete type")
+            accumulated = self._infer_accumulated_type(stmt)
+            if accumulated is not None:
+                # Issue #483: a bare container annotation's `any` slots pin
+                # from the body's mutations, the same scan an unannotated
+                # empty display gets.
+                typ = accumulated
             if stmt.value is None:
                 self.locals[stmt.target.id] = typ
                 return [_assign(stmt.target.id, _zero(typ, span), span)]

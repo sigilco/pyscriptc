@@ -341,6 +341,10 @@ def test_self_census_ballpark() -> None:
     # Typed _expr nodes (R3e, #824): 3383 -> 3414; payload types stay dict[str, Any].
     # mirlower typing (R4): 3414 -> 3395; the mirlower module joins the clean list.
     # Typed _call_attr and _calls nodes (R3f, #824): 3395 -> 3418; payload types stay dict[str, Any].
+    # Bare container annotations (#483): the bare list/dict/set spellings annotate as
+    # Any containers, and signatures they unblock re-expose the bodies' per-use fences —
+    # telemetry.py 28 -> 50, the same shape the #781 landing took; the new lowering
+    # defs add one ast.* signature fence each (_annotations 33 -> 34, _stmt_a 35 -> 36).
     # Since refs #817 the fence pins live per module in tests/census_pins/
     # (regenerate with `uv run python scripts/repin_census.py`), so a PR that
     # moves fences in one module no longer conflicts with every other PR.
