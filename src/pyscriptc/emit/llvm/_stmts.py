@@ -14,7 +14,6 @@ from pyscriptc.emit._ir import (
     _handler_exc,
     _has,
     _items,
-    _kind,
     _llvm_field_type,
     _maybe_node_kind,
     _maybe_node_type_kind,
@@ -41,11 +40,11 @@ from pyscriptc.emit._ir import (
     _opt_str,
     _opt_str_or_none,
     _span_of,
-    _type_name,
     _type_of,
 )
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import IRError
+from pyscriptc.tirserde import dict_to_type
 
 
 def _is_exit_status(node: dict[str, Any] | None) -> bool:
@@ -499,15 +498,16 @@ class StmtsMixin(EmitterBase):
         value_node: dict[str, Any] = _node_value_node(stmt)
         obj = self.emit_expr(object_node)
         value = self.emit_expr(value_node)
-        class_name: str = _type_name(_type_of(object_node))
+        class_name: str = dict_to_type(_type_of(object_node)).name
         field = self._field(class_name, _node_name(stmt))
         slot = self._field_ptr(class_name, obj, field)
         field_type: dict[str, Any] = _field_type(field)
-        if _kind(field_type) == "none":
+        field_kind: str = dict_to_type(field_type).kind
+        if field_kind == "none":
             # A None field holds the singleton: one placeholder byte, zero.
             self.line(f"store i8 0, ptr {slot}")
             return
-        if _kind(field_type) in {"str", "bytes"}:
+        if field_kind in {"str", "bytes"}:
             length = self.tmp()
             ptr = self.tmp()
             self.line(f"{length} = extractvalue %ps.str {value}, 0")
