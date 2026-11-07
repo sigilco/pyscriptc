@@ -35,6 +35,7 @@ from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.emit._ir import (
     _has,
     _items,
+    _kind,
     _node_name,
     _opt_int,
     _opt_span,
@@ -1497,7 +1498,7 @@ def _exportable_global_type(typ: dict[str, Any]) -> bool:
     so exporting it would only move the fence to the consumer.
     """
 
-    kind = typ.get("kind")
+    kind = _kind(typ)
     if kind in {"str", "int", "list", "dict", "func"}:
         return True
     if kind == "class" and typ.get("name") in PTR_CLASSES:

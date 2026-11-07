@@ -152,14 +152,20 @@ class EntryMixin:
         A program's other modules synthesize `__init__`: their body runs when
         the program first imports them, before the importing module's body.
         """
-        if not stmts:
-            return []
         if self.module_name and not self._is_program_main():
             if not self.module_init:
+                return []
+            # A module whose top level only binds global slots has no script
+            # statements, but the slot initializers still run at import: an
+            # empty `__init__` carries them (the IR pass prepends the
+            # `ps_global_set_*` calls to this entry's body).
+            if not stmts and not self.global_inits:
                 return []
             taken = {fn.name for fn in functions} | self.declared
             name = "__init__" if "__init__" not in taken else "__init_entry__"
             return [self._make_entry(stmts, name)]
+        if not stmts:
+            return []
         if self.cataloguing:
             # The cataloguing pass only needs the signatures. The program's
             # entry is not an export, so it is not synthesized here.
@@ -170,6 +176,16 @@ class EntryMixin:
 
     def _make_entry(self, stmts: list[ast.stmt], name: str) -> ast.FunctionDef:
         """A synthetic no-argument function carrying `stmts` in source order."""
+
+        if not stmts:
+            # An empty entry carries only the module's global slot
+            # initializers, which the IR pass prepends to its body.
+            placeholder = ast.Pass()
+            placeholder.lineno = 1
+            placeholder.col_offset = 0
+            placeholder.end_lineno = 1
+            placeholder.end_col_offset = 0
+            stmts = [placeholder]
 
         fn = ast.FunctionDef(
             name=name,
