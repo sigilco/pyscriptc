@@ -42,6 +42,78 @@ void ps_global_set_ptr(int64_t n, const char *name, void *value);
    Py_InitializeEx aborts with "global import state already initialized"). */
 static pthread_once_t ps_island_once = PTHREAD_ONCE_INIT;
 
+/* Issue #679: island-side `atexit.register` lands on the embedded
+   interpreter's callback list, but the process leaves through libc exit()
+   without Py_FinalizeEx, so CPython's own exitfuncs never ran and a handler
+   like `atexit.register(lambda: print("bye"))` was silently dropped. This
+   C atexit hook runs them once, at process exit, the way Py_FinalizeEx's
+   exitfuncs pass would: fetch the GIL, call the atexit module's
+   `_run_exitfuncs` (LIFO order, per-handler exceptions printed not
+   raised), then flush the standard streams so buffered handler output is
+   not lost. */
+static void ps_island_run_exitfuncs(void) {
+    PyObject *mod;
+    PyObject *fn;
+    PyObject *result;
+    PyObject *sys;
+    if (!Py_IsInitialized()) {
+        return;
+    }
+    PyGILState_STATE gstate = PyGILState_Ensure();
+    mod = PyImport_ImportModule("atexit");
+    if (mod != NULL) {
+        fn = PyObject_GetAttrString(mod, "_run_exitfuncs");
+        Py_DECREF(mod);
+        if (fn != NULL) {
+            result = PyObject_CallNoArgs(fn);
+            Py_DECREF(fn);
+            Py_XDECREF(result);
+            if (result == NULL) {
+                PyErr_Print();
+            }
+        } else {
+            PyErr_Clear();
+        }
+    } else {
+        PyErr_Clear();
+    }
+    sys = PyImport_ImportModule("sys");
+    if (sys != NULL) {
+        PyObject *names[2] = {PyUnicode_InternFromString("stdout"), PyUnicode_InternFromString("stderr")};
+        for (int i = 0; i < 2; i++) {
+            PyObject *stream;
+            PyObject *flush;
+            if (names[i] == NULL) {
+                PyErr_Clear();
+                continue;
+            }
+            stream = PyObject_GetAttr(sys, names[i]);
+            Py_DECREF(names[i]);
+            if (stream == NULL || stream == Py_None) {
+                Py_XDECREF(stream);
+                PyErr_Clear();
+                continue;
+            }
+            flush = PyObject_GetAttrString(stream, "flush");
+            Py_DECREF(stream);
+            if (flush != NULL) {
+                result = PyObject_CallNoArgs(flush);
+                Py_DECREF(flush);
+                Py_XDECREF(result);
+                if (result == NULL) {
+                    PyErr_Clear();
+                }
+            } else {
+                PyErr_Clear();
+            }
+        }
+        Py_DECREF(sys);
+    } else {
+        PyErr_Clear();
+    }
+    PyGILState_Release(gstate);
+}
+
 static void ps_island_init(void) {
     Py_InitializeEx(0);
     if (!Py_IsInitialized()) {
@@ -49,6 +121,7 @@ static void ps_island_init(void) {
         fprintf(stderr, "CPython island failed to initialize\n");
         abort();
     }
+    atexit(ps_island_run_exitfuncs);
     PyObject *site = PyImport_ImportModule("site");
     PyObject *sys = PyImport_ImportModule("sys");
     if (sys != NULL) {
