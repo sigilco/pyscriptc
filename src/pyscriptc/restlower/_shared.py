@@ -95,6 +95,13 @@ def _node_value(node: dict[str, Any]) -> Any:
     return value
 
 
+def _type_value(typ: dict[str, Any]) -> dict[str, Any]:
+    """The value type a dict type record carries."""
+
+    value: dict[str, Any] = typ["value"]
+    return value
+
+
 def _type_name(typ: dict[str, Any]) -> str:
     """The class name a class type record carries, or "" when absent."""
 
@@ -226,6 +233,14 @@ def _asg(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, 
 
 def _cmp(op: str, left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return node_to_dict(_ir.compare(op, dict_to_node(left), dict_to_node(right), _ir.t_leaf("bool"), _mk_span(span)))
+
+
+def _binary(
+    op: str, left: dict[str, Any], right: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The dict-IR binary node one operator, operand pair and result type spell."""
+
+    return node_to_dict(_ir.binary(op, dict_to_node(left), dict_to_node(right), dict_to_type(typ), _mk_span(span)))
 
 
 def _field(value: dict[str, Any], name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
