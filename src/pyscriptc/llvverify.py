@@ -20,6 +20,7 @@ import shutil
 import subprocess
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from pyscriptc.errors import SpikeError
 
@@ -42,7 +43,7 @@ class VerifyResult:
     message: str
     skipped: bool = False
 
-    def as_dict(self) -> dict[str, object]:
+    def as_dict(self) -> dict[str, Any]:
         return {
             "tool": self.tool,
             "ok": self.ok,

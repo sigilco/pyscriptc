@@ -28,7 +28,7 @@ def _func_type(param_types: list[dict[str, Any]], ret: dict[str, Any]) -> dict[s
     return node_to_dict(_ir.t_func([_mk_type(param) for param in param_types], _mk_type(ret)))
 
 
-def _env_item(entry: dict[str, Any]) -> Any:
+def _env_item(entry: dict[str, Any]) -> _ir.EnvItem:
     """The EnvItem record one dict-IR env entry spells."""
 
     if "init" in entry:
@@ -41,8 +41,8 @@ def _closure_node(
     env: list[dict[str, Any]],
     ftype: dict[str, Any],
     span: dict[str, Any],
-    stub: Any = None,
-) -> Any:
+    stub: _ir.Stub | None = None,
+) -> _ir.IrNode:
     """The typed closure node one dict-IR closure spells."""
 
     return _ir.closure(name, [_env_item(item) for item in env], _mk_type(ftype), _mk_span(span), stub)
