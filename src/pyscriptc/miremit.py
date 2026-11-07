@@ -44,7 +44,10 @@ from pyscriptc.emit._ir import (
     _llvm_double,
     _llvm_field_type,
     _llvm_type,
+    _name_list,
+    _opt_module_fallback,
     _opt_str,
+    _opt_str_or_none,
     _safe,
 )
 from pyscriptc.emit._mir_in import plan_module
@@ -1955,10 +1958,28 @@ def emit_llvm_mir(
 ) -> str:
     """The MIR lane's `emit_llvm`. Same contract, same bytes, opt-in only."""
     assert_same_cpython(module)
-    fences: list[Any] = module["fences"]
-    if fences:
+    if _name_list(module, "fences"):
         raise IRError("refusing to emit LLVM while fences are present")
-    functions: list[Any] = module["functions"]
+    # boxed:begin
+    # The island top level (issue #613) has no MIR lane: the module body
+    # runs island-side, so the program is the island seed alone. The MIR
+    # lane falls through to the direct emitter's island-only shape, the
+    # same bytes `PYSC_MIR=0` produces. `--emit binding` never reaches
+    # this lane (the CLI keeps the direct emitter for it), so the driver's
+    # `binding` disjunct has no counterpart here.
+    fallback = _opt_module_fallback(module)
+    if (
+        fallback is not None
+        and _opt_str_or_none(fallback, "moduleTopLevel") == "island"
+        and call is None
+        and not library
+    ):
+        dwarf = DwarfEmitter(_opt_str(module, "sourceFile")) if debug_info else None
+        island_emitter = Emitter(module, dwarf, wasm=wasm)
+        island_emitter.library = library
+        return island_emitter.emit_top_island()
+    # boxed:end
+    functions: list[Any] = _items(module, "functions")
     if not functions:
         raise IRError("module has no functions to emit")
     source_file: str = module["sourceFile"]
