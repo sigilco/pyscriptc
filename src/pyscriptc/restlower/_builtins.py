@@ -15,13 +15,14 @@ def _isinstance(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
         lo.fail(node, "PS2003", "isinstance expects 2 argument(s)")
     obj = lo._expr(node.args[0])
     want = lo._isinstance_type(node.args[1])
-    if obj["type"].get("optional"):
+    operand = obj["type"]
+    if operand.get("optional"):
         # `isinstance(x, T)` on `T | None` is the tag: the value is exactly
         # its element type or it is None.
-        if lo._isinstance_holds(obj["type"]["elem"], want):
+        if lo._isinstance_holds(operand["elem"], want):
             return {"kind": "attr", "value": obj, "name": "_tag", "type": {"kind": "bool"}, "span": span}
         return {"kind": "const", "value": False, "type": {"kind": "bool"}, "span": span}
-    if obj["type"]["kind"] == "exc":
+    if operand["kind"] == "exc":
         # `isinstance(e, Exc)` on a caught exception: the runtime parent chain
         # decides, because the caught value carries a code, not a static type.
         if want["kind"] != "class":
@@ -32,7 +33,7 @@ def _isinstance(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
             # A class that is not an exception: no exception instance matches it.
             return {"kind": "const", "value": False, "type": {"kind": "bool"}, "span": span}
         return lo._abi_call("builtins", "exc.isa", [obj], {"kind": "bool"}, f"ps_exc_isa_value:{code}", span)
-    flag = lo._isinstance_holds(obj["type"], want)
+    flag = lo._isinstance_holds(operand, want)
     return {"kind": "const", "value": flag, "type": {"kind": "bool"}, "span": span}
 
 
