@@ -381,16 +381,19 @@ def is_island_diagnostic(
 # and `sys.path[0]` are rebased onto the staged tree, resolved at run time
 # from the running image (`sys.executable`), so a relocated output
 # directory keeps working.
-# Issue #782: the compiler may also embed every unit's compiled code object
+# Issue #782: the compiler may also embed the entry's compiled code object
 # (`__pyscriptc_seedcache__.codes`, a zlib-compressed marshalled `{name:
 # code}` mapping built for the exact interpreter the binary links). The
 # loader validates the header (the running interpreter's magic number and
-# a matching source hash) and unmarshals one module on its first import; a
-# missing, stale or invalid entry falls back to compiling the embedded
-# source, so a foreign-magic binary never breaks - it starts slower.
+# a matching source hash); a missing, stale or invalid entry falls back to
+# compiling the embedded source, so a foreign-magic binary never breaks -
+# it starts slower. Issue #712: the other units ship as marshalled code
+# slices in `__pyscriptc_seed__`'s index and body blobs - no source text.
 _PROGRAM_BOOTSTRAP = """\
 import os as _os, sys as _sys, importlib.abc as _abc, importlib.util as _iu, marshal as _ma, zlib as _zl, hashlib as _ha
-_PS_MODULES = %(modules)s
+_PS_SEED = _sys.modules.get('__pyscriptc_seed__')
+_PS_INDEX = _ma.loads(_PS_SEED.index) if _PS_SEED is not None else {}
+_PS_BODY = _PS_SEED.body if _PS_SEED is not None else b''
 _PS_DATA_DIR = %(data_dir)s
 _PS_PROG_NAME = %(prog_name)s
 _PS_BASE = %(base)s
@@ -468,8 +471,8 @@ def _ps_rebase(path):
             return _os.path.dirname(staged)
     if _PS_SELFPACK_ROOT:
         # The selfpack active: every package origin resolves into the
-        # extracted tree. The module text still comes from _PS_MODULES (the
-        # loader serves it from memory); only the Path(__file__) the
+        # extracted tree. The module bodies still come from _PS_INDEX (the
+        # loader serves them from memory); only the Path(__file__) the
         # compiled code reads back resolves there, so runtime_dir(),
         # target.json and the typeshed lookups land on the extracted copy.
         if path.startswith(_PS_BASE + _os.sep):
@@ -509,15 +512,23 @@ def _ps_code(name, path, source):
     return compile(source, path, "exec")
 
 
+def _ps_seed_code(name):
+    # The module body is marshalled bytecode, deflated on its own: the body
+    # blob stays in the binary's read-only pages and only the modules a run
+    # imports are inflated and unmarshalled.
+    _origin, _is_pkg, _offset, _length = _PS_INDEX[name]
+    _raw = bytes(_PS_BODY[_offset:_offset + _length])
+    return _ma.loads(_zl.decompress(_raw))
+
+
 class _PsLoader(_abc.Loader):
     def create_module(self, spec):
         return None
     def exec_module(self, module):
-        path, _is_pkg, source = _PS_MODULES[module.__name__]
-        exec(_ps_code(module.__name__, path, source), module.__dict__)
+        exec(_ps_seed_code(module.__name__), module.__dict__)
 class _PsFinder(_abc.MetaPathFinder):
     def find_spec(self, name, path=None, target=None):
-        found = _PS_MODULES.get(name)
+        found = _PS_INDEX.get(name)
         if found is None:
             return None
         origin = _ps_rebase(found[0])
@@ -657,8 +668,19 @@ def program_island_source(
     selfpack: str = "",
     selfpack_dir: str = "",
     package_mode: bool = False,
-) -> tuple[str, bytes | None]:
+) -> tuple[str, tuple[bytes, bytes], bytes | None]:
     """The island seed of a whole program: finder bootstrap plus the entry.
+
+    Returns the `(bootstrap source, (index blob, body blob), code cache)`
+    triple the binary carries. The bootstrap is a small finder program; the
+    module bodies live in the two blobs as marshalled bytecode (issue #712),
+    so the binary does not compile a 10 MB source blob at startup and does
+    not hold the program text in memory.
+
+    The index blob is the marshalled `{name: (origin, is_package, offset,
+    length)}` table; the body blob is the concatenation of the per-module
+    deflated code objects the index points into. A run inflates and
+    unmarshals only the modules it imports.
 
     `staged_data` is the `(data directory name, program name)` pair of the
     staged data tree (issue #665), or None when the program staged nothing.
@@ -671,23 +693,32 @@ def program_island_source(
     bootstrap extracts it once under the digest directory and rebases the
     data-file origins onto the copy.
 
-    Returns `(bootstrap_source, code_cache)`: the seed text the emitter
-    embeds and, issue #782, the zlib-compressed marshalled code cache of
-    every unit (None when nothing compiled, in which case the bootstrap
-    compiles source at start exactly as before the cache existed).
+    `code cache` (issue #782) is the zlib-compressed marshalled code cache
+    of the entry unit (None when it did not compile, in which case the
+    bootstrap compiles the entry's source at start exactly as before the
+    cache existed); the other units need no cache, their bodies are already
+    marshalled code in the body blob.
     """
 
-    modules: dict[str, tuple[str, bool, str]] = {}
+    import marshal
+    import zlib
+
+    index: dict[str, tuple[str, bool, int, int]] = {}
+    body = bytearray()
     main_path = ""
     main_source = ""
     for name, path, is_package in units:
-        text = path.read_text(encoding="utf-8")
         if name == entry:
-            main_path, main_source = str(path), text
+            main_path, main_source = str(path), path.read_text(encoding="utf-8")
             continue
-        modules[name] = (str(path), is_package, text)
+        text = path.read_text(encoding="utf-8")
+        # The optimizer level is pinned to 0 so the bytecode does not depend
+        # on how the compiler itself was invoked (`python -O`).
+        code = compile(text, str(path), "exec", dont_inherit=True, optimize=0)
+        blob = zlib.compress(marshal.dumps(code), 9)
+        index[name] = (str(path), is_package, len(body), len(blob))
+        body.extend(blob)
     source = _PROGRAM_BOOTSTRAP % {
-        "modules": repr(modules),
         "data_dir": repr(staged_data[0] if staged_data is not None else None),
         "prog_name": repr(staged_data[1] if staged_data is not None else None),
         "base": repr(str(root.resolve())),
@@ -700,28 +731,34 @@ def program_island_source(
         "selfpack_dir": repr(selfpack_dir),
         "main_name": repr(entry),
     }
-    entries: dict[str, tuple[bytes, bytes, bytes]] = {}
-    for name, (path_str, _is_package, text) in modules.items():
-        built = _module_code_entry(text, path_str)
-        if built is not None:
-            entries[name] = built
+    # The code cache covers the entry only: every other unit already ships
+    # as a marshalled code slice in the body blob, so a second marshalled
+    # copy under the source-digest guard would be dead bytes.
     main_built = _module_code_entry(main_source, main_path)
-    if main_built is not None:
-        entries[entry] = main_built
-    return source, code_cache_blob(entries) if entries else None
+    cache = code_cache_blob({entry: main_built}) if main_built is not None else None
+    return source, (marshal.dumps(index), bytes(body)), cache
 
 
-def program_island_module(source: str, root: Path, code_cache: bytes | None = None) -> dict[str, Any]:
+def program_island_module(
+    source: str, root: Path, seed: tuple[bytes, bytes], code_cache: bytes | None = None
+) -> dict[str, Any]:
     """The merged IR module of a program-wide island: no native code at all.
 
+    `seed` is the `(index blob, body blob)` pair of the bytecode-backed module
+    table (issue #712); the IR carries it base64-encoded, the only encoding a
+    JSON IR can hold bytes in.
+
     `code_cache` (issue #782) is the zlib-compressed marshalled code cache
-    of the program's units, or None when the running interpreter produced
-    none; the emitter embeds it and registers it before the seed execs,
-    and the bootstrap falls back to compiling source without it.
+    of the entry unit, or None when the running interpreter produced none;
+    the emitter embeds it and registers it before the seed execs, and the
+    bootstrap falls back to compiling the entry's source without it.
     """
+
+    from base64 import b64encode
 
     from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 
+    index_blob, body_blob = seed
     module: dict[str, Any] = {
         "irVersion": IR_VERSION,
         "subset": SUBSET,
@@ -739,6 +776,8 @@ def program_island_module(source: str, root: Path, code_cache: bytes | None = No
             "demotedBy": {},
         },
         "islandSource": source,
+        "islandSeedIndex": b64encode(index_blob).decode("ascii"),
+        "islandSeedBody": b64encode(body_blob).decode("ascii"),
     }
     if code_cache is not None:
         module["islandCodeCache"] = code_cache.hex()
