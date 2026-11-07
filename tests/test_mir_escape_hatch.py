@@ -24,21 +24,21 @@ def test_named_env_values() -> None:
     assert MIR_OFF == "0"
 
 
-def test_today_default_is_off() -> None:
-    """The inverted default for the flip is still False; unset means direct emit."""
-    assert MIR_DEFAULT is False
+def test_default_is_on() -> None:
+    """The flip landed: unset means the MIR lane; PYSC_MIR=0 is the escape hatch."""
+    assert MIR_DEFAULT is True
 
 
 def test_unset_follows_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv(MIR_ENV, raising=False)
     assert mir_opt_in() is MIR_DEFAULT
-    assert mir_opt_in() is False
+    assert mir_opt_in() is True
 
 
 def test_empty_follows_default(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setenv(MIR_ENV, "")
     assert mir_opt_in() is MIR_DEFAULT
-    assert mir_opt_in() is False
+    assert mir_opt_in() is True
 
 
 def test_off_switch_forces_direct(monkeypatch: pytest.MonkeyPatch) -> None:

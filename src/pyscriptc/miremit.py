@@ -130,14 +130,14 @@ from pyscriptc.mir import (
 # The MIR lane switch. One variable, three values the contract names:
 #   PYSC_MIR=1  (MIR_ON)  force the MIR lane
 #   PYSC_MIR=0  (MIR_OFF) force the direct emitter (the post-flip escape hatch)
-#   unset/empty           today's default, MIR_DEFAULT (currently off)
+#   unset/empty           the default, MIR_DEFAULT (on since v0.9.0)
 # The owner-signed default flip is the one-line change `MIR_DEFAULT = True`.
 # Callers must read the default only through `mir_opt_in()`; the CLI call
 # site in `cli/_main.py` is the other reader.
 MIR_ENV = "PYSC_MIR"
 MIR_ON = "1"
 MIR_OFF = "0"
-MIR_DEFAULT = False
+MIR_DEFAULT = True
 
 # The `icmp` predicate of each word comparison op, and the `fcmp` predicate
 # of each double comparison op. The keys line up with `mirlower`'s tables.
