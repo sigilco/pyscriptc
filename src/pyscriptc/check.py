@@ -10,10 +10,14 @@ runs against a copy of the vendored `_typeshed/` stdlib stubs patched the same
 way the mypy plugin realigns signatures (`range(...) -> list[int]`,
 `frozenset[T]` subclasses `set[T]`), plus the vendored `_pyright_stubs/`
 on `search-path` so `struct.unpack` and `functools.partial` keep
-yielding `Any`. Two check kinds that reject idioms the subset defines —
-`unbound-name` (bare `x: int` declarations are zero-initialized) and
-`bad-context-manager` (`__exit__` keeps the lowered signature) — are
-silenced in the generated `pyrefly.toml`; nothing else is suppressed.
+yielding `Any`. Four check kinds are silenced in the generated
+`pyrefly.toml`; nothing else is suppressed. Two reject idioms the subset
+defines: `unbound-name` (bare `x: int` declarations are zero-initialized)
+and `bad-context-manager` (`__exit__` keeps the lowered signature). Two
+are resolution diagnostics the lowerer owns: `missing-import` and
+`unknown-name` defer to the closed import table and the scope rules,
+which report the same lines as `PS2002` fences that name the contract
+instead of the raw checker text (issue #505).
 
 Deprecated: `--checker mypy` and `--checker pyright` still work but emit
 DeprecationWarning. The mypy plugin below realigns a few typeshed
@@ -415,6 +419,50 @@ def _format_pyrefly_error(error: dict[str, Any]) -> str:
     return f"{path}:{line}: error: {description}"
 
 
+# Diagnostics that complain about a `T | None` value flowing onward get
+# the remedy the subset accepts, printed once under the error lines
+# (issue #505). `os.getenv`, `dict.get` and `re.search` keep their
+# optional results in the lowered contract, so the fix is narrowing, not
+# a different call.
+_OPTIONAL_CHECKER_RULES: set[str] = {
+    "bad-argument-type",
+    "bad-assignment",
+    "bad-return",
+    "missing-attribute",
+    "no-matching-overload",
+    "unsupported-operation",
+}
+
+_OPTIONAL_NOTE = (
+    "note: `T | None` values (os.getenv, dict.get, re.search) stay optional "
+    "in the subset; narrow with `is not None` or annotate `T | None`"
+)
+
+_PREFLIGHT_NOTE = "note: this is the checker preflight; `compile --skip-check` bypasses it"
+
+
+def _subset_notes(errors: list[dict[str, Any]]) -> list[str]:
+    """Subset-facing notes that ride under the checker diagnostics.
+
+    Each formatted line already names the rule in brackets; the notes add
+    what the subset would accept instead of leaving the raw checker
+    wording alone.
+    """
+    notes: list[str] = []
+    for error in errors:
+        rule: str = ""
+        if "name" in error:
+            rule = error["name"]
+        description: str = ""
+        if "description" in error:
+            description = error["description"]
+        if rule in _OPTIONAL_CHECKER_RULES and "None" in description:
+            notes.append(_OPTIONAL_NOTE)
+            break
+    notes.append(_PREFLIGHT_NOTE)
+    return notes
+
+
 def _active_interpreter() -> str:
     venv = os.environ.get("VIRTUAL_ENV")
     if venv:
@@ -497,9 +545,14 @@ def _run_pyrefly(
             "# The subset deliberately diverges from typeshed here: bare\n"
             "# `x: int` declarations are zero-initialized (unbound-name),\n"
             "# and __exit__ signatures keep the lowered shape\n"
-            "# (bad-context-manager).\n"
+            "# (bad-context-manager). Resolution diagnostics defer to the\n"
+            "# lowerer: the closed import table and the scope rules report\n"
+            "# them as PS2002 fences that name the contract\n"
+            "# (missing-import, unknown-name).\n"
             'unbound-name = "ignore"\n'
-            'bad-context-manager = "ignore"\n',
+            'bad-context-manager = "ignore"\n'
+            'missing-import = "ignore"\n'
+            'unknown-name = "ignore"\n',
             "utf-8",
         )
         try:
@@ -553,7 +606,7 @@ def _run_pyrefly(
                 return
             kept = remaining
         # boxed:end
-        raise CheckFailed("\n".join(_format_pyrefly_error(err) for err in kept))
+        raise CheckFailed("\n".join([_format_pyrefly_error(err) for err in kept] + _subset_notes(kept)))
     # Diagnostics go to stdout; stderr carries WARN/INFO progress lines.
     output: str = proc.stdout.strip() or proc.stderr.strip() or f"pyrefly exited {proc.returncode}"
     if "usage: pyscriptc" in output:
