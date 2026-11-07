@@ -336,6 +336,14 @@ def _set_field(obj: dict[str, Any], name: str, value: dict[str, Any], span: dict
     return node_to_dict(_ir.setattr_stmt(dict_to_node(obj), name, dict_to_node(value), _mk_span(span)))
 
 
+def _bin(
+    op: str, left: dict[str, Any], right: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The dict-IR binary node one operator, operand pair, result type and span spell."""
+
+    return node_to_dict(_ir.binary(op, dict_to_node(left), dict_to_node(right), dict_to_type(typ), _mk_span(span)))
+
+
 def _incr(left: dict[str, Any], by: int, span: dict[str, Any]) -> dict[str, Any]:
     return node_to_dict(
         _ir.binary("+", dict_to_node(left), dict_to_node(_int(by, span)), _ir.t_leaf("int"), _mk_span(span))
