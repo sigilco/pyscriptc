@@ -333,6 +333,53 @@ jobs:
           if-no-files-found: warn
 
 
+  # Strict corpus A/B (#527). The report-only sibling of the scorer's
+  # whitespace-stripped comparison: every runnable probe of the visible
+  # corpus runs natively and under the pinned CPython 3.14 oracle, and
+  # stdout is compared as untrimmed bytes. A DIFF row is a candidate
+  # divergence for the ledger; the job never blocks and never opens
+  # nightly-failure.
+  strict-corpus-ab:
+    name: strict corpus A/B (unstripped bytes)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Install clang
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang
+
+      - run: uv python install 3.14.9
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Strict corpus A/B harness
+        id: strict
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p nightly
+          uv run python scripts/strict_corpus_ab.py \
+            --json-out nightly/strict-corpus-ab.json \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            | tee nightly/strict-corpus-ab.txt
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-strict-corpus-ab-${{ github.run_id }}
+          path: nightly/
+          retention-days: 90
+          if-no-files-found: warn
+
+
   # The MIR lane nightly (cloud batch FR-1). PYSC_MIR=1 forces the MIR
   # emission path (`mir_opt_in` in src/pyscriptc/miremit.py; contract:
   # .agents/docs/mir-escape-hatch.md) for the whole default test
