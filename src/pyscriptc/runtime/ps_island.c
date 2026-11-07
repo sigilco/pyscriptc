@@ -1267,8 +1267,10 @@ static PyObject *ps_island_ns = NULL;
    script that reads `sys.argv[0]` or lets argparse derive its default
    `prog` sees the source name (`binary_size.py`) — the value CPython
    records for `python binary_size.py` — instead of the emitted binary's
-   basename, which loses the `.py` suffix. */
-static void ps_island_seed_argv(const char *argv0_override) {
+   basename, which loses the `.py` suffix. `first` is the process-argv
+   index the mirror starts at: a `-c` child mirrors only the tail after
+   the payload, CPython's own `['-c', *rest]` argv shape. */
+static void ps_island_seed_argv(const char *argv0_override, int64_t first) {
     PyObject *sys = PyImport_ImportModule("sys");
     if (sys == NULL) {
         PyErr_Clear();
@@ -1279,12 +1281,12 @@ static void ps_island_seed_argv(const char *argv0_override) {
     if (argv_list != NULL) {
         int64_t i;
         int64_t n = argv_seq != NULL ? argv_seq->len : 0;
-        if (n == 0 && argv0_override != NULL && argv0_override[0] != '\0') {
-            n = 1; /* the override alone becomes argv[0] */
+        if (n <= first && argv0_override != NULL && argv0_override[0] != '\0') {
+            n = first + 1; /* the override alone becomes argv[0] */
         }
-        for (i = 0; i < n; i++) {
+        for (i = first; i < n; i++) {
             PyObject *item = NULL;
-            if (i == 0 && argv0_override != NULL && argv0_override[0] != '\0') {
+            if (i == first && argv0_override != NULL && argv0_override[0] != '\0') {
                 item = PyUnicode_DecodeUTF8(argv0_override, (Py_ssize_t)strlen(argv0_override), "strict");
             } else {
                 PsBuf *b = (PsBuf *)argv_seq->data + i;
@@ -1374,7 +1376,7 @@ static int ps_island_seed(int64_t n, const char *source) {
     Py_DECREF(main_name);
     /* Mirror the process argv into sys.argv (issue #635) so island
        functions see the same arguments the native side recorded. */
-    ps_island_seed_argv(NULL);
+    ps_island_seed_argv(NULL, 0);
     result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
                           Py_file_input, ps_island_ns, ps_island_ns);
     Py_DECREF(text);
@@ -1483,7 +1485,7 @@ void ps_island_mod_seed(int64_t mod_n, const char *mod, int64_t src_n, const cha
         ps_island_fail();
     }
     Py_DECREF(name_obj);
-    ps_island_seed_argv(NULL);
+    ps_island_seed_argv(NULL, 0);
     result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
                           Py_file_input, dict, dict);
     Py_DECREF(text);
@@ -1594,6 +1596,43 @@ void ps_island_codecache(int64_t n, const char *blob) {
     ps_island_done();
 }
 
+static int ps_buf_contains(const PsBuf *b, const char *needle) {
+    int64_t nl = (int64_t)strlen(needle);
+    int64_t i;
+    if (b->data == NULL || b->len < nl) {
+        return 0;
+    }
+    for (i = 0; i + nl <= b->len; i++) {
+        if (memcmp(b->data + i, needle, (size_t)nl) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Issue #690: `sys.executable` is this binary (issue #688), so every
+   multiprocessing helper child - the spawn re-exec, the forkserver, the
+   resource tracker - runs it as `binary -c PAYLOAD ...`. Detect that
+   shape: a `-c` argument whose payload names multiprocessing. Returns the
+   ps_argv index of the payload argument, or -1 when this run is the
+   program itself, including a user `-c` that does not touch
+   multiprocessing (a compiled CLI keeps taking the flag for itself). */
+static int64_t ps_island_mp_child(void) {
+    PsSeq *argv_seq = ps_argv_get();
+    int64_t i;
+    if (argv_seq == NULL) {
+        return -1;
+    }
+    for (i = 1; i + 1 < argv_seq->len; i++) {
+        PsBuf *flag = (PsBuf *)argv_seq->data + i;
+        if (flag->len == 2 && memcmp(flag->data, "-c", 2) == 0 &&
+            ps_buf_contains((PsBuf *)argv_seq->data + i + 1, "multiprocessing")) {
+            return i + 1;
+        }
+    }
+    return -1;
+}
+
 /* The island top level (issue #613): the seed is the module's own source,
    so the exec runs with `__name__` set to `__main__` - the script's own
    main guard fires island-side, exactly once, and `raise SystemExit(...)`
@@ -1609,9 +1648,14 @@ static void ps_island_top_seed_common(PyObject *text, int64_t path_n, const char
     PyObject *module = NULL;
     PyObject *main_module = NULL;
     PyObject *result = NULL;
+    /* Issue #690: -1 for a normal run, else the ps_argv index of the `-c`
+       payload that names multiprocessing - the spawn re-exec, forkserver
+       or resource tracker running this binary as `sys.executable`. */
+    int64_t c_arg = -1;
     if (text == NULL) {
         ps_island_fail();
     }
+    c_arg = ps_island_mp_child();
     /* Issue #689: exec into the real `__main__` module registered in
        `sys.modules`, the way `runpy` seeds a script: the whole program runs
        in this one seed, so pickle must resolve functions out of
@@ -1655,7 +1699,12 @@ static void ps_island_top_seed_common(PyObject *text, int64_t path_n, const char
         ps_island_fail();
     }
     Py_DECREF(builtins);
-    main_name = PyUnicode_FromString("__main__");
+    /* Issue #690: a multiprocessing child re-imports `__main__` as
+       `__mp_main__` (runpy's `run_name`): the seed populates
+       `sys.modules["__main__"]` under that name so the top level's
+       `if __name__ == "__main__"` guard stays closed, exactly as
+       `runpy.run_path` leaves it in a spawned child under CPython. */
+    main_name = PyUnicode_FromString(c_arg >= 0 ? "__mp_main__" : "__main__");
     if (main_name == NULL || PyDict_SetItemString(ps_island_ns, "__name__", main_name) < 0) {
         Py_XDECREF(main_name);
         Py_DECREF(main_module);
@@ -1679,6 +1728,30 @@ static void ps_island_top_seed_common(PyObject *text, int64_t path_n, const char
         }
         Py_DECREF(file_name);
     }
+    if (c_arg >= 0) {
+        /* The child is the re-import: `__main__` is already the module the
+           spawn fixup would build, so it registers under `__mp_main__` too
+           and `__file__` normalizes the way the parent's
+           `init_main_from_path` does (`normpath`, absolutized). `prepare`
+           then sees the same path and skips its re-import fixup, and the
+           pickled target resolves out of the seeded module - the embedded
+           source, never a file on disk. */
+        result = PyRun_String(
+            "import sys as _ps_sys, os as _ps_os\n"
+            "_ps_sys.modules[\"__mp_main__\"] = _ps_sys.modules[\"__main__\"]\n"
+            "if \"__file__\" in globals():\n"
+            "    __file__ = _ps_os.path.normpath(_ps_os.path.abspath(__file__))\n"
+            "del _ps_sys, _ps_os\n",
+            Py_file_input, ps_island_ns, ps_island_ns);
+        if (result == NULL) {
+            Py_DECREF(main_module);
+            Py_DECREF(module);
+            Py_DECREF(text);
+            ps_island_fail();
+        }
+        Py_DECREF(result);
+        result = NULL;
+    }
     /* sys.argv mirrors the process argv the native runtime already holds
        (ps_argv_init), so `len(sys.argv) != 2` and friends behave as under
        CPython. argv[0] is the source path when the compiler recorded one
@@ -1689,8 +1762,12 @@ static void ps_island_top_seed_common(PyObject *text, int64_t path_n, const char
        entry file path for `-m`, and the bootstrap's exec'd `__main__`
        already set `__file__` to that path, so the mirrored argv[0] — the
        emitted binary's path — differs and the override would hide the
-       real `-m` value from argparse's default `prog` derivation. */
-    ps_island_seed_argv(package_mode ? NULL : path);
+       real `-m` value from argparse's default `prog` derivation. A `-c`
+       child instead gets CPython's `-c` argv: `['-c']` plus the tail
+       after the payload (`--multiprocessing-fork`, or the forkserver's
+       sys.argv). */
+    ps_island_seed_argv(c_arg >= 0 ? "-c" : (package_mode ? NULL : path),
+                        c_arg >= 0 ? c_arg : 0);
     result = PyRun_String(PyUnicode_AsUTF8(text) != NULL ? PyUnicode_AsUTF8(text) : "",
                           Py_file_input, ps_island_ns, ps_island_ns);
     Py_DECREF(text);
@@ -1700,6 +1777,30 @@ static void ps_island_top_seed_common(PyObject *text, int64_t path_n, const char
         ps_island_fail();
     }
     Py_DECREF(result);
+    if (c_arg >= 0) {
+        /* The seeded `__main__` is what the child needs; run the `-c`
+           payload on top of it instead of re-running the program. A
+           SystemExit inside the payload (spawn_main ends in sys.exit)
+           exits through PyErr_Print with its own code; any other error
+           already printed its traceback, matching `python -c`. The
+           island's writers flush before the C exit. */
+        PsBuf *payload = (PsBuf *)ps_argv_get()->data + c_arg;
+        char *prog = (char *)malloc((size_t)payload->len + 1);
+        int rc = -1;
+        if (prog == NULL) {
+            Py_DECREF(main_module);
+            Py_DECREF(module);
+            ps_island_fail();
+        }
+        memcpy(prog, payload->data, (size_t)payload->len);
+        prog[payload->len] = '\0';
+        rc = PyRun_SimpleString(prog);
+        free(prog);
+        PyRun_SimpleString("import sys\nsys.stdout.flush()\nsys.stderr.flush()");
+        Py_DECREF(main_module);
+        Py_DECREF(module);
+        exit(rc == 0 ? 0 : 1);
+    }
     Py_DECREF(main_module);
     Py_DECREF(module);
     ps_island_done();
