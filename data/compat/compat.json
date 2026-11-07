@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-07",
-  "commit": "56240b89f41b0cb6b83d33d5214df8bce420a6b9",
+  "commit": "b70cf81ee7c54f5c4dcb0eeba97fbd8b16698b84",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2674
+    "fences": 2671
   },
   "builtins": [
     {
@@ -1806,9 +1806,9 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 202,
+      "fences": 199,
       "definitions": 132,
-      "fenced_definitions": 86,
+      "fenced_definitions": 84,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1816,11 +1816,11 @@
         },
         {
           "family": "unlowered-type-name",
-          "count": 22
+          "count": 19
         },
         {
           "family": "type-mismatch",
-          "count": 17
+          "count": 18
         }
       ],
       "codes": [
@@ -1830,11 +1830,11 @@
         },
         {
           "code": "PS1106",
-          "count": 22
+          "count": 19
         },
         {
           "code": "PS1003",
-          "count": 17
+          "count": 18
         }
       ],
       "pypi": "https://pypi.org/project/pathspec/"
@@ -2089,13 +2089,13 @@
     {
       "code": "PS1001",
       "title": "annotation missing or not supported",
-      "count": 302,
+      "count": 301,
       "packages": 13
     },
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 204,
+      "count": 201,
       "packages": 9
     },
     {
@@ -2137,7 +2137,7 @@
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 52,
+      "count": 53,
       "packages": 8
     },
     {
@@ -2255,12 +2255,12 @@
     },
     {
       "date": "2026-11-07",
-      "commit": "56240b89f41b0cb6b83d33d5214df8bce420a6b9",
+      "commit": "b70cf81ee7c54f5c4dcb0eeba97fbd8b16698b84",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2674
+      "fences": 2671
     }
   ]
 }

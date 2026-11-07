@@ -19,6 +19,7 @@ from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.ffi_manifest import handle_type
 from pyscriptc.ir import type_key
 from pyscriptc.lower._core import (
+    _BARE_CONTAINER_NAMES,
     _DICT_FORMS,
     _LIST_FORMS,
     _SET_FORMS,
@@ -231,6 +232,8 @@ class AnnotationMixin:
             # (dict[K, Any], list[Any]) resolves through the `any` element,
             # because there the shape is known.
             self.fail(node, "PS1104", f"{node.id} is a dynamic or structural type and is not lowered")
+        if isinstance(node, ast.Name) and node.id in _BARE_CONTAINER_NAMES:
+            return self._bare_container_annotation(node)
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "set":
             elem = self._annotation(node.slice)
             if elem["kind"] not in {"int", "str"}:
@@ -281,6 +284,27 @@ class AnnotationMixin:
         if isinstance(node, ast.Name) and node.id in _DYNAMIC_ANNOTATIONS:
             self.fail(node, "PS1104", f"{node.id} is a dynamic or structural type and is not lowered")
         return self._annotation(node)
+
+    def _bare_container_annotation(self, node: ast.Name) -> dict[str, Any]:
+        """A bare `list`, `dict` or `set` annotation (issue #483).
+
+        The container's shape is known; its element slots take the
+        unresolved `any` kind `list[Any]` and `dict[K, Any]` already spell
+        (issue #781), so the bare spelling is never a silent Any: a local's
+        slots pin from the body's mutations through the accumulated-type
+        inference an unannotated `x = []` gets, a concrete initializer
+        satisfies the annotation, and a read nothing proves keeps its
+        PS1107 fence. `dict` pins the key to str when the body proves no
+        key type — the map ABI keeps no room for an unresolved key kind —
+        and a body's int-keyed writes still pin a concrete `dict[int, V]`
+        through the same scan. `tuple` keeps its PS1106 fence: a tuple's
+        shape is its arity and the bare name carries none.
+        """
+        if node.id == "dict":
+            return _type({"kind": "dict", "key": {"kind": "str"}, "value": {"kind": _UNRESOLVED_KIND}})
+        if node.id == "set":
+            return _type({"kind": "list", "elem": {"kind": _UNRESOLVED_KIND}, "set": True})
+        return _type({"kind": "list", "elem": {"kind": _UNRESOLVED_KIND}})
 
     def _fail_annotation(self, node: ast.AST) -> NoReturn:
         """Fence an annotation the subset does not lower, with the code that names why."""

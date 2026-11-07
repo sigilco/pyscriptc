@@ -510,6 +510,16 @@ def _peek_annotation(node: ast.AST) -> dict[str, Any]:
     if isinstance(node, ast.Name):
         if node.id in {"int", "float", "bool", "str", "bytes"}:
             return {"kind": node.id}
+        if node.id == "dict":
+            # The bare container names peek as the same `any`-slot shape the
+            # real annotation pass gives them (issue #483); a read the peek
+            # cannot prove still refuses downstream.
+            return {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "any"}}
+        if node.id in {"list", "set"}:
+            out: dict[str, Any] = {"kind": "list", "elem": {"kind": "any"}}
+            if node.id == "set":
+                out["set"] = True
+            return out
     if isinstance(node, ast.Constant) and node.value is None:
         return {"kind": "none"}
     if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name):
@@ -560,6 +570,10 @@ _SET_FORMS = frozenset({"Set"})
 # container's shape (the key type, the element slots) is known, the value type
 # is not, and every read proves it from a local source or fences with PS1107.
 _UNRESOLVED_KIND = "any"
+# Issue #483: the bare container names `list`, `dict` and `set` annotate as
+# the container shape with `any` element slots. `tuple` stays out: a tuple's
+# shape is its arity, and the bare name carries none.
+_BARE_CONTAINER_NAMES = frozenset({"list", "dict", "set"})
 
 
 _FUTURE_OK = frozenset(
