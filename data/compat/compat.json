@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-07",
-  "commit": "1951238eb89460d365cf13f582d672bcd0f5b99e",
+  "commit": "5c2c5e2fbcc09e4781c88b4df26d8cf12ff8cfb8",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2671
+    "fences": 2670
   },
   "builtins": [
     {
@@ -1806,7 +1806,7 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 199,
+      "fences": 198,
       "definitions": 132,
       "fenced_definitions": 84,
       "top_families": [
@@ -1820,7 +1820,7 @@
         },
         {
           "family": "type-mismatch",
-          "count": 18
+          "count": 17
         }
       ],
       "codes": [
@@ -1834,7 +1834,7 @@
         },
         {
           "code": "PS1003",
-          "count": 18
+          "count": 17
         }
       ],
       "pypi": "https://pypi.org/project/pathspec/"
@@ -2137,7 +2137,7 @@
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 53,
+      "count": 52,
       "packages": 8
     },
     {
@@ -2255,12 +2255,12 @@
     },
     {
       "date": "2026-11-07",
-      "commit": "1951238eb89460d365cf13f582d672bcd0f5b99e",
+      "commit": "5c2c5e2fbcc09e4781c88b4df26d8cf12ff8cfb8",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2671
+      "fences": 2670
     }
   ]
 }
