@@ -419,6 +419,111 @@ VALUE_OPS = [
     MIR_MAP_LEN,
 ]
 
+# The printer mnemonics, the fifth facet of the op spec. They live here,
+# not in `mirprint.py`, so the whole vocabulary has one owner; the printer
+# reaches them through `op_name` like every other consumer.
+_OP_NAMES = {
+    MIR_NOP: "nop",
+    MIR_JMP: "jmp",
+    MIR_BR: "br",
+    MIR_RET: "ret",
+    MIR_ADDW: "addw",
+    MIR_SUBW: "subw",
+    MIR_MULW: "mulw",
+    MIR_ADDD: "addd",
+    MIR_SUBD: "subd",
+    MIR_MULD: "muld",
+    MIR_NEGW: "negw",
+    MIR_NEGD: "negd",
+    MIR_CLTW: "cltw",
+    MIR_CLEW: "clew",
+    MIR_CGTW: "cgtw",
+    MIR_CGEW: "cgew",
+    MIR_CEQW: "ceqw",
+    MIR_CNEW: "cnew",
+    MIR_CLTD: "cltd",
+    MIR_CLED: "cled",
+    MIR_CGTD: "cgtd",
+    MIR_CGED: "cged",
+    MIR_CEQD: "ceqd",
+    MIR_CNED: "cned",
+    MIR_EXTWD: "extwd",
+    MIR_COPY: "copy",
+    MIR_NOTB: "notb",
+    MIR_RAISE: "raise",
+    MIR_CALL: "call",
+    MIR_ANDW: "andw",
+    MIR_NEWSEQ: "newseq",
+    MIR_SEQGET: "seqget",
+    MIR_SEQSET: "seqset",
+    MIR_SEQPUSH: "seqpush",
+    MIR_SEQLEN: "seqlen",
+    MIR_MAP_PUT: "map_put",
+    MIR_ORW: "orw",
+    MIR_XORW: "xorw",
+    MIR_NEWOBJ: "newobj",
+    MIR_SETATTR: "setattr",
+    MIR_GETATTR: "getattr",
+    MIR_TRYPACK: "trypack",
+    MIR_TRYCALL: "trycall",
+    MIR_FLOWLD: "flowld",
+    MIR_TRYICMP: "tryicmp",
+    MIR_TRYNE: "tryne",
+    MIR_EXCCODE: "exccode",
+    MIR_EXCISA: "excisa",
+    MIR_RETLOD: "retlod",
+    MIR_EXCCUR: "exccur",
+    MIR_RERAISE: "reraise",
+    MIR_RAISEEXC: "raiseexc",
+    MIR_UNREACH: "unreach",
+    MIR_INITCALL: "initcall",
+    MIR_MAP_GET: "mapget",
+    MIR_MAP_HAS: "maphas",
+    MIR_MAP_LEN: "maplen",
+    MIR_RAISEMSG: "raisemsg",
+}
+
+
+# The cross-module face of the op spec. The tables above bind module-level
+# slots, and slots do not ride the package export table a
+# `from pyscriptc.mir import ...` resolves against, so other modules reach
+# the vocabulary only through these functions. `op_arity` and
+# `op_result_type` answer -1 for an op id the vocabulary does not name;
+# the predicates answer False and `op_name` falls back to `op<N>`, the
+# spellings the consumers used before the tables moved here.
+def op_arity(op: int) -> int:
+    """The operand-slot count `op` reads, or -1 for an unknown op id."""
+    arity: int | None = OP_ARITY.get(op)
+    if arity is None:
+        return -1
+    return arity
+
+
+def op_result_type(op: int) -> int:
+    """The result tag `op` produces, or -1 for an unknown op id."""
+    tag: int | None = OP_RESULT_TYPE.get(op)
+    if tag is None:
+        return -1
+    return tag
+
+
+def is_terminator(op: int) -> bool:
+    """True when `op` ends its block."""
+    return op in TERMINATORS
+
+
+def is_value_op(op: int) -> bool:
+    """True when `op` produces a value a later instruction can read."""
+    return op in VALUE_OPS
+
+
+def op_name(op: int) -> str:
+    """The printer mnemonic of `op`, or `op<N>` for an unknown op id."""
+    name: str | None = _OP_NAMES.get(op)
+    if name is None:
+        return f"op{op}"
+    return name
+
 
 def const_ref(index: int) -> int:
     """The operand encoding of constant-pool entry `index`."""

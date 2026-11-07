@@ -15,8 +15,9 @@ import pytest
 
 from pyscriptc.cli import main as cli_main
 from pyscriptc.lower import lower_file
+from pyscriptc.mir import OP_ARITY, op_name
 from pyscriptc.mirlower import lower_module
-from pyscriptc.mirprint import OP_NAMES, print_module
+from pyscriptc.mirprint import print_module
 
 _LEAF = Path(__file__).parent / "fixtures" / "mir_leaf"
 _GOLDEN = Path(__file__).parent / "fixtures" / "mir_print"
@@ -45,10 +46,10 @@ def test_mir_text_is_stable_across_lowerings(stem: str) -> None:
 
 
 def test_every_op_has_a_mnemonic() -> None:
-    from pyscriptc.mir import OP_ARITY
-
-    assert set(OP_ARITY) <= set(OP_NAMES)
-    assert len(set(OP_NAMES.values())) == len(OP_NAMES)
+    for op in OP_ARITY:
+        assert op_name(op) != f"op{op}"
+    names = [op_name(op) for op in OP_ARITY]
+    assert len(set(names)) == len(names)
 
 
 def test_cli_emit_mir_writes_the_printer_text(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:

@@ -122,6 +122,9 @@ from pyscriptc.mir import (
     const_index,
     copy_result_type,
     is_const_ref,
+    is_terminator,
+    op_arity,
+    op_result_type,
 )
 
 # The MIR lane switch. One variable, three values the contract names:
@@ -172,141 +175,11 @@ _LLVM_W = {
 _LLVM_D = {MIR_ADDD: "fadd", MIR_SUBD: "fsub", MIR_MULD: "fmul", MIR_NEGD: "fneg"}
 
 
-# The terminator ops, spelled here over the imported op constants: the
-# module-level table in `mir.py` binds a global slot, and slots do not
-# ride the package export table a cross-module import resolves against.
-_MIR_TERMINATORS: list[int] = [
-    MIR_JMP,
-    MIR_BR,
-    MIR_RET,
-    MIR_RAISE,
-    MIR_RERAISE,
-    MIR_RAISEEXC,
-    MIR_UNREACH,
-    MIR_RAISEMSG,
-]
-
-# The op tables, spelled here for the same reason as `_MIR_TERMINATORS`:
-# `mir.py`'s module-level tables bind global slots, and slots do not ride
-# the package export table. The keys are the imported op constants, the
-# values mirror `mir.py`'s tables; a drift is a mirverify or A/B
-# byte-identity failure, not a silent wrong emission.
-_OP_ARITY: Dict[int, int] = {
-    MIR_NOTB: 1,
-    MIR_RAISE: 1,
-    MIR_JMP: 0,
-    MIR_BR: 1,
-    MIR_RET: 1,
-    MIR_ADDW: 2,
-    MIR_SUBW: 2,
-    MIR_MULW: 2,
-    MIR_ADDD: 2,
-    MIR_SUBD: 2,
-    MIR_MULD: 2,
-    MIR_NEGW: 1,
-    MIR_NEGD: 1,
-    MIR_CLTW: 2,
-    MIR_CLEW: 2,
-    MIR_CGTW: 2,
-    MIR_CGEW: 2,
-    MIR_CEQW: 2,
-    MIR_CNEW: 2,
-    MIR_CLTD: 2,
-    MIR_CLED: 2,
-    MIR_CGTD: 2,
-    MIR_CGED: 2,
-    MIR_CEQD: 2,
-    MIR_CNED: 2,
-    MIR_COPY: 1,
-    MIR_EXTWD: 1,
-    MIR_ANDW: 2,
-    MIR_NEWSEQ: 2,
-    MIR_SEQGET: 2,
-    MIR_SEQSET: 3,
-    MIR_SEQPUSH: 2,
-    MIR_SEQLEN: 1,
-    MIR_ORW: 2,
-    MIR_XORW: 2,
-    MIR_NEWOBJ: 1,
-    MIR_SETATTR: 3,
-    MIR_GETATTR: 3,
-    MIR_MAP_PUT: 3,
-    MIR_MAP_GET: 2,
-    MIR_MAP_HAS: 2,
-    MIR_MAP_LEN: 1,
-    MIR_TRYPACK: 0,
-    MIR_TRYCALL: 1,
-    MIR_FLOWLD: 0,
-    MIR_TRYICMP: 2,
-    MIR_TRYNE: 1,
-    MIR_EXCCODE: 0,
-    MIR_EXCISA: 2,
-    MIR_RETLOD: 0,
-    MIR_EXCCUR: 0,
-    MIR_RERAISE: 0,
-    MIR_RAISEEXC: 1,
-    MIR_UNREACH: 0,
-    MIR_INITCALL: 1,
-    MIR_RAISEMSG: 2,
-}
-
-_OP_RESULT_TYPE: Dict[int, int] = {
-    MIR_JMP: MIR_W,
-    MIR_BR: MIR_W,
-    MIR_RET: MIR_W,
-    MIR_ADDW: MIR_W,
-    MIR_SUBW: MIR_W,
-    MIR_MULW: MIR_W,
-    MIR_ADDD: MIR_D,
-    MIR_SUBD: MIR_D,
-    MIR_MULD: MIR_D,
-    MIR_NEGW: MIR_W,
-    MIR_NEGD: MIR_D,
-    MIR_CLTW: MIR_B,
-    MIR_CLEW: MIR_B,
-    MIR_CGTW: MIR_B,
-    MIR_CGEW: MIR_B,
-    MIR_CEQW: MIR_B,
-    MIR_CNEW: MIR_B,
-    MIR_CLTD: MIR_B,
-    MIR_CLED: MIR_B,
-    MIR_CGTD: MIR_B,
-    MIR_CGED: MIR_B,
-    MIR_CEQD: MIR_B,
-    MIR_CNED: MIR_B,
-    MIR_NOTB: MIR_B,
-    MIR_COPY: MIR_W,
-    MIR_EXTWD: MIR_D,
-    MIR_ANDW: MIR_W,
-    MIR_NEWSEQ: MIR_P,
-    MIR_SEQGET: MIR_W,  # a seqget's true tag rides arg3
-    MIR_SEQSET: MIR_W,
-    MIR_SEQPUSH: MIR_W,
-    MIR_SEQLEN: MIR_W,
-    MIR_ORW: MIR_W,
-    MIR_XORW: MIR_W,
-    MIR_NEWOBJ: MIR_P,
-    MIR_SETATTR: MIR_W,
-    MIR_GETATTR: MIR_P,  # a getattr's true tag rides arg3
-    MIR_MAP_PUT: MIR_W,
-    MIR_MAP_GET: MIR_W,  # a mapget's true tag rides arg3
-    MIR_MAP_HAS: MIR_B,
-    MIR_MAP_LEN: MIR_W,
-    MIR_TRYPACK: MIR_P,
-    MIR_TRYCALL: MIR_W,
-    MIR_FLOWLD: MIR_W,
-    MIR_TRYICMP: MIR_B,
-    MIR_TRYNE: MIR_B,
-    MIR_EXCCODE: MIR_W,
-    MIR_EXCISA: MIR_B,
-    MIR_RETLOD: MIR_W,  # a retlod's true tag rides arg2
-    MIR_EXCCUR: MIR_P,
-    MIR_RERAISE: MIR_W,
-    MIR_RAISEEXC: MIR_W,
-    MIR_UNREACH: MIR_W,
-    MIR_INITCALL: MIR_P,
-    MIR_RAISEMSG: MIR_W,
-}
+# The op spec's arity, result-type and terminator facets live in `mir.py`
+# behind the `op_arity`/`op_result_type`/`is_terminator` accessors: the
+# module-level tables there bind global slots, and slots do not ride the
+# package export table a cross-module import resolves against, while
+# functions do.
 
 
 def mir_opt_in() -> bool:
@@ -626,11 +499,11 @@ class MirEmitter:
         cursor: int = 0
         n: int = len(fn.ops)
         for _ in range(bid):
-            while cursor < n and fn.ops[cursor] not in _MIR_TERMINATORS:
+            while cursor < n and not is_terminator(fn.ops[cursor]):
                 cursor += 1
             cursor += 1
         start = cursor
-        while cursor < n and fn.ops[cursor] not in _MIR_TERMINATORS:
+        while cursor < n and not is_terminator(fn.ops[cursor]):
             cursor += 1
         out: list[int] = []
         for i in range(start, cursor + 1):
@@ -935,7 +808,7 @@ class MirEmitter:
             # operand slot of a unary op carries the `-1` sentinel that
             # must not render as an argument.
             args = [self.operand(fn, a1)]
-            if _OP_ARITY[op] == 2:
+            if op_arity(op) == 2:
                 args.append(self.operand(fn, a2))
             rendered = ", ".join(f"i64 {arg}" for arg in args)
             reg = self.tmp_reg()
@@ -2046,8 +1919,8 @@ def _result_tag(fn: MirFunction, i: int) -> int:
     if op == MIR_RETLOD:
         # The propagated-return load's true tag rides arg2.
         return fn.arg2[i]
-    tag: int | None = _OP_RESULT_TYPE.get(op)
-    if tag is None:
+    tag: int = op_result_type(op)
+    if tag < 0:
         raise IRError(f"no result tag for op {op}")
     return tag
 
