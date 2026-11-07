@@ -1030,6 +1030,104 @@ static void repr_spec_cell(PsGrow *g, const char *cell, const char *sp, int64_t 
             repr_map_spec(g, sub, sp + 2, sn - 2);
             return;
         }
+        case 'u': {
+            /* 'u' + count byte + per-field (len byte + spec): a synthetic
+               tuple_N class cell, a pointer to the %cls struct. Each
+               field sits at the offset LLVM's struct layout gives it:
+               fields pack in order at their ABI alignment, so the spec
+               kinds alone determine size and align (i64/double/ptr 8,
+               %ps.buf 16, i1 1). */
+            int64_t nf;
+            int64_t off;
+            int64_t i;
+            const char *fp;
+            int64_t rem;
+            int64_t *offs;
+            const char **fsps;
+            int64_t *fsns;
+            char *base;
+            if (sn < 2) {
+                ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
+            }
+            nf = (unsigned char)sp[1];
+            offs = malloc((size_t)nf * sizeof(int64_t));
+            fsps = malloc((size_t)nf * sizeof(const char *));
+            fsns = malloc((size_t)nf * sizeof(int64_t));
+            if (offs == NULL || fsps == NULL || fsns == NULL) {
+                abort();
+            }
+            fp = sp + 2;
+            rem = sn - 2;
+            off = 0;
+            for (i = 0; i < nf; i++) {
+                int64_t flen;
+                int64_t size;
+                int64_t align;
+                if (rem < 1) {
+                    free(offs);
+                    free(fsps);
+                    free(fsns);
+                    ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
+                }
+                flen = (unsigned char)*fp;
+                fp++;
+                rem--;
+                if (flen < 1 || flen > rem) {
+                    free(offs);
+                    free(fsps);
+                    free(fsns);
+                    ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
+                }
+                switch (fp[0]) {
+                    case 'i':
+                    case 'f':
+                    case 'l':
+                    case 't':
+                    case 'd':
+                    case 'u':
+                        size = 8;
+                        align = 8;
+                        break;
+                    case 's':
+                    case 'y':
+                        size = 16;
+                        align = 8;
+                        break;
+                    case 'b':
+                        size = 1;
+                        align = 1;
+                        break;
+                    default:
+                        free(offs);
+                        free(fsps);
+                        free(fsns);
+                        ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
+                }
+                off = (off + align - 1) / align * align;
+                offs[i] = off;
+                fsps[i] = fp;
+                fsns[i] = flen;
+                off += size;
+                fp += flen;
+                rem -= flen;
+            }
+            memcpy(&base, cell, sizeof base);
+            ps_grow_byte(g, '(');
+            for (i = 0; i < nf; i++) {
+                if (i > 0) {
+                    grow_text(g, ", ");
+                }
+                repr_spec_cell(g, base + offs[i], fsps[i], fsns[i]);
+            }
+            if (nf == 1) {
+                grow_text(g, ",");
+            }
+            ps_grow_byte(g, ')');
+            free(offs);
+            free(fsps);
+            free(fsns);
+            return;
+        }
         default:
             ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
     }

@@ -302,3 +302,26 @@ def test_print_exception_instance_matches_cpython(tmp_path: Path) -> None:
     assert got.returncode == 0, got.stderr
     assert got.stdout == oracle_script(path)
 
+
+def test_print_containers_with_tuple_elements_matches_cpython(tmp_path: Path) -> None:
+    # list/dict/set of tuples ride the same repr spec: the `u` element
+    # spec frames each tuple_N field (len byte + field spec) and the
+    # runtime reads the %cls struct fields at their ABI offsets.
+    path = write_case(
+        tmp_path,
+        "tupleprint.py",
+        "\n".join(
+            [
+                "print(list(zip('ab', range(2))))",
+                "print(list(enumerate('xy', 1)))",
+                "print([(a, b) for a in range(3) for b in range(a)])",
+                "print([(True, 2.5, 'z'), (False, -0.5, 'q')])",
+                "print({1: (2, 'x'), 3: (4, 'y')})",
+                "print([((1, 'x'), 2.5), ((3, 'z'), -1.0)])",
+                "",
+            ]
+        ),
+    )
+    got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "tupleprint"))
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle_script(path)
