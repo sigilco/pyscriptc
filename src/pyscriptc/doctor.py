@@ -13,6 +13,7 @@ from typing import Any
 
 from pyscriptc import rtcache, zigshim
 from pyscriptc.check import _resolve_pyrefly
+from pyscriptc.emit._ir import _flag_of, _name_list, _opt_int, _opt_str, _opt_str_or_none
 from pyscriptc.log import log_dir
 
 
@@ -111,36 +112,49 @@ def gather() -> dict[str, Any]:
 
 def render(info: dict[str, Any]) -> str:
     def tool(entry: dict[str, Any]) -> str:
-        if not entry["found"]:
+        if not _flag_of(entry, "found"):
             return "not found"
-        return f"{entry['path']} ({entry['version'] or 'version unknown'})"
+        path = _opt_str(entry, "path")
+        version = _opt_str_or_none(entry, "version")
+        return f"{path} ({version or 'version unknown'})"
 
     def zig_line(entry: dict[str, Any]) -> str:
-        if not entry["found"]:
+        if not _flag_of(entry, "found"):
             return "not found"
         text = tool(entry)
-        if entry.get("via_shim"):
+        if _flag_of(entry, "via_shim"):
             text += " [PATH shim for `pip install ziglang`]"
         return text
 
-    checker = info["checker"]
-    rc = info["rt_cache"]
-    driver = info.get("driver", "zig")
+    checker: dict[str, Any] = info["checker"]
+    rc: dict[str, Any] = info["rt_cache"]
+    driver = _opt_str(info, "driver") or "zig"
     driver_str = f"{driver} (preferred)" if driver != "none" else "none (install zig or clang)"
+    psc: str = info["pyscriptc"]
+    pyv: str = info["python"]
+    install: str = info["install"]
+    argv = _name_list(checker, "argv")
+    cver = _opt_str_or_none(checker, "version")
+    csrc = _opt_str(checker, "source")
+    clang: dict[str, Any] = info["clang"]
+    zig: dict[str, Any] = info["zig"]
+    cache_dir = _opt_str(info, "cache_dir")
+    rc_dir = _opt_str(rc, "dir")
+    rc_log_dir = _opt_str(info, "log_dir")
+    target = _opt_str(info, "default_target")
     return "\n".join(
         [
-            f"pyscriptc {info['pyscriptc']} (python {info['python']})",
-            f"install:        {info['install']}",
-            f"checker:        {' '.join(checker['argv'])} ({checker['version'] or 'version unknown'}), "
-            f"source: {checker['source']}",
+            f"pyscriptc {psc} (python {pyv})",
+            f"install:        {install}",
+            f"checker:        {' '.join(argv)} ({cver or 'version unknown'}), source: {csrc}",
             f"driver:         {driver_str}",
-            f"clang:          {tool(info['clang'])}",
-            f"zig:            {zig_line(info['zig'])}",
-            f"cache dir:      {info['cache_dir']}",
-            f"rt cache:      {'on' if rc['enabled'] else 'off (PYSC_NO_RT_CACHE)'}, "
-            f"{rc['dir']} ({rc['entries']} objects, {rc['bytes']} bytes)",
-            f"log dir:        {info['log_dir']}",
-            f"default target: {info['default_target']}",
+            f"clang:          {tool(clang)}",
+            f"zig:            {zig_line(zig)}",
+            f"cache dir:      {cache_dir}",
+            f"rt cache:      {'on' if _flag_of(rc, 'enabled') else 'off (PYSC_NO_RT_CACHE)'}, "
+            f"{rc_dir} ({_opt_int(rc, 'entries', 0)} objects, {_opt_int(rc, 'bytes', 0)} bytes)",
+            f"log dir:        {rc_log_dir}",
+            f"default target: {target}",
         ]
     )
 

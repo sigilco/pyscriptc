@@ -12,7 +12,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _class, _const_int
+from pyscriptc.restlower._shared import _class, _const_int, _node_kind
 
 _LOCK = _class("Lock")
 _INT = {"kind": "int"}
@@ -276,7 +276,7 @@ def _keyword_timeout(lo: Any, value: ast.expr, span: dict[str, Any]) -> dict[str
 
 def _timeout_nanos(timeout: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     """Seconds to nanoseconds, as an int expression."""
-    if timeout["kind"] == "none":
+    if _node_kind(timeout) == "none":
         return _const_int(-1, span)
     # float seconds: int(timeout * 1e9). 1e9 as a float const keeps the
     # multiply float-typed without a cast node for the literal.

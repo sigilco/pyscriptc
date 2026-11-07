@@ -476,8 +476,17 @@ def _check_lib_dir(directory: str, *, path: Path | None, where: str) -> None:
         )
 
 
+def _table_list(data: dict[str, Any], key: str) -> list[Any]:
+    """The array-of-tables entry `key`, or [] when the manifest omits it."""
+
+    entries: list[Any] = []
+    if key in data:
+        entries = data[key]
+    return entries
+
+
 def _build_sources(data: dict[str, Any], *, path: Path | None) -> tuple[ManifestSource, ...]:
-    entries: list[Any] = data.get("source", [])
+    entries = _table_list(data, "source")
     if not isinstance(entries, list):
         raise FfiManifestError("PS4005", "[[source]] is not an array of tables", path, "[[source]]")
     sources: list[ManifestSource] = []
@@ -512,7 +521,7 @@ def _build_sources(data: dict[str, Any], *, path: Path | None) -> tuple[Manifest
 
 
 def _build_handles(data: dict[str, Any], *, path: Path | None) -> tuple[ManifestHandle, ...]:
-    entries: list[Any] = data.get("handle", [])
+    entries = _table_list(data, "handle")
     if not isinstance(entries, list):
         raise FfiManifestError("PS4005", "[[handle]] is not an array of tables", path, "[[handle]]")
     handles: list[ManifestHandle] = []
@@ -549,7 +558,7 @@ def _build_handles(data: dict[str, Any], *, path: Path | None) -> tuple[Manifest
 
 
 def _build_consts(data: dict[str, Any], *, path: Path | None) -> tuple[ManifestConst, ...]:
-    entries: list[Any] = data.get("const", [])
+    entries = _table_list(data, "const")
     if not isinstance(entries, list):
         raise FfiManifestError("PS4005", "[[const]] is not an array of tables", path, "[[const]]")
     consts: list[ManifestConst] = []
@@ -597,7 +606,7 @@ def _build_functions(
     handle_names: set[str],
     handle_frees: dict[str, str],
 ) -> tuple[ManifestFunction, ...]:
-    entries: list[Any] = data.get("fn", [])
+    entries = _table_list(data, "fn")
     if not isinstance(entries, list):
         raise FfiManifestError("PS4005", "[[fn]] is not an array of tables", path, "[[fn]]")
     functions: list[ManifestFunction] = []
@@ -967,7 +976,11 @@ def handle_type(name: str) -> dict[str, Any]:
 
 def is_handle_type(typ: dict[str, Any]) -> bool:
     """True when an IR type dict is an opaque manifest handle."""
-    return typ.get("kind") == "class" and bool(typ.get("handle"))
+    if "kind" not in typ or "handle" not in typ:
+        return False
+    kind: str = typ["kind"]
+    handle: bool = typ["handle"]
+    return kind == "class" and bool(handle)
 
 
 def _split_params(raw: str) -> list[str]:
