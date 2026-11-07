@@ -90,6 +90,7 @@ export default {
         { title: "Comparison with other tools", path: "/guide/comparison/" },
         { title: "Using libraries", path: "/guide/libraries/" },
         { title: "HTTP", path: "/guide/http/" },
+        { title: "Proven patterns", path: "/guide/proven-patterns/" },
         { title: "Debugging and logs", path: "/guide/debugging/" },
         { title: "Mobile apps", path: "/guide/mobile/" },
         { title: "Examples", path: "/examples/" },
