@@ -101,7 +101,7 @@ def extract_payload(encoded: str, target: Path) -> Path:
     scratch.mkdir(parents=True, exist_ok=True)
     with zipfile.ZipFile(io.BytesIO(raw)) as archive:
         archive.extractall(scratch)
-    (scratch / ".selfpack-complete").write_text("", encoding="utf-8")
+    (scratch / ".selfpack-complete").write_text("")
     shutil.rmtree(target, ignore_errors=True)
     scratch.rename(target)
     return target

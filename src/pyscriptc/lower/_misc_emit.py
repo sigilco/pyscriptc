@@ -218,12 +218,12 @@ class MiscEmitMixin:
         dest = self._temp("set")
         self.locals[dest] = typ
         self.prelude.append(_assign(dest, _list_empty_node(typ, span), span))
-        self.prelude.extend(self._set_insert_stmts(dest, typ, first, span))
+        self.prelude.extend(self._set_insert_stmts(_name(dest, typ, span), typ, first, span))
         for elt in node.elts[1:]:
             value = self._expr(elt, elem)
             if not types_equal(value["type"], elem):
                 self.fail(node, "PS1003", "set elements have one type")
-            self.prelude.extend(self._set_insert_stmts(dest, typ, value, span))
+            self.prelude.extend(self._set_insert_stmts(_name(dest, typ, span), typ, value, span))
         return _name(dest, typ, span)
 
     def _comp(

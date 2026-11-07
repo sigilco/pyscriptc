@@ -218,7 +218,7 @@ def _patched_typeshed(dest: Path) -> Path:
     start: int = text.index("class range(")
     end: int = text.index("\nclass ", start)
     block: str = text[start:end].replace("-> Self:", "-> list[int]:")
-    builtins.write_text(text[:start] + block + text[end:], "utf-8")
+    builtins.write_text(text[:start] + block + text[end:])
     return dest
 
 

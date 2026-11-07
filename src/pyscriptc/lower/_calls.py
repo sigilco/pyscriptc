@@ -1150,7 +1150,10 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 node_to_dict(
                     _ir.if_stmt(
                         dict_to_node(_contains_node(_name(oth, other["type"], span), item_n, which != "inter", span)),
-                        [dict_to_node(stmt) for stmt in self._set_insert_stmts(dest, typ, item_n, span)],
+                        [
+                            dict_to_node(stmt)
+                            for stmt in self._set_insert_stmts(_name(dest, typ, span), typ, item_n, span)
+                        ],
                         [],
                         _mk_span(span),
                     )
@@ -1189,7 +1192,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         self.locals[item] = elem
         body = [
             _assign(item, _subscript_node(_name(src, source["type"], span), _name(idx, int_t, span), elem, span), span),
-            *self._set_insert_stmts(dest, typ, _name(item, elem, span), span),
+            *self._set_insert_stmts(_name(dest, typ, span), typ, _name(item, elem, span), span),
             _assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span),
         ]
         return [
@@ -1206,13 +1209,12 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         ]
 
     def _set_insert_stmts(
-        self, dest: str, typ: dict[str, Any], value: dict[str, Any], span: dict[str, Any]
+        self, hay: dict[str, Any], typ: dict[str, Any], value: dict[str, Any], span: dict[str, Any]
     ) -> list[dict[str, Any]]:
         elem = typ["elem"]
         slot = self._temp("elt")
         self.locals[slot] = elem
         needle = _name(slot, elem, span)
-        hay = _name(dest, typ, span)
         missing = _contains_node(hay, needle, True, span)
         push = node_to_dict(
             _ir.expr_stmt(
