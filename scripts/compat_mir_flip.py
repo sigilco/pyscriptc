@@ -17,7 +17,8 @@ compiler file hash) — it does NOT include `PYSC_MIR` (see
 with `--no-cache`; without it the second lane would read the first lane's
 cached rows and the receipt would silently compare a lane with itself.
 Shard merging (`score.py --shard I/N`) only merges result JSON files; it
-never touches the cache, so `--no-cache` covers every path.
+never touches the cache, so `--no-cache` covers every path. A sharded lane
+reads the `<out>.shardIofN.json` file `score.py` writes for that shard.
 
 Env: each scorer subprocess gets a clean lane env (`PYSC_MIR` pinned to
 the lane, `PYTHONHASHSEED=0`, `src/` on `PYTHONPATH`, same pattern as
@@ -63,6 +64,7 @@ if __package__ in (None, ""):
     # sys.path so `scripts.compat_no_flip` resolves like it does under pytest
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
+from benchmarks.compat2.score import shard_path
 from scripts.compat_no_flip import compare, load_results, render_markdown
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -109,8 +111,38 @@ def check_passthrough(extra: list[str]) -> None:
                 raise ValueError(f"{arg!r} is not allowed here; this tool owns the corpus, out path and cache mode")
 
 
-def run_lane(name: str, mir: bool, probes: str, out: Path, extra: list[str], corpus: bool) -> None:
-    """Run the scorer for one lane; raise on a nonzero exit or missing output."""
+def _shard(extra: list[str]) -> tuple[int, int] | None:
+    """The last `--shard I/N` passthrough value, or None when absent/malformed."""
+    value: str | None = None
+    for index, arg in enumerate(extra):
+        if arg == "--shard" and index + 1 < len(extra):
+            value = extra[index + 1]
+        elif arg.startswith("--shard="):
+            value = arg.split("=", 1)[1]
+    if value is None:
+        return None
+    try:
+        left, right = value.split("/", 1)
+        return int(left), int(right)
+    except ValueError:
+        return None
+
+
+def result_path(out: Path, extra: list[str]) -> Path:
+    """The file `score.py` writes for this invocation.
+
+    Sharded runs write `<out>.shardIofN.json` and only merge into `<out>`
+    once every shard has landed, so a one-shard receipt must read the shard
+    file itself.
+    """
+    shard = _shard(extra)
+    if shard is None or shard[1] <= 1:
+        return out
+    return shard_path(out, shard[0], shard[1])
+
+
+def run_lane(name: str, mir: bool, probes: str, out: Path, extra: list[str], corpus: bool) -> Path:
+    """Run the scorer for one lane; return the result file it wrote."""
     cmd = score_command(probes, out, extra, corpus)
     proc = subprocess.run(cmd, cwd=ROOT, env=lane_env(mir), capture_output=True, text=True)
     if proc.stdout:
@@ -118,8 +150,10 @@ def run_lane(name: str, mir: bool, probes: str, out: Path, extra: list[str], cor
     if proc.returncode != 0:
         tail = proc.stderr.strip().splitlines()
         raise RuntimeError(f"{name} lane scorer failed (exit {proc.returncode}): {tail[-1] if tail else 'no stderr'}")
-    if not out.is_file():
-        raise RuntimeError(f"{name} lane scorer wrote no result at {out}")
+    result = result_path(out, extra)
+    if not result.is_file():
+        raise RuntimeError(f"{name} lane scorer wrote no result at {result}")
+    return result
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -175,9 +209,8 @@ def main(argv: list[str] | None = None) -> int:
             score_files: dict[str, Path] = {}
             for name, mir in LANES:
                 out = out_dir / f"{name}.json"
-                score_files[name] = out
                 print(f"scoring {name} lane (PYSC_MIR={'1' if mir else '0'}) -> {out}", file=sys.stderr)
-                run_lane(name, mir, args.probes, out, extra, corpus=not args.no_corpus)
+                score_files[name] = run_lane(name, mir, args.probes, out, extra, corpus=not args.no_corpus)
             direct = load_results(score_files["direct"])
             mir = load_results(score_files["mir"])
             report = compare(direct, mir)
