@@ -317,8 +317,9 @@ class FfiManifest:
         base = self.path.parent
         units: list[Path] = []
         for source in self.sources:
-            for u in source.resolved(base):
-                units.append(u)
+            resolved_units = source.resolved(base)
+            for unit_index in range(len(resolved_units)):
+                units.append(resolved_units[unit_index])
         return units
 
     def compile_units(self) -> list[Path]:
@@ -327,8 +328,9 @@ class FfiManifest:
         units: list[Path] = []
         for source in self.sources:
             if source.is_compile_unit:
-                for u in source.resolved(base):
-                    units.append(u)
+                resolved_units = source.resolved(base)
+                for unit_index in range(len(resolved_units)):
+                    units.append(resolved_units[unit_index])
         return units
 
     def link_units(self) -> list[Path]:
@@ -337,8 +339,9 @@ class FfiManifest:
         units: list[Path] = []
         for source in self.sources:
             if not source.is_compile_unit:
-                for u in source.resolved(base):
-                    units.append(u)
+                resolved_units = source.resolved(base)
+                for unit_index in range(len(resolved_units)):
+                    units.append(resolved_units[unit_index])
         return units
 
     def link_flags(self) -> list[str]:
@@ -406,8 +409,9 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
     if "manifest" not in data:
         raise FfiManifestError("PS4002", "the manifest has no [manifest] section", path, "")
     header_val: dict[str, Any] = {}
-    if isinstance(data["manifest"], dict):
-        header_val = data["manifest"]
+    manifest_table: dict[str, Any] = data["manifest"]
+    if isinstance(manifest_table, dict):
+        header_val = manifest_table
     else:
         raise FfiManifestError("PS4002", "[manifest] is not a table", path, where)
     header = header_val
@@ -1107,18 +1111,20 @@ def _reject_unknown_keys(table: dict[str, Any], allowed: set[str], *, path: Path
 def _require_str(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> str:
     if key not in table:
         raise FfiManifestError("PS4005", f"the key {key!r} is required", path, where)
-    if not isinstance(table[key], str) or not table[key]:
+    raw: str = table[key]
+    if not isinstance(raw, str) or not raw:
         raise FfiManifestError("PS4005", f"the key {key!r} must be a non-empty string", path, where)
-    value: str = table[key]
+    value: str = raw
     return value
 
 
 def _optional_str(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> str:
     if key not in table:
         return ""
-    if not isinstance(table[key], str) or not table[key]:
+    raw: str = table[key]
+    if not isinstance(raw, str) or not raw:
         raise FfiManifestError("PS4005", f"the key {key!r} must be a non-empty string", path, where)
-    value: str = table[key]
+    value: str = raw
     return value
 
 
@@ -1140,9 +1146,10 @@ def _optional_str_list(table: dict[str, Any], key: str, *, path: Path | None, wh
 def _require_int(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> int:
     if key not in table:
         raise FfiManifestError("PS4005", f"the key {key!r} is required", path, where)
-    if not isinstance(table[key], int) or isinstance(table[key], bool):
+    raw: int = table[key]
+    if not isinstance(raw, int) or isinstance(raw, bool):
         raise FfiManifestError("PS4005", f"the key {key!r} must be an integer", path, where)
-    value: int = table[key]
+    value: int = raw
     return value
 
 
@@ -1150,9 +1157,10 @@ def _require_pin_int(table: dict[str, Any], key: str, *, code: str, path: Path |
     """Read a version pin. A missing or malformed pin gets the pin's own code."""
     if key not in table:
         raise FfiManifestError(code, f"the pin {key!r} is required", path, where)
-    if not isinstance(table[key], int) or isinstance(table[key], bool):
+    raw: int = table[key]
+    if not isinstance(raw, int) or isinstance(raw, bool):
         raise FfiManifestError(code, f"the pin {key!r} must be an integer", path, where)
-    value: int = table[key]
+    value: int = raw
     return value
 
 
