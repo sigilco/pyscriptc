@@ -767,9 +767,11 @@ class CoroMixin:
     def _coro_finish(self, module: dict[str, Any]) -> dict[str, Any]:
         """Run the IR pass; a module without resumables is returned as is.
 
-        The dict-IR conversion (`coro_module`) runs only when a plan exists:
-        a module without resumables never pays `node_to_dict` for its
-        functions and classes, and the lowered module returns unchanged.
+        The pass walks the module as the lowerer left it: planned bodies
+        convert to typed nodes per statement (`_walk_node`), and the
+        adapter's convert-out (`coro_module`) restores the dict IR emit
+        reads once, over the pass output only. A module without
+        resumables never enters the pass and returns unchanged.
         """
         plans = self._coro_plans()
         self.__dict__["_coro_active"] = None
@@ -777,7 +779,7 @@ class CoroMixin:
             return module
         from pyscriptc.lower._coro_adapter import coro_module
 
-        return lower_resumables(coro_module(module), plans)
+        return coro_module(lower_resumables(module, plans))
 
 
 # --- IR pass ---------------------------------------------------------------
