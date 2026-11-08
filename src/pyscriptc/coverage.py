@@ -40,212 +40,187 @@ def deps_run_deps(source: Path, *, cache_dir: str | Path | None = None) -> dict[
     return deps.run_deps(source, cache_dir=cache_dir)
 
 
-@dataclass(frozen=True)
-class Family:
-    key: str
-    hint: str
-    derived: bool = False
-
-
-_FAMILIES = {
-    family.key: family
-    for family in (
-        Family(
-            "reflection",
-            "Native code keeps no runtime type, signature or annotation table. Use the typed "
-            "idiom the fence names, or let the definition route to the island lane.",
-        ),
-        Family(
-            "union-types",
-            "Narrow the annotation to one arm, or split the function per arm. A tagged union is a compiler epic.",
-        ),
-        Family(
-            "optional-types",
-            "Accept or return T and signal absence with a sentinel. Optional[T] needs the tagged-union epic.",
-        ),
-        Family(
-            "generic-alias", "Use list[T], dict[K, V] or tuple[...] in the signature instead of the abstract generic."
-        ),
-        Family(
-            "dynamic-annotation",
-            "Annotate with the concrete type. object, Any, Protocol, TypeVar and Callable do not lower.",
-        ),
-        Family("forward-reference", "Define the class before use and write the annotation unquoted."),
-        Family(
-            "unlowered-type-name",
-            "Replace the alias or imported name with a lowered type, or lower the class it names.",
-        ),
-        Family("param-inference", "Annotate the parameter. Unannotated parameters need local type inference."),
-        Family("local-inference", "Add an annotation where the name is first assigned."),
-        Family("return-inference", "Add a return annotation."),
-        Family("uninitialized-field", "Give the field an initial value in __init__ or at the assignment."),
-        Family("value-type", "Use list[T], dict[K, V] or a lowered class for this annotation."),
-        Family(
-            "annotation-other",
-            "Rewrite the annotation with int, float, bool, str, bytes, list, dict, tuple or a lowered class.",
-        ),
-        Family("decorators", "Remove the decorator or inline what it does. Only a closed set of decorators lowers."),
-        Family(
-            "parameter-forms",
-            "Use plain positional parameters. Keyword-only, positional-only, *args and **kwargs do not lower.",
-        ),
-        Family("class-keywords", "Use one lowered base class and no class keywords such as metaclass."),
-        Family("class-body", "Declare fields with an annotation and no value and set them in __init__."),
-        Family("except-as", "Name a lowered exception and drop the `as` binding or the bare except."),
-        Family("with-as", "Use a lowered context manager without `as`, or open and close explicitly."),
-        Family("async", "Async definitions do not lower. Use a synchronous definition."),
-        Family("enum", "Write the enum as integer constants in a plain class body."),
-        Family(
-            "module-statements",
-            "Module scope holds imports, functions, classes and constant assignments only. "
-            "Move the statement into a function.",
-        ),
-        Family("module-assign", "A module assignment must be a constant the lowering can fold."),
-        Family(
-            "import-table",
-            "The imported module is outside the closed import table. Avoid it or wait for it to be queued.",
-        ),
-        Family("queued-stdlib", "The stdlib module is queued and not lowered yet."),
-        Family("name-resolution", "The name is not a local, a parameter or a lowered global. Declare it or import it."),
-        Family(
-            "typing-value",
-            "A typing name is used as a runtime value. Typing names steer the lowering; keep them in annotations.",
-        ),
-        Family("module-value", "A module is used as a value. Call its lowered functions instead."),
-        Family("unlowered-call", "Call a lowered function, or rewrite the call with lowered constructs."),
-        Family("keyword-args", "Pass the arguments positionally."),
-        Family("call-arity", "Match the lowered arity of the call."),
-        Family("operator", "Convert the operands to a supported type pair."),
-        Family(
-            "non-latin1", "Use text without lone surrogates. A lone surrogate has no UTF-8 bytes and does not lower."
-        ),
-        Family("type-mismatch", "Convert the operand explicitly."),
-        Family("fall-off-end", "End every path with a return or a raise."),
-        Family("field-lookup", "Access only fields the class declares."),
-        Family(
-            "generators",
-            "The generator shape does not lower: yield inside try or with, a nested def, a lambda, "
-            "a return value, or a generic resumable. Rewrite the body with lowered constructs.",
-        ),
-        Family(
-            "contextmanager",
-            "The @contextmanager definition is blocked by an unrelated fence in the same module "
-            "or uses contextlib forms that do not lower.",
-        ),
-        Family("construct-other", "Rewrite the statement with lowered constructs."),
-        Family(
-            "refused-dynamic-attrs",
-            "Attribute access is resolved statically to declared fields, so the hook never runs. "
-            "Use plain annotated fields and methods; `@property` getters lower.",
-        ),
-        Family(
-            "refused-finalizer",
-            "Finalizer timing is unspecified and the runtime has no GC to call it. "
-            "Use `with` and an explicit `close()`.",
-        ),
-        Family(
-            "export-cascade", "Follows from a fence in the exporting module. Fix that definition first.", derived=True
-        ),
-        Family("class-cascade", "Follows from a fence inside the class. Fix the class first.", derived=True),
-        Family(
-            "import-cycle",
-            "Two modules import each other. Break the cycle: move the shared code into a third module, "
-            "or import the module that does not depend on the other one.",
-        ),
-    )
+_HINTS: dict[str, str] = {
+    "annotation-other": "Rewrite the annotation with int, float, bool, str, bytes, list, dict, tuple or a lowered "
+    "class.",
+    "async": "Async definitions do not lower. Use a synchronous definition.",
+    "call-arity": "Match the lowered arity of the call.",
+    "class-body": "Declare fields with an annotation and no value and set them in __init__.",
+    "class-cascade": "Follows from a fence inside the class. Fix the class first.",
+    "class-keywords": "Use one lowered base class and no class keywords such as metaclass.",
+    "construct-other": "Rewrite the statement with lowered constructs.",
+    "contextmanager": "The @contextmanager definition is blocked by an unrelated fence in the same module or "
+    "uses contextlib forms that do not lower.",
+    "decorators": "Remove the decorator or inline what it does. Only a closed set of decorators lowers.",
+    "dynamic-annotation": "Annotate with the concrete type. object, Any, Protocol, TypeVar and Callable do not lower.",
+    "enum": "Write the enum as integer constants in a plain class body.",
+    "except-as": "Name a lowered exception and drop the `as` binding or the bare except.",
+    "export-cascade": "Follows from a fence in the exporting module. Fix that definition first.",
+    "fall-off-end": "End every path with a return or a raise.",
+    "field-lookup": "Access only fields the class declares.",
+    "forward-reference": "Define the class before use and write the annotation unquoted.",
+    "generators": "The generator shape does not lower: yield inside try or with, a nested def, a lambda, a "
+    "return value, or a generic resumable. Rewrite the body with lowered constructs.",
+    "generic-alias": "Use list[T], dict[K, V] or tuple[...] in the signature instead of the abstract generic.",
+    "import-cycle": "Two modules import each other. Break the cycle: move the shared code into a third "
+    "module, or import the module that does not depend on the other one.",
+    "import-table": "The imported module is outside the closed import table. Avoid it or wait for it to be queued.",
+    "keyword-args": "Pass the arguments positionally.",
+    "local-inference": "Add an annotation where the name is first assigned.",
+    "module-assign": "A module assignment must be a constant the lowering can fold.",
+    "module-statements": "Module scope holds imports, functions, classes and constant assignments only. Move the "
+    "statement into a function.",
+    "module-value": "A module is used as a value. Call its lowered functions instead.",
+    "name-resolution": "The name is not a local, a parameter or a lowered global. Declare it or import it.",
+    "non-latin1": "Use text without lone surrogates. A lone surrogate has no UTF-8 bytes and does not lower.",
+    "operator": "Convert the operands to a supported type pair.",
+    "optional-types": "Accept or return T and signal absence with a sentinel. Optional[T] needs the tagged-union epic.",
+    "param-inference": "Annotate the parameter. Unannotated parameters need local type inference.",
+    "parameter-forms": "Use plain positional parameters. Keyword-only, positional-only, *args and **kwargs do "
+    "not lower.",
+    "queued-stdlib": "The stdlib module is queued and not lowered yet.",
+    "reflection": "Native code keeps no runtime type, signature or annotation table. Use the typed idiom "
+    "the fence names, or let the definition route to the island lane.",
+    "refused-dynamic-attrs": "Attribute access is resolved statically to declared fields, so the hook never runs. Use "
+    "plain annotated fields and methods; `@property` getters lower.",
+    "refused-finalizer": "Finalizer timing is unspecified and the runtime has no GC to call it. Use `with` and an "
+    "explicit `close()`.",
+    "return-inference": "Add a return annotation.",
+    "type-mismatch": "Convert the operand explicitly.",
+    "typing-value": "A typing name is used as a runtime value. Typing names steer the lowering; keep them in "
+    "annotations.",
+    "uninitialized-field": "Give the field an initial value in __init__ or at the assignment.",
+    "union-types": "Narrow the annotation to one arm, or split the function per arm. A tagged union is a "
+    "compiler epic.",
+    "unlowered-call": "Call a lowered function, or rewrite the call with lowered constructs.",
+    "unlowered-type-name": "Replace the alias or imported name with a lowered type, or lower the class it names.",
+    "value-type": "Use list[T], dict[K, V] or a lowered class for this annotation.",
+    "with-as": "Use a lowered context manager without `as`, or open and close explicitly.",
 }
 
 
-def _stdlib_family(match: re.Match[str]) -> str:
-    return f"stdlib:{match.group(1)}"
-
-
-# Order matters: the first matching rule wins. A rule is (code or None, message regex, family).
-_RULES: tuple[tuple[str | None, str, str], ...] = (
-    (None, r"runtime reflection \(", "reflection"),
-    (None, r"keyword forwarding \(\*\*kwargs\)", "reflection"),
-    ("PS1101", r"", "union-types"),
-    ("PS1102", r"", "optional-types"),
-    ("PS1103", r"", "generic-alias"),
-    ("PS1104", r"", "dynamic-annotation"),
-    ("PS1105", r"", "forward-reference"),
-    ("PS1106", r"", "unlowered-type-name"),
-    ("PS1201", r"", "decorators"),
-    ("PS1202", r"", "parameter-forms"),
-    ("PS1203", r"", "class-keywords"),
-    ("PS1204", r"", "class-body"),
-    ("PS1205", r"", "except-as"),
-    ("PS1206", r"", "with-as"),
-    ("PS1001", r"^parameter .+ needs an annotation$", "param-inference"),
-    ("PS1001", r"needs an annotation before use$", "local-inference"),
-    ("PS1001", r"needs a return annotation$", "return-inference"),
-    ("PS1001", r"needs an initial value$|needs __init__$|does not assign", "uninitialized-field"),
-    ("PS1001", r"is not a value type in the IR|is not a lowered type in the IR", "value-type"),
-    ("PS1001", r"", "annotation-other"),
-    ("PS1003", r"", "type-mismatch"),
-    ("PS4204", r"returns .+, the read site expects", "type-mismatch"),
-    ("PS4204", r"", "type-mismatch"),
-    ("PS1004", r"", "fall-off-end"),
-    ("PS2001", r"is not a field$|has no fields$", "field-lookup"),
-    ("PS2001", r"is not in the lowered subset of ([\w.]+)", "stdlib"),
-    ("PS2001", r"", "construct-other"),
-    ("PS2002", r"is not exported by this package", "export-cascade"),
-    ("PS2002", r"^circular import: ", "import-cycle"),
-    ("PS2002", r"^this class .+ is not lowered", "class-cascade"),
-    ("PS2002", r"is not in the closed import table", "import-table"),
-    ("PS2002", r"is not a local or parameter", "name-resolution"),
-    ("PS2002", r"is a typing name and is not a value", "typing-value"),
-    ("PS2002", r"^module .+ is not lowered|module .+ is not a value", "module-value"),
-    ("PS2002", r"^call to .+ is not lowered|call of attribute is not lowered", "unlowered-call"),
-    ("PS2002", r"AsyncFunctionDef|async ", "async"),
-    ("PS2002", r"\benum\b", "enum"),
-    ("PS2002", r"at module scope is not lowered", "module-statements"),
-    ("PS2002", r"module assignment", "module-assign"),
-    ("PS2002", r"decorators? ", "decorators"),
-    ("PS2006", r"", "decorators"),
-    ("PS2002", r"resumable|generator|\byield\b", "generators"),
-    ("PS2002", r"contextmanager", "contextmanager"),
-    ("PS2002", r"", "construct-other"),
-    ("PS2003", r"keyword arguments", "keyword-args"),
-    ("PS2003", r"", "call-arity"),
-    ("PS2004", r"", "operator"),
-    ("PS2005", r"", "non-latin1"),
-    ("PS2101", r"", "queued-stdlib"),
-    ("PS4201", r"", "refused-dynamic-attrs"),
-    ("PS4202", r"", "refused-dynamic-attrs"),
-    ("PS4203", r"", "refused-finalizer"),
-)
-
-
 def family_of(code: str, message: str) -> str:
-    for rule_code, pattern, family in _RULES:
-        if rule_code is not None and rule_code != code:
-            continue
-        match = re.search(pattern, message)
-        if match is None:
-            continue
-        if family == "stdlib":
-            return _stdlib_family(match)
-        return family
+    if re.search(r"runtime reflection \(", message) is not None:
+        return "reflection"
+    if re.search(r"keyword forwarding \(\*\*kwargs\)", message) is not None:
+        return "reflection"
+    if code == "PS1101":
+        return "union-types"
+    if code == "PS1102":
+        return "optional-types"
+    if code == "PS1103":
+        return "generic-alias"
+    if code == "PS1104":
+        return "dynamic-annotation"
+    if code == "PS1105":
+        return "forward-reference"
+    if code == "PS1106":
+        return "unlowered-type-name"
+    if code == "PS1201":
+        return "decorators"
+    if code == "PS1202":
+        return "parameter-forms"
+    if code == "PS1203":
+        return "class-keywords"
+    if code == "PS1204":
+        return "class-body"
+    if code == "PS1205":
+        return "except-as"
+    if code == "PS1206":
+        return "with-as"
+    if code == "PS1001":
+        if re.search(r"^parameter .+ needs an annotation$", message) is not None:
+            return "param-inference"
+        if re.search(r"needs an annotation before use$", message) is not None:
+            return "local-inference"
+        if re.search(r"needs a return annotation$", message) is not None:
+            return "return-inference"
+        if re.search(r"needs an initial value$|needs __init__$|does not assign", message) is not None:
+            return "uninitialized-field"
+        if re.search(r"is not a value type in the IR|is not a lowered type in the IR", message) is not None:
+            return "value-type"
+        return "annotation-other"
+    if code == "PS1003" or code == "PS4204":
+        return "type-mismatch"
+    if code == "PS1004":
+        return "fall-off-end"
+    if code == "PS2001":
+        if re.search(r"is not a field$|has no fields$", message) is not None:
+            return "field-lookup"
+        found = re.search(r"is not in the lowered subset of ([\w.]+)", message)
+        if found is not None:
+            group = found.group(1)
+            if group is not None:
+                return "stdlib:" + group
+        return "construct-other"
+    if code == "PS2002":
+        if re.search(r"is not exported by this package", message) is not None:
+            return "export-cascade"
+        if re.search(r"^circular import: ", message) is not None:
+            return "import-cycle"
+        if re.search(r"^this class .+ is not lowered", message) is not None:
+            return "class-cascade"
+        if re.search(r"is not in the closed import table", message) is not None:
+            return "import-table"
+        if re.search(r"is not a local or parameter", message) is not None:
+            return "name-resolution"
+        if re.search(r"is a typing name and is not a value", message) is not None:
+            return "typing-value"
+        if re.search(r"^module .+ is not lowered|module .+ is not a value", message) is not None:
+            return "module-value"
+        if re.search(r"^call to .+ is not lowered|call of attribute is not lowered", message) is not None:
+            return "unlowered-call"
+        if re.search(r"AsyncFunctionDef|async ", message) is not None:
+            return "async"
+        if re.search(r"\benum\b", message) is not None:
+            return "enum"
+        if re.search(r"at module scope is not lowered", message) is not None:
+            return "module-statements"
+        if re.search(r"module assignment", message) is not None:
+            return "module-assign"
+        if re.search(r"decorators? ", message) is not None:
+            return "decorators"
+        if re.search(r"resumable|generator|\byield\b", message) is not None:
+            return "generators"
+        if re.search(r"contextmanager", message) is not None:
+            return "contextmanager"
+        return "construct-other"
+    if code == "PS2006":
+        return "decorators"
+    if code == "PS2003":
+        if re.search(r"keyword arguments", message) is not None:
+            return "keyword-args"
+        return "call-arity"
+    if code == "PS2004":
+        return "operator"
+    if code == "PS2005":
+        return "non-latin1"
+    if code == "PS2101":
+        return "queued-stdlib"
+    if code == "PS4201" or code == "PS4202":
+        return "refused-dynamic-attrs"
+    if code == "PS4203":
+        return "refused-finalizer"
     return "construct-other"
 
 
 def hint_for(family: str, message: str) -> str:
-    known = _FAMILIES.get(family)
+    known = _HINTS.get(family)
     if known is not None:
         if family == "param-inference":
             name = re.search(r"parameter (\S+) needs", message)
-            if name:
-                return f"Annotate parameter `{name.group(1)}`. Unannotated parameters need local type inference."
-        return known.hint
+            if name is not None:
+                group = name.group(1)
+                if group is not None:
+                    return f"Annotate parameter `{group}`. Unannotated parameters need local type inference."
+        return known
     if family.startswith("stdlib:"):
         return f"Use a lowered attribute of {family.split(':', 1)[1]}, or hand-write the logic."
-    return _FAMILIES["construct-other"].hint
+    return _HINTS["construct-other"]
 
 
 def is_derived(family: str) -> bool:
-    known = _FAMILIES.get(family)
-    return known is not None and known.derived
+    return family == "export-cascade" or family == "class-cascade"
 
 
 @dataclass

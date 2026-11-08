@@ -57,7 +57,7 @@ def root_cause_of(fence: dict[str, Any]) -> str:
 
     if (
         family in ("import-table", "queued-stdlib")
-        or fence.get("dependency") is not None
+        or "dependency" in fence
         or "is not in the closed import table" in message
         or (code == "PS2002" and ("import " in message or "circular import" in message or "is not exported" in message))
     ):
@@ -79,10 +79,10 @@ def nearest_typed_idiom(fence: dict[str, Any]) -> str | None:
 
 def _extract_import_name(fence: dict[str, Any]) -> str:
     """Extract the import name from an import fence."""
-    dependency = fence.get("dependency")
-    if dependency and dependency.get("distribution"):
+    dependency: dict[str, str] = fence.get("dependency", {})
+    if dependency.get("distribution"):
         return str(dependency["distribution"])
-    if dependency and dependency.get("policy"):
+    if dependency.get("policy"):
         return str(dependency["policy"])
 
     statement: str = fence.get("statement", "")
@@ -105,7 +105,8 @@ def _extract_import_name(fence: dict[str, Any]) -> str:
     message: str = fence.get("message", "")
     match = re.search(r"([\w.]+)\s+is not in the closed import table", message)
     if match:
-        return match.group(1).split(".")[0]
+        matched: str = match.group(1) or ""
+        return matched.split(".")[0]
     return ""
 
 
@@ -120,23 +121,22 @@ def _target_package_roots(target: Path, target_files: list[str]) -> set[str]:
     roots.add(target.name)
     roots.add(target_resolved.name)
     for fpath in target_files:
-        try:
-            rel = Path(fpath).resolve().relative_to(target_resolved)
-            parts = rel.parts
-            if parts:
-                first = parts[0]
-                if first.endswith(".py"):
-                    roots.add(first[:-3])
+        rel_text: str = os.path.relpath(str(Path(fpath).resolve()), str(target_resolved))
+        if rel_text == os.curdir or rel_text == os.pardir or rel_text.startswith(os.pardir + os.sep):
+            continue
+        parts: list[str] = rel_text.split(os.sep)
+        if parts:
+            first: str = parts[0]
+            if first.endswith(".py"):
+                roots.add(first[:-3])
+            else:
+                roots.add(first)
+            if len(parts) > 1 and parts[0] == "src":
+                sub: str = parts[1]
+                if sub.endswith(".py"):
+                    roots.add(sub[:-3])
                 else:
-                    roots.add(first)
-                if len(parts) > 1 and parts[0] == "src":
-                    sub = parts[1]
-                    if sub.endswith(".py"):
-                        roots.add(sub[:-3])
-                    else:
-                        roots.add(sub)
-        except ValueError:
-            pass
+                    roots.add(sub)
     return roots
 
 
@@ -145,19 +145,27 @@ def _discover_entry_points(target: Path) -> list[Path]:
     if target.is_file():
         return [target.resolve()]
     candidates: list[Path] = []
+    candidate_names: list[str] = []
     main_py = target / "__main__.py"
     if main_py.is_file():
         candidates.append(main_py.resolve())
+        candidate_names.append(str(main_py.resolve()))
     app_main = target / "main.py"
-    if app_main.is_file() and app_main.resolve() not in candidates:
-        candidates.append(app_main.resolve())
-    for py_file in sorted(target.glob("*.py")):
+    if app_main.is_file():
+        app_resolved = app_main.resolve()
+        if str(app_resolved) not in candidate_names:
+            candidates.append(app_resolved)
+            candidate_names.append(str(app_resolved))
+    for py_str in sorted([str(p) for p in target.glob("*.py")]):
+        py_file = Path(py_str)
         resolved = py_file.resolve()
-        if resolved not in candidates:
+        resolved_name = str(resolved)
+        if resolved_name not in candidate_names:
             try:
                 text = py_file.read_text(encoding="utf-8")
                 if '__name__ == "__main__"' in text or "__name__ == '__main__'" in text:
                     candidates.append(resolved)
+                    candidate_names.append(resolved_name)
             except OSError:
                 pass
     return candidates
@@ -793,91 +801,128 @@ def render_text(
     top_n: int = DEFAULT_TOP_N,
 ) -> str:
     """Format the assessment report as human-readable text."""
-    lines: list[str] = [f"assess {report['target']}:", ""]
+    target_name: str = report["target"]
+    lines: list[str] = [f"assess {target_name}:", ""]
 
-    summary = report["summary"]
-    shares = summary["shares"]
-    defs = summary["definitions"]
-    files = summary["files"]
-    imps = summary["imports"]
+    summary: dict[str, Any] = report["summary"]
+    shares: dict[str, float] = summary["shares"]
+    defs: dict[str, int] = summary["definitions"]
+    files_sum: dict[str, int] = summary["files"]
+    imps_sum: dict[str, int] = summary["imports"]
 
     lines.append("Summary:")
-    if defs["total"] > 0:
-        lines.append(f"  Native:   {shares['native'] * 100:5.1f}% ({defs['native']} of {defs['total']} definitions)")
-        import_note = f", {shares['importIsland'] * 100:5.1f}% import-level" if imps["total"] > 0 else ""
-        lines.append(
-            f"  Island:   {shares['island'] * 100:5.1f}% ({defs['island']} of {defs['total']} definitions{import_note})"
-        )
-        lines.append(f"  Blocked:  {shares['blocked'] * 100:5.1f}% ({defs['blocked']} of {defs['total']} definitions)")
+    defs_total: int = defs["total"]
+    if defs_total > 0:
+        nat_defs: int = defs["native"]
+        isl_defs: int = defs["island"]
+        blk_defs: int = defs["blocked"]
+        native_share: float = shares["native"]
+        island_share: float = shares["island"]
+        blocked_share: float = shares["blocked"]
+        import_share: float = shares["importIsland"]
+        lines.append(f"  Native:   {native_share * 100:5.1f}% ({nat_defs} of {defs_total} definitions)")
+        imps_total: int = imps_sum["total"]
+        import_note = f", {import_share * 100:5.1f}% import-level" if imps_total > 0 else ""
+        lines.append(f"  Island:   {island_share * 100:5.1f}% ({isl_defs} of {defs_total} definitions{import_note})")
+        lines.append(f"  Blocked:  {blocked_share * 100:5.1f}% ({blk_defs} of {defs_total} definitions)")
     else:
-        status_word = "compiles natively" if shares["native"] == 1.0 else "fenced"
-        lines.append(f"  Native:   {shares['native'] * 100:5.1f}% ({files['total']} files, {status_word})")
-        import_note = f" ({shares['importIsland'] * 100:5.1f}% import-level)" if imps["total"] > 0 else ""
-        lines.append(f"  Island:   {shares['island'] * 100:5.1f}%{import_note}")
-        lines.append(f"  Blocked:  {shares['blocked'] * 100:5.1f}%")
+        native_share2: float = shares["native"]
+        island_share2: float = shares["island"]
+        blocked_share2: float = shares["blocked"]
+        import_share2: float = shares["importIsland"]
+        files_total: int = files_sum["total"]
+        status_word = "compiles natively" if native_share2 == 1.0 else "fenced"
+        lines.append(f"  Native:   {native_share2 * 100:5.1f}% ({files_total} files, {status_word})")
+        imps_total2: int = imps_sum["total"]
+        import_note = f" ({import_share2 * 100:5.1f}% import-level)" if imps_total2 > 0 else ""
+        lines.append(f"  Island:   {island_share2 * 100:5.1f}%{import_note}")
+        lines.append(f"  Blocked:  {blocked_share2 * 100:5.1f}%")
 
+    files_total2: int = files_sum["total"]
+    files_fully: int = files_sum["fully"]
+    files_partly: int = files_sum["partly"]
+    files_refused: int = files_sum["refused"]
     lines.append(
-        f"  Files:    {files['total']} "
-        f"({files['fully']} lowers fully, {files['partly']} partly, {files['refused']} refused)"
+        f"  Files:    {files_total2} ({files_fully} lowers fully, {files_partly} partly, {files_refused} refused)"
     )
-    lines.append(
-        f"  Imports:  {imps['total']} ({imps['native']} native, {imps['fenced']} fenced, {imps['island']} island)"
-    )
+    imps_total3: int = imps_sum["total"]
+    imps_native: int = imps_sum["native"]
+    imps_fenced: int = imps_sum["fenced"]
+    imps_island: int = imps_sum["island"]
+    lines.append(f"  Imports:  {imps_total3} ({imps_native} native, {imps_fenced} fenced, {imps_island} island)")
     lines.append("")
 
     lines.append("Files:")
-    files_list = report["files"]
+    files_list: list[dict[str, Any]] = report["files"]
     if not show_all and len(files_list) > 10:
-        display_files = files_list[:10]
-        files_overflow = len(files_list) - 10
+        display_files: list[dict[str, Any]] = files_list[:10]
+        files_overflow: int = len(files_list) - 10
     else:
         display_files = files_list
         files_overflow = 0
 
     for f in display_files:
-        status_label = f"lowers {f['status']}" if f["status"] in (STATUS_FULLY, STATUS_PARTLY) else STATUS_REFUSED
+        f_status: str = f["status"]
+        status_label: str = f"lowers {f_status}" if f_status in [STATUS_FULLY, STATUS_PARTLY] else STATUS_REFUSED
+        f_native: int = f["native"]
+        f_fenced: int = f["fenced"]
+        f_island: int = f["island"]
+        f_definitions: int = f["definitions"]
+        f_fences: int = f["fences"]
+        f_file: str = f["file"]
         detail = (
-            f"({f['native']} native, {f['fenced']} fenced, {f['island']} island "
-            f"of {f['definitions']} definitions, {f['fences']} fences)"
-            if f["definitions"] > 0
-            else f"({f['fences']} fences)"
+            f"({f_native} native, {f_fenced} fenced, {f_island} island "
+            f"of {f_definitions} definitions, {f_fences} fences)"
+            if f_definitions > 0
+            else f"({f_fences} fences)"
         )
-        lines.append(f"  {f['file']}: {status_label} {detail}")
+        lines.append(f"  {f_file}: {status_label} {detail}")
 
-        grouped = f["groupedFences"]
+        grouped: dict[str, list[dict[str, Any]]] = f["groupedFences"]
         for root_cause, label in (
             (ROOT_REFLECTION, "reflection"),
             (ROOT_UNTYPED_IMPORT, "untyped import"),
             (ROOT_UNSUPPORTED, "unsupported construct"),
         ):
-            items = grouped[root_cause]
+            items: list[dict[str, Any]] = grouped[root_cause]
             if not items:
                 continue
             lines.append(f"    {label}:")
             if not show_all and len(items) > top_n:
-                to_show = items[:top_n]
-                overflow = len(items) - top_n
+                to_show: list[dict[str, Any]] = items[:top_n]
+                overflow: int = len(items) - top_n
             else:
                 to_show = items
                 overflow = 0
 
             for item in to_show:
+                item_line: int = item["line"]
                 if root_cause == ROOT_REFLECTION:
-                    culprit_str = f"{item['culprit']}: " if item["culprit"] else ""
-                    lines.append(f"      - line {item['line']}: {culprit_str}{item['message']}")
-                    if item["typedIdiom"]:
-                        lines.append(f"        typed idiom: {item['typedIdiom']}")
+                    culprit: str = item["culprit"]
+                    culprit_str = f"{culprit}: " if culprit else ""
+                    item_message: str = item["message"]
+                    lines.append(f"      - line {item_line}: {culprit_str}{item_message}")
+                    typed_idiom: str = item["typedIdiom"]
+                    if typed_idiom:
+                        lines.append(f"        typed idiom: {typed_idiom}")
                 elif root_cause == ROOT_UNTYPED_IMPORT:
-                    lines.append(f"      - line {item['line']}: {item['message']}")
-                    if item.get("nameMissing") or "is not exported" in item.get("message", ""):
+                    item_message2: str = item["message"]
+                    lines.append(f"      - line {item_line}: {item_message2}")
+                    import_name: str = item.get("importName", "")
+                    name_missing: bool = item.get("nameMissing", False)
+                    message_text: str = item.get("message", "")
+                    if name_missing or "is not exported" in message_text:
                         lines.append("        name is missing")
-                    elif item.get("importName"):
-                        lines.append(f'        island route: {item["importName"]} = "island"')
+                    elif import_name:
+                        lines.append(f'        island route: {import_name} = "island"')
                 else:  # ROOT_UNSUPPORTED
-                    lines.append(f"      - line {item['line']}: {item['code']} {item['message']}")
-                    if item["typedIdiom"]:
-                        lines.append(f"        typed idiom: {item['typedIdiom']}")
-                    if item.get("stdlibPartial"):
+                    item_code: str = item["code"]
+                    item_message3: str = item["message"]
+                    lines.append(f"      - line {item_line}: {item_code} {item_message3}")
+                    typed_idiom2: str = item["typedIdiom"]
+                    if typed_idiom2:
+                        lines.append(f"        typed idiom: {typed_idiom2}")
+                    if item.get("stdlibPartial", False):
                         lines.append(
                             "        partially lowered stdlib module keeps fence with named idiom (no island route)"
                         )
@@ -890,96 +935,139 @@ def render_text(
 
     lines.append("")
 
-    plane_map = report.get("planeMap")
-    if plane_map and (_str_map(plane_map, "functions") or plane_map.get("moduleTopLevel")):
+    plane_map: dict[str, Any] = report["planeMap"]
+    functions_map: dict[str, str] = _str_map(plane_map, "functions")
+    module_top_level_raw: str = plane_map.get("moduleTopLevel", "")
+    if len(plane_map) > 0 and (functions_map or module_top_level_raw):
         lines.append("Plane map:")
-        lines.append(f"  module top level: {plane_map.get('moduleTopLevel', 'native')}")
-        demoted_by = plane_map.get("demotedBy", {})
-        for fn_name, plane in sorted(_str_map(plane_map, "functions").items()):
-            if fn_name in demoted_by:
-                lines.append(f"  {fn_name}: {plane} (demoted by {demoted_by[fn_name]})")
+        module_top: str = plane_map.get("moduleTopLevel", "native")
+        lines.append(f"  module top level: {module_top}")
+        demoted_by: dict[str, str] = plane_map.get("demotedBy", {})
+        for fn_name, plane in sorted(functions_map.items()):
+            demoted_reason: str = demoted_by.get(fn_name, "")
+            if demoted_reason:
+                lines.append(f"  {fn_name}: {plane} (demoted by {demoted_reason})")
             else:
                 lines.append(f"  {fn_name}: {plane}")
         lines.append("")
 
-    if report["imports"]:
+    imps_list: list[dict[str, Any]] = report["imports"]
+    if imps_list:
         lines.append("Imports:")
-        imps_list = report["imports"]
         if not show_all and len(imps_list) > 10:
-            display_imps = imps_list[:10]
-            imps_overflow = len(imps_list) - 10
+            display_imps: list[dict[str, Any]] = imps_list[:10]
+            imps_overflow: int = len(imps_list) - 10
         else:
             display_imps = imps_list
             imps_overflow = 0
 
         for imp in display_imps:
-            lines.append(f"  {imp['name']}: {imp['ladder']}")
+            imp_name: str = imp["name"]
+            imp_ladder: str = imp["ladder"]
+            lines.append(f"  {imp_name}: {imp_ladder}")
         if imps_overflow > 0:
             lines.append(f"  ... and {imps_overflow} more import(s) (use --all for full list)")
         lines.append("")
 
-    island_routing = report["islandRouting"]
+    island_routing: dict[str, Any] = report["islandRouting"]
     lines.append("Path to the island:")
-    if island_routing["policyLines"]:
+    policy_lines: list[str] = island_routing["policyLines"]
+    if policy_lines:
         lines.append("  Add to pyproject.toml:")
-        for line in island_routing["policyLines"]:
-            lines.append(f"    {line}")
-        if island_routing["routes"]:
-            for route in island_routing["routes"]:
-                lines.append(f"    # forced by: {route['construct']} ({route['file']}:{route['line']})")
+        for policy_line in policy_lines:
+            lines.append(f"    {policy_line}")
+        routes: list[dict[str, Any]] = island_routing["routes"]
+        if routes:
+            for route in routes:
+                route_construct: str = route["construct"]
+                route_file: str = route["file"]
+                route_line: int = route["line"]
+                lines.append(f"    # forced by: {route_construct} ({route_file}:{route_line})")
     else:
         lines.append("  (no island routes needed)")
 
     lines.append("")
     lines.append("  Stays blocked (cannot route to island):")
-    if island_routing["staysBlocked"]:
-        blocked_list = island_routing["staysBlocked"]
+    stays_blocked: list[dict[str, Any]] = island_routing["staysBlocked"]
+    if stays_blocked:
+        blocked_list: list[dict[str, Any]] = stays_blocked
         if not show_all and len(blocked_list) > top_n:
-            display_blocked = blocked_list[:top_n]
-            blocked_overflow = len(blocked_list) - top_n
+            display_blocked: list[dict[str, Any]] = blocked_list[:top_n]
+            blocked_overflow: int = len(blocked_list) - top_n
         else:
             display_blocked = blocked_list
             blocked_overflow = 0
 
         for blk in display_blocked:
-            hint_str = f" - {blk['hint']}" if blk["hint"] else ""
+            blk_hint: str = blk["hint"]
+            hint_str = f" - {blk_hint}" if blk_hint else ""
+            blk_reason: str = blk.get("reason", "")
             reason_str = (
-                f" ({blk['reason']})"
-                if blk.get("reason") and blk["reason"] != "unsupported construct outside island routing"
+                f" ({blk_reason})"
+                if blk_reason and blk_reason != "unsupported construct outside island routing"
                 else ""
             )
-            lines.append(f"    {blk['file']}:{blk['line']}: {blk['code']} {blk['family']}{hint_str}{reason_str}")
+            blk_file: str = blk["file"]
+            blk_line: int = blk["line"]
+            blk_code: str = blk["code"]
+            blk_family: str = blk["family"]
+            lines.append(f"    {blk_file}:{blk_line}: {blk_code} {blk_family}{hint_str}{reason_str}")
 
         if blocked_overflow > 0:
             lines.append(f"    ... and {blocked_overflow} more blocked construct(s) (use --all for full list)")
     else:
         lines.append("    (none)")
 
-    if report["verify"] is not None:
+    verify_list: list[dict[str, Any]] | None = report["verify"]
+    if verify_list is not None:
         lines.append("")
         lines.append("Verify:")
-        if not report["verify"]:
+        if not verify_list:
             lines.append("  (no compilable entry point to verify)")
-        for rec in report["verify"]:
-            if "error" in rec and "output" not in rec.get("error", {}):
-                lines.append(f"  {rec.get('entry', report['target'])}: {rec['error']}")
+        for rec in verify_list:
+            if "error" in rec:
+                rec_error_obj: dict[str, str] = rec.get("error", {})
+                has_output: bool = "output" in rec_error_obj
+            else:
+                has_output = True
+            if "error" in rec and not has_output:
+                rec_entry: str = rec.get("entry", target_name)
+                rec_error: str = rec["error"]
+                lines.append(f"  {rec_entry}: {rec_error}")
             elif "checks" in rec:
                 from pyscriptc.verify import Oracle, Receipt
 
+                rec_source: str = rec["source"]
+                oracle_info: dict[str, Any] = rec["oracle"]
+                oracle_exe: str = oracle_info["executable"]
+                oracle_ver: str = oracle_info["version"]
+                native_info: dict[str, Any] = rec["native"]
+                native_bin: str = native_info["binary"]
+                native_bytes: int = native_info["bytes"]
+                rec_argv: list[str] = rec["argv"]
+                stdin_info: dict[str, Any] = rec["stdin"]
+                stdin_path_v: str = stdin_info["path"]
+                stdin_bytes_v: int = stdin_info["bytes"]
+                rec_checks: list[dict[str, Any]] = rec["checks"]
+                compile_info: dict[str, Any] = rec["compile"]
+                compile_hit: bool = compile_info["cacheHit"]
+                compile_ms: float = compile_info["milliseconds"]
+                rec_duration: float = rec["durationMs"]
+                rec_timeout: float = rec["timeoutSeconds"]
                 receipt_obj = Receipt(
-                    source=rec["source"],
-                    oracle=Oracle(rec["oracle"]["executable"], rec["oracle"]["version"]),
-                    binary=rec["native"]["binary"],
-                    binary_bytes=rec["native"]["bytes"],
-                    argv=rec["argv"],
-                    stdin_path=rec["stdin"]["path"],
-                    stdin_bytes=rec["stdin"]["bytes"],
-                    checks=rec["checks"],
+                    source=rec_source,
+                    oracle=Oracle(oracle_exe, oracle_ver),
+                    binary=native_bin,
+                    binary_bytes=native_bytes,
+                    argv=rec_argv,
+                    stdin_path=stdin_path_v,
+                    stdin_bytes=stdin_bytes_v,
+                    checks=rec_checks,
                     call=rec.get("call"),
-                    cache_hit=rec["compile"]["cacheHit"],
-                    compile_ms=rec["compile"]["milliseconds"],
-                    duration_ms=rec["durationMs"],
-                    timeout_seconds=rec["timeoutSeconds"],
+                    cache_hit=compile_hit,
+                    compile_ms=compile_ms,
+                    duration_ms=rec_duration,
+                    timeout_seconds=rec_timeout,
                 )
                 rendered = verify.render_text(receipt_obj)
                 for line in rendered.splitlines():
@@ -989,18 +1077,25 @@ def render_text(
                 for line in rendered.splitlines():
                     lines.append(f"  {line}")
 
-    if report["bench"] is not None:
+    bench_list: list[dict[str, Any]] | None = report["bench"]
+    if bench_list is not None:
         lines.append("")
         lines.append("Benchmark:")
-        if not report["bench"]:
+        if not bench_list:
             lines.append("  (no compilable entry point to benchmark)")
-        for b in report["bench"]:
+        for b in bench_list:
+            b_entry: str = b["entry"]
             if "error" in b:
-                lines.append(f"  {b['entry']}: skipped ({b['error']})")
+                b_error: str = b["error"]
+                lines.append(f"  {b_entry}: skipped ({b_error})")
             else:
+                b_speedup: str = b["speedup"]
+                b_native_ms: float = b["nativeMs"]
+                b_cpython_ms: float = b["cpythonMs"]
+                b_samples: int = b["samples"]
                 lines.append(
-                    f"  {b['entry']}: {b['speedup']} "
-                    f"(median native {b['nativeMs']}ms vs cpython {b['cpythonMs']}ms, {b['samples']} samples)"
+                    f"  {b_entry}: {b_speedup} "
+                    f"(median native {b_native_ms}ms vs cpython {b_cpython_ms}ms, {b_samples} samples)"
                 )
 
     return "\n".join(lines)
