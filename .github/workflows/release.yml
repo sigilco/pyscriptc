@@ -267,6 +267,7 @@ jobs:
         with:
           version: ">=0.13.4"
           python-version: "3.14"
+          enable-cache: false
 
       - name: Release notes from CHANGELOG.md
         if: github.ref_type == 'tag'
