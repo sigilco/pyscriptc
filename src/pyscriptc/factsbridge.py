@@ -25,10 +25,13 @@ import tempfile
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pyscriptc.check import CheckFailed
 from pyscriptc.typefacts import TypeFacts
+
+if TYPE_CHECKING:
+    from pyscriptc.typefacts import CallableFacts, PyreflyTspFactsAdapter, _LspConnection
 
 _MYPY_MIN = (2, 4)
 _MYPY_MAX = (2, 5)
@@ -511,7 +514,7 @@ class PyreflyBridge:
 
     def _def_facts(
         self,
-        adapter: Any,
+        adapter: PyreflyTspFactsAdapter,
         path: Path,
         tree: ast.Module,
         lines: list[str],
@@ -545,13 +548,13 @@ class PyreflyBridge:
 
     def _computed_signature(
         self,
-        adapter: Any,
-        connection: Any,
+        adapter: PyreflyTspFactsAdapter,
+        connection: _LspConnection,
         uri: str,
         snapshot: int,
         node: ast.FunctionDef | ast.AsyncFunctionDef,
         lines: list[str],
-    ) -> Any:
+    ) -> CallableFacts | None:
         """The computed signature of one `def`, or None when pyrefly gives none."""
         from pyscriptc.typefacts import _def_name_range, _tsp_type
 
@@ -572,7 +575,7 @@ class PyreflyBridge:
         self,
         node: ast.FunctionDef | ast.AsyncFunctionDef,
         expressions: dict[str, TypeFacts],
-        signature: Any,
+        signature: CallableFacts | None,
     ) -> TypeFacts | None:
         """The return type pyrefly proved, or None when it proved none.
 
@@ -810,6 +813,16 @@ def _slug(typ: dict[str, Any]) -> str:
     return kind
 
 
+class _PinSource(Protocol):
+    """The pin-map surface a `CheckerBridge.call_site_facts` value answers.
+
+    `pins_for` returns the package-wide pins of one callee, the shape
+    `pyscriptc inferrunner.facts_as_pins` produces.
+    """
+
+    def pins_for(self, callee: str) -> dict[str, Any]: ...
+
+
 class BridgeProvider:
     """A provider name that builds one bridge per file of a package tree.
 
@@ -822,7 +835,13 @@ class BridgeProvider:
     provider: str
     strict: int
 
-    def __init__(self, provider: str, strict: bool = True, pins: Any = None, pinned: Any = None) -> None:
+    def __init__(
+        self,
+        provider: str,
+        strict: bool = True,
+        pins: _PinSource | None = None,
+        pinned: dict[Any, Any] | None = None,
+    ) -> None:
         self.provider = provider
         self.strict = 1 if strict else 0
         # The inference records the lowerer accepted across every file the
