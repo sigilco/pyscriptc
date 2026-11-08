@@ -153,7 +153,7 @@ def run_checker(
         config = Path(cache) / "mypy.ini"
         # The manifest's directory carries the adapter's `.pyi`, so mypy
         # finds the module the same way pyrefly and pyright do (issue #66).
-        mypy_path = ", ".join([str(p) for p in paths])
+        mypy_path = ", ".join([str(paths[i]) for i in range(len(paths))])
         config.write_text(
             f"[mypy]\nplugins = pyscriptc.check\nmypy_path = {mypy_path}\n",
             "utf-8",
@@ -339,7 +339,7 @@ def _patched_typeshed_cached(fallback: Path) -> Path:
     stage: Path | None = None
     try:
         stage = Path(tempfile.mkdtemp(prefix=".typeshed-", dir=root))
-        build = stage / "tree"
+        build: Path = stage / "tree"
         _patched_typeshed(build)
         (build / _TYPESHED_COMPLETE).write_text(digest + "\n", "utf-8")
         if cached.exists() and not _typeshed_entry_valid(cached):
@@ -429,10 +429,10 @@ def _pyrefly_errors(stdout: str) -> list[dict[str, Any]] | None:
     if not text.startswith("{"):
         return None
     try:
-        data = json.loads(text)
+        data: dict[str, Any] = json.loads(text)
     except ValueError:
         return None
-    errors = data.get("errors")
+    errors: list[dict[str, Any]] = data.get("errors")
     if not isinstance(errors, list):
         return None
     return [err for err in errors if isinstance(err, dict)]
