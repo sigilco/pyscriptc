@@ -1026,7 +1026,18 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
     try:
         from pyscriptc import cli as _cli_pkg
 
-        return _cli_pkg.compile_cmd(compile_args)
+        code = _cli_pkg.compile_cmd(compile_args)
+        # boxed:begin
+        # A bundle-resolved compile writes a relocatable directory at the
+        # output path, not the single file the run cache and verify exec.
+        if code == 0 and output.is_dir():
+            raise IRError(
+                "the embed mode resolved to bundle and the compile wrote a relocatable "
+                "directory, which does not fit the run cache; use `pyscriptc compile "
+                "--embed-python=bundle -o OUT/name` and run OUT/name/bin/name"
+            )
+        # boxed:end
+        return code
     finally:
         sys.stdout = real_stdout
 
@@ -1895,9 +1906,18 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # and the compile first manifest-checks every stdlib import of the
         # program against the zip the trim would produce, so a trimmed module
         # fails the build (PS4301), never the run.
-        resolved_embed = getattr(args, "embed_python", None)
+        requested_embed = getattr(args, "embed_python", None)
+        resolved_embed = requested_embed
         if resolved_embed != "host" and embed.resolve_mode(resolved_embed) == "bundle":
             resolved_embed = "bundle"
+        # link_binary embeds libpython only when the module references the
+        # island runtime, so a bundle resolved for a program without those
+        # references would only wrap a plain executable in a directory the
+        # run cache cannot hold (issue #1145). An explicit
+        # --embed-python=bundle still stages: the relocatable directory is
+        # the requested artifact.
+        if resolved_embed == "bundle" and requested_embed != "bundle" and "ps_island_" not in llvm_text:
+            resolved_embed = "host"
         # The direct third-party import roots of the program, for the bundle's
         # site-packages tree (issue #660). A native-backed distribution among
         # them refuses the compile (PS4302) before anything is staged.
