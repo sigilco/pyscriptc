@@ -145,12 +145,12 @@ class Fence(Exception):
         self.function = function
 
     def as_dict(self) -> dict[str, Any]:
-        return {
-            "code": self.code,
-            "message": self.message,
-            "function": self.function,
-            "span": self.span,
-        }
+        out: dict[str, Any] = {}
+        out["code"] = self.code
+        out["message"] = self.message
+        out["function"] = self.function
+        out["span"] = self.span
+        return out
 
 
 class Binding:
@@ -606,7 +606,7 @@ def _package_base(module_name: str, is_package: bool, level: int) -> list[str] |
 def _tuple_assign(
     dest: str, typ: dict[str, Any], elems: list[dict[str, Any]], span: dict[str, Any]
 ) -> list[dict[str, Any]]:
-    made = node_to_dict(
+    made: dict[str, Any] = node_to_dict(
         _ir.call(
             _ir.class_callee(dict_to_type(typ).name),
             [],
@@ -618,7 +618,8 @@ def _tuple_assign(
         )
     )
     stmts: list[dict[str, Any]] = [_assign(dest, made, span)]
-    for index, elem in enumerate(elems):
+    for index in range(len(elems)):
+        elem = elems[index]
         stmts.append(
             node_to_dict(
                 _ir.setattr_stmt(
@@ -649,7 +650,12 @@ def _zero(typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         # initializer starts as an empty dict under the container's own
         # annotation, never under the element slot, so this arm answers
         # only stray walks. An str zero keeps the const shape honest.
-        return {"kind": "const", "value": "", "type": typ, "span": span}
+        out: dict[str, Any] = {}
+        out["kind"] = "const"
+        out["value"] = ""
+        out["type"] = typ
+        out["span"] = span
+        return out
     if kind == "class":
         # Fresh for-targets of a synthetic tuple class start as a zeroed
         # instance (ps_alloc calloc); the loop step then rebinding every field.
@@ -680,7 +686,12 @@ def _const_str(value: str, span: dict[str, Any]) -> dict[str, Any]:
 
 
 def _const_float(value: float, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": repr(value), "type": {"kind": "float"}, "span": span}
+    out: dict[str, Any] = {}
+    out["kind"] = "const"
+    out["value"] = repr(value)
+    out["type"] = {"kind": "float"}
+    out["span"] = span
+    return out
 
 
 def _const_bytes(value: bytes, span: dict[str, Any]) -> dict[str, Any]:
@@ -783,24 +794,23 @@ def _subst_type(typ: dict[str, Any], mapping: dict[str, dict[str, Any]]) -> dict
     if kind == "typevar":
         name: str = typ["name"]
         return mapping.get(name, typ)
-    if kind == "list":
-        return {**typ, "elem": _subst_type(typ["elem"], mapping)}
-    if kind == "dict":
-        return {
-            **typ,
-            "key": _subst_type(typ["key"], mapping),
-            "value": _subst_type(typ["value"], mapping),
-        }
-    if kind == "func":
-        return {
-            **typ,
-            "params": [_subst_type(param, mapping) for param in typ["params"]],
-            "return": _subst_type(typ["return"], mapping),
-        }
     tail_elem = _dict_field(typ, "elem")
-    if tail_elem is not None:
-        return {**typ, "elem": _subst_type(tail_elem, mapping)}
-    return typ
+    if kind not in {"list", "dict", "func"} and tail_elem is None:
+        return typ
+    out: dict[str, Any] = {}
+    out.update(typ)
+    if kind == "list":
+        out["elem"] = _subst_type(typ["elem"], mapping)
+    elif kind == "dict":
+        out["key"] = _subst_type(typ["key"], mapping)
+        out["value"] = _subst_type(typ["value"], mapping)
+    elif kind == "func":
+        params: list[dict[str, Any]] = typ["params"]
+        out["params"] = [_subst_type(param, mapping) for param in params]
+        out["return"] = _subst_type(typ["return"], mapping)
+    elif tail_elem is not None:
+        out["elem"] = _subst_type(tail_elem, mapping)
+    return out
 
 
 def _any_accepts(want: dict[str, Any], got: dict[str, Any]) -> bool:

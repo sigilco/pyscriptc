@@ -128,7 +128,10 @@ def _class_type(name: str) -> dict[str, Any]:
 
 def _param_row(name: str, typ: dict[str, Any]) -> dict[str, Any]:
     """The `{name, type}` parameter row one lowered parameter spells."""
-    return {"name": name, "type": _type_rt(typ)}
+    row: dict[str, Any] = {}
+    row["name"] = name
+    row["type"] = _type_rt(typ)
+    return row
 
 
 def _self_param(class_name: str) -> dict[str, Any]:
@@ -189,7 +192,11 @@ def _tuple_default(elems: list[dict[str, Any]], typ: dict[str, Any]) -> dict[str
     The marker is not an IR node: the call site replays the stored constant
     elements, so the record stays a plain dict.
     """
-    return {"kind": "tuple-default", "elems": elems, "type": typ}
+    row: dict[str, Any] = {}
+    row["kind"] = "tuple-default"
+    row["elems"] = elems
+    row["type"] = typ
+    return row
 
 
 def _bare_leaf(kind: str) -> dict[str, Any]:
@@ -197,7 +204,10 @@ def _bare_leaf(kind: str) -> dict[str, Any]:
 
     The `bare` bit has no typed `T` slot, so the record stays a plain dict.
     """
-    return {"kind": kind, "bare": True}
+    row: dict[str, Any] = {}
+    row["kind"] = kind
+    row["bare"] = True
+    return row
 
 
 def _field_rows(fields: list[tuple[str, T]]) -> list[dict[str, Any]]:
