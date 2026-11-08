@@ -684,8 +684,8 @@ def _urlopen(url: str) -> bytes:
     """Seam for tests: the only network read outside uv."""
     if not url.startswith("https://"):
         raise DepsError(f"refusing non-https wheel URL {url!r}")
-    resp = urllib.request.urlopen(url, timeout=60)  # noqa: S310 (scheme checked above)
-    return resp.read()
+    with urllib.request.urlopen(url, timeout=60) as resp:  # noqa: S310 (scheme checked above)
+        return resp.read()
 
 
 def _atomic_write(path: Path, data: bytes) -> None:
