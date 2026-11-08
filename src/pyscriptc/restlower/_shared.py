@@ -242,7 +242,7 @@ def _cast_float(arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return node_to_dict(_ir.cast("int_to_float", dict_to_node(arg), _ir.t_leaf("float"), _mk_span(span)))
 
 
-def _const_json(value: Any, span: dict[str, Any]) -> dict[str, Any]:
+def _const_json(value: int, span: dict[str, Any]) -> dict[str, Any]:
     """The dict-IR int const carrying the JSON int payload, where
     `_const_int` spells the decimal str."""
 

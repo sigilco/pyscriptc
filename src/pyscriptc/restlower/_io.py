@@ -32,7 +32,7 @@ _OPEN_ENCODINGS = {"utf-8", "utf8", "ascii", "latin-1", "latin1"}
 
 
 # NamedTemporaryFile adds the read/write `+` modes; `open` keeps _OPEN only.
-_TEMP_OPEN = {**_OPEN, "w+": 7, "w+b": 8}
+_TEMP_OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6, "w+": 7, "w+b": 8}
 
 
 _PRINT_KINDS = {"str", "int", "float", "bool", "bytes", "exc"}

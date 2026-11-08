@@ -118,7 +118,7 @@ __all__ = [
 # and the attribute name, whatever subset of those it actually needs.
 Handler = Callable[[Any, ast.Call, dict[str, Any], "dict[str, Any] | None", str], dict[str, Any]]
 
-_DATETIME_ROWS: dict[str, tuple[str, str, int, list[str]]] = {
+_DATETIME_ROWS = {
     "date": ("ps_date_ymd", "Date", 3, ["year", "month", "day"]),
     "datetime": (
         "ps_dt_new",
