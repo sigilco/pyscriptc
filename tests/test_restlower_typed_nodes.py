@@ -52,6 +52,8 @@ CONVERTED = (
     RESTLOWER / "_yaml.py",
     RESTLOWER / "_pathlib.py",
     RESTLOWER / "_copy.py",
+    RESTLOWER / "_asyncio.py",
+    RESTLOWER / "_asyncio_sync.py",
 )
 
 # The dict-IR keys a node or type record carries. A converted module
