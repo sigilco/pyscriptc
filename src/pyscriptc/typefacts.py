@@ -117,7 +117,7 @@ class ModuleFacts:
         return self.callables.get(name)
 
     def overload_choices(self, name: str) -> tuple[CallableFacts, ...]:
-        return self.overloads.get(name, ())
+        return self.overloads.get(name, [])
 
 
 @runtime_checkable
@@ -1611,7 +1611,7 @@ class PyreflyTspFactsAdapter:
                 defaults=default_values,
             )
             if any(_is_overload_decorator(dec) for dec in stmt.decorator_list):
-                overloads[qualname] = list(overloads.get(qualname, ())) + [signature]
+                overloads[qualname] = list(overloads.get(qualname, [])) + [signature]
             else:
                 callables[qualname] = signature
         return callables, overloads
