@@ -1,92 +1,273 @@
 {
-  "generated": "2026-10-16",
-  "command": "uv run python -m benchmarks.compat2.census_self --json benchmarks/compat2/census-self.json",
+  "generated": "2026-11-08",
+  "command": "uv run python -m benchmarks.compat2.census_self --json data/benchmarks/census-self.json",
   "mode": "parse-only",
   "src": "src/pyscriptc",
-  "lines": 12065,
-  "modules": 19,
+  "lines": 73897,
+  "modules": 135,
   "skipped": [
     "__main__.py"
   ],
-  "fences": 542,
-  "definitions": 522,
-  "fencedDefinitions": 312,
+  "fences": 3451,
+  "definitions": 2956,
+  "nativeDefinitions": 1448,
+  "fencedDefinitions": 1508,
   "packages": [
     {
       "package": "pyscriptc",
+      "fences": 6,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "construct-other": 2,
+        "import-table": 2,
+        "module-assign": 1,
+        "name-resolution": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_irnode",
       "fences": 0,
       "definitions": 0,
+      "nativeDefinitions": 0,
       "fencedDefinitions": 0,
       "rootFamilies": {},
       "derivedFamilies": {}
     },
     {
-      "package": "builtins",
-      "fences": 4,
-      "definitions": 3,
-      "fencedDefinitions": 3,
+      "package": "assess",
+      "fences": 80,
+      "definitions": 8,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 8,
       "rootFamilies": {
-        "dynamic-annotation": 4
+        "name-resolution": 38,
+        "local-inference": 24,
+        "construct-other": 12,
+        "unlowered-type-name": 2,
+        "call-arity": 1,
+        "dynamic-annotation": 1,
+        "import-table": 1,
+        "type-mismatch": 1
       },
       "derivedFamilies": {}
     },
     {
+      "package": "binding",
+      "fences": 1,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "construct-other": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "boxed",
+      "fences": 59,
+      "definitions": 13,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 13,
+      "rootFamilies": {
+        "name-resolution": 28,
+        "construct-other": 8,
+        "import-table": 7,
+        "local-inference": 7,
+        "unlowered-call": 4,
+        "unlowered-type-name": 2,
+        "annotation-other": 1,
+        "type-mismatch": 1,
+        "union-types": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "builtins",
+      "fences": 34,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "construct-other": 26,
+        "name-resolution": 5,
+        "annotation-other": 1,
+        "call-arity": 1,
+        "local-inference": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "bundle",
+      "fences": 23,
+      "definitions": 10,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 10,
+      "rootFamilies": {
+        "unlowered-call": 6,
+        "unlowered-type-name": 6,
+        "name-resolution": 5,
+        "construct-other": 3,
+        "field-lookup": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "class-cascade": 1
+      }
+    },
+    {
       "package": "canonical",
-      "fences": 8,
+      "fences": 15,
       "definitions": 7,
+      "nativeDefinitions": 0,
       "fencedDefinitions": 7,
       "rootFamilies": {
-        "dynamic-annotation": 5,
+        "unlowered-call": 4,
+        "call-arity": 3,
+        "construct-other": 3,
+        "dynamic-annotation": 3,
         "decorators": 1,
-        "import-table": 1,
         "name-resolution": 1
       },
       "derivedFamilies": {}
     },
     {
       "package": "check",
-      "fences": 9,
-      "definitions": 2,
-      "fencedDefinitions": 2,
+      "fences": 45,
+      "definitions": 13,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 13,
       "rootFamilies": {
-        "name-resolution": 4,
-        "construct-other": 2,
-        "field-lookup": 1,
+        "name-resolution": 23,
+        "construct-other": 8,
+        "call-arity": 3,
+        "keyword-args": 3,
+        "import-table": 2,
+        "stdlib:tempfile": 2,
+        "unlowered-type-name": 2,
         "local-inference": 1,
-        "with-as": 1
+        "stdlib:sys": 1
       },
       "derivedFamilies": {}
     },
     {
-      "package": "cli",
-      "fences": 16,
-      "definitions": 6,
-      "fencedDefinitions": 6,
+      "package": "__init__",
+      "fences": 8,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
       "rootFamilies": {
-        "unlowered-type-name": 4,
-        "import-table": 2,
-        "dynamic-annotation": 1,
-        "union-types": 1
+        "dynamic-annotation": 1
       },
       "derivedFamilies": {
-        "export-cascade": 8
+        "export-cascade": 7
+      }
+    },
+    {
+      "package": "_main",
+      "fences": 408,
+      "definitions": 43,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 43,
+      "rootFamilies": {
+        "name-resolution": 109,
+        "call-arity": 92,
+        "field-lookup": 81,
+        "construct-other": 47,
+        "local-inference": 18,
+        "unlowered-call": 15,
+        "keyword-args": 9,
+        "type-mismatch": 6,
+        "dynamic-annotation": 4,
+        "module-value": 4,
+        "annotation-other": 3,
+        "import-table": 2,
+        "module-assign": 1,
+        "operator": 1,
+        "reflection": 1,
+        "stdlib:contextlib": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 14
+      }
+    },
+    {
+      "package": "_report",
+      "fences": 12,
+      "definitions": 10,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 10,
+      "rootFamilies": {
+        "unlowered-type-name": 8,
+        "construct-other": 1,
+        "dynamic-annotation": 1,
+        "module-assign": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "config",
+      "fences": 15,
+      "definitions": 9,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 9,
+      "rootFamilies": {
+        "construct-other": 6,
+        "unlowered-call": 4,
+        "call-arity": 1,
+        "dynamic-annotation": 1,
+        "name-resolution": 1,
+        "reflection": 1,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "coro",
+      "fences": 111,
+      "definitions": 68,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 68,
+      "rootFamilies": {
+        "dynamic-annotation": 29,
+        "unlowered-call": 21,
+        "local-inference": 13,
+        "name-resolution": 12,
+        "unlowered-type-name": 10,
+        "construct-other": 7,
+        "union-types": 5,
+        "class-body": 2,
+        "field-lookup": 2,
+        "type-mismatch": 2,
+        "import-table": 1,
+        "return-inference": 1,
+        "stdlib:dataclasses": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 5
       }
     },
     {
       "package": "coverage",
-      "fences": 25,
-      "definitions": 13,
-      "fencedDefinitions": 13,
+      "fences": 66,
+      "definitions": 20,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 20,
       "rootFamilies": {
-        "dynamic-annotation": 5,
-        "construct-other": 3,
-        "name-resolution": 3,
-        "union-types": 3,
-        "local-inference": 2,
-        "stdlib:collections": 2,
-        "decorators": 1,
+        "name-resolution": 27,
+        "construct-other": 13,
+        "local-inference": 11,
+        "unlowered-call": 3,
+        "annotation-other": 2,
+        "dynamic-annotation": 2,
         "generic-alias": 1,
         "import-table": 1,
+        "module-assign": 1,
+        "optional-types": 1,
         "unlowered-type-name": 1
       },
       "derivedFamilies": {
@@ -94,166 +275,630 @@
       }
     },
     {
-      "package": "diagnostics",
-      "fences": 4,
-      "definitions": 2,
-      "fencedDefinitions": 2,
+      "package": "debug",
+      "fences": 26,
+      "definitions": 11,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 11,
       "rootFamilies": {
-        "decorators": 1,
-        "union-types": 1,
+        "construct-other": 9,
+        "field-lookup": 5,
+        "keyword-args": 4,
+        "type-mismatch": 2,
+        "unlowered-call": 2,
+        "dynamic-annotation": 1,
+        "import-table": 1,
+        "name-resolution": 1
+      },
+      "derivedFamilies": {
+        "class-cascade": 1
+      }
+    },
+    {
+      "package": "deps",
+      "fences": 20,
+      "definitions": 13,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 13,
+      "rootFamilies": {
+        "stdlib:zipfile": 5,
+        "field-lookup": 4,
+        "keyword-args": 3,
+        "construct-other": 2,
+        "unlowered-type-name": 2,
+        "dynamic-annotation": 1,
+        "module-assign": 1,
+        "unlowered-call": 1,
+        "with-as": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "diagnostics",
+      "fences": 5,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "name-resolution": 3,
         "unlowered-call": 1,
         "unlowered-type-name": 1
       },
       "derivedFamilies": {}
     },
     {
-      "package": "errors",
-      "fences": 8,
+      "package": "doctor",
+      "fences": 11,
       "definitions": 6,
+      "nativeDefinitions": 0,
       "fencedDefinitions": 6,
       "rootFamilies": {
-        "construct-other": 4,
-        "dynamic-annotation": 2,
-        "field-lookup": 2
-      },
-      "derivedFamilies": {}
-    },
-    {
-      "package": "ir",
-      "fences": 15,
-      "definitions": 13,
-      "fencedDefinitions": 13,
-      "rootFamilies": {
-        "dynamic-annotation": 9,
+        "construct-other": 5,
+        "call-arity": 2,
         "name-resolution": 2,
-        "construct-other": 1,
-        "local-inference": 1,
-        "module-assign": 1,
-        "stdlib:sys": 1
+        "stdlib:importlib": 1,
+        "type-mismatch": 1
       },
       "derivedFamilies": {}
     },
     {
-      "package": "llvm",
-      "fences": 107,
-      "definitions": 65,
-      "fencedDefinitions": 65,
+      "package": "dwarf",
+      "fences": 1,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
       "rootFamilies": {
-        "dynamic-annotation": 57,
-        "construct-other": 34,
-        "local-inference": 8,
+        "unlowered-type-name": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "embed",
+      "fences": 3,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "construct-other": 2,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "__init__",
+      "fences": 2,
+      "definitions": 0,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 0,
+      "rootFamilies": {},
+      "derivedFamilies": {
+        "export-cascade": 2
+      }
+    },
+    {
+      "package": "_ir",
+      "fences": 29,
+      "definitions": 10,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 10,
+      "rootFamilies": {
+        "name-resolution": 19,
+        "construct-other": 5,
+        "dynamic-annotation": 2,
+        "local-inference": 2,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_mir_in",
+      "fences": 1,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "construct-other": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "__init__",
+      "fences": 0,
+      "definitions": 0,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 0,
+      "rootFamilies": {},
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_abi",
+      "fences": 19,
+      "definitions": 9,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 9,
+      "rootFamilies": {
+        "type-mismatch": 7,
         "name-resolution": 4,
-        "union-types": 2
+        "operator": 2,
+        "class-body": 1,
+        "construct-other": 1,
+        "field-lookup": 1,
+        "local-inference": 1,
+        "module-assign": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_base",
+      "fences": 5,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "construct-other": 3,
+        "dynamic-annotation": 1,
+        "union-types": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_calls",
+      "fences": 8,
+      "definitions": 2,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 2,
+      "rootFamilies": {
+        "unlowered-call": 5,
+        "construct-other": 1,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_core",
+      "fences": 23,
+      "definitions": 10,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 10,
+      "rootFamilies": {
+        "field-lookup": 8,
+        "type-mismatch": 6,
+        "unlowered-call": 5,
+        "call-arity": 2,
+        "construct-other": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_driver",
+      "fences": 73,
+      "definitions": 9,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 9,
+      "rootFamilies": {
+        "name-resolution": 30,
+        "local-inference": 24,
+        "construct-other": 12,
+        "field-lookup": 2,
+        "annotation-other": 1,
+        "call-arity": 1,
+        "import-table": 1,
+        "type-mismatch": 1,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_exprs",
+      "fences": 18,
+      "definitions": 10,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 10,
+      "rootFamilies": {
+        "unlowered-call": 13,
+        "name-resolution": 2,
+        "type-mismatch": 1,
+        "unlowered-type-name": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_funcs",
+      "fences": 42,
+      "definitions": 11,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 11,
+      "rootFamilies": {
+        "construct-other": 15,
+        "unlowered-call": 10,
+        "field-lookup": 5,
+        "type-mismatch": 5,
+        "local-inference": 2,
+        "dynamic-annotation": 1,
+        "name-resolution": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 3
+      }
+    },
+    {
+      "package": "_print",
+      "fences": 3,
+      "definitions": 2,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 2,
+      "rootFamilies": {
+        "dynamic-annotation": 1,
+        "unlowered-type-name": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_runtime",
+      "fences": 4,
+      "definitions": 2,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 2,
+      "rootFamilies": {
+        "name-resolution": 1,
+        "type-mismatch": 1
       },
       "derivedFamilies": {
         "export-cascade": 2
       }
     },
     {
-      "package": "__init__",
-      "fences": 84,
-      "definitions": 51,
-      "fencedDefinitions": 51,
+      "package": "_stdlib",
+      "fences": 46,
+      "definitions": 11,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 11,
       "rootFamilies": {
-        "dynamic-annotation": 24,
-        "unlowered-type-name": 21,
-        "name-resolution": 9,
-        "local-inference": 5,
-        "import-table": 2,
-        "union-types": 2,
-        "class-keywords": 1
+        "construct-other": 22,
+        "name-resolution": 20,
+        "keyword-args": 1,
+        "unlowered-call": 1
       },
       "derivedFamilies": {
-        "export-cascade": 20
+        "export-cascade": 2
       }
     },
     {
-      "package": "_core",
-      "fences": 25,
-      "definitions": 21,
-      "fencedDefinitions": 21,
+      "package": "_stmts",
+      "fences": 26,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
       "rootFamilies": {
-        "dynamic-annotation": 15,
-        "union-types": 3,
-        "name-resolution": 2,
-        "unlowered-type-name": 2,
-        "import-table": 1,
-        "local-inference": 1
+        "name-resolution": 20,
+        "construct-other": 2,
+        "type-mismatch": 2,
+        "union-types": 1
       },
       "derivedFamilies": {
         "export-cascade": 1
       }
     },
     {
-      "package": "_expr",
-      "fences": 56,
-      "definitions": 30,
-      "fencedDefinitions": 30,
+      "package": "emitlib",
+      "fences": 33,
+      "definitions": 5,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 5,
       "rootFamilies": {
-        "unlowered-type-name": 22,
-        "dynamic-annotation": 5,
-        "name-resolution": 2,
-        "union-types": 2,
-        "import-table": 1,
-        "parameter-forms": 1
-      },
-      "derivedFamilies": {
-        "export-cascade": 23
-      }
-    },
-    {
-      "package": "_stdlib",
-      "fences": 27,
-      "definitions": 15,
-      "fencedDefinitions": 15,
-      "rootFamilies": {
-        "unlowered-type-name": 15,
-        "import-table": 1
-      },
-      "derivedFamilies": {
-        "export-cascade": 11
-      }
-    },
-    {
-      "package": "_stdlib_shared",
-      "fences": 5,
-      "definitions": 4,
-      "fencedDefinitions": 4,
-      "rootFamilies": {
-        "unlowered-type-name": 2,
-        "dynamic-annotation": 1,
-        "import-table": 1,
-        "union-types": 1
+        "name-resolution": 15,
+        "local-inference": 10,
+        "construct-other": 7,
+        "type-mismatch": 1
       },
       "derivedFamilies": {}
     },
     {
-      "package": "package",
-      "fences": 15,
-      "definitions": 8,
-      "fencedDefinitions": 8,
+      "package": "emitter",
+      "fences": 5,
+      "definitions": 2,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 2,
       "rootFamilies": {
-        "dynamic-annotation": 5,
+        "unlowered-call": 2,
+        "annotation-other": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 2
+      }
+    },
+    {
+      "package": "errors",
+      "fences": 1,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "dynamic-annotation": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "factsbridge",
+      "fences": 59,
+      "definitions": 24,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 24,
+      "rootFamilies": {
+        "field-lookup": 17,
+        "name-resolution": 11,
+        "dynamic-annotation": 8,
+        "union-types": 5,
+        "unlowered-call": 5,
         "construct-other": 3,
-        "import-table": 2,
-        "unlowered-type-name": 2,
-        "local-inference": 1,
-        "name-resolution": 1
+        "import-table": 3,
+        "return-inference": 2,
+        "call-arity": 1,
+        "keyword-args": 1,
+        "optional-types": 1,
+        "unlowered-type-name": 1
       },
       "derivedFamilies": {
         "export-cascade": 1
       }
     },
     {
-      "package": "restlower",
-      "fences": 65,
-      "definitions": 51,
-      "fencedDefinitions": 51,
+      "package": "ffi_manifest",
+      "fences": 71,
+      "definitions": 27,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 27,
       "rootFamilies": {
-        "dynamic-annotation": 47,
-        "name-resolution": 3,
+        "call-arity": 43,
+        "construct-other": 14,
+        "unlowered-call": 7,
         "union-types": 3,
+        "name-resolution": 2,
+        "field-lookup": 1,
+        "local-inference": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "imports",
+      "fences": 42,
+      "definitions": 15,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 15,
+      "rootFamilies": {
+        "name-resolution": 14,
+        "construct-other": 8,
+        "decorators": 4,
+        "call-arity": 2,
+        "import-table": 2,
+        "stdlib:sys": 2,
+        "stdlib:zipfile": 2,
+        "unlowered-call": 2,
+        "unlowered-type-name": 2,
+        "keyword-args": 1,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 2
+      }
+    },
+    {
+      "package": "inferfacts",
+      "fences": 35,
+      "definitions": 13,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 13,
+      "rootFamilies": {
+        "field-lookup": 15,
+        "call-arity": 4,
+        "name-resolution": 4,
+        "unlowered-call": 4,
+        "construct-other": 3,
+        "unlowered-type-name": 2,
+        "import-table": 1,
+        "local-inference": 1,
+        "stdlib:dataclasses": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "inferrunner",
+      "fences": 24,
+      "definitions": 10,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 10,
+      "rootFamilies": {
+        "name-resolution": 6,
+        "construct-other": 5,
+        "unlowered-type-name": 3,
+        "dynamic-annotation": 2,
+        "field-lookup": 1,
+        "import-table": 1,
+        "local-inference": 1,
+        "union-types": 1,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 3
+      }
+    },
+    {
+      "package": "ir",
+      "fences": 29,
+      "definitions": 13,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 13,
+      "rootFamilies": {
+        "name-resolution": 12,
+        "dynamic-annotation": 6,
+        "construct-other": 4,
+        "local-inference": 4,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 2
+      }
+    },
+    {
+      "package": "irverify",
+      "fences": 14,
+      "definitions": 12,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 12,
+      "rootFamilies": {
+        "dynamic-annotation": 7,
+        "unlowered-call": 4,
+        "construct-other": 3
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "licenses",
+      "fences": 5,
+      "definitions": 5,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 5,
+      "rootFamilies": {
+        "call-arity": 2,
+        "type-mismatch": 2,
+        "name-resolution": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "llvm",
+      "fences": 1,
+      "definitions": 0,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 0,
+      "rootFamilies": {},
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "llvverify",
+      "fences": 6,
+      "definitions": 4,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 4,
+      "rootFamilies": {
+        "construct-other": 3,
+        "field-lookup": 2,
+        "call-arity": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "log",
+      "fences": 17,
+      "definitions": 11,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 11,
+      "rootFamilies": {
+        "construct-other": 6,
+        "dynamic-annotation": 5,
+        "keyword-args": 2,
+        "call-arity": 1,
+        "name-resolution": 1,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "__init__",
+      "fences": 140,
+      "definitions": 55,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 55,
+      "rootFamilies": {
+        "name-resolution": 40,
+        "unlowered-type-name": 29,
+        "construct-other": 24,
+        "dynamic-annotation": 18,
+        "unlowered-call": 7,
+        "local-inference": 3,
+        "operator": 2,
+        "type-mismatch": 2,
+        "annotation-other": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 13
+      }
+    },
+    {
+      "package": "_annotations",
+      "fences": 33,
+      "definitions": 28,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 28,
+      "rootFamilies": {
+        "unlowered-type-name": 25,
+        "construct-other": 1,
+        "dynamic-annotation": 1,
+        "import-table": 1,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 4
+      }
+    },
+    {
+      "package": "_boxed_resolve",
+      "fences": 12,
+      "definitions": 10,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 10,
+      "rootFamilies": {
+        "unlowered-type-name": 7,
+        "union-types": 2,
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_call_attr",
+      "fences": 44,
+      "definitions": 29,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 29,
+      "rootFamilies": {
+        "unlowered-type-name": 19,
+        "unlowered-call": 9,
         "construct-other": 2,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 13
+      }
+    },
+    {
+      "package": "_calls",
+      "fences": 43,
+      "definitions": 32,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 32,
+      "rootFamilies": {
+        "unlowered-type-name": 26,
+        "unlowered-call": 4,
+        "union-types": 2,
+        "construct-other": 1,
         "import-table": 1
       },
       "derivedFamilies": {
@@ -261,234 +906,1647 @@
       }
     },
     {
-      "package": "stdlib_queue",
+      "package": "_calls_more",
+      "fences": 25,
+      "definitions": 18,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 18,
+      "rootFamilies": {
+        "unlowered-type-name": 13,
+        "unlowered-call": 4,
+        "import-table": 1,
+        "union-types": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 6
+      }
+    },
+    {
+      "package": "_classes",
+      "fences": 51,
+      "definitions": 39,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 39,
+      "rootFamilies": {
+        "unlowered-type-name": 24,
+        "unlowered-call": 11,
+        "type-mismatch": 3,
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 11
+      }
+    },
+    {
+      "package": "_classes_more",
+      "fences": 26,
+      "definitions": 20,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 20,
+      "rootFamilies": {
+        "unlowered-type-name": 15,
+        "unlowered-call": 3,
+        "class-body": 1,
+        "import-table": 1,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 5
+      }
+    },
+    {
+      "package": "_closures",
+      "fences": 19,
+      "definitions": 13,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 13,
+      "rootFamilies": {
+        "unlowered-type-name": 9,
+        "union-types": 2,
+        "unlowered-call": 2,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 5
+      }
+    },
+    {
+      "package": "_core",
+      "fences": 52,
+      "definitions": 35,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 35,
+      "rootFamilies": {
+        "unlowered-call": 21,
+        "unlowered-type-name": 8,
+        "dynamic-annotation": 7,
+        "construct-other": 5,
+        "type-mismatch": 3,
+        "name-resolution": 2,
+        "call-arity": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 4
+      }
+    },
+    {
+      "package": "_coro_adapter",
+      "fences": 2,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_entry",
+      "fences": 22,
+      "definitions": 12,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 12,
+      "rootFamilies": {
+        "unlowered-type-name": 11,
+        "operator": 4,
+        "import-table": 1,
+        "stdlib:sys": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 5
+      }
+    },
+    {
+      "package": "_expr",
+      "fences": 59,
+      "definitions": 43,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 43,
+      "rootFamilies": {
+        "unlowered-type-name": 28,
+        "unlowered-call": 11,
+        "dynamic-annotation": 3,
+        "name-resolution": 2,
+        "construct-other": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 13
+      }
+    },
+    {
+      "package": "_expr_compare",
+      "fences": 35,
+      "definitions": 26,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 26,
+      "rootFamilies": {
+        "unlowered-type-name": 16,
+        "unlowered-call": 10,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 8
+      }
+    },
+    {
+      "package": "_infer",
       "fences": 24,
+      "definitions": 20,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 20,
+      "rootFamilies": {
+        "union-types": 12,
+        "unlowered-type-name": 7,
+        "class-body": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 3
+      }
+    },
+    {
+      "package": "_misc_emit",
+      "fences": 26,
+      "definitions": 18,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 18,
+      "rootFamilies": {
+        "unlowered-type-name": 10,
+        "dynamic-annotation": 7,
+        "import-table": 1,
+        "union-types": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 7
+      }
+    },
+    {
+      "package": "_module_driver",
+      "fences": 5,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "unlowered-type-name": 3,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_stdlib",
+      "fences": 53,
+      "definitions": 35,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 35,
+      "rootFamilies": {
+        "unlowered-type-name": 26,
+        "unlowered-call": 6,
+        "name-resolution": 4,
+        "dynamic-annotation": 2,
+        "import-table": 1,
+        "union-types": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 13
+      }
+    },
+    {
+      "package": "_stdlib_bind",
+      "fences": 14,
       "definitions": 6,
+      "nativeDefinitions": 0,
       "fencedDefinitions": 6,
       "rootFamilies": {
-        "dynamic-annotation": 17,
-        "generic-alias": 2,
-        "union-types": 2,
+        "unlowered-type-name": 6,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 7
+      }
+    },
+    {
+      "package": "_stdlib_shared",
+      "fences": 5,
+      "definitions": 4,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 4,
+      "rootFamilies": {
+        "unlowered-type-name": 2,
+        "import-table": 1,
+        "type-mismatch": 1,
+        "union-types": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_stmt",
+      "fences": 16,
+      "definitions": 9,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 9,
+      "rootFamilies": {
+        "unlowered-type-name": 9,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 6
+      }
+    },
+    {
+      "package": "_stmt_a",
+      "fences": 37,
+      "definitions": 29,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 29,
+      "rootFamilies": {
+        "unlowered-type-name": 19,
+        "unlowered-call": 6,
+        "union-types": 3,
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 7
+      }
+    },
+    {
+      "package": "_stmt_b",
+      "fences": 38,
+      "definitions": 32,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 32,
+      "rootFamilies": {
+        "unlowered-type-name": 29,
+        "construct-other": 2,
+        "import-table": 1,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 5
+      }
+    },
+    {
+      "package": "mir",
+      "fences": 0,
+      "definitions": 0,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 0,
+      "rootFamilies": {},
+      "derivedFamilies": {}
+    },
+    {
+      "package": "miremit",
+      "fences": 0,
+      "definitions": 0,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 0,
+      "rootFamilies": {},
+      "derivedFamilies": {}
+    },
+    {
+      "package": "mirlower",
+      "fences": 42,
+      "definitions": 17,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 17,
+      "rootFamilies": {
+        "construct-other": 16,
+        "name-resolution": 15,
+        "type-mismatch": 6,
+        "dynamic-annotation": 2,
+        "unlowered-call": 2,
+        "call-arity": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "mirprint",
+      "fences": 9,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "field-lookup": 6,
+        "name-resolution": 2,
+        "construct-other": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "mirverify",
+      "fences": 0,
+      "definitions": 0,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 0,
+      "rootFamilies": {},
+      "derivedFamilies": {}
+    },
+    {
+      "package": "mobile",
+      "fences": 0,
+      "definitions": 0,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 0,
+      "rootFamilies": {},
+      "derivedFamilies": {}
+    },
+    {
+      "package": "package",
+      "fences": 87,
+      "definitions": 43,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 43,
+      "rootFamilies": {
+        "name-resolution": 16,
+        "unlowered-type-name": 14,
+        "construct-other": 13,
+        "local-inference": 10,
+        "field-lookup": 8,
+        "type-mismatch": 7,
+        "annotation-other": 6,
+        "unlowered-call": 5,
+        "dynamic-annotation": 4,
+        "call-arity": 1,
+        "generic-alias": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "project",
+      "fences": 11,
+      "definitions": 4,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 4,
+      "rootFamilies": {
+        "construct-other": 2,
+        "name-resolution": 2,
+        "unlowered-call": 2,
+        "annotation-other": 1,
+        "dynamic-annotation": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 3
+      }
+    },
+    {
+      "package": "reduce",
+      "fences": 36,
+      "definitions": 29,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 29,
+      "rootFamilies": {
+        "unlowered-type-name": 15,
+        "construct-other": 5,
+        "field-lookup": 5,
+        "unlowered-call": 2,
+        "annotation-other": 1,
+        "call-arity": 1,
+        "import-table": 1,
+        "module-assign": 1,
+        "name-resolution": 1,
+        "reflection": 1,
+        "stdlib:dataclasses": 1,
+        "union-types": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "reflection",
+      "fences": 0,
+      "definitions": 0,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 0,
+      "rootFamilies": {},
+      "derivedFamilies": {}
+    },
+    {
+      "package": "reprspec",
+      "fences": 10,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "name-resolution": 6,
         "construct-other": 1,
         "local-inference": 1,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "__init__",
+      "fences": 114,
+      "definitions": 6,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 6,
+      "rootFamilies": {
+        "unlowered-type-name": 7,
+        "name-resolution": 6,
+        "dynamic-annotation": 3,
+        "typing-value": 2,
+        "import-table": 1,
+        "module-assign": 1,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 93
+      }
+    },
+    {
+      "package": "_argparse",
+      "fences": 15,
+      "definitions": 14,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 14,
+      "rootFamilies": {
+        "dynamic-annotation": 10,
+        "unlowered-type-name": 3,
+        "import-table": 1,
         "type-mismatch": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_asyncio",
+      "fences": 10,
+      "definitions": 8,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 8,
+      "rootFamilies": {
+        "dynamic-annotation": 8,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_asyncio_sync",
+      "fences": 22,
+      "definitions": 8,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 8,
+      "rootFamilies": {
+        "dynamic-annotation": 8,
+        "module-assign": 7,
+        "import-table": 1,
+        "name-resolution": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 5
+      }
+    },
+    {
+      "package": "_builtins",
+      "fences": 20,
+      "definitions": 13,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 13,
+      "rootFamilies": {
+        "dynamic-annotation": 13,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 6
+      }
+    },
+    {
+      "package": "_collections",
+      "fences": 5,
+      "definitions": 4,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 4,
+      "rootFamilies": {
+        "dynamic-annotation": 4,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_copy",
+      "fences": 2,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_csv",
+      "fences": 2,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_ctypes",
+      "fences": 4,
+      "definitions": 2,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 2,
+      "rootFamilies": {
+        "dynamic-annotation": 2,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_datetime",
+      "fences": 2,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_dotenv",
+      "fences": 2,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_folds",
+      "fences": 9,
+      "definitions": 6,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 6,
+      "rootFamilies": {
+        "dynamic-annotation": 5,
+        "unlowered-call": 2,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_functools",
+      "fences": 4,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "dynamic-annotation": 3,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_hmac",
+      "fences": 4,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "dynamic-annotation": 3,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_io",
+      "fences": 9,
+      "definitions": 6,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 6,
+      "rootFamilies": {
+        "dynamic-annotation": 6,
+        "annotation-other": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_iterators",
+      "fences": 20,
+      "definitions": 13,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 13,
+      "rootFamilies": {
+        "dynamic-annotation": 12,
+        "import-table": 1,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 6
+      }
+    },
+    {
+      "package": "_itertools",
+      "fences": 25,
+      "definitions": 16,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 16,
+      "rootFamilies": {
+        "dynamic-annotation": 16,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 8
+      }
+    },
+    {
+      "package": "_jwt",
+      "fences": 5,
+      "definitions": 4,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 4,
+      "rootFamilies": {
+        "dynamic-annotation": 4,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_minmax",
+      "fences": 10,
+      "definitions": 4,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 4,
+      "rootFamilies": {
+        "dynamic-annotation": 3,
+        "call-arity": 2,
+        "import-table": 1,
+        "name-resolution": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 3
+      }
+    },
+    {
+      "package": "_operator",
+      "fences": 6,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "dynamic-annotation": 3,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 2
+      }
+    },
+    {
+      "package": "_orjson",
+      "fences": 5,
+      "definitions": 4,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 4,
+      "rootFamilies": {
+        "dynamic-annotation": 4,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_ospath",
+      "fences": 5,
+      "definitions": 4,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 4,
+      "rootFamilies": {
+        "dynamic-annotation": 4,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_pathlib",
+      "fences": 3,
+      "definitions": 2,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 2,
+      "rootFamilies": {
+        "dynamic-annotation": 2,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_queue",
+      "fences": 10,
+      "definitions": 8,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 8,
+      "rootFamilies": {
+        "dynamic-annotation": 8,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_random",
+      "fences": 3,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_shared",
+      "fences": 43,
+      "definitions": 36,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 36,
+      "rootFamilies": {
+        "unlowered-call": 27,
+        "dynamic-annotation": 7,
+        "name-resolution": 2,
+        "construct-other": 1,
+        "import-table": 1,
+        "unlowered-type-name": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 4
+      }
+    },
+    {
+      "package": "_subprocess",
+      "fences": 9,
+      "definitions": 8,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 8,
+      "rootFamilies": {
+        "dynamic-annotation": 6,
+        "unlowered-type-name": 2,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_system",
+      "fences": 9,
+      "definitions": 8,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 8,
+      "rootFamilies": {
+        "dynamic-annotation": 7,
+        "import-table": 1,
+        "stdlib:sys": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_textwrap",
+      "fences": 2,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_threading",
+      "fences": 30,
+      "definitions": 14,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 14,
+      "rootFamilies": {
+        "dynamic-annotation": 13,
+        "module-assign": 8,
+        "unlowered-call": 3,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 5
+      }
+    },
+    {
+      "package": "_time",
+      "fences": 5,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "dynamic-annotation": 3,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "_tomllib",
+      "fences": 2,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "_urllib",
+      "fences": 18,
+      "definitions": 11,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 11,
+      "rootFamilies": {
+        "dynamic-annotation": 11,
+        "module-assign": 2,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 4
+      }
+    },
+    {
+      "package": "_yaml",
+      "fences": 2,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "rtcache",
+      "fences": 32,
+      "definitions": 13,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 13,
+      "rootFamilies": {
+        "name-resolution": 8,
+        "construct-other": 5,
+        "keyword-args": 4,
+        "type-mismatch": 4,
+        "call-arity": 2,
+        "decorators": 2,
+        "field-lookup": 2,
+        "dynamic-annotation": 1,
+        "generic-alias": 1,
+        "import-table": 1,
+        "stdlib:functools": 1,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "runcache",
+      "fences": 28,
+      "definitions": 5,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 5,
+      "rootFamilies": {
+        "construct-other": 14,
+        "name-resolution": 7,
+        "call-arity": 2,
+        "stdlib:pyscriptc": 2,
+        "annotation-other": 1,
+        "field-lookup": 1,
+        "operator": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "selfpack",
+      "fences": 9,
+      "definitions": 4,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 4,
+      "rootFamilies": {
+        "keyword-args": 3,
+        "call-arity": 2,
+        "construct-other": 2,
+        "stdlib:zipfile": 1,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "sigrec",
+      "fences": 4,
+      "definitions": 4,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 4,
+      "rootFamilies": {
+        "dynamic-annotation": 3,
+        "construct-other": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "sigregistry",
+      "fences": 20,
+      "definitions": 10,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 10,
+      "rootFamilies": {
+        "union-types": 5,
+        "construct-other": 2,
+        "name-resolution": 2,
+        "unlowered-type-name": 2,
+        "call-arity": 1,
+        "field-lookup": 1,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 6
+      }
+    },
+    {
+      "package": "sitedeps",
+      "fences": 22,
+      "definitions": 7,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 7,
+      "rootFamilies": {
+        "name-resolution": 8,
+        "construct-other": 6,
+        "local-inference": 3,
+        "stdlib:importlib": 2,
+        "call-arity": 1,
+        "operator": 1,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "stdlib_queue",
+      "fences": 26,
+      "definitions": 9,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 9,
+      "rootFamilies": {
+        "name-resolution": 7,
+        "construct-other": 4,
+        "generic-alias": 4,
+        "param-inference": 3,
+        "dynamic-annotation": 2,
+        "local-inference": 2,
+        "unlowered-call": 2,
+        "type-mismatch": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "stdlibzip",
+      "fences": 46,
+      "definitions": 16,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 16,
+      "rootFamilies": {
+        "name-resolution": 13,
+        "construct-other": 11,
+        "local-inference": 7,
+        "import-table": 4,
+        "stdlib:sys": 4,
+        "type-mismatch": 3,
+        "keyword-args": 2,
+        "annotation-other": 1,
+        "stdlib:zipfile": 1
       },
       "derivedFamilies": {}
     },
     {
       "package": "stdmore",
-      "fences": 45,
-      "definitions": 9,
-      "fencedDefinitions": 9,
+      "fences": 32,
+      "definitions": 8,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 8,
       "rootFamilies": {
-        "dynamic-annotation": 26,
-        "construct-other": 7,
+        "construct-other": 8,
+        "dynamic-annotation": 5,
+        "name-resolution": 5,
+        "generic-alias": 4,
         "unlowered-call": 4,
-        "union-types": 3,
-        "name-resolution": 2,
-        "module-value": 1,
-        "operator": 1,
+        "type-mismatch": 2,
+        "module-assign": 1,
+        "module-value": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 2
+      }
+    },
+    {
+      "package": "stubs",
+      "fences": 38,
+      "definitions": 23,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 23,
+      "rootFamilies": {
+        "unlowered-type-name": 14,
+        "construct-other": 7,
+        "unlowered-call": 5,
+        "union-types": 4,
+        "generic-alias": 1,
+        "import-table": 1,
+        "name-resolution": 1,
+        "stdlib:dataclasses": 1,
+        "stdlib:functools": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 3
+      }
+    },
+    {
+      "package": "target",
+      "fences": 7,
+      "definitions": 1,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 1,
+      "rootFamilies": {
+        "name-resolution": 5,
+        "module-assign": 1,
+        "unlowered-call": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "telemetry",
+      "fences": 34,
+      "definitions": 18,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 18,
+      "rootFamilies": {
+        "construct-other": 10,
+        "name-resolution": 10,
+        "keyword-args": 6,
+        "call-arity": 2,
+        "stdlib:sys": 2,
+        "annotation-other": 1,
+        "dynamic-annotation": 1,
+        "import-table": 1
+      },
+      "derivedFamilies": {
+        "export-cascade": 1
+      }
+    },
+    {
+      "package": "tirserde",
+      "fences": 53,
+      "definitions": 45,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 45,
+      "rootFamilies": {
+        "dynamic-annotation": 43,
+        "name-resolution": 4,
+        "unlowered-call": 3,
+        "call-arity": 1,
+        "class-body": 1,
         "type-mismatch": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "typefacts",
+      "fences": 75,
+      "definitions": 34,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 34,
+      "rootFamilies": {
+        "call-arity": 19,
+        "generic-alias": 12,
+        "name-resolution": 11,
+        "unlowered-call": 8,
+        "unlowered-type-name": 7,
+        "dynamic-annotation": 5,
+        "construct-other": 4,
+        "field-lookup": 2,
+        "import-table": 2,
+        "union-types": 2,
+        "decorators": 1,
+        "local-inference": 1,
+        "stdlib:dataclasses": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "verify",
+      "fences": 4,
+      "definitions": 3,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 3,
+      "rootFamilies": {
+        "construct-other": 2,
+        "dynamic-annotation": 1,
+        "name-resolution": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "wasm_adapter",
+      "fences": 10,
+      "definitions": 2,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 2,
+      "rootFamilies": {
+        "name-resolution": 6,
+        "construct-other": 2,
+        "call-arity": 1,
+        "with-as": 1
+      },
+      "derivedFamilies": {}
+    },
+    {
+      "package": "zigshim",
+      "fences": 9,
+      "definitions": 6,
+      "nativeDefinitions": 0,
+      "fencedDefinitions": 6,
+      "rootFamilies": {
+        "union-types": 2,
+        "unlowered-call": 2,
+        "call-arity": 1,
+        "construct-other": 1,
+        "keyword-args": 1,
+        "name-resolution": 1,
+        "stdlib:os": 1
       },
       "derivedFamilies": {}
     }
   ],
   "clean": [
-    "pyscriptc"
+    "_irnode",
+    "__init__",
+    "mir",
+    "miremit",
+    "mirverify",
+    "mobile",
+    "reflection"
   ],
   "ranking": [
     {
       "rank": 1,
-      "family": "dynamic-annotation",
-      "packagesTouched": 15,
-      "fences": 223,
+      "family": "construct-other",
+      "packagesTouched": 62,
+      "fences": 428,
       "newlyUnblocked": [
-        "builtins"
-      ],
-      "cumulativeUnblocked": 1
-    },
-    {
-      "rank": 2,
-      "family": "import-table",
-      "packagesTouched": 10,
-      "fences": 13,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 1
-    },
-    {
-      "rank": 3,
-      "family": "unlowered-type-name",
-      "packagesTouched": 9,
-      "fences": 70,
-      "newlyUnblocked": [
-        "_stdlib"
+        "_mir_in",
+        "binding"
       ],
       "cumulativeUnblocked": 2
     },
     {
-      "rank": 4,
-      "family": "union-types",
-      "packagesTouched": 11,
-      "fences": 23,
+      "rank": 2,
+      "family": "dynamic-annotation",
+      "packagesTouched": 72,
+      "fences": 363,
       "newlyUnblocked": [
-        "_stdlib_shared",
-        "cli"
+        "errors",
+        "sigrec"
       ],
       "cumulativeUnblocked": 4
+    },
+    {
+      "rank": 3,
+      "family": "import-table",
+      "packagesTouched": 76,
+      "fences": 93,
+      "newlyUnblocked": [
+        "_asyncio",
+        "_builtins",
+        "_collections",
+        "_copy",
+        "_csv",
+        "_ctypes",
+        "_datetime",
+        "_dotenv",
+        "_functools",
+        "_hmac",
+        "_itertools",
+        "_jwt",
+        "_operator",
+        "_orjson",
+        "_ospath",
+        "_pathlib",
+        "_queue",
+        "_random",
+        "_textwrap",
+        "_time",
+        "_tomllib",
+        "_yaml"
+      ],
+      "cumulativeUnblocked": 26
+    },
+    {
+      "rank": 4,
+      "family": "unlowered-type-name",
+      "packagesTouched": 46,
+      "fences": 451,
+      "newlyUnblocked": [
+        "_module_driver",
+        "_print",
+        "_stdlib_bind",
+        "_stmt",
+        "_subprocess",
+        "dwarf"
+      ],
+      "cumulativeUnblocked": 32
     },
     {
       "rank": 5,
-      "family": "name-resolution",
-      "packagesTouched": 11,
-      "fences": 33,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 4
+      "family": "unlowered-call",
+      "packagesTouched": 55,
+      "fences": 293,
+      "newlyUnblocked": [
+        "_annotations",
+        "_call_attr",
+        "_coro_adapter",
+        "_expr_compare",
+        "_folds",
+        "_iterators",
+        "_stmt_b",
+        "irverify"
+      ],
+      "cumulativeUnblocked": 40
     },
     {
       "rank": 6,
-      "family": "construct-other",
-      "packagesTouched": 9,
-      "fences": 57,
+      "family": "union-types",
+      "packagesTouched": 21,
+      "fences": 56,
       "newlyUnblocked": [
-        "restlower"
+        "_base",
+        "_boxed_resolve",
+        "_calls",
+        "_calls_more",
+        "_closures",
+        "_misc_emit",
+        "_stmt_a"
       ],
-      "cumulativeUnblocked": 5
+      "cumulativeUnblocked": 47
     },
     {
       "rank": 7,
-      "family": "local-inference",
-      "packagesTouched": 8,
-      "fences": 20,
+      "family": "name-resolution",
+      "packagesTouched": 58,
+      "fences": 608,
       "newlyUnblocked": [
-        "_core",
-        "llvm",
-        "package"
+        "_expr",
+        "_shared",
+        "_stdlib",
+        "diagnostics",
+        "verify"
       ],
-      "cumulativeUnblocked": 8
+      "cumulativeUnblocked": 52
     },
     {
       "rank": 8,
-      "family": "decorators",
-      "packagesTouched": 3,
-      "fences": 3,
+      "family": "type-mismatch",
+      "packagesTouched": 32,
+      "fences": 81,
       "newlyUnblocked": [
-        "canonical"
+        "_argparse",
+        "_classes",
+        "_exprs",
+        "_runtime",
+        "_stdlib_shared",
+        "_stmts",
+        "embed"
       ],
-      "cumulativeUnblocked": 9
+      "cumulativeUnblocked": 59
     },
     {
       "rank": 9,
-      "family": "field-lookup",
-      "packagesTouched": 2,
-      "fences": 3,
+      "family": "module-assign",
+      "packagesTouched": 13,
+      "fences": 27,
       "newlyUnblocked": [
-        "errors"
+        "_asyncio_sync",
+        "_report",
+        "_threading",
+        "_urllib",
+        "pyscriptc",
+        "target"
       ],
-      "cumulativeUnblocked": 10
+      "cumulativeUnblocked": 65
     },
     {
       "rank": 10,
-      "family": "unlowered-call",
-      "packagesTouched": 2,
-      "fences": 5,
+      "family": "call-arity",
+      "packagesTouched": 30,
+      "fences": 198,
       "newlyUnblocked": [
-        "diagnostics"
+        "_core",
+        "_minmax",
+        "licenses",
+        "mirlower"
       ],
-      "cumulativeUnblocked": 11
+      "cumulativeUnblocked": 69
     },
     {
       "rank": 11,
-      "family": "class-keywords",
-      "packagesTouched": 1,
-      "fences": 1,
+      "family": "local-inference",
+      "packagesTouched": 22,
+      "fences": 148,
       "newlyUnblocked": [
-        "__init__"
+        "_ir",
+        "assess",
+        "emitlib",
+        "ir",
+        "reprspec"
       ],
-      "cumulativeUnblocked": 12
+      "cumulativeUnblocked": 74
     },
     {
       "rank": 12,
-      "family": "parameter-forms",
-      "packagesTouched": 1,
-      "fences": 1,
+      "family": "field-lookup",
+      "packagesTouched": 20,
+      "fences": 170,
       "newlyUnblocked": [
-        "_expr"
+        "_funcs",
+        "bundle",
+        "ffi_manifest",
+        "inferrunner",
+        "llvverify",
+        "mirprint",
+        "sigregistry"
       ],
-      "cumulativeUnblocked": 13
+      "cumulativeUnblocked": 81
     },
     {
       "rank": 13,
-      "family": "with-as",
-      "packagesTouched": 1,
-      "fences": 1,
+      "family": "annotation-other",
+      "packagesTouched": 13,
+      "fences": 22,
       "newlyUnblocked": [
-        "check"
+        "_driver",
+        "_io",
+        "boxed",
+        "builtins",
+        "emitter",
+        "project"
       ],
-      "cumulativeUnblocked": 14
+      "cumulativeUnblocked": 87
     },
     {
       "rank": 14,
-      "family": "generic-alias",
-      "packagesTouched": 2,
-      "fences": 3,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 14
+      "family": "class-body",
+      "packagesTouched": 5,
+      "fences": 6,
+      "newlyUnblocked": [
+        "_classes_more",
+        "_infer",
+        "tirserde"
+      ],
+      "cumulativeUnblocked": 90
     },
     {
       "rank": 15,
-      "family": "type-mismatch",
-      "packagesTouched": 2,
-      "fences": 2,
+      "family": "keyword-args",
+      "packagesTouched": 12,
+      "fences": 40,
       "newlyUnblocked": [
-        "stdlib_queue"
+        "debug",
+        "log"
       ],
-      "cumulativeUnblocked": 15
+      "cumulativeUnblocked": 92
     },
     {
       "rank": 16,
-      "family": "stdlib:collections",
-      "packagesTouched": 1,
-      "fences": 2,
+      "family": "stdlib:sys",
+      "packagesTouched": 6,
+      "fences": 11,
       "newlyUnblocked": [
-        "coverage"
+        "_system",
+        "telemetry"
       ],
-      "cumulativeUnblocked": 16
+      "cumulativeUnblocked": 94
     },
     {
       "rank": 17,
-      "family": "module-assign",
-      "packagesTouched": 1,
-      "fences": 1,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 16
+      "family": "operator",
+      "packagesTouched": 5,
+      "fences": 11,
+      "newlyUnblocked": [
+        "_abi",
+        "_entry"
+      ],
+      "cumulativeUnblocked": 96
     },
     {
       "rank": 18,
-      "family": "stdlib:sys",
-      "packagesTouched": 1,
-      "fences": 1,
+      "family": "stdlib:zipfile",
+      "packagesTouched": 4,
+      "fences": 9,
       "newlyUnblocked": [
-        "ir"
+        "selfpack",
+        "stdlibzip"
       ],
-      "cumulativeUnblocked": 17
+      "cumulativeUnblocked": 98
     },
     {
       "rank": 19,
-      "family": "module-value",
-      "packagesTouched": 1,
-      "fences": 1,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 17
+      "family": "decorators",
+      "packagesTouched": 4,
+      "fences": 8,
+      "newlyUnblocked": [
+        "canonical",
+        "imports"
+      ],
+      "cumulativeUnblocked": 100
     },
     {
       "rank": 20,
-      "family": "operator",
-      "packagesTouched": 1,
-      "fences": 1,
+      "family": "stdlib:importlib",
+      "packagesTouched": 2,
+      "fences": 3,
+      "newlyUnblocked": [
+        "doctor",
+        "sitedeps"
+      ],
+      "cumulativeUnblocked": 102
+    },
+    {
+      "rank": 21,
+      "family": "with-as",
+      "packagesTouched": 2,
+      "fences": 2,
+      "newlyUnblocked": [
+        "deps",
+        "wasm_adapter"
+      ],
+      "cumulativeUnblocked": 104
+    },
+    {
+      "rank": 22,
+      "family": "generic-alias",
+      "packagesTouched": 7,
+      "fences": 24,
+      "newlyUnblocked": [
+        "package"
+      ],
+      "cumulativeUnblocked": 105
+    },
+    {
+      "rank": 23,
+      "family": "stdlib:dataclasses",
+      "packagesTouched": 5,
+      "fences": 5,
+      "newlyUnblocked": [
+        "inferfacts",
+        "typefacts"
+      ],
+      "cumulativeUnblocked": 107
+    },
+    {
+      "rank": 24,
+      "family": "reflection",
+      "packagesTouched": 3,
+      "fences": 3,
+      "newlyUnblocked": [
+        "config",
+        "reduce"
+      ],
+      "cumulativeUnblocked": 109
+    },
+    {
+      "rank": 25,
+      "family": "stdlib:functools",
+      "packagesTouched": 2,
+      "fences": 2,
+      "newlyUnblocked": [
+        "rtcache",
+        "stubs"
+      ],
+      "cumulativeUnblocked": 111
+    },
+    {
+      "rank": 26,
+      "family": "module-value",
+      "packagesTouched": 2,
+      "fences": 5,
       "newlyUnblocked": [
         "stdmore"
       ],
-      "cumulativeUnblocked": 18
+      "cumulativeUnblocked": 112
+    },
+    {
+      "rank": 27,
+      "family": "return-inference",
+      "packagesTouched": 2,
+      "fences": 3,
+      "newlyUnblocked": [
+        "coro"
+      ],
+      "cumulativeUnblocked": 113
+    },
+    {
+      "rank": 28,
+      "family": "optional-types",
+      "packagesTouched": 2,
+      "fences": 2,
+      "newlyUnblocked": [
+        "coverage",
+        "factsbridge"
+      ],
+      "cumulativeUnblocked": 115
+    },
+    {
+      "rank": 29,
+      "family": "param-inference",
+      "packagesTouched": 1,
+      "fences": 3,
+      "newlyUnblocked": [
+        "stdlib_queue"
+      ],
+      "cumulativeUnblocked": 116
+    },
+    {
+      "rank": 30,
+      "family": "stdlib:pyscriptc",
+      "packagesTouched": 1,
+      "fences": 2,
+      "newlyUnblocked": [
+        "runcache"
+      ],
+      "cumulativeUnblocked": 117
+    },
+    {
+      "rank": 31,
+      "family": "stdlib:tempfile",
+      "packagesTouched": 1,
+      "fences": 2,
+      "newlyUnblocked": [
+        "check"
+      ],
+      "cumulativeUnblocked": 118
+    },
+    {
+      "rank": 32,
+      "family": "typing-value",
+      "packagesTouched": 1,
+      "fences": 2,
+      "newlyUnblocked": [
+        "__init__"
+      ],
+      "cumulativeUnblocked": 119
+    },
+    {
+      "rank": 33,
+      "family": "stdlib:contextlib",
+      "packagesTouched": 1,
+      "fences": 1,
+      "newlyUnblocked": [
+        "_main"
+      ],
+      "cumulativeUnblocked": 120
+    },
+    {
+      "rank": 34,
+      "family": "stdlib:os",
+      "packagesTouched": 1,
+      "fences": 1,
+      "newlyUnblocked": [
+        "zigshim"
+      ],
+      "cumulativeUnblocked": 121
     }
   ]
 }
