@@ -1143,7 +1143,7 @@ def verify_cmd(args: argparse.Namespace) -> int:
         raise IRError(f"--input file not found: {args.input}")
     stdin: bytes = Path(args.input).read_bytes() if args.input is not None else b""
     oracle = verify.find_oracle()
-    call_args = _parse_args(args.args) if args.call else []
+    call_args: list[Any] = _parse_args(args.args) if args.call else []
     name: str = source.stem or "app"
     key = _run_key(args)
     with tempfile.TemporaryDirectory(prefix="pyscriptc-verify-") as scratch_name:
@@ -1197,7 +1197,7 @@ def assess_cmd(args: argparse.Namespace) -> int:
     source = Path(args.source)
     if not source.exists():
         raise IRError(f"source not found: {source}")
-    call_args = _parse_args(args.args) if args.call else []
+    call_args: list[Any] = _parse_args(args.args) if args.call else []
     report = assess.assess(
         source,
         bench=args.bench,
@@ -1248,7 +1248,7 @@ def _verify_binary(args: argparse.Namespace, name: str, key: str, scratch: Path)
         return build / name, False, 0, output.getvalue()
     try:
         cached.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(build, cached.parent)
+        os.replace(str(build), str(cached.parent))
     except OSError:
         # another store owns the entry (or left a partial one); a fresh build
         # in the scratch directory is still a valid binary to verify
@@ -1548,7 +1548,7 @@ def _load_ffi(args: argparse.Namespace, config: Config) -> list[FfiManifest]:
     declares a `[[source]]` unit that is not on disk is refused here too:
     the compiler must not start a build that cannot finish.
     """
-    paths = [Path(item) for item in getattr(args, "ffi", None) or []]
+    paths: list[Path] = [Path(item) for item in getattr(args, "ffi", None) or []]
     paths.extend(config.ffi_manifests)
     if not paths:
         return []
@@ -1587,7 +1587,7 @@ def _manifest_stub_roots(manifests: list[FfiManifest]) -> list[Path]:
     for manifest in manifests:
         # Absolute: the checker runs with its own working directory, so a
         # relative root would resolve against the wrong place.
-        base = manifest.path.parent.resolve()
+        base: Path = manifest.path.parent.resolve()
         roots.append(base)
         module = manifest.module.replace(".", "/")
         for candidate in (base / f"{module}.pyi", base / module / "__init__.pyi"):
@@ -1660,7 +1660,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
 
             dbg.begin("bridge")
-            provider_name = getattr(args, "bridge", None) or "pyrefly"
+            provider_name: str = getattr(args, "bridge", None) or "pyrefly"
             pins = None
             if getattr(args, "infer", False):
                 # The pins are a package-wide fact (`pyscriptc infer`): the
@@ -1693,7 +1693,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.end("bridge")
         dbg.begin("lower")
         # boxed:begin
-        island_names = set(config.island_imports())
+        island_names = config.island_imports()
         fallback: bool = (
             getattr(args, "fallback", None) == "cpython"
             or bool(getattr(args, "island", False))
@@ -1769,13 +1769,16 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         finally:
             _package._STAGED_DATA_TARGET = None
         # boxed:end
+        if module is None:
+            raise IRError("internal: lowering produced no module")
         if bridge is not None and hasattr(bridge, "close"):
             bridge.close()
         dbg.end("lower", module)
         dbg.exclude("lower", "parse")
         if args.run:
             args.emit = "bin"
-        for note in module.pop("_notes", []):
+        no_notes: list[Any] = []
+        for note in module.pop("_notes", no_notes):
             print(note, file=sys.stderr)
         # boxed:begin
         fallback_map = module.get("fallback")
@@ -1798,7 +1801,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             # serial order would print after it. The boxed island lane keeps
             # the serial call (its diagnostics filter through `plane_map`), and
             # `PYSC_NO_CHECK_OVERLAP=1` opts out entirely.
-            overlap = args.checker == "pyrefly" and args.emit == "bin" and not _check_overlap_disabled()
+            overlap: bool = args.checker == "pyrefly" and args.emit == "bin" and not _check_overlap_disabled()
             # boxed:begin
             overlap = overlap and not fallback
             # boxed:end
@@ -1832,7 +1835,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         ir_path = _output_path(args, source_path, ".ir.json")
         if args.emit == "ir" or module["fences"] or dbg.debug_dir is not None:
             ir_path.parent.mkdir(parents=True, exist_ok=True)
-            ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
+            _write_text(ir_path, json.dumps(module, indent=2) + "\n")
             outputs["ir"] = str(ir_path)
             log.info("emit.ir", output=str(ir_path))
         if module["fences"]:
@@ -1858,7 +1861,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
 
             mir_path = _output_path(args, source_path, ".mir")
             mir_path.parent.mkdir(parents=True, exist_ok=True)
-            mir_path.write_text(print_module(lower_module(module)), encoding="utf-8")
+            _write_text(mir_path, print_module(lower_module(module)))
             outputs["mir"] = str(mir_path)
             print(mir_path)
             return 0
@@ -1870,7 +1873,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             or (fallback_map and fallback_map.get("moduleTopLevel") == _boxed.ISLAND)
             or config.island_imports()
         )
-        report_data = {
+        report_data: dict[str, Any] = {
             "target": str(source_path),
             "planeMap": fallback_map,
             "fallback": fallback_map,
@@ -1879,13 +1882,13 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         }
         report_path = _output_path(args, source_path, ".report.json")
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report_data, indent=2) + "\n", encoding="utf-8")
+        _write_text(report_path, json.dumps(report_data, indent=2) + "\n")
         # boxed:end
-        call_args = _parse_args(args.args) if args.call else None
+        call_args: list[Any] | None = _parse_args(args.args) if args.call else None
         # The nothing-to-run note prints after the checker's join so a pending
         # preflight failure still surfaces without it (the serial order prints
         # the diagnostics alone).
-        nothing_to_run = args.run and not args.call and standalone_entry(module) is None
+        nothing_to_run: bool = args.run and not args.call and standalone_entry(module) is None
         state["stage"] = "emit"
         dbg.begin("emit_llvm")
         emit_fn = emit_llvm
@@ -1934,7 +1937,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         else:
             ll_path = _output_path(args, source_path, ".ll")
         ll_path.parent.mkdir(parents=True, exist_ok=True)
-        ll_path.write_text(llvm_text, encoding="utf-8")
+        if llvm_text is None:
+            raise IRError("internal: emit produced no LLVM text")
+        _write_text(ll_path, llvm_text)
         outputs["ll"] = str(ll_path)
         log.info("emit.llvm", output=str(ll_path))
         if dbg.wants("verify"):
@@ -1995,7 +2000,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.set_binding(emitted, skipped)
             shim_path: Path = base.parent / f"{stem}_binding_shim.c"
             shim_path.parent.mkdir(parents=True, exist_ok=True)
-            shim_path.write_text(binding.render_binding_shim(stem, emitted), encoding="utf-8")
+            _write_text(shim_path, binding.render_binding_shim(stem, emitted))
 
             link_binary(
                 ll_path,
@@ -2019,7 +2024,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
 
             binding_code = binding.render_binding_module(stem, shlib_name, emitted, skipped)
             binding_path.parent.mkdir(parents=True, exist_ok=True)
-            binding_path.write_text(binding_code, encoding="utf-8")
+            _write_text(binding_path, binding_code)
 
             outputs["shared"] = str(shlib_path)
             outputs["binding"] = str(binding_path)
@@ -2085,7 +2090,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # program against the zip the trim would produce, so a trimmed module
         # fails the build (PS4301), never the run.
         requested_embed = getattr(args, "embed_python", None)
-        resolved_embed = requested_embed
+        resolved_embed: str | None = requested_embed
         if resolved_embed != "host" and embed.resolve_mode(resolved_embed) == "bundle":
             resolved_embed = "bundle"
         # link_binary embeds libpython only when the module references the
@@ -2173,7 +2178,7 @@ def _stdlib_imports(source_path: Path) -> list[str]:
     for site in collect_imports(source_path):
         if site["level"] > 0 or not site["name"]:
             continue
-        root = site["name"].split(".")[0]
+        root: str = site["name"].split(".")[0]
         if root not in sys.stdlib_module_names:
             continue
         # A stdlib name the running platform cannot import (msvcrt on POSIX,
@@ -2182,7 +2187,7 @@ def _stdlib_imports(source_path: Path) -> list[str]:
         if root not in sys.modules and importlib.util.find_spec(root) is None:
             continue
         names.add(site["name"])
-    return sorted(names)
+    return [name for name in sorted(names)]
 
 
 def _dependency_roots(
@@ -2212,7 +2217,10 @@ def _dependency_roots(
     """
 
     if not config.dependencies:
-        return [], [], {}
+        no_roots: list[Path] = []
+        no_checker_roots: list[Path] = []
+        no_lanes: dict[str, dict[str, str]] = {}
+        return no_roots, no_checker_roots, no_lanes
     report = deps.run_deps(source_path)
     roots: list[Path] = []
     checker_roots: list[Path] = []
@@ -2343,7 +2351,7 @@ def _dependency_lane(distribution: str, config: Config, island_default: bool = F
         return "island"
     # boxed:end
     star = config.imports.get("*")
-    if star not in (None, "compile"):
+    if star is not None and star != "compile":
         return star
     return "compile"
 
@@ -2437,3 +2445,15 @@ def _output_path(args: argparse.Namespace, source: Path, suffix: str) -> Path:
     if args.out_dir:
         return Path(args.out_dir) / f"{source.stem}{suffix}"
     return source.with_suffix(suffix)
+
+
+def _write_text(path: Path, text: str) -> None:
+    """`path.write_text(text, encoding="utf-8")`.
+
+    The lowered `Path.write_text` takes no keywords, and the lowered
+    `open` writes bytes as they come, so the utf-8 encoding is the
+    `open(..., encoding="utf-8")` the host `write_text` performs.
+    """
+
+    with open(str(path), "w", encoding="utf-8") as handle:
+        handle.write(text)
