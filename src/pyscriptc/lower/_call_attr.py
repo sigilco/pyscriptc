@@ -32,6 +32,7 @@ from pyscriptc.lower._core import (
     _const_none,
     _const_str,
     _dotted,
+    _maybe_node_kind,
     _mk_span,
     _mk_type,
     _name,
@@ -1146,16 +1147,18 @@ class CallAttrMixin:
 def _const_dict_keys(receiver: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
     """A dict literal's keys are already the list the IR builds, in insertion order."""
 
-    if receiver.get("kind") != "dict":
+    if _maybe_node_kind(receiver) != "dict":
         return None
     elems: list[dict[str, Any]] = []
-    seen: list[Any] = []
-    for pair in receiver["pairs"]:
-        key = pair["key"]
-        if key.get("kind") != "const":
+    seen: list[str] = []
+    pairs: list[dict[str, Any]] = receiver["pairs"]
+    for pair in pairs:
+        key: dict[str, Any] = pair["key"]
+        if _maybe_node_kind(key) != "const":
             return None
-        if key["value"] in seen:
+        kval: str = key["value"]
+        if kval in seen:
             continue
-        seen.append(key["value"])
+        seen.append(kval)
         elems.append(key)
     return _list_node(elems, typ, span)

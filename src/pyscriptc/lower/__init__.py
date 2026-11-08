@@ -108,23 +108,6 @@ def _builtin_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], sp
     return _call_node({"kind": "builtin", "name": name}, args, typ, span)
 
 
-def _abi_call_node(
-    module: str, name: str, args: list[dict[str, Any]], typ: dict[str, Any], symbol: str, span: dict[str, Any]
-) -> Any:
-    """The module call node with the ABI symbol one `_abi_call` spells."""
-
-    node = _ir.call(
-        _ir.module_callee(module, name),
-        [dict_to_node(arg) for arg in args],
-        _mk_type(typ),
-        _mk_span(span),
-        symbol,
-        "",
-        -1,
-    )
-    return node_to_dict(node)
-
-
 def _expr_node(expr: dict[str, Any], span: dict[str, Any]) -> Any:
     """The expression statement node."""
 
@@ -1845,11 +1828,18 @@ def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[s
 
 
 def _static_int(expr: dict[str, Any]) -> int | None:
-    if _maybe_node_kind(expr) == "const" and _maybe_type_kind(expr.get("type", {})) == "int":
-        value = expr.get("value")
-        if isinstance(value, str) and _int_text(value):
-            return int(value)
-    if _maybe_node_kind(expr) == "unary" and expr.get("op") == "-" and isinstance(expr.get("operand"), dict):
+    if _maybe_node_kind(expr) == "const" and "type" in expr and _maybe_type_kind(expr["type"]) == "int":
+        if "value" in expr:
+            value: str = expr["value"]
+            if isinstance(value, str) and _int_text(value):
+                return int(value)
+    if (
+        _maybe_node_kind(expr) == "unary"
+        and "op" in expr
+        and expr["op"] == "-"
+        and "operand" in expr
+        and isinstance(expr["operand"], dict)
+    ):
         inner = _static_int(expr["operand"])
         if inner is not None:
             return -inner
