@@ -110,8 +110,6 @@ class Serializer:
     escaping, floats must be finite (allow_nan=False semantics).
     """
 
-    __slots__ = ("_sink",)
-
     def __init__(self, sink: Any) -> None:
         self._sink = sink
 
@@ -210,7 +208,7 @@ def hash_module(module: dict[str, Any]) -> str:
     CANONICAL_SCHEMA_VERSION; `tirscore --verify-bytes` proves the bytes
     are identical on the corpus.
     """
-    digest = hashlib.sha256()
+    digest = hashlib.sha256(b"")
     stream = Serializer(digest.update)
     stream.write_object({"schema": CANONICAL_SCHEMA_VERSION, "ir": canonicalize(module)})
     return digest.hexdigest()
@@ -326,7 +324,7 @@ def _const_value(node: Any) -> Any:
     return node.svalue
 
 
-def _type_dict(typ: Any) -> Any:
+def _type_dict(typ: T) -> dict[str, Any]:
     """The type dict a `T` record spells."""
     out: dict[str, Any] = {"kind": typ.kind}
     if typ.kind == "class":
@@ -375,12 +373,12 @@ def _env_dict(item: Any) -> Any:
     return {"init": node_to_dict(item.init), "type": _type_dict(item.type)}
 
 
-def _stub_dict(stub: Any) -> Any:
-    return {
-        "bound": [_type_dict(item) for item in stub.bound],
-        "params": [_type_dict(item) for item in stub.params],
-        "return": _type_dict(stub.ret),
-    }
+def _stub_dict(stub: Stub) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    out["bound"] = [_type_dict(item) for item in stub.bound]
+    out["params"] = [_type_dict(item) for item in stub.params]
+    out["return"] = _type_dict(stub.ret)
+    return out
 
 
 def _thread_dict(meta: Any) -> Any:
@@ -416,12 +414,12 @@ def _handler_dict(handler: Any) -> Any:
 # Output keys per node kind, the exact insertion order the lowerer's dict
 # literals use; the serializer sorts keys, so only presence and value are
 # the contract.
-_NODE_KEYS: dict[str, tuple[str, ...]] = {
-    "assign": ("kind", "target", "value", "span"),
-    "attr": ("kind", "name", "type", "value", "span"),
-    "binary": ("kind", "left", "op", "right", "type", "span"),
-    "builtin": ("kind", "name"),
-    "call": (
+_NODE_KEYS: dict[str, list[str]] = {
+    "assign": ["kind", "target", "value", "span"],
+    "attr": ["kind", "name", "type", "value", "span"],
+    "binary": ["kind", "left", "op", "right", "type", "span"],
+    "builtin": ["kind", "name"],
+    "call": [
         "kind",
         "callee",
         "args",
@@ -432,32 +430,32 @@ _NODE_KEYS: dict[str, tuple[str, ...]] = {
         "format_kwnames",
         "identity",
         "thread",
-    ),
-    "cast": ("kind", "op", "value", "type", "span"),
-    "class": ("kind", "name", "label"),
-    "closure": ("kind", "name", "env", "type", "stub", "thread_stub", "span"),
-    "compare": ("kind", "left", "op", "right", "type", "span"),
-    "contains": ("kind", "hay", "needle", "negated", "type", "span"),
-    "const": ("kind", "value", "type", "span"),
-    "dict": ("kind", "pairs", "type", "span"),
-    "excmake": ("kind", "exc", "code", "message", "span"),
-    "expr": ("kind", "expr", "span"),
-    "function": ("kind", "name"),
-    "if": ("kind", "cond", "then", "else", "span"),
-    "list": ("kind", "elems", "set", "frozen", "type", "span"),
-    "method": ("kind", "receiver", "name", "tuple"),
-    "module": ("kind", "module", "name"),
-    "name": ("kind", "id", "type", "span"),
-    "pass": ("kind", "span"),
-    "raise": ("kind", "exc", "code", "message", "reraise", "excslot", "cause", "span"),
-    "return": ("kind", "value", "span"),
-    "setattr": ("kind", "object", "name", "value", "span"),
-    "setitem": ("kind", "container", "index", "value", "span"),
-    "subscript": ("kind", "value", "index", "type", "span"),
-    "try": ("kind", "body", "handlers", "orelse", "brk", "cont", "finalbody", "span"),
-    "unary": ("kind", "operand", "op", "type", "span"),
-    "value": ("kind", "target"),
-    "while": ("kind", "cond", "body", "span"),
+    ],
+    "cast": ["kind", "op", "value", "type", "span"],
+    "class": ["kind", "name", "label"],
+    "closure": ["kind", "name", "env", "type", "stub", "thread_stub", "span"],
+    "compare": ["kind", "left", "op", "right", "type", "span"],
+    "contains": ["kind", "hay", "needle", "negated", "type", "span"],
+    "const": ["kind", "value", "type", "span"],
+    "dict": ["kind", "pairs", "type", "span"],
+    "excmake": ["kind", "exc", "code", "message", "span"],
+    "expr": ["kind", "expr", "span"],
+    "function": ["kind", "name"],
+    "if": ["kind", "cond", "then", "else", "span"],
+    "list": ["kind", "elems", "set", "frozen", "type", "span"],
+    "method": ["kind", "receiver", "name", "tuple"],
+    "module": ["kind", "module", "name"],
+    "name": ["kind", "id", "type", "span"],
+    "pass": ["kind", "span"],
+    "raise": ["kind", "exc", "code", "message", "reraise", "excslot", "cause", "span"],
+    "return": ["kind", "value", "span"],
+    "setattr": ["kind", "object", "name", "value", "span"],
+    "setitem": ["kind", "container", "index", "value", "span"],
+    "subscript": ["kind", "value", "index", "type", "span"],
+    "try": ["kind", "body", "handlers", "orelse", "brk", "cont", "finalbody", "span"],
+    "unary": ["kind", "operand", "op", "type", "span"],
+    "value": ["kind", "target"],
+    "while": ["kind", "cond", "body", "span"],
 }
 
 
@@ -529,14 +527,14 @@ def _node_dict(node: Any) -> Any:
     return out
 
 
-def _span_dict(span: Any) -> Any:
-    return {
-        "file": span.file,
-        "line": span.line,
-        "col": span.col,
-        "endLine": span.endLine,
-        "endCol": span.endCol,
-    }
+def _span_dict(span: Span) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    out["file"] = span.file
+    out["line"] = span.line
+    out["col"] = span.col
+    out["endLine"] = span.endLine
+    out["endCol"] = span.endCol
+    return out
 
 
 def _try_dict(node: Any) -> Any:
@@ -783,9 +781,18 @@ def _b_binary(d: Any, span: Any, typ: Any, flags: int) -> Any:
     return binary(d["op"], dict_to_node(d["left"]), dict_to_node(d["right"]), typ, span)
 
 
-_CALL_KEYS = frozenset(
-    ("kind", "callee", "args", "type", "span", "symbol", "format_style", "format_kwnames", "identity", "thread")
-)
+_CALL_KEYS = {
+    "kind",
+    "callee",
+    "args",
+    "type",
+    "span",
+    "symbol",
+    "format_style",
+    "format_kwnames",
+    "identity",
+    "thread",
+}
 
 
 def _b_call(d: Any, span: Any, typ: Any, flags: int) -> Any:

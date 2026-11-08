@@ -474,7 +474,7 @@ class PyreflyBridge:
         self.open()
         return self
 
-    def __exit__(self, *_exc: object) -> None:
+    def __exit__(self, *_exc: BaseException) -> None:
         self.close()
 
     def facts(self, path: Path) -> BridgeFacts:
@@ -863,7 +863,7 @@ class BridgeProvider:
         self.open()
         return self
 
-    def __exit__(self, *_exc: object) -> None:
+    def __exit__(self, *_exc: BaseException) -> None:
         self.close()
 
     def for_file(self, path: Path) -> CheckerBridge:

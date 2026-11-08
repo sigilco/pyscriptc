@@ -219,7 +219,7 @@ class Config:
         requires_python: str | None = None,
         dependencies: tuple[str, ...] | None = None,
     ) -> None:
-        empty_src: tuple[str, ...] = ("", "")[0:0]
+        empty_src: tuple[str, ...] = _as_tuple([])
         self.origin = origin
         self.source = source
         self.entry = entry
@@ -587,21 +587,28 @@ def load_config(source: Path) -> Config:
     start = source.resolve()
     start_dir = start if start.is_dir() else start.parent
     project: Config | None = None
-    for directory in (start_dir, *start_dir.parents):
+    directory = start_dir
+    while True:
         candidate = directory / "pyscriptc.toml"
         if candidate.is_file():
             data = _toml(candidate)
-            table = data.get("pyscriptc", data)
+            if "pyscriptc" in data:
+                table: dict[str, Any] = data["pyscriptc"]
+            else:
+                table = data
             if not isinstance(table, dict):
                 raise ConfigError(f"{candidate}: [pyscriptc] must be a table")
             project = _from_table(table, candidate, "pyscriptc.toml")
             break
         candidate = directory / "pyproject.toml"
         if candidate.is_file():
-            table = _project_table(_toml(candidate), candidate)
-            if table is not None:
-                project = _from_table(table, candidate, "pyproject.toml")
+            ptable = _project_table(_toml(candidate), candidate)
+            if ptable is not None:
+                project = _from_table(ptable, candidate, "pyproject.toml")
                 break
+        if directory.parent == directory:
+            break
+        directory = directory.parent
     meta: dict[str, Any] = {}
     meta_source = "default"
     meta_project: Config | None = None
@@ -614,10 +621,7 @@ def load_config(source: Path) -> Config:
                 meta_project = _from_table(meta_table, start, "pep723")
     if project is None and not meta:
         return Config(origin=None, source="default")
-    requires: str | None = None
-    deps: tuple[str, ...] = ()
-    if meta:
-        requires, deps = _deps_of(meta)
+    requires, deps = _deps_of(meta)
     if project is None and meta_project is not None:
         return Config(
             origin=meta_project.origin,
@@ -643,17 +647,18 @@ def load_config(source: Path) -> Config:
                 merged_imports[k] = v
         for k, v in project.imports.items():
             merged_imports[k] = v
+        empty_paths: tuple[str, ...] = _as_tuple([])
         return Config(
             origin=project.origin,
             source=project.source,
             entry=project.entry or (meta_project.entry if meta_project else None),
-            src=project.src or (meta_project.src if meta_project else ()),
+            src=project.src or (meta_project.src if meta_project else empty_paths),
             checker=project.checker or (meta_project.checker if meta_project else None),
             driver=project.driver or (meta_project.driver if meta_project else None),
             target=project.target or (meta_project.target if meta_project else None),
             fail_on=project.fail_on or (meta_project.fail_on if meta_project else None),
-            stub_path=project.stub_path or (meta_project.stub_path if meta_project else ()),
-            ffi=project.ffi or (meta_project.ffi if meta_project else ()),
+            stub_path=project.stub_path or (meta_project.stub_path if meta_project else empty_paths),
+            ffi=project.ffi or (meta_project.ffi if meta_project else empty_paths),
             imports=merged_imports,
             requires_python=requires,
             dependencies=deps,
