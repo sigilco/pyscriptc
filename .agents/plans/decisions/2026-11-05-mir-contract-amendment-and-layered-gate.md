@@ -1,6 +1,6 @@
-# Draft recorded decision: MIR contract amendment and the layered gate
+# Recorded decision: MIR contract amendment and the layered gate
 
-Status: Draft 2026-11-05, awaiting owner signature (tasks D4 and D5 of the v0.9.0 compiler plan)
+Status: Signed by the owner 2026-11-07 (merged in #937); MIR_DEFAULT = True on master (#1067)
 
 ## Decision (proposed)
 
