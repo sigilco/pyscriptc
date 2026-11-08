@@ -354,7 +354,13 @@ def host_has_shared_libpython() -> bool:
     libdir_path = Path(libdir)
     mac = os.uname().sysname == "Darwin"
     name = f"libpython{version}.dylib" if mac else f"libpython{version}.so"
-    return (libdir_path / name).exists()
+    if (libdir_path / name).exists():
+        return True
+    # A relocatable build (a python-build-standalone install, the uv-managed
+    # CPython) reports the build machine's LIBDIR, which does not exist next
+    # to the running interpreter. The library travels with the interpreter,
+    # so the interpreter's own lib directory is the real answer.
+    return (Path(sys.executable).resolve().parent.parent / "lib" / name).exists()
 
 
 def resolve_mode(mode: str | None) -> str:

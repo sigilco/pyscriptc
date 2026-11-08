@@ -295,6 +295,13 @@ def link_binary(
         else:
             # boxed:end
             target_flags.extend(["-I", include])
+            if not Path(libdir).is_dir():
+                # A relocatable build (a python-build-standalone install, the
+                # uv-managed CPython) reports the build machine's LIBDIR
+                # (`/install/lib`): the library travels with the interpreter,
+                # so the interpreter's own lib directory is the real link
+                # directory (the same rule host_has_shared_libpython applies).
+                libdir = str(Path(sys.executable).resolve().parent.parent / "lib")
             tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]
     else:
         sources = [source for source in sources if not source.endswith("ps_island.c")]
