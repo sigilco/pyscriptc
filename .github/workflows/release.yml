@@ -262,12 +262,18 @@ jobs:
           pattern: "*"
           merge-multiple: true
 
+      # The notes script uses PEP 758 syntax (3.14), the runner's python3 is older.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          python-version: "3.14"
+
       - name: Release notes from CHANGELOG.md
         if: github.ref_type == 'tag'
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-        run: python3 .github/scripts/release_notes.py "$TAG" CHANGELOG.md .github/release-footer.md "$GITHUB_REPOSITORY" > release-notes.md
+        run: uv run --no-project python .github/scripts/release_notes.py "$TAG" CHANGELOG.md .github/release-footer.md "$GITHUB_REPOSITORY" > release-notes.md
 
       - name: sha256sums.txt
         run: |
