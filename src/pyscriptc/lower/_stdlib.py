@@ -431,7 +431,22 @@ class StdlibDispatchMixin(StdlibBindMixin):
         if not fn.decorator_list:
             return None
         if len(fn.decorator_list) != 1:
-            return "stacked decorators are not lowered"
+            # A stack of user decorators defers to the same wrap pass a
+            # single one does (`_bind_callable_global` applies them
+            # bottom-up). Under the fallback tier the island seed owns the
+            # decorated source, so the stack keeps its fence there. A
+            # builtin spelling anywhere in the stack keeps the stacked
+            # fence: `staticmethod` is not a lowered callable.
+            if self.fallback_definitions:
+                return "stacked decorators are not lowered"
+            for dec in fn.decorator_list:
+                if (isinstance(dec, ast.Name) and dec.id in {"staticmethod", "property", "classmethod"}) or (
+                    isinstance(dec, ast.Call)
+                    and isinstance(dec.func, ast.Name)
+                    and dec.func.id in {"staticmethod", "property", "classmethod"}
+                ):
+                    return "stacked decorators are not lowered"
+            return None
         dec = fn.decorator_list[0]
         if isinstance(dec, ast.Name):
             if dec.id == "staticmethod":
