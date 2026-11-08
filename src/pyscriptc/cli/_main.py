@@ -876,6 +876,7 @@ def run_cmd(args: argparse.Namespace) -> int:
     source: Path = Path(args.source)
     if not source.exists():
         raise IRError(f"source not found: {source}")
+    run_argv: list[str] = getattr(args, "run_argv")  # noqa: B009 - lowered getattr reads the Namespace slot
     run_env = _run_environment(source)
     use_cache: bool = runcache.enabled() and not args.no_cache
     key = _run_key(args)
@@ -883,7 +884,7 @@ def run_cmd(args: argparse.Namespace) -> int:
     binary: Path = runcache.binary_path(key, name)
     if use_cache and binary.is_file():
         log.info("run.cache_hit", key=key, binary=str(binary))
-        code: int = _exec_binary(binary, args.run_argv, env=run_env)
+        code: int = _exec_binary(binary, run_argv, env=run_env)
         _track_run(
             args,
             code,
@@ -912,7 +913,7 @@ def run_cmd(args: argparse.Namespace) -> int:
                 if not binary.is_file():
                     raise
             else:
-                code: int = _exec_binary(binary, args.run_argv, env=run_env)
+                code: int = _exec_binary(binary, run_argv, env=run_env)
                 _track_run(
                     args,
                     code,
@@ -925,7 +926,7 @@ def run_cmd(args: argparse.Namespace) -> int:
                     _handle_run_report(args.report, binary, source)
                 # boxed:end
                 return code
-        code: int = _exec_binary(build / name, args.run_argv, env=run_env)
+        code: int = _exec_binary(build / name, run_argv, env=run_env)
         _track_run(
             args,
             code,
@@ -997,7 +998,11 @@ def _run_key(args: argparse.Namespace) -> str:
     source = Path(args.source)
     name: str = (source.resolve().name if source.is_dir() else source.stem) or "app"
     ffi_paths: list[str] = [str(p) for p in getattr(args, "ffi", None) or []]
-    ffi_paths.extend(str(p) for p in load_config(source).ffi_manifests)
+    manifest_paths: list[Path] = load_config(source).ffi_manifests
+    path_index: int = 0
+    while path_index < len(manifest_paths):
+        ffi_paths.append(str(manifest_paths[path_index]))
+        path_index += 1
     return runcache.key_for(
         source,
         load_config(source).origin,
@@ -1337,18 +1342,20 @@ def compile_cmd(args: argparse.Namespace) -> int:
     _load_compiler()
     started = time.monotonic()
     _compile_env_defaults(args)
-    state: dict[str, Any] = {
-        "outcome": None,
-        "stage": "lower",
-        "fence_count": 0,
-        "fence_families": {},
-        "fence_codes": {},
-        "binary_bytes": None,
-    }
+    fence_families: dict[str, Any] = {}
+    fence_codes: dict[str, Any] = {}
+    state: dict[str, Any] = {}
+    state["outcome"] = None
+    state["stage"] = "lower"
+    state["fence_count"] = 0
+    state["binary_bytes"] = None
+    state["fence_families"] = fence_families
+    state["fence_codes"] = fence_codes
     try:
         return _compile_cmd(args, state)
     except BaseException as exc:
-        if state["outcome"] is None:
+        outcome: str | None = state["outcome"]
+        if outcome is None:
             state["outcome"] = _compile_outcome(exc, state["stage"])
         raise
     finally:
@@ -2395,16 +2402,24 @@ def _verify_llvm(ll_path: Path, dbg: Debug, driver: str, target: str | None) -> 
     """Verify the emitted LLVM module and record (or raise) its verdict."""
 
     result = verify_module_text(ll_path, driver=driver, target=target)
-    dbg.llvm_verification = result.as_dict()
-    if not result.ok and not result.skipped:
-        raise LLVMVerifyError(f"the emitted LLVM module did not verify: {result.message}")
+    info: dict[str, Any] = result.as_dict()
+    dbg.llvm_verification = info
+    ok: bool = info["ok"]
+    skipped: bool = info["skipped"]
+    if not ok and not skipped:
+        message: str = info["message"]
+        raise LLVMVerifyError(f"the emitted LLVM module did not verify: {message}")
 
 
 def _histogram(fences: list[dict[str, str]], key: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for fence in fences:
-        counts[fence.get(key, "")] = counts.get(fence.get(key, ""), 0) + 1
-    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+        name = fence.get(key, "")
+        counts[name] = counts.get(name, 0) + 1
+    result: dict[str, int] = {}
+    for name in sorted([item for item in counts], key=lambda item: (-counts[item], item)):
+        result[name] = counts[name]
+    return result
 
 
 def _fence_families(fences: list[dict[str, str]]) -> dict[str, int]:
@@ -2415,7 +2430,10 @@ def _fence_families(fences: list[dict[str, str]]) -> dict[str, int]:
         if family.startswith("stdlib:"):
             family = "stdlib"
         counts[family] = counts.get(family, 0) + 1
-    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+    result: dict[str, int] = {}
+    for family in sorted([item for item in counts], key=lambda item: (-counts[item], item)):
+        result[family] = counts[family]
+    return result
 
 
 def _parse_args(text: str) -> list[Any]:
