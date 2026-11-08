@@ -317,6 +317,22 @@ PROBES: list[Probe] = [
         "print(st_link.st_size == 3)",
     ),
     _p("os", "utime", "os", "os.utime(os_file)", "print(True)"),
+    _p(
+        "os",
+        "symlink",
+        "os",
+        "p_link: str = os.path.join(os_dir, 'link.txt')",
+        "os.symlink(os_file, p_link)",
+        "print(os.path.exists(p_link))",
+    ),
+    _p(
+        "os",
+        "readlink",
+        "os",
+        "p_rl: str = os.path.join(os_dir, 'rl.txt')",
+        "os.symlink(os_file, p_rl)",
+        "print(os.readlink(p_rl) == os_file)",
+    ),
     # shutil and tempfile
     _p(
         "shutil",
@@ -528,8 +544,8 @@ def test_every_table_row_has_a_probe() -> None:
     extra = sorted(probed - inventory)
     assert not missing, f"call-table rows without a differential probe: {missing}"
     assert not extra, f"probes without a call-table row: {extra}"
-    assert len(inventory) == 156
-    assert len(PROBES) == 156
+    assert len(inventory) == 158
+    assert len(PROBES) == 158
 
 
 def _group_source(group: str) -> str:

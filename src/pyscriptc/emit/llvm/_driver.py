@@ -406,6 +406,15 @@ def link_binary(
                 f"target {target or ''} refuses {what}: WASI has no subprocess, dynamic-loading "
                 "or island story (see docs/divergences.md)"
             )
+        # os.symlink/os.readlink lower onto ps_os_symlink/ps_os_readlink; the
+        # wasi stubs in ps_compat.c exist only so ps_path.c compiles, and a
+        # program that calls them is refused here, before the sysroot runs.
+        link_refused = [symbol for symbol in ("ps_os_symlink", "ps_os_readlink") if f"@{symbol}(" in text]
+        if link_refused:
+            raise IRError(
+                f"target {target or ''} refuses {', '.join(link_refused)}: WASI has no "
+                "symbolic-link story the runtime lowers (see docs/divergences.md)"
+            )
         sources = [source for source in sources if not source.endswith(("ps_sub.c", "ps_mix.c"))]
         sources.append(str(runtime / "wasm" / "rt_wasm.c"))
     # The `--ffi` manifest units join the same per-unit compile loop as the

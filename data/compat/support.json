@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-08",
-  "commit": "6979b0d1bae70d39a81b230ffc25fe9dc09ebf36",
+  "commit": "31e5ee7ec652ee1d743264ecd1b2e89011515a8f",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -380,7 +380,7 @@
       "label": "`os`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok)",
+      "missing": "scandir, system, urandom, cpu_count, kill, rmdir, getuid, keyword arguments (makedirs exist_ok)",
       "codes": [
         "PS2001",
         "PS2003"
