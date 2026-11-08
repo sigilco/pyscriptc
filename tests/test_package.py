@@ -283,6 +283,58 @@ def test_a_non_identifier_module_file_is_skipped_not_refused(tmp_path: Path) -> 
     assert "skipped pkg/__pyinstaller/hook-yt_dlp.py" in got.stderr
 
 
+def test_non_identifier_dotted_names_are_skipped_not_units(tmp_path: Path) -> None:
+    """Issue #764: no unit may carry a dotted name that is not identifiers."""
+    from pyscriptc.package import _discover
+
+    root = tmp_path / "pkg"
+    (root / "__pyinstaller").mkdir(parents=True)
+    (root / "sub-dir").mkdir()
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "__pyinstaller" / "hook-pk.py").write_text("hook = 1\n", encoding="utf-8")
+    (root / "sub-dir" / "__init__.py").write_text("y = 1\n", encoding="utf-8")
+    (root / "sub-dir" / "mod.py").write_text("z = 1\n", encoding="utf-8")
+    units, skipped = _discover(root)
+    names = {name for name, _path, _is_package in units}
+    assert names == {"pkg", "pkg.mod"}
+    assert sorted(skipped) == [
+        "__pyinstaller/hook-pk.py",
+        "sub-dir/__init__.py",
+        "sub-dir/mod.py",
+    ]
+
+
+def test_compile_skips_non_identifier_package_dirs(tmp_path: Path) -> None:
+    root = tmp_path / "pkg"
+    (root / "sub-dir").mkdir(parents=True)
+    (root / "__init__.py").write_text("def add(n: int) -> int:\n    return n\n", encoding="utf-8")
+    (root / "sub-dir" / "__init__.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "sub-dir" / "mod.py").write_text("y = 2\n", encoding="utf-8")
+    out = tmp_path / "pkg.ir.json"
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(out))
+    assert got.returncode == 0, got.stderr
+    assert "skipped pkg/sub-dir/__init__.py; not an importable module name" in got.stderr
+    assert "skipped pkg/sub-dir/mod.py; not an importable module name" in got.stderr
+    module = json.loads(out.read_text(encoding="utf-8"))
+    names = [fn["name"] for fn in module["functions"]]
+    assert not any("sub-dir" in name for name in names)
+
+
+def test_entry_mode_tree_skips_non_identifier_names(tmp_path: Path) -> None:
+    """Project mode (`pyscriptc build`) walks the same `_discover` units."""
+    from pyscriptc.package import lower_directory
+
+    root = tmp_path / "pkg"
+    (root / "__pyinstaller").mkdir(parents=True)
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "hello.py").write_text("def main() -> int:\n    return 0\n", encoding="utf-8")
+    (root / "__pyinstaller" / "hook-pk.py").write_text("hook = 1\n", encoding="utf-8")
+    merged, _source = lower_directory(root, program_mode=True, entry="pkg.hello", prefix="pkg")
+    notes = merged.get("_notes", [])
+    assert "note: skipped pkg/__pyinstaller/hook-pk.py; not an importable module name" in notes
+
+
 def test_a_single_file_still_refuses_a_relative_import(tmp_path: Path) -> None:
     path = tmp_path / "alone.py"
     path.write_text("from .util import add\n\ndef show() -> int:\n    return add(1, 1)\n", encoding="utf-8")

@@ -260,6 +260,29 @@ def test_assess_pure_python_library_directory(tmp_path: Path, capsys: pytest.Cap
     assert any("union" in blk["family"] or "union" in blk["message"] for blk in data["islandRouting"]["staysBlocked"])
 
 
+def test_assess_skips_a_pyinstaller_hook_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Issue #764: an unnameable `.py` file is skipped, not refused."""
+    pkg = tmp_path / "pk"
+    (pkg / "__pyinstaller").mkdir(parents=True)
+    (pkg / "__init__.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "__pyinstaller" / "hook-pk.py").write_text("hook = 'pk'\n", encoding="utf-8")
+
+    code = cli.main(["assess", str(pkg), "--json"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["summary"]["files"]["skipped"] == 1
+    assert data["summary"]["files"]["refused"] == 0
+    hook = next(f for f in data["files"] if f["file"].endswith("hook-pk.py"))
+    assert hook["status"] == "skipped"
+    assert hook["skipReason"] == "not an importable module name"
+
+    code = cli.main(["assess", str(pkg)])
+    assert code == 0
+    text = capsys.readouterr().out
+    assert "1 skipped" in text
+    assert "hook-pk.py: skipped (not an importable module name)" in text
+
+
 def test_assess_json_schema_validation(tmp_path: Path) -> None:
     script = tmp_path / "check.py"
     script.write_text(TYPED_SCRIPT, encoding="utf-8")
@@ -282,7 +305,7 @@ def test_assess_json_schema_validation(tmp_path: Path) -> None:
     assert "files" in report and isinstance(report["files"], list)
     for f in report["files"]:
         assert "file" in f
-        assert f["status"] in ("fully", "partly", "refused")
+        assert f["status"] in ("fully", "partly", "refused", "skipped")
         assert "definitions" in f
         assert "groupedFences" in f
         for group in ("reflection", "untyped-import", "unsupported-construct"):

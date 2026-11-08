@@ -21,7 +21,7 @@ from pyscriptc.errors import IRError, format_diagnostic
 from pyscriptc.imports import REQUIRES_LIBPYTHON
 from pyscriptc.ir import IR_VERSION, SUBSET
 from pyscriptc.lower import lower_file
-from pyscriptc.package import _discover, lower_directory
+from pyscriptc.package import _discover, _skip_note, _skip_reason, lower_directory
 from pyscriptc.reflection import mechanism_of, routes_to_island
 
 SCHEMA_VERSION = 2
@@ -390,11 +390,13 @@ def _definition_capability(entries: list[dict[str, Any]], indexes: list[int]) ->
 def _unusable_files(root: Path) -> tuple[list[Path], list[dict[str, Any]]]:
     """The tree's files that cannot be analysed, each with the reason.
 
-    A real package tree holds files the lowering cannot take: migrations
-    and template modules whose names are not identifiers, namespace
-    directories the package table cannot name, and files the parser
-    rejects (issue #730). The report drops them from the unit set and
-    lists them instead of aborting, so the rest of the tree still scores.
+    A real package tree holds files the lowering cannot take: files the
+    parser rejects and files a lowering pass crashes on (issue #730). The
+    report drops them from the unit set and lists them instead of
+    aborting, so the rest of the tree still scores. A file whose dotted
+    name is not a chain of identifiers is not a failure: `_discover`
+    skips it with a note, the way it skips a package `__main__.py`,
+    because CPython cannot import it either (issue #764).
     """
 
     resolved = root.resolve()
@@ -404,14 +406,13 @@ def _unusable_files(root: Path) -> tuple[list[Path], list[dict[str, Any]]]:
         relative = path.relative_to(resolved)
         if any(part.startswith(".") or part == "__pycache__" for part in relative.parts):
             continue
-        reason = ""
         if not all(part.isidentifier() for part in relative.with_suffix("").parts):
-            reason = f"{relative.as_posix()} is not a module name"
-        else:
-            try:
-                ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-            except (OSError, SyntaxError, UnicodeDecodeError, ValueError) as exc:
-                reason = str(exc)
+            continue
+        reason = ""
+        try:
+            ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeDecodeError, ValueError) as exc:
+            reason = str(exc)
         if reason:
             excluded.append(path)
             failures.append({"file": str(path), "reason": reason})
@@ -432,7 +433,9 @@ def _empty_module(target: Path) -> dict[str, Any]:
     return module
 
 
-def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str], list[dict[str, Any]]]:
+def _lower(
+    target: Path, bridge: Any = None
+) -> tuple[dict[str, Any], list[str], list[dict[str, Any]], list[dict[str, Any]]]:
     from pyscriptc.config import load_config
 
     config = load_config(target)
@@ -442,18 +445,28 @@ def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str],
         unit_failures: list[dict[str, Any]] = []
         module, _ = lower_directory(target, bridge=bridge, config=config, exclude=exclude, unit_failures=unit_failures)
         failed_paths = {item["file"] for item in unit_failures}
-        files = [str(path) for _, path, _ in _discover(target, exclude=exclude)[0] if str(path) not in failed_paths]
+        resolved = target.resolve()
+        units, skipped = _discover(target, exclude=exclude)
+        files = [str(path) for _, path, _ in units if str(path) not in failed_paths]
+        skipped_files = [
+            {
+                "file": str(resolved / relative),
+                "reason": _skip_reason(relative),
+                "note": _skip_note(resolved, relative),
+            }
+            for relative in skipped
+        ]
         failures.extend(unit_failures)
         failures.sort(key=lambda item: item["file"])
-        return module, files, failures
+        return module, files, failures, skipped_files
     if target.is_file():
         if bridge is not None and not hasattr(bridge, "inferred_type"):
             bridge = bridge.for_file(target)
         try:
             module, _ = lower_file(str(target), bridge=bridge, config=config)
         except Exception as exc:
-            return _empty_module(target), [str(target)], [{"file": str(target), "reason": str(exc)}]
-        return module, [str(target)], []
+            return _empty_module(target), [str(target)], [{"file": str(target), "reason": str(exc)}], []
+        return module, [str(target)], [], []
     raise IRError(f"source not found: {target}")
 
 
@@ -538,7 +551,7 @@ def _wheel_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
-    module, files, failed_files = _lower(target, bridge)
+    module, files, failed_files, skipped_files = _lower(target, bridge)
     known = _dependency_map(target)
     sources: dict[str, str | None] = {}
     trees: dict[str, list[_Def]] = {}
@@ -623,13 +636,16 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
     return {
         "schemaVersion": SCHEMA_VERSION,
         "target": str(target),
-        "summary": _summary(entries, definitions, files, total_defs, _island_imports(target, known), failed_files),
+        "summary": _summary(
+            entries, definitions, files, total_defs, _island_imports(target, known), failed_files, skipped_files
+        ),
         "fences": entries,
         "definitions": definitions,
         "moduleFences": module_fences,
         "capabilities": capabilities(module, files),
         "chain": _chain(entries, definitions),
         "failedFiles": failed_files,
+        "skippedFiles": skipped_files,
     }
 
 
@@ -726,6 +742,7 @@ def _summary(
     total_defs: dict[str, int],
     island_imports: list[str],
     failed_files: list[dict[str, Any]],
+    skipped_files: list[dict[str, Any]],
 ) -> dict[str, Any]:
     fences_by_family: dict[str, int] = {}
     code_counts: dict[str, int] = {}
@@ -770,6 +787,7 @@ def _summary(
     result: dict[str, Any] = {}
     result["files"] = len(files)
     result["filesFailed"] = len(failed_files)
+    result["filesSkipped"] = len(skipped_files)
     result["definitions"] = total_definitions
     result["nativeDefinitions"] = max(0, total_definitions - fenced_definitions)
     result["fencedDefinitions"] = fenced_definitions
@@ -899,6 +917,12 @@ def render_text(report: dict[str, Any]) -> str:
             fail_file: str = item["file"]
             fail_reason: str = item["reason"]
             parts.append(f"  {fail_file}: {fail_reason}")
+    skipped: list[dict[str, Any]] = []
+    if "skippedFiles" in report:
+        skipped = report["skippedFiles"]
+    for item in skipped:
+        note_text: str = item["note"]
+        parts.append(note_text)
     entries: list[dict[str, Any]] = report["fences"]
     for entry in entries:
         frame: str = entry["frame"]
