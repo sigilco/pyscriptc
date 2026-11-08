@@ -100,6 +100,10 @@ _SHORT_ESCAPES = {
 
 _HEX = "0123456789abcdef"
 
+# Shared empty parameter list: `T.params or _EMPTY_PARAMS` spells the
+# fallback without an unannotated empty-list literal.
+_EMPTY_PARAMS: list[T] = []
+
 
 class Serializer:
     """Feeds one canonical payload into a sink (hashlib or bytearray).
@@ -359,7 +363,7 @@ def _type_dict(typ: T) -> dict[str, Any]:
             out["ordered"] = True
         return out
     if typ.kind == "func":
-        out["params"] = [_type_dict(param) for param in typ.params or []]
+        out["params"] = [_type_dict(param) for param in typ.params or _EMPTY_PARAMS]
         if typ.ret is not None:
             out["return"] = _type_dict(typ.ret)
     if typ.kind == "typevar" and typ.name != "":
