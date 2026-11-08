@@ -56,7 +56,9 @@ class StdlibMixin(EmitterBase):
         if name == "compile":
             return self._emit_pattern(values)
         if name == "escape":
-            length, ptr = self._buf_parts(values[0])
+            parts: tuple[str, str] = self._buf_parts(values[0])
+            length = parts[0]
+            ptr = parts[1]
             return self._buf_out("ps_re_escape", [f"i64 {length}", f"ptr {ptr}"])
         if name == "findall":
             pattern_len, pattern_ptr = self._buf_parts(values[0])
@@ -140,7 +142,9 @@ class StdlibMixin(EmitterBase):
             "standard_b64decode": "ps_b64_std_decode",
             "urlsafe_b64decode": "ps_b64_url_decode",
         }
-        length, ptr = self._buf_parts(values[0])
+        parts: tuple[str, str] = self._buf_parts(values[0])
+        length = parts[0]
+        ptr = parts[1]
         return self._buf_out(symbols[name], [f"i64 {length}", f"ptr {ptr}"])
 
     def _emit_hash(self, name: str, values: list[str]) -> str:
@@ -186,7 +190,9 @@ class StdlibMixin(EmitterBase):
         self.line(f"{size_ptr} = getelementptr %cls.SplitResult, ptr null, i64 1")
         self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
         mem = self._call_ret("ptr", "ps_alloc", [f"i64 {size}"])
-        length, ptr = self._buf_parts(value)
+        parts: tuple[str, str] = self._buf_parts(value)
+        length = parts[0]
+        ptr = parts[1]
         self.line(f"call void @ps_url_split(i64 {length}, ptr {ptr}, ptr {mem})")
         return mem
 
@@ -205,23 +211,24 @@ class StdlibMixin(EmitterBase):
 
     def _emit_struct_pack(self, values: list[str], args: list[dict[str, Any]]) -> str:
         fmt_len, fmt_ptr = self._buf_parts(values[0])
-        payload = list(zip(values[1:], args[1:], strict=True))
-        if not payload:
+        count = len(args) - 1
+        if count < 1:
             arg_ptr = "null"
+            packed = 0
         else:
             self._ensure_arg_type()
-            count = len(payload)
             slot = self.tmp()
             self.line(f"{slot} = alloca [{count} x %ps.arg]")
-            for index, (value, arg) in enumerate(payload):
+            for index in range(count):
+                value = values[index + 1]
+                arg = args[index + 1]
                 base = self.tmp()
                 self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
                 self._store_ps_arg(base, value, _type_of(arg))
             arg_ptr = self.tmp()
             self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 0")
-        return self._buf_out(
-            "ps_struct_pack", [f"i64 {fmt_len}", f"ptr {fmt_ptr}", f"ptr {arg_ptr}", f"i64 {len(payload)}"]
-        )
+            packed = count
+        return self._buf_out("ps_struct_pack", [f"i64 {fmt_len}", f"ptr {fmt_ptr}", f"ptr {arg_ptr}", f"i64 {packed}"])
 
     def _emit_json_loads(self, text: str, typ: dict[str, Any]) -> str:
         symbol, root = self._json_global(typ)
@@ -266,7 +273,15 @@ class StdlibMixin(EmitterBase):
             return idx
 
         root = add(typ)
-        typed = ", ".join(f"%ps.json.ty {{ i32 {kind}, i32 {child} }}" for kind, child in entries if kind is not None)
+        parts: list[str] = []
+        for index in range(len(entries)):
+            entry = entries[index]
+            if entry is None:
+                continue
+            kind = entry[0]
+            child = entry[1]
+            parts.append(f"%ps.json.ty {{ i32 {kind}, i32 {child} }}")
+        typed = ", ".join(parts)
         symbol = f"@ps.json.{self.json_n}"
         self.json_n += 1
         if "%ps.json.ty = type { i32, i32 }" not in self.globals:
@@ -339,7 +354,15 @@ class StdlibMixin(EmitterBase):
             return idx
 
         root = add(typ)
-        typed = ", ".join(f"%ps.copy.ty {{ i32 {kind}, i32 {child} }}" for kind, child in entries if kind is not None)
+        parts: list[str] = []
+        for index in range(len(entries)):
+            entry = entries[index]
+            if entry is None:
+                continue
+            kind = entry[0]
+            child = entry[1]
+            parts.append(f"%ps.copy.ty {{ i32 {kind}, i32 {child} }}")
+        typed = ", ".join(parts)
         symbol = f"@ps.copy.{self.copy_n}"
         self.copy_n += 1
         if "%ps.copy.ty = type { i32, i32 }" not in self.globals:
