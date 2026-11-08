@@ -337,6 +337,7 @@ def _const_sorted(arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] |
     if any(_node_kind(item) != "const" for item in elems):
         return None
     kind = _type_kind(_node_type(arg)["elem"])
+    ordered: list[dict[str, Any]] = []
     if kind == "int":
         ordered = sorted(elems, key=lambda item: int(_node_value(item)))
     elif kind in {"str", "bytes"}:
