@@ -14,15 +14,29 @@ from typing import Any
 
 from pyscriptc.coro import SLEEP_MARKER, TASK_CLASS, WAIT_FOR_MARKER, enabled
 from pyscriptc.ir import types_equal
-from pyscriptc.restlower._shared import _as_float
+from pyscriptc.restlower._shared import (
+    _as_float,
+    _asg,
+    _call_builtin,
+    _class_elem,
+    _expr_stmt,
+    _field,
+    _list_lit,
+    _nm,
+    _node_type,
+    _t_leaf,
+    _type_kind,
+    _type_name,
+)
 
 
 def _frame_of(lo: Any, node: ast.expr, what: str) -> tuple[dict[str, Any], dict[str, Any]]:
     if not enabled():
         lo.fail(node, "PS2001", "coroutines are not lowered")
     value = lo._expr(node)
-    name = str(value["type"].get("name", ""))
-    if value["type"].get("kind") != "class" or not name.startswith("coro."):
+    typ = _node_type(value)
+    name = _type_name(typ)
+    if _type_kind(typ) != "class" or not name.startswith("coro."):
         lo.fail(node, "PS2002", f"{what} takes a coroutine, not another value")
     elem = None
     plan = lo._coro_plan_for_frame(name)
@@ -34,8 +48,8 @@ def _frame_of(lo: Any, node: ast.expr, what: str) -> tuple[dict[str, Any], dict[
 
 
 def _run_stmt(lo: Any, span: dict[str, Any], symbol: str, args: list[dict[str, Any]]) -> None:
-    call = lo._abi_call("asyncio", "run", args, {"kind": "none"}, symbol, span)
-    lo.prelude.append({"kind": "expr", "expr": call, "span": span})
+    call = lo._abi_call("asyncio", "run", args, _t_leaf("none"), symbol, span)
+    lo.prelude.append(_expr_stmt(call, span))
 
 
 def _asyncio_create_task(
@@ -55,10 +69,11 @@ def _asyncio_create_task(
     frame, elem = _frame_of(lo, node.args[0], "asyncio.create_task")
     # Pin the frame: the task wraps one frame object, not a fresh call.
     slot = lo._temp("tsk")
-    lo.locals[slot] = frame["type"]
-    lo.prelude.append({"kind": "assign", "target": slot, "value": frame, "span": span})
-    pinned = {"kind": "name", "id": slot, "type": frame["type"], "span": span}
-    task_t = {"kind": "class", "name": TASK_CLASS, "elem": elem}
+    frame_t = _node_type(frame)
+    lo.locals[slot] = frame_t
+    lo.prelude.append(_asg(slot, frame, span))
+    pinned = _nm(slot, frame_t, span)
+    task_t = _class_elem(TASK_CLASS, elem)
     return lo._abi_call("asyncio", "create_task", [pinned], task_t, "ps_task_new", span)
 
 
@@ -78,34 +93,31 @@ def _asyncio_wait_for(
     lo._reject_keywords(node)
     delay = _as_float(lo, node, lo._expr(node.args[1]), span, "asyncio.wait_for")
     awaited = lo._expr(node.args[0])
-    if awaited["type"].get("kind") == "class" and awaited["type"].get("name") == TASK_CLASS:
+    awaited_t = _node_type(awaited)
+    if _type_kind(awaited_t) == "class" and _type_name(awaited_t) == TASK_CLASS:
         # A task handle: the deadline applies to the task the caller holds.
-        task_t = awaited["type"]
+        task_t = awaited_t
         task_slot = lo._temp("wtk")
         lo.locals[task_slot] = task_t
-        lo.prelude.append({"kind": "assign", "target": task_slot, "value": awaited, "span": span})
+        lo.prelude.append(_asg(task_slot, awaited, span))
     else:
         frame, elem = _frame_of(lo, node.args[0], "asyncio.wait_for")
         # The task wraps one frame object: pin it so the task and the marker
         # name the same coroutine.
         frame_slot = lo._temp("wfr")
-        lo.locals[frame_slot] = frame["type"]
-        lo.prelude.append({"kind": "assign", "target": frame_slot, "value": frame, "span": span})
-        pinned = {"kind": "name", "id": frame_slot, "type": frame["type"], "span": span}
-        task_t = {"kind": "class", "name": TASK_CLASS, "elem": elem}
+        frame_t = _node_type(frame)
+        lo.locals[frame_slot] = frame_t
+        lo.prelude.append(_asg(frame_slot, frame, span))
+        pinned = _nm(frame_slot, frame_t, span)
+        task_t = _class_elem(TASK_CLASS, elem)
         task_slot = lo._temp("wtk")
         lo.locals[task_slot] = task_t
         task = lo._abi_call("asyncio", "create_task", [pinned], task_t, "ps_task_new", span)
-        lo.prelude.append({"kind": "assign", "target": task_slot, "value": task, "span": span})
-    task_name = {"kind": "name", "id": task_slot, "type": task_t, "span": span}
-    return {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": WAIT_FOR_MARKER},
-        "args": [task_name, delay],
-        "type": task_t["elem"],
-        "span": span,
-        "wait_for": True,
-    }
+        lo.prelude.append(_asg(task_slot, task, span))
+    task_name = _nm(task_slot, task_t, span)
+    call = _call_builtin(WAIT_FOR_MARKER, [task_name, delay], task_t["elem"], span)
+    call["wait_for"] = True
+    return call
 
 
 def _asyncio_run(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = "") -> dict[str, Any]:
@@ -115,17 +127,12 @@ def _asyncio_run(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = No
     # One frame object drives the whole run: pin it so the loop call and the
     # result read cannot allocate two different coroutines.
     slot = lo._temp("run")
-    lo.locals[slot] = frame["type"]
-    lo.prelude.append({"kind": "assign", "target": slot, "value": frame, "span": span})
-    pinned = {"kind": "name", "id": slot, "type": frame["type"], "span": span}
+    frame_t = _node_type(frame)
+    lo.locals[slot] = frame_t
+    lo.prelude.append(_asg(slot, frame, span))
+    pinned = _nm(slot, frame_t, span)
     _run_stmt(lo, span, "ps_loop_run_root", [pinned])
-    return {
-        "kind": "attr",
-        "value": pinned,
-        "name": ".ps_result",
-        "type": elem,
-        "span": span,
-    }
+    return _field(pinned, ".ps_result", elem, span)
 
 
 def _asyncio_sleep(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = "") -> dict[str, Any]:
@@ -136,13 +143,7 @@ def _asyncio_sleep(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = 
     delay = _as_float(lo, node, lo._expr(node.args[0]), span, "asyncio.sleep")
     if lo._coro_current() is None:
         lo.fail(node, "PS2002", "asyncio.sleep is only lowered inside a coroutine")
-    return {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": SLEEP_MARKER},
-        "args": [delay],
-        "type": {"kind": "none"},
-        "span": span,
-    }
+    return _call_builtin(SLEEP_MARKER, [delay], _t_leaf("none"), span)
 
 
 def _task_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
@@ -150,13 +151,13 @@ def _task_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
     `cancelled()`."""
     assert isinstance(node.func, ast.Attribute)
     attr = node.func.attr
-    elem = receiver["type"]["elem"]
+    elem = _node_type(receiver)["elem"]
 
     if attr == "done":
         lo._reject_keywords(node)
         if node.args:
             lo.fail(node, "PS2003", "Task.done expects 0 argument(s)")
-        return lo._abi_call("asyncio", "task.done", [receiver], {"kind": "bool"}, "ps_task_done", span)
+        return lo._abi_call("asyncio", "task.done", [receiver], _t_leaf("bool"), "ps_task_done", span)
     if attr == "result":
         lo._reject_keywords(node)
         if node.args:
@@ -170,12 +171,12 @@ def _task_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
             lo.fail(node, "PS2003", "Task.cancel expects 0 argument(s)")
         # CPython's cancel returns True when the cancel landed (the task was
         # not already done), False otherwise.
-        return lo._abi_call("asyncio", "task.cancel", [receiver], {"kind": "bool"}, "ps_task_cancel", span)
+        return lo._abi_call("asyncio", "task.cancel", [receiver], _t_leaf("bool"), "ps_task_cancel", span)
     if attr == "cancelled":
         lo._reject_keywords(node)
         if node.args:
             lo.fail(node, "PS2003", "Task.cancelled expects 0 argument(s)")
-        return lo._abi_call("asyncio", "task.cancelled", [receiver], {"kind": "bool"}, "ps_task_cancelled", span)
+        return lo._abi_call("asyncio", "task.cancelled", [receiver], _t_leaf("bool"), "ps_task_cancelled", span)
     lo.fail(node, "PS2001", f"Task.{attr} is not lowered")
     raise AssertionError("unreachable")
 
@@ -196,9 +197,10 @@ def _asyncio_gather(
         # Pin each frame so the ready calls and the result reads name one
         # coroutine per argument, not fresh allocations of the same call.
         slot = lo._temp("gth")
-        lo.locals[slot] = frame["type"]
-        lo.prelude.append({"kind": "assign", "target": slot, "value": frame, "span": span})
-        frames.append({"kind": "name", "id": slot, "type": frame["type"], "span": span})
+        frame_t = _node_type(frame)
+        lo.locals[slot] = frame_t
+        lo.prelude.append(_asg(slot, frame, span))
+        frames.append(_nm(slot, frame_t, span))
     # No reset here: gather may run inside an outer loop (a gather within a
     # coroutine), and resetting would drop the outer tasks' wait rows. The
     # shared loop drives the new frames alongside whatever is already there.
@@ -206,11 +208,4 @@ def _asyncio_gather(
         _run_stmt(lo, span, "ps_loop_ready", [frame])
     _run_stmt(lo, span, "ps_loop_run", [])
     assert elem is not None
-    return {
-        "kind": "list",
-        "elems": [
-            {"kind": "attr", "value": frame, "name": ".ps_result", "type": elem, "span": span} for frame in frames
-        ],
-        "type": {"kind": "list", "elem": elem},
-        "span": span,
-    }
+    return _list_lit([_field(frame, ".ps_result", elem, span) for frame in frames], elem, span)
