@@ -412,7 +412,7 @@ class PyreflyBridge:
 
     name: str
 
-    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+    def __init__(self, command: Sequence[str] | None = None) -> None:
         self.name = "pyrefly"
         self._command = command
         self._config_dir: tempfile.TemporaryDirectory[str] | None = None
