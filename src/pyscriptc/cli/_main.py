@@ -222,10 +222,10 @@ def build_parser() -> argparse.ArgumentParser:
         prog="pyscriptc",
         description="Compile a typed Python subset to native code through LLVM.",
     )
-    common = argparse.ArgumentParser(add_help=False)
+    common: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
     common.add_argument("-v", "--verbose", action="store_true", help="enable DEBUG audit records")
     sub = parser.add_subparsers(dest="cmd", required=True)
-    compile_parser = sub.add_parser("compile", help="compile a source file", parents=[common])
+    compile_parser: argparse.ArgumentParser = sub.add_parser("compile", help="compile a source file", parents=[common])
     compile_parser.add_argument("source", help="Python file or package directory to compile")
     compile_parser.add_argument(
         "--program",
@@ -394,7 +394,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="print per-stage wall times (parse, check, lower, emit, cc/link) to stderr",
     )
-    run_parser = sub.add_parser(
+    run_parser: argparse.ArgumentParser = sub.add_parser(
         "run", help="compile (cached by content hash) and run; arguments after `--` go to the program", parents=[common]
     )
     run_parser.add_argument("source", help="Python file or package directory to compile and run")
@@ -461,7 +461,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=[],
         help="bind a typed extern manifest (TOML) and link its C sources; repeatable",
     )
-    verify_parser = sub.add_parser(
+    verify_parser: argparse.ArgumentParser = sub.add_parser(
         "verify",
         help="compile, run under CPython 3.14 and natively, and diff stdout, stderr and the exit code",
         parents=[common],
@@ -507,7 +507,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="bind a typed extern manifest (TOML) and link its C sources; repeatable",
     )
     verify_parser.set_defaults(sanitize=None, debug_info=False)
-    assess_parser = sub.add_parser(
+    assess_parser: argparse.ArgumentParser = sub.add_parser(
         "assess",
         help="assess any script, library or app for native gains and fallback routes",
         parents=[common],
@@ -564,7 +564,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="bind a typed extern manifest (TOML) and link its C sources; repeatable",
     )
     assess_parser.set_defaults(sanitize=None, debug_info=False)
-    coverage_parser = sub.add_parser(
+    coverage_parser: argparse.ArgumentParser = sub.add_parser(
         "coverage", help="report everything a file or package tree cannot compile", parents=[common]
     )
     coverage_parser.add_argument("source", help="Python file or package directory to report on")
@@ -574,7 +574,7 @@ def build_parser() -> argparse.ArgumentParser:
         choices=("blockers", "any"),
         help="exit 1 when root refusals (blockers) or any refusal (any) exist; default always exits 0",
     )
-    infer_parser = sub.add_parser(
+    infer_parser: argparse.ArgumentParser = sub.add_parser(
         "infer",
         help="prove types for a package with the checker and show what lowering gained",
         parents=[common],
@@ -589,12 +589,16 @@ def build_parser() -> argparse.ArgumentParser:
     infer_parser.add_argument(
         "--bridge", choices=("pyrefly",), default="pyrefly", help="checker to run (default: pyrefly)"
     )
-    config_parser = sub.add_parser("config", help="show the resolved config for a source", parents=[common])
+    config_parser: argparse.ArgumentParser = sub.add_parser(
+        "config", help="show the resolved config for a source", parents=[common]
+    )
     config_parser.add_argument("source", help="Python file, pyproject.toml or directory")
     config_parser.add_argument("--json", action="store_true", help="print the resolved config as JSON")
-    explain_parser = sub.add_parser("explain", help="describe a diagnostic code", parents=[common])
+    explain_parser: argparse.ArgumentParser = sub.add_parser(
+        "explain", help="describe a diagnostic code", parents=[common]
+    )
     explain_parser.add_argument("code", help="a PSxxxx diagnostic code, for example PS2001")
-    imports_parser = sub.add_parser(
+    imports_parser: argparse.ArgumentParser = sub.add_parser(
         "imports", help="classify every import of a file or package tree into a compat lane", parents=[common]
     )
     imports_parser.add_argument("source", help="Python file or package directory to classify")
@@ -604,7 +608,7 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="FILE",
         help="append the embedded-CPython reach share to a JSON file (the compat ledger reads it)",
     )
-    reduce_parser = sub.add_parser(
+    reduce_parser: argparse.ArgumentParser = sub.add_parser(
         "reduce", help="delta-debug a source to a minimal reproducer of a refusal or crash", parents=[common]
     )
     reduce_parser.add_argument("source", help="the Python file to shrink")
@@ -628,7 +632,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--print", action="store_true", help="print the reduced source instead of writing FILE.min.py"
     )
     reduce_parser.add_argument("--json", action="store_true", help="print the removal log as JSON")
-    build_parser = sub.add_parser(
+    build_parser: argparse.ArgumentParser = sub.add_parser(
         "build", help="project mode: one binary per [project.scripts] entry point", parents=[common]
     )
     build_parser.add_argument(
@@ -655,11 +659,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="type-checker preflight",
     )
     sub.add_parser("logs", help="print the audit-log path and its last lines", parents=[common])
-    telemetry_parser = sub.add_parser("telemetry", help="usage metrics opt-out")
+    telemetry_parser: argparse.ArgumentParser = sub.add_parser("telemetry", help="usage metrics opt-out")
     telemetry_parser.add_argument("action", choices=("disable", "enable", "status", "reset-id"), help="what to do")
-    doctor_parser = sub.add_parser("doctor", help="report toolchain, cache and install shape", parents=[common])
+    doctor_parser: argparse.ArgumentParser = sub.add_parser(
+        "doctor", help="report toolchain, cache and install shape", parents=[common]
+    )
     doctor_parser.add_argument("--json", action="store_true", help="print the report as JSON")
-    deps_parser = sub.add_parser(
+    deps_parser: argparse.ArgumentParser = sub.add_parser(
         "deps",
         help="resolve PyPI dependencies (PEP 723 or pyproject) and cache pure-Python wheels",
         parents=[common],
@@ -676,13 +682,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--cache-dir", metavar="DIR", help="cache root (env PYSC_CACHE_DIR, default ~/.cache/pyscriptc)"
     )
     # boxed:begin
-    embed_parser = sub.add_parser(
+    embed_parser: argparse.ArgumentParser = sub.add_parser(
         "embed",
         help="manage the pinned CPython runtime pack for --embed-python=bundle",
         parents=[common],
     )
-    embed_sub = embed_parser.add_subparsers(dest="embed_cmd", required=True)
-    fetch_parser = embed_sub.add_parser("fetch", help="download, verify and unpack the runtime pack")
+    embed_sub: argparse.ArgumentParser = embed_parser.add_subparsers(dest="embed_cmd", required=True)
+    fetch_parser: argparse.ArgumentParser = embed_sub.add_parser(
+        "fetch", help="download, verify and unpack the runtime pack"
+    )
     fetch_parser.add_argument(
         "--platform", metavar="PLATFORM", default=None, help="pack platform (default: this machine)"
     )
@@ -865,7 +873,7 @@ def run_cmd(args: argparse.Namespace) -> int:
             "use `pyscriptc compile --embed-python=bundle -o OUT/name` and run OUT/name/bin/name"
         )
     # boxed:end
-    source = Path(args.source)
+    source: Path = Path(args.source)
     if not source.exists():
         raise IRError(f"source not found: {source}")
     run_env = _run_environment(source)
@@ -1097,7 +1105,7 @@ def _run_environment(source_path: Path) -> dict[str, str]:
 
 
 def _exec_binary(binary: Path, argv: list[str], env: dict[str, str] | None = None) -> int:
-    completed = subprocess.run([str(binary.absolute()), *argv], env=env)
+    completed: subprocess.CompletedProcess = subprocess.run([str(binary.absolute()), *argv], env=env)
     code: int = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
     log.info("run.exit", binary=str(binary), code=code)
     return code
@@ -1113,7 +1121,7 @@ def verify_cmd(args: argparse.Namespace) -> int:
     _load_compiler()
     started = time.monotonic()
     _apply_env_defaults(args)
-    source = Path(args.source)
+    source: Path = Path(args.source)
     if not source.exists():
         raise IRError(f"source not found: {source}")
     if not source.is_file():
