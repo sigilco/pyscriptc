@@ -1125,7 +1125,7 @@ def _optional_str(table: dict[str, Any], key: str, *, path: Path | None, where: 
 def _optional_str_list(table: dict[str, Any], key: str, *, path: Path | None, where: str) -> tuple[str, ...]:
     if key not in table:
         return ()
-    raw = table[key]
+    raw: list[Any] = table[key]
     if not isinstance(raw, list):
         raise FfiManifestError("PS4005", f"the key {key!r} must be a list of strings", path, where)
     value_list: list[str] = []

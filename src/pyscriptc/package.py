@@ -519,7 +519,7 @@ def _module_init_order(
     import order: a module comes after the modules it imports.
     """
 
-    names = {fn["name"] for fn in functions}
+    names: set[str] = {str(fn["name"]) for fn in functions}
     ordered: list[str] = []
     seen: set[str] = set()
 
@@ -535,7 +535,7 @@ def _module_init_order(
         if candidate in names:
             ordered.append(candidate)
 
-    for module in sorted(owners):
+    for module in sorted(list(owners)):
         visit(module, set())
     return ordered
 
@@ -582,7 +582,8 @@ def _program_island(
             if name == entry and pkg:
                 is_package = True
         main_package = entry if is_package else entry.rpartition(".")[0]
-    staged: tuple[str, str] | None = stage_program_data(root, staged_data or [])
+    staged_input: list[tuple[Path, bytes]] = staged_data if staged_data is not None else []
+    staged: tuple[str, str] | None = stage_program_data(root, staged_input)
     # The selfpack (issue #678 follow-up): a program compile of the pyscriptc
     # package itself embeds the package's data files (runtime C sources,
     # target.json, native_packages.json, the vendored typeshed) so the
@@ -729,8 +730,8 @@ def _fenced_module(root: Path, fences: list[dict[str, Any]]) -> dict[str, Any]:
         "cpython": cpython_version(),
         "sourceFile": str(root),
         "entry": None,
-        "functions": [],
-        "classes": [],
+        "functions": list(),
+        "classes": list(),
         "fences": fences,
     }
 
@@ -877,9 +878,10 @@ def _mark_dep_fences(
         return fences
     out: list[dict[str, Any]] = []
     for fence in fences:
-        span = _opt_span(fence)
-        if span is None:
-            span = {}
+        span: dict[str, Any] = {}
+        span_opt = _opt_span(fence)
+        if span_opt is not None:
+            span = span_opt
         module: str | None = None
         if _has(span, "file"):
             module = by_file.get(_opt_str(span, "file"))
@@ -960,6 +962,8 @@ def _program_plan(
     state: dict[str, int] = {}
     stack: list[str] = []
 
+    island_group_set: set[str] = island_group if island_group is not None else set()
+
     def visit(name: str) -> None:
         state[name] = 1
         stack.append(name)
@@ -978,7 +982,8 @@ def _program_plan(
                 # not refused. Without the tier there is no island floor to
                 # carry it, so the cycle keeps its refusal.
                 if _boxed.definitions_tier():
-                    cycles.update(cycle)
+                    for member_name in cycle:
+                        cycles.add(member_name)
                     continue
                 fences.append(
                     {
@@ -991,8 +996,9 @@ def _program_plan(
                 continue
             if state.get(child) == 2:
                 continue
-            if child in inited and child not in (island_group or set()):
-                owners[name].append(child)
+            if child in inited and child not in island_group_set:
+                bucket = owners[name]
+                bucket.append(child)
             visit(child)
         stack.pop()
         state[name] = 2
@@ -1015,9 +1021,13 @@ def _program_cycle_members(units: list[tuple[str, Path, bool]]) -> set[str]:
     """
 
     names = {name for name, _path, _is_package in units}
-    trees = {name: ast.parse(path.read_text(encoding="utf-8"), filename=str(path)) for name, path, _ in units}
-    packages = {name: is_package for name, _path, is_package in units}
-    edges = {name: _program_imports(trees[name], {n: {} for n in names}, name, packages[name]) for name in trees}
+    trees: dict[str, Any] = {
+        name: ast.parse(path.read_text(encoding="utf-8"), filename=str(path)) for name, path, _ in units
+    }
+    packages: dict[str, int] = {name: int(is_package) for name, _path, is_package in units}
+    edges: dict[str, list[str]] = {
+        name: _program_imports(trees[name], {n: {} for n in names}, name, packages[name]) for name in trees
+    }
     members: set[str] = set()
     state: dict[str, int] = {}
     stack: list[str] = []
@@ -1032,7 +1042,8 @@ def _program_cycle_members(units: list[tuple[str, Path, bool]]) -> set[str]:
                 cycle = stack[stack.index(child) :] + [child]
                 if _is_package_submodule_cycle(cycle, packages):
                     continue
-                members.update(cycle)
+                for member_name in cycle:
+                    members.add(member_name)
                 continue
             if state.get(child) is None:
                 visit(child)
@@ -1065,9 +1076,13 @@ def _program_island_group(
     """
 
     names = {name for name, _path, _is_package in units}
-    trees = {name: ast.parse(path.read_text(encoding="utf-8"), filename=str(path)) for name, path, _ in units}
-    packages = {name: is_package for name, _path, is_package in units}
-    edges = {name: _program_imports(trees[name], {n: {} for n in names}, name, packages[name]) for name in trees}
+    trees: dict[str, Any] = {
+        name: ast.parse(path.read_text(encoding="utf-8"), filename=str(path)) for name, path, _ in units
+    }
+    packages: dict[str, int] = {name: int(is_package) for name, _path, is_package in units}
+    edges: dict[str, list[str]] = {
+        name: _program_imports(trees[name], {n: {} for n in names}, name, packages[name]) for name in trees
+    }
 
     def parents_of(name: str) -> list[str]:
         parts = name.split(".")
@@ -1122,12 +1137,14 @@ def _program_finish_order(
     order, so its seed skips the walk: the island group's bootstrap (one
     exec under CPython) runs the cycle bodies itself.
     """
-    trees = {name: ast.parse(path.read_text(encoding="utf-8"), filename=str(path)) for name, path, _ in units}
-    packages = {name: is_package for name, _, is_package in units}
-    edges = {name: _program_imports(trees[name], exports, name, packages[name]) for name in trees}
+    trees: dict[str, Any] = {
+        name: ast.parse(path.read_text(encoding="utf-8"), filename=str(path)) for name, path, _ in units
+    }
+    packages: dict[str, int] = {name: int(is_package) for name, _, is_package in units}
+    edges: dict[str, list[str]] = {name: _program_imports(trees[name], exports, name, packages[name]) for name in trees}
     order: list[str] = []
     state: dict[str, int] = {}
-    _, _owners, cycles = _program_plan(units, exports, entry=entry)
+    cycles: set[str] = _program_plan(units, exports, entry=entry)[2]
 
     def visit(name: str) -> None:
         if name in cycles:
@@ -1145,7 +1162,7 @@ def _program_finish_order(
     return order
 
 
-def _program_roots(trees: dict[str, ast.Module], entry: str | None = None) -> list[str]:
+def _program_roots(trees: dict[str, Any], entry: str | None = None) -> list[str]:
     """The order the graph walk starts in.
 
     The program's entry comes first: CPython runs it, and it is what
@@ -1161,7 +1178,7 @@ def _program_roots(trees: dict[str, ast.Module], entry: str | None = None) -> li
             if name != entry:
                 rest.append(name)
         roots = [entry, *rest]
-    for name in sorted(trees):
+    for name in sorted(list(trees)):
         if name not in roots:
             roots.append(name)
     return roots
@@ -1670,7 +1687,9 @@ def _catalog_entries_unchanged(cached: _CatalogMemo, exports: dict[str, dict[str
 
 def _exports_of(module_name: str, lowerer: Lowerer) -> dict[str, dict[str, Any]]:
     bucket: dict[str, dict[str, Any]] = {}
-    for fn, (params, ret) in lowerer.sigs.items():
+    for fn, sig in lowerer.sigs.items():
+        params = sig[0]
+        ret = sig[1]
         bucket[fn] = {
             "kind": "func",
             "ir_name": f"{module_name}.{fn}",
@@ -2040,7 +2059,8 @@ def _discover_dep_roots(roots: list[Path]) -> tuple[list[tuple[str, Path, bool]]
                 if not path.name.isidentifier():
                     return [], [_dep_name_fence(path.name)]
                 units.extend(_discover_dep_package(path, path.name))
-    return units, []
+    no_dep_fences: list[dict[str, Any]] = []
+    return units, no_dep_fences
 
 
 def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path, bool]]:
@@ -2183,9 +2203,10 @@ def _fence_ident(fence: dict[str, Any]) -> str:
 
     code: str = _opt_str(fence, "code")
     message: str = _opt_str(fence, "message")
-    span = _opt_span(fence)
-    if span is None:
-        span = {}
+    span: dict[str, Any] = {}
+    span_opt = _opt_span(fence)
+    if span_opt is not None:
+        span = span_opt
     file: str = _opt_str(span, "file")
     line: int = _opt_int(span, "line", 0)
     col: int = _opt_int(span, "col", 0)
