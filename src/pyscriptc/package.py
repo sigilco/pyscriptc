@@ -1945,6 +1945,12 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
         for mname in raw_owner:
             method_owner[mname] = raw_owner[mname]
     exported["method_owner"] = method_owner
+    constants: dict[str, dict[str, Any]] = {}
+    if "constants" in info:
+        raw_constants: dict[str, dict[str, Any]] = info["constants"]
+        for cname in raw_constants:
+            constants[cname] = raw_constants[cname]
+    exported["constants"] = constants
     base: str = ""
     if "base" in info:
         base = info["base"]

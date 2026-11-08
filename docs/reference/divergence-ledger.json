@@ -198,7 +198,7 @@
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d10_classmethod.py:2:5: PS1204: class fields are declared with an annotation and no value\n      total: int = 3\n      ^\nprobes/divergences/d10_classmethod.py:6:16: PS2002: cls is not a local or parameter\n          return cls.total\n                 ^\n"
+        "stderr": "probes/divergences/d10_classmethod.py:6:16: PS2002: cls is not a local or parameter\n          return cls.total\n                 ^\n"
       },
       "status": "fenced"
     },

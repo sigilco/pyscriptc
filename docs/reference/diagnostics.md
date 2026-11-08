@@ -39,7 +39,7 @@ A code is never reused or renumbered; the stability contract is in [Stability an
 | `PS1201` | Only a closed set of decorators compiles. Other decorators change behavior the compiler cannot see. | Remove the decorator, or inline what it does. |
 | `PS1202` | Positional-only, keyword-only, *args and **kwargs parameters are not supported. An unannotated **kwargs parameter needs a runtime keyword mapping. | Use plain positional parameters, with defaults where needed. An **kwargs parameter runs through embedded CPython (fallback mode); declare its keys with PEP 692 Unpack[TypedDict]. |
 | `PS1203` | Class keywords (metaclass=...) and multiple inheritance are not supported. A metaclass builds the class at run time and native code fixes the layout at compile time. | Use a single base class the compiler takes and no class keywords. Write the class explicitly, or use PEP 695 generics instead of metaclass synthesis. |
-| `PS1204` | A class body holds only annotated fields without values and method definitions. | Move assignments into __init__ and declare fields with an annotation only. |
+| `PS1204` | A class body holds annotated fields without values, constant class attributes and method definitions; any other statement or a value that is not a compile-time constant is refused. | Declare fields with an annotation only, keep class attributes to constant values, and move other assignments into __init__. |
 | `PS1205` | `except E as name` and bare `except:` are not supported. | Use a compiled exception class and drop the `as` binding. |
 | `PS1206` | `with ... as name` compiles only for a closed set of context managers. | Use a supported context manager without the binding, or open and close explicitly. |
 
