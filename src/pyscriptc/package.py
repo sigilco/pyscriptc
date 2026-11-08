@@ -2077,7 +2077,7 @@ def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path,
             # package body the way CPython runs it, so the unit exists even
             # when nothing else inside it is reached.
             parts = relative.parts[:-1]
-            if parts:
+            if parts and all(part.isidentifier() for part in parts):
                 units.append((".".join((name, *parts)), path, True))
             continue
         stem = relative.with_suffix("")
@@ -2154,6 +2154,13 @@ def _discover(
             # The program entry. It lowers as the `__main__` module.
             found.append(("__main__", path, False))
             continue
+        stem = relative.with_suffix("")
+        if not all(part.isidentifier() for part in stem.parts):
+            # CPython cannot import it either (a dash in a name, a data file
+            # mislabeled .py, a directory that is not an identifier): skip
+            # with a note instead of refusing the tree.
+            skipped.append(relative.as_posix())
+            continue
         if path.name == "__main__.py":
             skipped.append(relative.as_posix())
             continue
@@ -2167,12 +2174,6 @@ def _discover(
             name = ".".join((package, *parts)) if parts else package
             found.append((name, path, True))
             continue
-        stem = relative.with_suffix("")
-        if not all(part.isidentifier() for part in stem.parts):
-            # CPython cannot import it either (a dash in a name, a data file
-            # mislabeled .py): skip with a note instead of refusing the tree.
-            skipped.append(relative.as_posix())
-            continue
         if program and not namespaced:
             # A program sibling is imported by its plain name.
             found.append((".".join(stem.parts), path, False))
@@ -2183,10 +2184,16 @@ def _discover(
     return found, skipped
 
 
-def _skip_note(root: Path, relative: str) -> str:
+def _skip_reason(relative: str) -> str:
+    """The reason ``_discover`` skipped a file, without the note prefix."""
+
     if relative == "__main__.py" or relative.endswith("/__main__.py"):
-        return f"note: skipped {root.name}/{relative}; __main__.py is the python -m script, not an importable module"
-    return f"note: skipped {root.name}/{relative}; not an importable module name"
+        return "__main__.py is the python -m script, not an importable module"
+    return "not an importable module name"
+
+
+def _skip_note(root: Path, relative: str) -> str:
+    return f"note: skipped {root.name}/{relative}; {_skip_reason(relative)}"
 
 
 _NOT_EXPORTED = " is not exported by this package"
