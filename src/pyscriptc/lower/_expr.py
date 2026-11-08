@@ -137,11 +137,6 @@ def _call_node(
     )
 
 
-def _callee_node(callee: dict[str, Any]) -> Any:
-    """The callee record one dict-IR callee spells."""
-    return dict_to_node(callee)
-
-
 def _builtin_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     """The call to a builtin."""
     return _call_node({"kind": "builtin", "name": name}, args, typ, span)
