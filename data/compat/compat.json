@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-08",
-  "commit": "25c41d8df0059ae09e7831258f4ecf9439179b46",
+  "commit": "f6963ecd693756927067f564914e59968d258e36",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -734,7 +734,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok)"
+        "scandir, system, urandom, cpu_count, kill, rmdir, getuid, keyword arguments (makedirs exist_ok)"
       ],
       "fences": [
         "PS2001",
@@ -2264,7 +2264,7 @@
     },
     {
       "date": "2026-11-08",
-      "commit": "25c41d8df0059ae09e7831258f4ecf9439179b46",
+      "commit": "f6963ecd693756927067f564914e59968d258e36",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
