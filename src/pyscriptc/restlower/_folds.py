@@ -13,7 +13,17 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _const_int, _const_text, _flag, _node_kind, _node_type
+from pyscriptc.restlower._shared import (
+    _const_int,
+    _const_text,
+    _flag,
+    _node_elems,
+    _node_kind,
+    _node_op,
+    _node_type,
+    _node_type_kind,
+    _node_value,
+)
 
 _STATIC_MISSING = object()
 _PS2005_MESSAGE = "string literals with lone surrogates are not lowered"
@@ -32,15 +42,15 @@ def _static_scalar(expr: dict[str, Any]) -> Any:
     values do not matter (`len`).
     """
 
-    if expr.get("kind") == "unary" and expr.get("op") in {"-", "+"} and isinstance(expr.get("operand"), dict):
+    if _node_kind(expr) == "unary" and _node_op(expr) in {"-", "+"} and isinstance(expr.get("operand"), dict):
         inner = _static_scalar(expr["operand"])
         if isinstance(inner, bool) or not isinstance(inner, (int, float)):
             return _STATIC_MISSING
-        return -inner if expr["op"] == "-" else inner
-    if expr.get("kind") != "const":
+        return -inner if _node_op(expr) == "-" else inner
+    if _node_kind(expr) != "const":
         return _STATIC_MISSING
-    kind = expr.get("type", {}).get("kind")
-    value = expr.get("value")
+    kind = _node_type_kind(expr)
+    value = _node_value(expr)
     if kind == "int" and isinstance(value, str):
         body = value[1:] if value.startswith("-") else value
         if body and body.isdigit():
@@ -67,11 +77,11 @@ def _static_const(value: Any, span: dict[str, Any]) -> dict[str, Any] | None:
     value has no literal spelling here (non-Latin-1 str, container, ...)."""
 
     if isinstance(value, bool):
-        return {"kind": "const", "value": value, "type": {"kind": "bool"}, "span": span}
+        return _const_text("true" if value else "false", "bool", span)
     if isinstance(value, int):
         return _const_int(value, span)
     if isinstance(value, float):
-        return {"kind": "const", "value": repr(value), "type": {"kind": "float"}, "span": span}
+        return _const_text(repr(value), "float", span)
     if isinstance(value, str):
         if _has_surrogate(value):
             return None
@@ -79,7 +89,7 @@ def _static_const(value: Any, span: dict[str, Any]) -> dict[str, Any] | None:
     if isinstance(value, bytes):
         return _const_text(value.decode("latin1"), "bytes", span)
     if value is None:
-        return {"kind": "const", "value": None, "type": {"kind": "none"}, "span": span}
+        return _const_text("", "none", span)
     return None
 
 
@@ -153,7 +163,7 @@ def _static_len(arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | N
     a const — anything else may be a call whose side effect is the point."""
 
     if _node_kind(arg) == "list" and not _flag(_node_type(arg), "set"):
-        elems: list[dict[str, Any]] = arg["elems"]
+        elems: list[dict[str, Any]] = _node_elems(arg)
         if all(_node_is_const(elem) for elem in elems):
             return _const_int(len(elems), span)
         return None
@@ -177,7 +187,7 @@ def _pair_is_const(pair: dict[str, Any]) -> bool:
     """True when both sides of a dict-literal pair are consts."""
 
     key: dict[str, Any] = pair["key"]
-    value: dict[str, Any] = pair["value"]
+    value: dict[str, Any] = _node_value(pair)
     return _node_is_const(key) and _node_is_const(value)
 
 

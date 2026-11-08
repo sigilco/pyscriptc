@@ -16,11 +16,21 @@ import ast
 from typing import Any
 
 from pyscriptc.lower._core import _show
-from pyscriptc.restlower._shared import _const_text
+from pyscriptc.restlower._shared import (
+    _const_text,
+    _flag,
+    _node_type,
+    _node_type_kind,
+    _t_dict,
+    _t_leaf,
+    _t_list,
+    _type_kind,
+    _type_value,
+)
 
-_STR: dict[str, Any] = {"kind": "str"}
-_LIST_STR: dict[str, Any] = {"kind": "list", "elem": _STR}
-_DICT_STR: dict[str, Any] = {"kind": "dict", "key": _STR, "value": _STR}
+_STR: dict[str, Any] = _t_leaf("str")
+_LIST_STR: dict[str, Any] = _t_list(_STR)
+_DICT_STR: dict[str, Any] = _t_dict(_STR, _STR)
 
 
 def _jwt_call(
@@ -35,20 +45,15 @@ def _jwt_call(
 
 
 def _dict_str(typ: dict[str, Any]) -> bool:
-    kind: str = typ["kind"]
-    if kind != "dict":
+    if _type_kind(typ) != "dict":
         return False
-    key: dict[str, Any] = typ["key"]
-    value: dict[str, Any] = typ["value"]
-    kkind: str = key["kind"]
-    vkind: str = value["kind"]
-    return kkind == "str" and vkind == "str"
+    return _type_kind(typ["key"]) == "str" and _type_kind(_type_value(typ)) == "str"
 
 
 def _buf_arg(lo: Any, node: ast.Call, expr: ast.expr, what: str) -> dict[str, Any]:
     arg = lo._expr(expr)
-    if arg["type"]["kind"] not in {"str", "bytes"}:
-        lo.fail(node, "PS1003", f"{what} is " + _show(arg["type"]) + ", expected str")
+    if _node_type_kind(arg) not in {"str", "bytes"}:
+        lo.fail(node, "PS1003", f"{what} is " + _show(_node_type(arg)) + ", expected str")
     return arg
 
 
@@ -74,11 +79,11 @@ def _encode(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo.fail(node, "PS2001", "jwt.encode algorithm is a literal HS256, HS384, or HS512")
     alg = _const_text(alg_name, "str", span)
     payload = lo._expr(node.args[0])
-    if not _dict_str(payload["type"]):
-        lo.fail(node, "PS1003", "jwt.encode payload is " + _show(payload["type"]) + ", expected dict[str, str]")
+    if not _dict_str(_node_type(payload)):
+        lo.fail(node, "PS1003", "jwt.encode payload is " + _show(_node_type(payload)) + ", expected dict[str, str]")
     key = _buf_arg(lo, node, node.args[1], "jwt.encode key")
     args = [payload, key, alg]
-    return lo._abi_call("jwt", "encode", args, {"kind": "str"}, "ps_jwt_encode", span)
+    return lo._abi_call("jwt", "encode", args, _t_leaf("str"), "ps_jwt_encode", span)
 
 
 def _decode(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
@@ -92,11 +97,9 @@ def _decode(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any
     token = _buf_arg(lo, node, node.args[0], "jwt.decode token")
     key = _buf_arg(lo, node, node.args[1], "jwt.decode key")
     algorithms = lo._expr(node.args[2])
-    if not (
-        algorithms["type"]["kind"] == "list"
-        and algorithms["type"].get("elem", {}).get("kind") == "str"
-        and not algorithms["type"]["elem"].get("optional")
-    ):
-        lo.fail(node, "PS1003", "jwt.decode algorithms is " + _show(algorithms["type"]) + ", expected list[str]")
+    algorithms_t = _node_type(algorithms)
+    elem_t = algorithms_t.get("elem") if _type_kind(algorithms_t) == "list" else None
+    if elem_t is None or _type_kind(elem_t) != "str" or _flag(elem_t, "optional"):
+        lo.fail(node, "PS1003", "jwt.decode algorithms is " + _show(algorithms_t) + ", expected list[str]")
     args = [token, key, algorithms]
     return lo._abi_call("jwt", "decode", args, expect, "ps_jwt_decode", span)

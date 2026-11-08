@@ -74,6 +74,13 @@ def _node_type_kind(node: dict[str, Any]) -> str:
     return _type_kind(_node_type(node))
 
 
+def _node_op(node: dict[str, Any]) -> str:
+    """The operator a binary, unary or compare node carries."""
+
+    op: str = node["op"]
+    return op
+
+
 def _node_id(node: dict[str, Any]) -> str:
     """The identifier a name node carries."""
 
@@ -181,6 +188,12 @@ def _if_stmt(
             _mk_span(span),
         )
     )
+
+
+def _while_stmt(cond: dict[str, Any], body: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict-IR while statement one condition, body and span spell."""
+
+    return node_to_dict(_ir.while_stmt(dict_to_node(cond), [dict_to_node(item) for item in body], _mk_span(span)))
 
 
 def _call_builtin(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
