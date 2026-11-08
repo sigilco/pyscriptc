@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-07",
-  "commit": "5c2c5e2fbcc09e4781c88b4df26d8cf12ff8cfb8",
+  "generated": "2026-11-08",
+  "commit": "25c41d8df0059ae09e7831258f4ecf9439179b46",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1484,11 +1484,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 85
+          "count": 79
         },
         {
           "code": "PS1106",
-          "count": 10
+          "count": 16
         },
         {
           "code": "PS1001",
@@ -2083,7 +2083,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1285,
+      "count": 1279,
       "packages": 16
     },
     {
@@ -2095,7 +2095,7 @@
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 201,
+      "count": 207,
       "packages": 9
     },
     {
@@ -2256,6 +2256,15 @@
     {
       "date": "2026-11-07",
       "commit": "5c2c5e2fbcc09e4781c88b4df26d8cf12ff8cfb8",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2670
+    },
+    {
+      "date": "2026-11-08",
+      "commit": "25c41d8df0059ae09e7831258f4ecf9439179b46",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

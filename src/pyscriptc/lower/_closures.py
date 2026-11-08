@@ -105,12 +105,12 @@ class ClosuresMixin:
         dec(name)`; the local's type updates to the decorator's return."""
         if not fn.decorator_list:
             return []
-        if len(fn.decorator_list) != 1:
-            self.fail(fn, "PS2002", "stacked decorators are not lowered")
-        dec = fn.decorator_list[0]
-        value = self._apply_decorator(dec, _name(fn.name, self.locals[fn.name], span), span)
-        self.locals[fn.name] = value["type"]
-        return [_assign(fn.name, value, span)]
+        stmts: list[dict[str, Any]] = []
+        for dec in reversed(fn.decorator_list):
+            value = self._apply_decorator(dec, _name(fn.name, self.locals[fn.name], span), span)
+            self.locals[fn.name] = value["type"]
+            stmts.append(_assign(fn.name, value, span))
+        return stmts
 
     def _apply_decorator(self, dec: ast.expr, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         """`dec(value)` as a callable-value call; the result must stay callable."""
