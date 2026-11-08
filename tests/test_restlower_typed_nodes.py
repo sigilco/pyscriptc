@@ -8,10 +8,8 @@ shape so later P2 modules can copy it:
 
 - builders reconstruct the same dict IR the old literals spelled,
 - accessors are the only place a converted module subscripts a node key,
-- `_shared.py`, `_time.py`, `_argparse.py`, `_threading.py`, `_minmax.py`,
-  `_iterators.py`, `_builtins.py`, `_queue.py`, `_collections.py` and
-  `_io.py` have no raw node-key reads and no raw `{"kind": ...}` node/type
-  literals.
+- the converted restlower modules listed in `CONVERTED` have no raw node-key
+  reads and no raw `{"kind": ...}` node/type literals.
 """
 
 from __future__ import annotations
@@ -35,6 +33,7 @@ CONVERTED = (
     RESTLOWER / "_queue.py",
     RESTLOWER / "_collections.py",
     RESTLOWER / "_io.py",
+    RESTLOWER / "_itertools.py",
 )
 
 # The dict-IR keys a node or type record carries. A converted module
