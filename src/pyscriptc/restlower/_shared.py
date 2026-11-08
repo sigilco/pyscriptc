@@ -109,6 +109,20 @@ def _type_value(typ: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _field_name(field: dict[str, Any]) -> str:
+    """The name a class-field record carries."""
+
+    name: str = field["name"]
+    return name
+
+
+def _field_type(field: dict[str, Any]) -> dict[str, Any]:
+    """The type record a class-field record carries."""
+
+    typ: dict[str, Any] = field["type"]
+    return typ
+
+
 def _type_name(typ: dict[str, Any]) -> str:
     """The class name a class type record carries, or "" when absent."""
 

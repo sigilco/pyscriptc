@@ -25,41 +25,59 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.lower._core import _show
+from pyscriptc import _irnode as _ir
+from pyscriptc.lower._core import _dict_field, _list_field, _maybe_node_kind, _maybe_type_kind, _show
 from pyscriptc.reflection import kwargs_call_note
+from pyscriptc.restlower._shared import (
+    _class,
+    _const_text,
+    _field,
+    _field_name,
+    _field_type,
+    _mk_span,
+    _node_kind,
+    _node_span,
+    _node_type,
+    _node_type_kind,
+    _node_value,
+    _type_kind,
+    _type_name,
+)
+from pyscriptc.tirserde import dict_to_node, node_to_dict
 
-_RESPONSE = {"kind": "class", "name": "HttpResponse"}
-_REQUEST = {"kind": "class", "name": "HttpRequest"}
+_RESPONSE = _class("HttpResponse")
+_REQUEST = _class("HttpRequest")
 _METHODS = {"GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"}
 
 
 def _str_arg(lo: Any, node: ast.expr, what: str) -> dict[str, Any]:
     arg = lo._expr(node)
-    if arg["type"]["kind"] != "str":
-        lo.fail(node, "PS1003", f"{what} is " + _show(arg["type"]) + ", expected str")
+    if _node_type_kind(arg) != "str":
+        lo.fail(node, "PS1003", f"{what} is " + _show(_node_type(arg)) + ", expected str")
     return arg
 
 
 def _bytes_arg(lo: Any, node: ast.expr, what: str) -> dict[str, Any]:
     arg = lo._expr(node)
-    if arg["type"]["kind"] != "bytes":
-        lo.fail(node, "PS1003", f"{what} is " + _show(arg["type"]) + ", expected bytes")
+    if _node_type_kind(arg) != "bytes":
+        lo.fail(node, "PS1003", f"{what} is " + _show(_node_type(arg)) + ", expected bytes")
     return arg
 
 
 def _float_arg(lo: Any, node: ast.expr, what: str) -> dict[str, Any]:
     arg = lo._expr(node)
-    if arg["type"]["kind"] not in {"float", "int"}:
-        lo.fail(node, "PS1003", f"{what} is " + _show(arg["type"]) + ", expected float")
-    if arg["type"]["kind"] == "int":
-        return {"kind": "cast", "value": arg, "type": {"kind": "float"}, "span": arg["span"]}
+    kind = _node_type_kind(arg)
+    if kind not in {"float", "int"}:
+        lo.fail(node, "PS1003", f"{what} is " + _show(_node_type(arg)) + ", expected float")
+    if kind == "int":
+        return node_to_dict(_ir.cast("", dict_to_node(arg), _ir.t_leaf("float"), _mk_span(_node_span(arg))))
     return arg
 
 
 def _method_arg(lo: Any, node: ast.expr, what: str) -> dict[str, Any]:
     arg = _str_arg(lo, node, what)
-    if arg.get("kind") == "const":
-        text = arg["value"]
+    if _node_kind(arg) == "const":
+        text = _node_value(arg)
         if text.upper() not in _METHODS:
             lo.fail(node, "PS1003", f"{what} is not an HTTP method: {text}")
         return {**arg, "value": text.upper()}
@@ -73,22 +91,25 @@ def _headers_arg(lo: Any, node: ast.expr, what: str) -> dict[str, Any] | None:
     surface takes the display with constant str keys and values.
     """
     lowered = lo._expr(node)
+    lowered_type = _node_type(lowered)
+    key_type = _dict_field(lowered_type, "key") or {}
+    value_type = _dict_field(lowered_type, "value") or {}
     if (
-        lowered["type"]["kind"] != "dict"
-        or lowered["type"].get("key", {}).get("kind") != "str"
-        or lowered["type"].get("value", {}).get("kind") != "str"
+        _type_kind(lowered_type) != "dict"
+        or _maybe_type_kind(key_type) != "str"
+        or _maybe_type_kind(value_type) != "str"
     ):
-        lo.fail(node, "PS1003", f"{what} is " + _show(lowered["type"]) + ", expected dict[str, str]")
-    if lowered.get("kind") != "dict":
+        lo.fail(node, "PS1003", f"{what} is " + _show(lowered_type) + ", expected dict[str, str]")
+    if _node_kind(lowered) != "dict":
         lo.fail(node, "PS2001", f"{what} is a dict display with constant str keys and values")
     rows: list[str] = []
-    for pair in lowered.get("pairs", []):
-        key = pair.get("key", {})
-        value = pair.get("value", {})
-        if key.get("kind") != "const" or value.get("kind") != "const":
+    for pair in _list_field(lowered, "pairs"):
+        key = _dict_field(pair, "key") or {}
+        value = _dict_field(pair, "value") or {}
+        if _maybe_node_kind(key) != "const" or _maybe_node_kind(value) != "const":
             lo.fail(node, "PS2001", f"{what} is a dict display with constant str keys and values")
-        rows.append(f"{key['value']}: {value['value']}\r\n")
-    return {"kind": "const", "value": "".join(rows), "type": {"kind": "str"}, "span": lowered["span"]}
+        rows.append(f"{_node_value(key)}: {_node_value(value)}\r\n")
+    return _const_text("".join(rows), "str", _node_span(lowered))
 
 
 def _split_args(
@@ -137,7 +158,8 @@ def _emit_open(
     method: ast.expr | None,
 ) -> dict[str, Any]:
     url_arg = lo._expr(url)
-    if url_arg["type"]["kind"] == "class" and url_arg["type"].get("name") == "HttpRequest":
+    url_type = _node_type(url_arg)
+    if _type_kind(url_type) == "class" and _type_name(url_type) == "HttpRequest":
         # urlopen(req): the fields come back off the record, headers included.
         args = [
             _record_field(lo, node, url_arg, "url", span),
@@ -155,8 +177,8 @@ def _record_field(lo: Any, node: ast.AST, record: dict[str, Any], name: str, spa
     if info is None:
         lo.fail(node, "PS2001", "HttpRequest has no fields")
     for field in info["fields"]:
-        if field["name"] == name:
-            return {"kind": "attr", "value": record, "name": name, "type": field["type"], "span": span}
+        if _field_name(field) == name:
+            return _field(record, name, _field_type(field), span)
     lo.fail(node, "PS2001", f"HttpRequest has no field {name}")
     raise AssertionError("unreachable")
 
@@ -171,23 +193,18 @@ def _emit_open_url(
     headers: ast.expr | None,
     method: ast.expr | None,
 ) -> dict[str, Any]:
-    if url_arg["type"]["kind"] != "str":
-        lo.fail(node, "PS1003", "urlopen url is " + _show(url_arg["type"]) + ", expected str or Request")
+    if _node_type_kind(url_arg) != "str":
+        lo.fail(node, "PS1003", "urlopen url is " + _show(_node_type(url_arg)) + ", expected str or Request")
     body = _bytes_arg(lo, data, "urlopen data") if data is not None else None
     time_arg = _float_arg(lo, timeout, "urlopen timeout") if timeout is not None else None
     header_block = _headers_arg(lo, headers, "urlopen headers") if headers is not None else None
     method_arg = _method_arg(lo, method, "Request method") if method is not None else None
     if method_arg is None:
         default = "POST" if body is not None else "GET"
-        method_arg = {
-            "kind": "const",
-            "value": default,
-            "type": {"kind": "str"},
-            "span": url_arg["span"],
-        }
-    empty_bytes = {"kind": "const", "value": "", "type": {"kind": "bytes"}, "span": span}
-    empty_str = {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span}
-    zero = {"kind": "const", "value": "0.0", "type": {"kind": "float"}, "span": span}
+        method_arg = _const_text(default, "str", _node_span(url_arg))
+    empty_bytes = _const_text("", "bytes", span)
+    empty_str = _const_text("", "str", span)
+    zero = _const_text("0.0", "float", span)
     args = [
         url_arg,
         method_arg,
@@ -211,10 +228,10 @@ def _request_record(
     method_arg = _method_arg(lo, fields["method"], "Request method") if fields["method"] is not None else None
     if method_arg is None:
         default = "POST" if body is not None else "GET"
-        method_arg = {"kind": "const", "value": default, "type": {"kind": "str"}, "span": span}
-    empty_bytes = {"kind": "const", "value": "", "type": {"kind": "bytes"}, "span": span}
-    empty_str = {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span}
-    zero = {"kind": "const", "value": "0.0", "type": {"kind": "float"}, "span": span}
+        method_arg = _const_text(default, "str", span)
+    empty_bytes = _const_text("", "bytes", span)
+    empty_str = _const_text("", "str", span)
+    zero = _const_text("0.0", "float", span)
     header_block = _headers_arg(lo, fields["headers"], "Request headers") if fields["headers"] is not None else None
     return lo._abi_call(
         "urllib.request",
