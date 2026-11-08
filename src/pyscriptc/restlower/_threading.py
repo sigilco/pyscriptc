@@ -26,20 +26,15 @@ from pyscriptc.restlower._shared import (
 )
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
-_LOCK = _class("Lock")
-_INT = _t_leaf("int")
-_BOOL = _t_leaf("bool")
-_NONE = _t_leaf("none")
-_THREAD = _class("Thread")
-_EVENT = _class("Event")
-_COND = _class("Condition")
-_SEM = _class("Semaphore")
+# The record types are spelled at the call site through the `_class` and
+# `_t_leaf` builders: a module-level record would be a call, and a module
+# assignment must be a constant.
 
 
 def _lock_value(lo: Any, node: ast.Call, span: dict[str, Any], recursive: bool) -> dict[str, Any]:
     """`Lock()` / `RLock()`: allocate the runtime record."""
     flag = _const_int(1 if recursive else 0, span)
-    return lo._abi_call("threading", "Lock", [flag], _LOCK, "ps_lock_new", span)
+    return lo._abi_call("threading", "Lock", [flag], _class("Lock"), "ps_lock_new", span)
 
 
 def _threading_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
@@ -54,17 +49,17 @@ def _threading_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) ->
         lo._reject_keywords(node)
         if node.args:
             lo.fail(node, "PS2003", "threading.get_ident expects 0 argument(s)")
-        return lo._abi_call("threading", "get_ident", [], _INT, "ps_thread_ident", span)
+        return lo._abi_call("threading", "get_ident", [], _t_leaf("int"), "ps_thread_ident", span)
     if attr == "active_count":
         lo._reject_keywords(node)
         if node.args:
             lo.fail(node, "PS2003", "threading.active_count expects 0 argument(s)")
-        return lo._abi_call("threading", "active_count", [], _INT, "ps_thread_active_count", span)
+        return lo._abi_call("threading", "active_count", [], _t_leaf("int"), "ps_thread_active_count", span)
     if attr == "Event":
         lo._reject_keywords(node)
         if node.args:
             lo.fail(node, "PS2003", "threading.Event expects 0 argument(s)")
-        return lo._abi_call("threading", "Event", [], _EVENT, "ps_event_new", span)
+        return lo._abi_call("threading", "Event", [], _class("Event"), "ps_event_new", span)
     if attr == "Condition":
         lo._reject_keywords(node)
         if node.args:
@@ -80,7 +75,7 @@ def _threading_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) ->
 
 def _cond_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`Condition()`: a class-shaped record initialized by `ps_cond_init`."""
-    return lo._abi_call("threading", "Condition", [], _COND, "ps_cond_init", span)
+    return lo._abi_call("threading", "Condition", [], _class("Condition"), "ps_cond_init", span)
 
 
 def _semaphore_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -94,7 +89,7 @@ def _semaphore_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str,
         if len(node.args) > 1:
             lo.fail(node, "PS2003", "threading.Semaphore expects at most 1 argument(s)")
         value = _const_number(lo, node.args[0], "threading.Semaphore value")
-    return lo._abi_call("threading", "Semaphore", [_const_int(value, span)], _SEM, "ps_sem_new", span)
+    return lo._abi_call("threading", "Semaphore", [_const_int(value, span)], _class("Semaphore"), "ps_sem_new", span)
 
 
 def _thread_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -179,7 +174,7 @@ def _thread_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, An
     env: list[_ir.EnvItem] = [_ir.EnvItem(dict_to_node(field), dict_to_type(_node_type(field))) for field in fields]
     env.append(_ir.EnvItem(dict_to_node(target), dict_to_type(target_type)))
     ret = target_type["return"]
-    call = lo._abi_call("threading", "Thread", [], _THREAD, "ps_thread_new", span)
+    call = lo._abi_call("threading", "Thread", [], _class("Thread"), "ps_thread_new", span)
     call["thread"] = {
         "daemon": 1 if daemon else 0,
         "name": name_value,
@@ -209,12 +204,12 @@ def _lock_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
         lo._reject_keywords(node)
         if node.args:
             lo.fail(node, "PS2003", "Lock.release expects 0 argument(s)")
-        return lo._abi_call("threading", "Lock.release", [receiver], _NONE, "ps_lock_release", span)
+        return lo._abi_call("threading", "Lock.release", [receiver], _t_leaf("none"), "ps_lock_release", span)
     if attr == "locked":
         lo._reject_keywords(node)
         if node.args:
             lo.fail(node, "PS2003", "Lock.locked expects 0 argument(s)")
-        return lo._abi_call("threading", "Lock.locked", [receiver], _BOOL, "ps_lock_locked", span)
+        return lo._abi_call("threading", "Lock.locked", [receiver], _t_leaf("bool"), "ps_lock_locked", span)
     if attr == "acquire":
         blocking = True
         timeout: dict[str, Any] | None = None
@@ -234,7 +229,9 @@ def _lock_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
         wait = _const_int(-1, span)
         if timeout is not None:
             wait = _timeout_nanos(timeout, span)
-        return lo._abi_call("threading", "Lock.acquire", [receiver, block, wait], _BOOL, "ps_lock_acquire", span)
+        return lo._abi_call(
+            "threading", "Lock.acquire", [receiver, block, wait], _t_leaf("bool"), "ps_lock_acquire", span
+        )
     lo.fail(node, "PS2001", f"Lock.{attr} is not lowered")
     raise AssertionError("unreachable")
 
@@ -330,7 +327,7 @@ def _wait_call(
         wait = _const_int(-1, span)
     else:
         wait = _timeout_nanos(lo._expr(timeout), span)
-    return lo._abi_call("threading", what, [receiver, wait], _BOOL, symbol, span)
+    return lo._abi_call("threading", what, [receiver, wait], _t_leaf("bool"), symbol, span)
 
 
 def _thread_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
@@ -346,7 +343,7 @@ def _thread_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
         if attr == "start":
             lo._reject_keywords(node)
             _no_args(lo, node, "Thread.start")
-            return call(_NONE, "ps_thread_start2", [], "Thread.start")
+            return call(_t_leaf("none"), "ps_thread_start2", [], "Thread.start")
         if attr == "join":
             timeout = None
             for keyword in node.keywords:
@@ -361,15 +358,15 @@ def _thread_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
                 wait = _const_int(-1, span)
             else:
                 wait = _timeout_nanos(lo._expr(timeout), span)
-            return call(_NONE, "ps_thread_join2", [wait], "Thread.join")
+            return call(_t_leaf("none"), "ps_thread_join2", [wait], "Thread.join")
         if attr == "is_alive":
             lo._reject_keywords(node)
             _no_args(lo, node, "Thread.is_alive")
-            return call(_BOOL, "ps_thread_is_alive2", [], "Thread.is_alive")
+            return call(_t_leaf("bool"), "ps_thread_is_alive2", [], "Thread.is_alive")
         if attr == "daemon":
             lo._reject_keywords(node)
             _no_args(lo, node, "Thread.daemon")
-            return call(_BOOL, "ps_thread_daemon", [], "Thread.daemon")
+            return call(_t_leaf("bool"), "ps_thread_daemon", [], "Thread.daemon")
         if attr == "name":
             lo._reject_keywords(node)
             _no_args(lo, node, "Thread.name")
@@ -379,15 +376,15 @@ def _thread_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
         if attr == "set":
             lo._reject_keywords(node)
             _no_args(lo, node, "Event.set")
-            return call(_NONE, "ps_event_set", [], "Event.set")
+            return call(_t_leaf("none"), "ps_event_set", [], "Event.set")
         if attr == "clear":
             lo._reject_keywords(node)
             _no_args(lo, node, "Event.clear")
-            return call(_NONE, "ps_event_clear", [], "Event.clear")
+            return call(_t_leaf("none"), "ps_event_clear", [], "Event.clear")
         if attr == "is_set":
             lo._reject_keywords(node)
             _no_args(lo, node, "Event.is_set")
-            return call(_BOOL, "ps_event_is_set", [], "Event.is_set")
+            return call(_t_leaf("bool"), "ps_event_is_set", [], "Event.is_set")
         if attr == "wait":
             return _wait_call(lo, node, span, receiver, "ps_event_wait", "Event.wait")
         lo.fail(node, "PS2001", f"Event.{attr} is not lowered")
@@ -395,21 +392,21 @@ def _thread_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
         if attr == "acquire":
             lo._reject_keywords(node)
             _no_args(lo, node, "Condition.acquire")
-            return call(_BOOL, "ps_cond_acquire", [], "Condition.acquire")
+            return call(_t_leaf("bool"), "ps_cond_acquire", [], "Condition.acquire")
         if attr == "release":
             lo._reject_keywords(node)
             _no_args(lo, node, "Condition.release")
-            return call(_NONE, "ps_cond_release", [], "Condition.release")
+            return call(_t_leaf("none"), "ps_cond_release", [], "Condition.release")
         if attr == "wait":
             return _wait_call(lo, node, span, receiver, "ps_cond_wait", "Condition.wait")
         if attr == "notify":
             lo._reject_keywords(node)
             _no_args(lo, node, "Condition.notify")
-            return call(_NONE, "ps_cond_notify", [], "Condition.notify")
+            return call(_t_leaf("none"), "ps_cond_notify", [], "Condition.notify")
         if attr == "notify_all":
             lo._reject_keywords(node)
             _no_args(lo, node, "Condition.notify_all")
-            return call(_NONE, "ps_cond_notify_all", [], "Condition.notify_all")
+            return call(_t_leaf("none"), "ps_cond_notify_all", [], "Condition.notify_all")
         lo.fail(node, "PS2001", f"Condition.{attr} is not lowered")
     if cls == "Semaphore":
         if attr == "acquire":
@@ -425,15 +422,15 @@ def _thread_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
                 blocking = _keyword_bool(lo, node.args[0], "blocking")
             wait = _timeout_seconds(lo, node, 1, span)
             flag = _const_int(1 if blocking else 0, span)
-            return call(_BOOL, "ps_sem_acquire", [flag, wait], "Semaphore.acquire")
+            return call(_t_leaf("bool"), "ps_sem_acquire", [flag, wait], "Semaphore.acquire")
         if attr == "release":
             lo._reject_keywords(node)
             _no_args(lo, node, "Semaphore.release")
-            return call(_NONE, "ps_sem_release", [], "Semaphore.release")
+            return call(_t_leaf("none"), "ps_sem_release", [], "Semaphore.release")
         if attr == "_value":
             lo._reject_keywords(node)
             _no_args(lo, node, "Semaphore._value")
-            return call(_INT, "ps_sem_value", [], "Semaphore._value")
+            return call(_t_leaf("int"), "ps_sem_value", [], "Semaphore._value")
         lo.fail(node, "PS2001", f"Semaphore.{attr} is not lowered")
     lo.fail(node, "PS2001", f"{cls} has no method {attr}")
     raise AssertionError("unreachable")

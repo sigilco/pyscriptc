@@ -25,7 +25,7 @@ from pyscriptc.restlower._shared import (
     _node_value,
 )
 
-_STATIC_MISSING = object()
+_STATIC_MISSING: dict[str, str] = {"sentinel": "static-missing"}
 _PS2005_MESSAGE = "string literals with lone surrogates are not lowered"
 
 
