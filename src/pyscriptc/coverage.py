@@ -33,7 +33,7 @@ CAP_FENCED = "fenced"
 CAP_ISLAND = "island"
 
 
-def deps_run_deps(source: Path, *, cache_dir: str | Path | None = None) -> dict[str, Any]:
+def deps_run_deps(source: Path, *, cache_dir: Path | None = None) -> dict[str, Any]:
     """Indirection over `deps.run_deps` so tests can fake the resolver."""
     from pyscriptc import deps
 
@@ -292,8 +292,19 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
     fences_by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
     for fence in _items(module, "fences"):
         span = _span_of(fence)
-        fences_by_file[_opt_str(span, "file")].append(fence)
-    paths = list(dict.fromkeys([*files, *sorted(fences_by_file)]))
+        bucket = fences_by_file[_opt_str(span, "file")]
+        bucket.append(fence)
+    paths: list[str] = []
+    seen_paths: set[str] = set()
+    for path_name in files:
+        if path_name not in seen_paths:
+            seen_paths.add(path_name)
+            paths.append(path_name)
+    extra_names: list[str] = [f for f in fences_by_file]
+    for extra in sorted(extra_names):
+        if extra not in seen_paths:
+            seen_paths.add(extra)
+            paths.append(extra)
     by_file: list[dict[str, Any]] = []
     totals = {
         "files": 0,
@@ -309,15 +320,18 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
     for path in paths:
         defs = _parse_defs(path, sources)
         local = fences_by_file.get(path, [])
-        owned: dict[str, list[dict[str, Any]]] = {item.name: [] for item in defs}
+        owned: dict[str, list[dict[str, Any]]] = {}
+        for item in defs:
+            owned[item.name] = []
         module_fences = 0
         for fence in local:
             owner = _innermost(defs, _opt_int(_span_of(fence), "line", 0))
             if owner is None:
                 module_fences += 1
             else:
-                owned[owner.name].append(fence)
-        buckets = Counter()
+                owner_fences = owned[owner.name]
+                owner_fences.append(fence)
+        buckets: dict[str, int] = {"native": 0, "fenced": 0, "island": 0}
         for name in owned:
             inside = owned[name]
             if any(routes_to_island(_opt_str(fence, "message")) for fence in inside):
@@ -327,28 +341,41 @@ def capabilities(module: dict[str, Any], files: list[str]) -> dict[str, Any]:
             else:
                 buckets[CAP_NATIVE] += 1
         codes = {_opt_str(fence, "code") for fence in local}
-        mechanisms = {found for fence in local if (found := mechanism_of(_opt_str(fence, "message"))) is not None}
+        mechanisms: set[str] = set()
+        for fence in local:
+            found = mechanism_of(_opt_str(fence, "message"))
+            if found is not None:
+                mechanisms.add(found)
+        code_list: list[str] = [c for c in codes]
+        mechanism_list: list[str] = [m for m in mechanisms]
         all_codes |= codes
         all_mechanisms |= mechanisms
-        entry = {
-            "file": path,
-            "definitions": len(defs),
-            "native": buckets[CAP_NATIVE],
-            "fenced": buckets[CAP_FENCED],
-            "island": buckets[CAP_ISLAND],
-            "moduleFences": module_fences,
-            "fences": len(local),
-            "codes": sorted(codes),
-            "mechanisms": sorted(mechanisms),
-        }
+        entry: dict[str, Any] = {}
+        entry["file"] = path
+        entry["definitions"] = len(defs)
+        entry["native"] = buckets[CAP_NATIVE]
+        entry["fenced"] = buckets[CAP_FENCED]
+        entry["island"] = buckets[CAP_ISLAND]
+        entry["moduleFences"] = module_fences
+        entry["fences"] = len(local)
+        entry["codes"] = sorted(code_list)
+        entry["mechanisms"] = sorted(mechanism_list)
         by_file.append(entry)
         totals["files"] += 1
         for key in ("definitions", "native", "fenced", "island", "moduleFences", "fences"):
-            totals[key] += entry[key]
-    return {
-        "byFile": by_file,
-        "totals": {**totals, "codes": sorted(all_codes), "mechanisms": sorted(all_mechanisms)},
-    }
+            value: int = entry[key]
+            totals[key] += value
+    totals_out: dict[str, Any] = {}
+    for key in totals:
+        totals_out[key] = totals[key]
+    all_codes_list: list[str] = [c for c in all_codes]
+    all_mechanisms_list: list[str] = [m for m in all_mechanisms]
+    totals_out["codes"] = sorted(all_codes_list)
+    totals_out["mechanisms"] = sorted(all_mechanisms_list)
+    result: dict[str, Any] = {}
+    result["byFile"] = by_file
+    result["totals"] = totals_out
+    return result
 
 
 def _definition_capability(entries: list[dict[str, Any]], indexes: list[int]) -> str:
@@ -360,7 +387,7 @@ def _definition_capability(entries: list[dict[str, Any]], indexes: list[int]) ->
     return CAP_NATIVE
 
 
-def _unusable_files(root: Path) -> tuple[set[Path], list[dict[str, Any]]]:
+def _unusable_files(root: Path) -> tuple[list[Path], list[dict[str, Any]]]:
     """The tree's files that cannot be analysed, each with the reason.
 
     A real package tree holds files the lowering cannot take: migrations
@@ -371,7 +398,7 @@ def _unusable_files(root: Path) -> tuple[set[Path], list[dict[str, Any]]]:
     """
 
     resolved = root.resolve()
-    excluded: set[Path] = set()
+    excluded: list[Path] = []
     failures: list[dict[str, Any]] = []
     for path in sorted(resolved.rglob("*.py")):
         relative = path.relative_to(resolved)
@@ -386,7 +413,7 @@ def _unusable_files(root: Path) -> tuple[set[Path], list[dict[str, Any]]]:
             except (OSError, SyntaxError, UnicodeDecodeError, ValueError) as exc:
                 reason = str(exc)
         if reason:
-            excluded.add(path)
+            excluded.append(path)
             failures.append({"file": str(path), "reason": reason})
     return excluded, failures
 
@@ -394,7 +421,7 @@ def _unusable_files(root: Path) -> tuple[set[Path], list[dict[str, Any]]]:
 def _empty_module(target: Path) -> dict[str, Any]:
     """A module with no units: the report reads fences and totals from it."""
 
-    return {
+    module: dict[str, Any] = {
         "irVersion": IR_VERSION,
         "subset": SUBSET,
         "sourceFile": str(target),
@@ -402,6 +429,7 @@ def _empty_module(target: Path) -> dict[str, Any]:
         "classes": [],
         "fences": [],
     }
+    return module
 
 
 def _lower(target: Path, bridge: Any = None) -> tuple[dict[str, Any], list[str], list[dict[str, Any]]]:
@@ -466,10 +494,11 @@ def _dependency_map(target: Path) -> dict[str, dict[str, Any]]:
     config = load_config(target)
     mapping: dict[str, dict[str, Any]] = {}
     if config.dependencies:
+        report: dict[str, Any] | None = None
         try:
             report = deps_run_deps(target, cache_dir=None)
         except Exception:
-            report = None
+            pass
         if report is not None:
             mapping = _wheel_map(report)
     mapping.update(_policy_entries(target))
@@ -482,22 +511,28 @@ def _wheel_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
     from pyscriptc.deps import UNKNOWN_IMPORT_NAMES
 
     mapping: dict[str, dict[str, Any]] = {}
-    for package in report["packages"]:
-        module = str(package["name"]).lower().replace("-", "_").replace(".", "_")
-        names = tuple(package.get("import_names") or ())
+    packages: list[dict[str, Any]] = report["packages"]
+    for package in packages:
+        dist_name: str = package["name"]
+        module = str(dist_name).lower().replace("-", "_").replace(".", "_")
+        names: list[str] = []
+        if "import_names" in package:
+            names = package["import_names"]
+        lane_name: str = package["lane"]
+        hint_text: str = package["hint"]
         if not names:
             mapping[module] = {
-                "distribution": package["name"],
-                "lane": package["lane"],
-                "hint": package["hint"],
+                "distribution": dist_name,
+                "lane": lane_name,
+                "hint": hint_text,
                 "importNames": UNKNOWN_IMPORT_NAMES,
             }
             continue
         for name in names:
             mapping[name.lower()] = {
-                "distribution": package["name"],
-                "lane": package["lane"],
-                "hint": package["hint"],
+                "distribution": dist_name,
+                "lane": lane_name,
+                "hint": hint_text,
             }
     return mapping
 
@@ -608,12 +643,19 @@ def _annotate(entry: dict[str, Any], known: dict[str, dict[str, str]]) -> dict[s
     and lists the claimants.
     """
 
-    message = entry["message"]
-    if entry["code"] != "PS2002" or "is not in the closed import table" not in message:
+    message: str = entry["message"]
+    entry_code: str = entry["code"]
+    if entry_code != "PS2002" or "is not in the closed import table" not in message:
         return entry
     for name in message.split():
-        candidate = name.strip(".,:;'\"()[]")
-        found = known.get(candidate) or known.get(candidate.lower())
+        candidate = name
+        while candidate and candidate[0] in ".,:;'\"()[]":
+            candidate = candidate[1:]
+        while candidate and candidate[-1] in ".,:;'\"()[]":
+            candidate = candidate[:-1]
+        found: dict[str, str] | None = known.get(candidate)
+        if found is None:
+            found = known.get(candidate.lower())
         if found is None:
             found = known.get(candidate.split(".", 1)[0].lower())
         if found is None:
@@ -621,17 +663,25 @@ def _annotate(entry: dict[str, Any], known: dict[str, dict[str, str]]) -> dict[s
         if found is None:
             continue
         entry["dependency"] = found
+        where: str = ""
         if found.get("policy") is not None:
+            policy_name: str = found["policy"]
             where = (
                 f" ({candidate} is on the island lane ({REQUIRES_LIBPYTHON}); "
-                f"the per-import policy {found['policy']!r} routes it and the binary links the host interpreter)"
+                f"the per-import policy {policy_name!r} routes it and the binary links the host interpreter)"
             )
         else:
-            where = f" ({found['distribution']} provides {candidate}, on the {found['lane']} lane: {found['hint']})"
-        if found.get("ambiguous"):
-            where = f" ({candidate} is claimed by more than one locked distribution: {found['ambiguous']})"
+            dist_name: str = found["distribution"]
+            lane_name: str = found["lane"]
+            hint_text: str = found["hint"]
+            where = f" ({dist_name} provides {candidate}, on the {lane_name} lane: {hint_text})"
+        ambiguous: str | None = found.get("ambiguous")
+        if ambiguous:
+            where = f" ({candidate} is claimed by more than one locked distribution: {ambiguous})"
         entry["message"] = message + where
-        entry["frame"] = entry["frame"].replace(message, entry["message"])
+        frame_text: str = entry["frame"]
+        new_message: str = entry["message"]
+        entry["frame"] = frame_text.replace(message, new_message)
         break
     return entry
 
@@ -649,12 +699,20 @@ def _island_imports(target: Path, known: dict[str, dict[str, Any]]) -> list[str]
     own = target.name if target.is_dir() else ""
     found: list[str] = []
     for site in collect_imports(target):
-        name = site["name"]
-        if not name or site["level"] > 0 or name.split(".", 1)[0] == own:
+        name: str = site["name"]
+        level: int = site["level"]
+        if not name or level > 0 or name.split(".", 1)[0] == own:
             continue
-        root = name.split(".", 1)[0]
-        entry = known.get(name.lower()) or known.get(root.lower()) or known.get("*")
-        if entry is None or entry.get("lane") != "island":
+        root: str = name.split(".", 1)[0]
+        entry: dict[str, Any] | None = known.get(name.lower())
+        if entry is None:
+            entry = known.get(root.lower())
+        if entry is None:
+            entry = known.get("*")
+        if entry is None:
+            continue
+        lane_value: str = entry["lane"]
+        if lane_value != "island":
             continue
         if name not in found:
             found.append(name)
@@ -669,86 +727,201 @@ def _summary(
     island_imports: list[str],
     failed_files: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    fences_by_family = Counter(e["family"] for e in entries)
+    fences_by_family: dict[str, int] = {}
+    code_counts: dict[str, int] = {}
+    root_fences = 0
+    for e in entries:
+        family: str = e["family"]
+        code: str = e["code"]
+        entry_derived: bool = e["derived"]
+        fences_by_family[family] = fences_by_family.get(family, 0) + 1
+        code_counts[code] = code_counts.get(code, 0) + 1
+        if not entry_derived:
+            root_fences += 1
     total_definitions = sum(total_defs.values())
     fenced_definitions = len(definitions)
-    return {
-        "files": len(files),
-        "filesFailed": len(failed_files),
-        "definitions": total_definitions,
-        "nativeDefinitions": max(0, total_definitions - fenced_definitions),
-        "fencedDefinitions": fenced_definitions,
-        "fences": len(entries),
-        "rootFences": sum(1 for e in entries if not e["derived"]),
-        "requiresLibpython": bool(island_imports),
-        "islandImports": island_imports,
-        "byCode": dict(sorted(Counter(e["code"] for e in entries).items())),
-        "byFamily": {
-            family: {"fences": count, "derived": is_derived(family)}
-            for family, count in sorted(fences_by_family.items(), key=lambda kv: (-kv[1], kv[0]))
-        },
-    }
+    sorted_codes: list[str] = sorted([c for c in code_counts])
+    by_code: dict[str, int] = {}
+    for code in sorted_codes:
+        by_code[code] = code_counts[code]
+    family_rows: list[tuple[str, int]] = []
+    for family in fences_by_family:
+        family_rows.append((family, fences_by_family[family]))
+    row_count: int = len(family_rows)
+    for i in range(row_count - 1):
+        for j in range(row_count - 1 - i):
+            left_row: tuple[str, int] = family_rows[j]
+            right_row: tuple[str, int] = family_rows[j + 1]
+            left_count: int = left_row[1]
+            right_count: int = right_row[1]
+            swap_rows = False
+            if left_count != right_count:
+                swap_rows = left_count < right_count
+            else:
+                left_family: str = left_row[0]
+                right_family: str = right_row[0]
+                swap_rows = left_family > right_family
+            if swap_rows:
+                family_rows[j] = right_row
+                family_rows[j + 1] = left_row
+    by_family: dict[str, Any] = {}
+    for family, count in family_rows:
+        by_family[family] = _family_capability(count, family)
+    result: dict[str, Any] = {}
+    result["files"] = len(files)
+    result["filesFailed"] = len(failed_files)
+    result["definitions"] = total_definitions
+    result["nativeDefinitions"] = max(0, total_definitions - fenced_definitions)
+    result["fencedDefinitions"] = fenced_definitions
+    result["fences"] = len(entries)
+    result["rootFences"] = root_fences
+    result["requiresLibpython"] = bool(island_imports)
+    result["islandImports"] = island_imports
+    result["byCode"] = by_code
+    result["byFamily"] = by_family
+    return result
+
+
+def _family_capability(count: int, family: str) -> dict[str, Any]:
+    row: dict[str, Any] = {}
+    row["fences"] = count
+    row["derived"] = is_derived(family)
+    return row
+
+
+def _chain_row_less(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    left_unblocked: int = left["definitionsUnblocked"]
+    right_unblocked: int = right["definitionsUnblocked"]
+    left_fences: int = left["fences"]
+    right_fences: int = right["fences"]
+    left_family: str = left["family"]
+    right_family: str = right["family"]
+    if left_unblocked != right_unblocked:
+        return left_unblocked < right_unblocked
+    if left_fences != right_fences:
+        return left_fences < right_fences
+    return left_family > right_family
+
+
+def _chain_row(family: str, fence_count: int, unblocked: int, left: int) -> dict[str, Any]:
+    row: dict[str, Any] = {}
+    row["family"] = family
+    row["fences"] = fence_count
+    row["definitionsUnblocked"] = unblocked
+    row["rootFencesLeft"] = left
+    return row
 
 
 def _chain(entries: list[dict[str, Any]], definitions: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Per family: how many definitions it alone blocks, and how many root fences stay if it is fixed."""
-    root_total = sum(1 for e in entries if not e["derived"])
-    root_by_family = Counter(e["family"] for e in entries if not e["derived"])
+    root_total = 0
+    root_by_family: dict[str, int] = {}
+    for e in entries:
+        entry_derived: bool = e["derived"]
+        if entry_derived:
+            continue
+        root_total += 1
+        family: str = e["family"]
+        root_by_family[family] = root_by_family.get(family, 0) + 1
     alone: Counter[str] = Counter()
     for definition in definitions:
-        families = {entries[i]["family"] for i in definition["fences"] if not entries[i]["derived"]}
+        families: set[str] = set()
+        def_fences: list[int] = definition["fences"]
+        for i in def_fences:
+            fence_entry: dict[str, Any] = entries[i]
+            fence_derived: bool = fence_entry["derived"]
+            if not fence_derived:
+                fence_family: str = fence_entry["family"]
+                families.add(fence_family)
         if len(families) == 1:
             alone[next(iter(families))] += 1
-    chain = [
-        {
-            "family": family,
-            "fences": count,
-            "definitionsUnblocked": alone[family],
-            "rootFencesLeft": root_total - count,
-        }
-        for family, count in root_by_family.items()
+    chain: list[dict[str, Any]] = [
+        _chain_row(family, count, alone[family], root_total - count) for family, count in root_by_family.items()
     ]
-    chain.sort(key=lambda item: (-item["definitionsUnblocked"], -item["fences"], item["family"]))
+    chain_count: int = len(chain)
+    for i in range(chain_count - 1):
+        for j in range(chain_count - 1 - i):
+            if _chain_row_less(chain[j], chain[j + 1]):
+                tmp_row: dict[str, Any] = chain[j]
+                chain[j] = chain[j + 1]
+                chain[j + 1] = tmp_row
     return chain
 
 
 def render_text(report: dict[str, Any]) -> str:
-    summary = report["summary"]
-    parts = [
-        f"{report['target']}: {summary['fences']} fences "
-        f"({summary['rootFences']} root) in {summary['fencedDefinitions']} of {summary['definitions']} definitions "
-        f"({summary['nativeDefinitions']} native)"
+    summary: dict[str, Any] = report["summary"]
+    report_target: str = report["target"]
+    summary_fences: int = summary["fences"]
+    summary_root: int = summary["rootFences"]
+    summary_fenced_defs: int = summary["fencedDefinitions"]
+    summary_definitions: int = summary["definitions"]
+    summary_native_defs: int = summary["nativeDefinitions"]
+    parts: list[str] = [
+        f"{report_target}: {summary_fences} fences "
+        f"({summary_root} root) in {summary_fenced_defs} of {summary_definitions} definitions "
+        f"({summary_native_defs} native)"
     ]
-    cap = report["capabilities"]["totals"]
+    report_caps: dict[str, Any] = report["capabilities"]
+    cap: dict[str, Any] = report_caps["totals"]
+    cap_native: int = cap["native"]
+    cap_fenced: int = cap["fenced"]
+    cap_island: int = cap["island"]
+    cap_definitions: int = cap["definitions"]
+    cap_files: int = cap["files"]
     parts.append(
-        f"capability: {cap['native']} native, {cap['fenced']} fenced, {cap['island']} island "
-        f"definitions of {cap['definitions']} ({cap['files']} files)"
+        f"capability: {cap_native} native, {cap_fenced} fenced, {cap_island} island "
+        f"definitions of {cap_definitions} ({cap_files} files)"
     )
-    for item in report["capabilities"]["byFile"]:
-        if not (item["fences"] or item["definitions"]):
+    by_file: list[dict[str, Any]] = report_caps["byFile"]
+    for item in by_file:
+        item_fences: int = item["fences"]
+        item_definitions: int = item["definitions"]
+        if not (item_fences or item_definitions):
             continue
-        mechanisms = f", reflection: {', '.join(item['mechanisms'])}" if item["mechanisms"] else ""
+        item_native: int = item["native"]
+        item_fenced_cap: int = item["fenced"]
+        item_island: int = item["island"]
+        item_file: str = item["file"]
+        item_mechanisms: list[str] = item["mechanisms"]
+        mechanisms = ""
+        if item_mechanisms:
+            mechanisms = ", reflection: " + ", ".join(item_mechanisms)
         parts.append(
-            f"  {item['file']}: {item['native']} native, {item['fenced']} fenced, {item['island']} island "
-            f"of {item['definitions']} definitions, {item['fences']} fences{mechanisms}"
+            f"  {item_file}: {item_native} native, {item_fenced_cap} fenced, {item_island} island "
+            f"of {item_definitions} definitions, {item_fences} fences{mechanisms}"
         )
-    failed = report.get("failedFiles", [])
+    failed: list[dict[str, Any]] = []
+    if "failedFiles" in report:
+        failed = report["failedFiles"]
     if failed:
         parts.append(f"could not analyse {len(failed)} file(s):")
         for item in failed:
-            parts.append(f"  {item['file']}: {item['reason']}")
-    entries = report["fences"]
+            fail_file: str = item["file"]
+            fail_reason: str = item["reason"]
+            parts.append(f"  {fail_file}: {fail_reason}")
+    entries: list[dict[str, Any]] = report["fences"]
     for entry in entries:
-        parts.append(entry["frame"])
-        owner = entry["definition"] or "<module>"
-        parts.append(f"  family: {entry['family']}{' (derived)' if entry['derived'] else ''}  in: {owner}")
-        parts.append(f"  hint: {entry['hint']}")
-    if report["chain"]:
+        frame: str = entry["frame"]
+        entry_family: str = entry["family"]
+        entry_derived: bool = entry["derived"]
+        entry_definition: str | None = entry["definition"]
+        entry_hint: str = entry["hint"]
+        parts.append(frame)
+        owner = entry_definition or "<module>"
+        parts.append(f"  family: {entry_family}{' (derived)' if entry_derived else ''}  in: {owner}")
+        parts.append(f"  hint: {entry_hint}")
+    chain_all: list[dict[str, Any]] = report["chain"]
+    chain_items = chain_all[:10]
+    if chain_items:
         parts.append("blockers, most definitions first:")
-        for item in report["chain"][:10]:
+        for item in chain_items:
+            item_family: str = item["family"]
+            item_fences: int = item["fences"]
+            item_unblocked: int = item["definitionsUnblocked"]
+            item_left: int = item["rootFencesLeft"]
             parts.append(
-                f"  {item['family']}: {item['fences']} fences, "
-                f"fixing it unblocks {item['definitionsUnblocked']} definitions "
-                f"and leaves {item['rootFencesLeft']} more root fences"
+                f"  {item_family}: {item_fences} fences, "
+                f"fixing it unblocks {item_unblocked} definitions "
+                f"and leaves {item_left} more root fences"
             )
     return "\n".join(parts)

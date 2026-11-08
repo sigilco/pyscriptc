@@ -943,7 +943,8 @@ def render_text(
         module_top: str = plane_map.get("moduleTopLevel", "native")
         lines.append(f"  module top level: {module_top}")
         demoted_by: dict[str, str] = plane_map.get("demotedBy", {})
-        for fn_name, plane in sorted(functions_map.items()):
+        for fn_name in sorted([name for name in functions_map]):
+            plane: str = functions_map[fn_name]
             demoted_reason: str = demoted_by.get(fn_name, "")
             if demoted_reason:
                 lines.append(f"  {fn_name}: {plane} (demoted by {demoted_reason})")
