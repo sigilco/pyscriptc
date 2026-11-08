@@ -32,7 +32,7 @@ from pyscriptc.coro import enabled
 
 # boxed:end
 from pyscriptc.errors import span_of
-from pyscriptc.ffi_manifest import is_handle_type, type_ir
+from pyscriptc.ffi_manifest import FfiManifest, is_handle_type, type_ir
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _MISSING,
@@ -237,7 +237,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
         self.bindings[bound or name] = Binding("module", name, "", False)
         return True
 
-    def _ffi_module(self, name: str) -> Any:
+    def _ffi_module(self, name: str) -> FfiManifest | None:
         return ffi_manifests().get(name)
 
     def _ffi_call(self, node: ast.Call, span: dict[str, Any], module: str, attr: str) -> dict[str, Any]:
