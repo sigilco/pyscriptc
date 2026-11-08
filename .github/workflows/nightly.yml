@@ -63,13 +63,18 @@ jobs:
       # one toolchain.
       - name: Toolchain fingerprint
         id: tc
-        run: echo "v=$(clang --version | head -1 | tr -c 'A-Za-z0-9.\n' '_')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "v=$(clang --version | head -1 | tr -c 'A-Za-z0-9.\n' '_')" >> "$GITHUB_OUTPUT"
+          # Hash once, before the scorer writes into the workspace. The expression form
+          # hashFiles() is re-evaluated by the cache post step and failed there with
+          # "Fail to hash files under directory" (runs 42464157597, 42475006519).
+          echo "h=$(git ls-files -z uv.lock src/pyscriptc benchmarks/compat2 | grep -zv '^benchmarks/compat2/\.cache/' | xargs -0 sha256sum | sha256sum | cut -c1-40)" >> "$GITHUB_OUTPUT"
 
       - name: Restore scorer cache
         uses: actions/cache@v5
         with:
           path: benchmarks/compat2/.cache
-          key: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-${{ hashFiles('uv.lock', 'src/pyscriptc/**', 'benchmarks/compat2/**', '!benchmarks/compat2/.cache/**') }}
+          key: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-${{ steps.tc.outputs.h }}
           restore-keys: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-
 
       - name: oracle is CPython 3.14.9
