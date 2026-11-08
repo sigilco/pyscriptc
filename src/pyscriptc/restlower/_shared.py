@@ -109,13 +109,6 @@ def _type_value(typ: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-def _node_span(node: dict[str, Any]) -> dict[str, Any]:
-    """The source span a dict-IR node carries."""
-
-    span: dict[str, Any] = node["span"]
-    return span
-
-
 def _field_name(field: dict[str, Any]) -> str:
     """The name a class-field record carries."""
 
