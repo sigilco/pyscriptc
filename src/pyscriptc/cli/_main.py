@@ -830,7 +830,7 @@ def embed_cmd(args: argparse.Namespace) -> int:
     if args.embed_cmd != "fetch":
         raise IRError(f"unknown embed command {args.embed_cmd!r} (known: fetch)")
     pack = embed.lock_pack(getattr(args, "platform", None))
-    directory = embed.pack_dir(pack)
+    directory: Path = embed.pack_dir(pack)
     if embed.pack_is_ready(pack) and not args.force:
         print(f"runtime pack already present: {directory}")
         return 0
@@ -1090,7 +1090,7 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
     try:
         from pyscriptc import cli as _cli_pkg
 
-        code = _cli_pkg.compile_cmd(compile_args)
+        code: int = _cli_pkg.compile_cmd(compile_args)
         # boxed:begin
         # A bundle-resolved compile writes a relocatable directory at the
         # output path, not the single file the run cache and verify exec.
@@ -1198,7 +1198,7 @@ def assess_cmd(args: argparse.Namespace) -> int:
     if not source.exists():
         raise IRError(f"source not found: {source}")
     call_args: list[Any] = _parse_args(args.args) if args.call else []
-    report = assess.assess(
+    report: dict[str, Any] = assess.assess(
         source,
         bench=args.bench,
         verify_diff=args.verify,
@@ -1268,16 +1268,16 @@ def build_cmd(args: argparse.Namespace) -> int:
     _apply_env_defaults(args)
     if args.target is not None and args.driver != "zig":
         raise IRError("--target requires --driver zig (bundled sysroot per target)")
-    directory = Path(args.directory)
-    pyproject = project.discover_pyproject(directory)
-    scripts = entry_points(pyproject)
+    directory: Path = Path(args.directory)
+    pyproject: Path = project.discover_pyproject(directory)
+    scripts: dict[str, str] = entry_points(pyproject)
     if not scripts:
         print(f"{pyproject}: no [project.scripts] table, nothing to build", file=sys.stderr)
         return 1
-    names: list[str] = sorted(scripts) if args.script is None else [args.script]
+    names: list[str] = sorted([key for key in scripts]) if args.script is None else [args.script]
     for name in names:
         if name not in scripts:
-            known = ", ".join(sorted(scripts))
+            known = ", ".join(sorted([key for key in scripts]))
             print(f"{pyproject}: no console script {name!r} (known: {known})", file=sys.stderr)
             return 2
     state: dict[str, Any] = {"outcome": None, "stage": "lower", "fence_count": 0, "fence_families": {}}
@@ -1286,16 +1286,19 @@ def build_cmd(args: argparse.Namespace) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
         built: list[Path] = []
         for name in names:
-            module_ir, _ = project.lower_script(pyproject, name)
-            if module_ir["fences"]:
-                state["fence_count"] = len(module_ir["fences"])
-                state["fence_families"] = _fence_families(module_ir["fences"])
-                print(render_fences(module_ir, module_ir["sourceFile"]), file=sys.stderr)
+            lowered_ir: tuple[dict[str, Any], str] = project.lower_script(pyproject, name)
+            module_ir: dict[str, Any] = lowered_ir[0]
+            ir_fences: list[dict[str, str]] = module_ir["fences"]
+            ir_source: str = module_ir["sourceFile"]
+            if ir_fences:
+                state["fence_count"] = len(ir_fences)
+                state["fence_families"] = _fence_families(ir_fences)
+                print(render_fences(module_ir, ir_source), file=sys.stderr)
                 state["outcome"] = "fences"
                 return 3
             state["stage"] = "check"
             if not args.skip_check:
-                run_checker(Path(module_ir["sourceFile"]), args.checker)
+                run_checker(Path(ir_source), args.checker)
             state["stage"] = "emit"
             llvm_text = emit_llvm(module_ir, None, [], standalone=True)
             with tempfile.TemporaryDirectory(prefix="pyscriptc-build-") as scratch:
@@ -1552,7 +1555,7 @@ def _load_ffi(args: argparse.Namespace, config: Config) -> list[FfiManifest]:
     paths.extend(config.ffi_manifests)
     if not paths:
         return []
-    manifests = load_manifests(paths)
+    manifests: list[FfiManifest] = load_manifests(paths)
     for manifest in manifests:
         _require_manifest_units(manifest)
     return manifests
@@ -1739,7 +1742,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             with island_ctx, boxed_definitions(fallback):
                 # boxed:end
                 if source_path.is_dir():
-                    module, source = lower_directory(
+                    lowered_dir: tuple[dict[str, Any], str] = lower_directory(
                         source_path,
                         program_mode=args.program,
                         bridge=bridge,
@@ -1751,8 +1754,10 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                         config=config,
                         staged_data=staged_data,
                     )
+                    module: dict[str, Any] | None = lowered_dir[0]
+                    source: str = lowered_dir[1]
                 elif source_path.is_file():
-                    module, source = lower_file(
+                    lowered_file: tuple[dict[str, Any], str] = lower_file(
                         str(source_path),
                         bridge=bridge,
                         timings=dbg.timings_map,
@@ -1763,6 +1768,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                         resource_root=str(data_root) if data_root else "",
                         config=config,
                     )
+                    module: dict[str, Any] | None = lowered_file[0]
+                    source: str = lowered_file[1]
                 else:
                     raise IRError(f"source not found: {source_path}")
         # boxed:begin
@@ -1840,13 +1847,14 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             log.info("emit.ir", output=str(ir_path))
         if module["fences"]:
             await_check()
-            state["fence_count"] = len(module["fences"])
-            state["fence_families"] = _fence_families(module["fences"])
-            state["fence_codes"] = _histogram(module["fences"], "code")
+            module_fences: list[dict[str, str]] = module["fences"]
+            state["fence_count"] = len(module_fences)
+            state["fence_families"] = _fence_families(module_fences)
+            state["fence_codes"] = _histogram(module_fences, "code")
             log.info(
                 "check.fences",
-                count=len(module["fences"]),
-                codes=[fence["code"] for fence in module["fences"]],
+                count=len(module_fences),
+                codes=[fence["code"] for fence in module_fences],
             )
             print(render_fences(module, source), file=sys.stderr)
             status = "fences"
@@ -1954,7 +1962,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             state["stage"] = "archive"
             dbg.begin("archive")
             mobile = require_mobile_target(args.target, "--emit lib")
-            artifacts = build_library(
+            artifacts: dict[str, Path] = build_library(
                 ll_path,
                 _library_dir(args, source_path),
                 target=mobile,
@@ -1969,7 +1977,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             outputs["header"] = str(artifacts["header"])
             outputs["modulemap"] = str(artifacts["modulemap"])
             log.info("archive.library", output=str(artifacts["archive"]), target=args.target)
-            print(artifacts["archive"])
+            print(str(artifacts["archive"]))
             if mobile.family == "android":
                 # The archive has no program headers; the 16 KB alignment is
                 # the consumer's link-time decision, so say it where the
@@ -1987,7 +1995,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.begin("binding")
             base: Path = Path(args.output) if args.output else _artifact_base(args, source_path)
             stem = base.stem.removesuffix("_binding")
-            shlib_name = binding.shared_library_name(stem, target=args.target)
+            shlib_name: str = binding.shared_library_name(stem, target=args.target)
             shlib_path: Path = base.parent / shlib_name
             binding_path: Path = base.parent / f"{stem}_binding.py"
 
@@ -1996,7 +2004,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             # on the far side, so an unguarded call would report and exit the
             # host process. The shim is a C unit of the same link, generated
             # from the same function list the loader module is built from.
-            emitted, skipped = binding.analyze_binding(module)
+            binding_parts: tuple[list[dict[str, Any]], list[tuple[str, str]]] = binding.analyze_binding(module)
+            emitted: list[dict[str, Any]] = binding_parts[0]
+            skipped: list[tuple[str, str]] = binding_parts[1]
             dbg.set_binding(emitted, skipped)
             shim_path: Path = base.parent / f"{stem}_binding_shim.c"
             shim_path.parent.mkdir(parents=True, exist_ok=True)
@@ -2022,7 +2032,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 shared=True,
             )
 
-            binding_code = binding.render_binding_module(stem, shlib_name, emitted, skipped)
+            binding_code: str = binding.render_binding_module(stem, shlib_name, emitted, skipped)
             binding_path.parent.mkdir(parents=True, exist_ok=True)
             _write_text(binding_path, binding_code)
 
@@ -2089,7 +2099,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # and the compile first manifest-checks every stdlib import of the
         # program against the zip the trim would produce, so a trimmed module
         # fails the build (PS4301), never the run.
-        requested_embed = getattr(args, "embed_python", None)
+        requested_embed: str | None = getattr(args, "embed_python", None)
         resolved_embed: str | None = requested_embed
         if resolved_embed != "host" and embed.resolve_mode(resolved_embed) == "bundle":
             resolved_embed = "bundle"
@@ -2144,7 +2154,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         log.info("run.start", binary=str(binary))
         dbg.begin("run")
         run_env = _run_environment(source_path)
-        completed = subprocess.run([str(binary.absolute()), *args.run_argv], env=run_env)
+        completed: subprocess.CompletedProcess = subprocess.run([str(binary.absolute()), *args.run_argv], env=run_env)
         dbg.end("run")
         code: int = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
         log.info("run.exit", binary=str(binary), code=code)
@@ -2437,7 +2447,7 @@ def _output_path(args: argparse.Namespace, source: Path, suffix: str) -> Path:
     if args.output and args.emit == "obj" and suffix == ".o":
         return Path(args.output)
     if args.output and args.emit == "binding":
-        base = Path(args.output)
+        base: Path = Path(args.output)
         stem = base.stem.removesuffix("_binding")
         return base.parent / f"{stem}{suffix}"
     if args.output:
