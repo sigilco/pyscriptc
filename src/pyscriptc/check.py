@@ -153,7 +153,7 @@ def run_checker(
         config = Path(cache) / "mypy.ini"
         # The manifest's directory carries the adapter's `.pyi`, so mypy
         # finds the module the same way pyrefly and pyright do (issue #66).
-        mypy_path = ", ".join(str(root) for root in paths)
+        mypy_path = ", ".join([str(p) for p in paths])
         config.write_text(
             f"[mypy]\nplugins = pyscriptc.check\nmypy_path = {mypy_path}\n",
             "utf-8",
@@ -250,11 +250,13 @@ def _patched_typeshed(dest: Path) -> Path:
     text = builtins.read_text(encoding="utf-8")
     if _BUILTINS_FROZENSET not in text or "class range(" not in text:
         raise CheckFailed("vendored typeshed builtins.pyi no longer matches the subset patch anchors")
-    text = text.replace(_BUILTINS_FROZENSET, "class frozenset(set[_T_co]):", 1)
+    i: int = text.index(_BUILTINS_FROZENSET)
+    text = text[:i] + "class frozenset(set[_T_co]):" + text[i + len(_BUILTINS_FROZENSET) :]
     start: int = text.index("class range(")
-    end: int = text.index("\nclass ", start)
-    block: str = text[start:end].replace("-> Self:", "-> list[int]:")
-    builtins.write_text(text[:start] + block + text[end:])
+    tail: str = text[start:]
+    rel: int = tail.index("\nclass ")
+    block: str = tail[:rel].replace("-> Self:", "-> list[int]:")
+    builtins.write_text(text[:start] + block + tail[rel:])
     return dest
 
 
@@ -287,7 +289,7 @@ def _typeshed_cache_root() -> Path:
 
 def _typeshed_digest() -> str:
     """Content hash of the vendored tree plus the builtins patch literals."""
-    digest = hashlib.sha256()
+    digest = hashlib.sha256(b"")
     for part in _TYPESHED_PATCH_KEY_PARTS:
         digest.update(part.encode())
         digest.update(b"\0")
@@ -428,7 +430,7 @@ def _pyrefly_errors(stdout: str) -> list[dict[str, Any]] | None:
         return None
     try:
         data = json.loads(text)
-    except json.JSONDecodeError:
+    except ValueError:
         return None
     errors = data.get("errors")
     if not isinstance(errors, list):

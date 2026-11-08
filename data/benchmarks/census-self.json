@@ -3,15 +3,15 @@
   "command": "uv run python -m benchmarks.compat2.census_self --json data/benchmarks/census-self.json",
   "mode": "parse-only",
   "src": "src/pyscriptc",
-  "lines": 73897,
+  "lines": 73990,
   "modules": 135,
   "skipped": [
     "__main__.py"
   ],
-  "fences": 3451,
-  "definitions": 2956,
-  "nativeDefinitions": 1448,
-  "fencedDefinitions": 1508,
+  "fences": 3345,
+  "definitions": 2954,
+  "nativeDefinitions": 1458,
+  "fencedDefinitions": 1496,
   "packages": [
     {
       "package": "pyscriptc",
@@ -38,19 +38,17 @@
     },
     {
       "package": "assess",
-      "fences": 80,
-      "definitions": 8,
+      "fences": 10,
+      "definitions": 5,
       "nativeDefinitions": 0,
-      "fencedDefinitions": 8,
+      "fencedDefinitions": 5,
       "rootFamilies": {
-        "name-resolution": 38,
-        "local-inference": 24,
-        "construct-other": 12,
+        "name-resolution": 4,
         "unlowered-type-name": 2,
         "call-arity": 1,
+        "construct-other": 1,
         "dynamic-annotation": 1,
-        "import-table": 1,
-        "type-mismatch": 1
+        "import-table": 1
       },
       "derivedFamilies": {}
     },
@@ -135,18 +133,19 @@
     },
     {
       "package": "check",
-      "fences": 45,
+      "fences": 41,
       "definitions": 13,
       "nativeDefinitions": 0,
       "fencedDefinitions": 13,
       "rootFamilies": {
-        "name-resolution": 23,
-        "construct-other": 8,
-        "call-arity": 3,
+        "name-resolution": 22,
+        "construct-other": 5,
         "keyword-args": 3,
+        "call-arity": 2,
         "import-table": 2,
         "stdlib:tempfile": 2,
         "unlowered-type-name": 2,
+        "annotation-other": 1,
         "local-inference": 1,
         "stdlib:sys": 1
       },
@@ -253,20 +252,18 @@
     },
     {
       "package": "coverage",
-      "fences": 66,
-      "definitions": 20,
+      "fences": 54,
+      "definitions": 15,
       "nativeDefinitions": 0,
-      "fencedDefinitions": 20,
+      "fencedDefinitions": 15,
       "rootFamilies": {
-        "name-resolution": 27,
-        "construct-other": 13,
+        "name-resolution": 20,
+        "construct-other": 11,
         "local-inference": 11,
-        "unlowered-call": 3,
         "annotation-other": 2,
         "dynamic-annotation": 2,
-        "generic-alias": 1,
+        "unlowered-call": 2,
         "import-table": 1,
-        "module-assign": 1,
         "optional-types": 1,
         "unlowered-type-name": 1
       },
@@ -654,18 +651,16 @@
     },
     {
       "package": "ffi_manifest",
-      "fences": 71,
+      "fences": 69,
       "definitions": 27,
       "nativeDefinitions": 0,
       "fencedDefinitions": 27,
       "rootFamilies": {
         "call-arity": 43,
-        "construct-other": 14,
+        "construct-other": 15,
         "unlowered-call": 7,
         "union-types": 3,
-        "name-resolution": 2,
-        "field-lookup": 1,
-        "local-inference": 1
+        "field-lookup": 1
       },
       "derivedFamilies": {}
     },
@@ -1259,21 +1254,19 @@
     },
     {
       "package": "package",
-      "fences": 87,
-      "definitions": 43,
+      "fences": 69,
+      "definitions": 39,
       "nativeDefinitions": 0,
-      "fencedDefinitions": 43,
+      "fencedDefinitions": 39,
       "rootFamilies": {
-        "name-resolution": 16,
-        "unlowered-type-name": 14,
-        "construct-other": 13,
-        "local-inference": 10,
-        "field-lookup": 8,
-        "type-mismatch": 7,
-        "annotation-other": 6,
+        "name-resolution": 15,
+        "construct-other": 14,
+        "unlowered-type-name": 13,
+        "field-lookup": 9,
         "unlowered-call": 5,
         "dynamic-annotation": 4,
-        "call-arity": 1,
+        "call-arity": 3,
+        "type-mismatch": 3,
         "generic-alias": 1,
         "import-table": 1
       },
@@ -2125,7 +2118,7 @@
       "rank": 1,
       "family": "construct-other",
       "packagesTouched": 62,
-      "fences": 428,
+      "fences": 414,
       "newlyUnblocked": [
         "_mir_in",
         "binding"
@@ -2178,7 +2171,7 @@
       "rank": 4,
       "family": "unlowered-type-name",
       "packagesTouched": 46,
-      "fences": 451,
+      "fences": 450,
       "newlyUnblocked": [
         "_module_driver",
         "_print",
@@ -2193,7 +2186,7 @@
       "rank": 5,
       "family": "unlowered-call",
       "packagesTouched": 55,
-      "fences": 293,
+      "fences": 292,
       "newlyUnblocked": [
         "_annotations",
         "_call_attr",
@@ -2225,8 +2218,8 @@
     {
       "rank": 7,
       "family": "name-resolution",
-      "packagesTouched": 58,
-      "fences": 608,
+      "packagesTouched": 57,
+      "fences": 563,
       "newlyUnblocked": [
         "_expr",
         "_shared",
@@ -2239,8 +2232,8 @@
     {
       "rank": 8,
       "family": "type-mismatch",
-      "packagesTouched": 32,
-      "fences": 81,
+      "packagesTouched": 31,
+      "fences": 76,
       "newlyUnblocked": [
         "_argparse",
         "_classes",
@@ -2255,8 +2248,8 @@
     {
       "rank": 9,
       "family": "module-assign",
-      "packagesTouched": 13,
-      "fences": 27,
+      "packagesTouched": 12,
+      "fences": 26,
       "newlyUnblocked": [
         "_asyncio_sync",
         "_report",
@@ -2271,42 +2264,42 @@
       "rank": 10,
       "family": "call-arity",
       "packagesTouched": 30,
-      "fences": 198,
+      "fences": 199,
       "newlyUnblocked": [
         "_core",
         "_minmax",
+        "assess",
         "licenses",
         "mirlower"
       ],
-      "cumulativeUnblocked": 69
+      "cumulativeUnblocked": 70
     },
     {
       "rank": 11,
-      "family": "local-inference",
-      "packagesTouched": 22,
-      "fences": 148,
-      "newlyUnblocked": [
-        "_ir",
-        "assess",
-        "emitlib",
-        "ir",
-        "reprspec"
-      ],
-      "cumulativeUnblocked": 74
-    },
-    {
-      "rank": 12,
       "family": "field-lookup",
       "packagesTouched": 20,
-      "fences": 170,
+      "fences": 171,
       "newlyUnblocked": [
-        "_funcs",
         "bundle",
         "ffi_manifest",
-        "inferrunner",
         "llvverify",
         "mirprint",
         "sigregistry"
+      ],
+      "cumulativeUnblocked": 75
+    },
+    {
+      "rank": 12,
+      "family": "local-inference",
+      "packagesTouched": 19,
+      "fences": 113,
+      "newlyUnblocked": [
+        "_funcs",
+        "_ir",
+        "emitlib",
+        "inferrunner",
+        "ir",
+        "reprspec"
       ],
       "cumulativeUnblocked": 81
     },
@@ -2314,7 +2307,7 @@
       "rank": 13,
       "family": "annotation-other",
       "packagesTouched": 13,
-      "fences": 22,
+      "fences": 17,
       "newlyUnblocked": [
         "_driver",
         "_io",
@@ -2417,8 +2410,8 @@
     {
       "rank": 22,
       "family": "generic-alias",
-      "packagesTouched": 7,
-      "fences": 24,
+      "packagesTouched": 6,
+      "fences": 23,
       "newlyUnblocked": [
         "package"
       ],
