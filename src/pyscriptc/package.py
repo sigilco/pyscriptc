@@ -607,7 +607,7 @@ def _program_island(
         selfpack_dir=selfpack_dir,
         package_mode=package_mode,
     )
-    module = _boxed.program_island_module(source, root, seed, code_cache)
+    module: dict[str, Any] = _boxed.program_island_module(source, root, seed, code_cache)
     # The `python -m pkg` shape (issue #765): the bootstrap's `__file__` is
     # the entry file path, the value CPython records for `-m`, so the
     # runtime keeps the mirrored argv[0] (the emitted binary's path)
@@ -768,7 +768,7 @@ def _reachable_modules(
     stdlib, a pack or a refused name and never a unit.
     """
 
-    trees: dict[str, ast.Module] = {}
+    trees: dict[str, Any] = {}
     package_names: set[str] = set()
     for name, path, is_package in units:
         trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -798,7 +798,7 @@ def _reachable_modules(
         return found
 
     def edges_of(name: str) -> list[str]:
-        found = _program_imports(trees[name], exports, name, name in package_names)
+        found: list[str] = _program_imports(trees[name], exports, name, name in package_names)
         edges: list[str] = []
         for target in found:
             if target not in exports:
@@ -929,7 +929,7 @@ def _program_plan(
     namespace that has no `__init__` to call.
     """
 
-    trees: dict[str, ast.Module] = {}
+    trees: dict[str, Any] = {}
     files: dict[str, Path] = {}
     package_names: set[str] = set()
     for name, path, is_package in units:
@@ -941,7 +941,7 @@ def _program_plan(
     for name in trees:
         edges[name] = _program_imports(trees[name], exports, name, name in package_names)
     # The statement that imports a module, so a cycle fence points at it.
-    sites: dict[tuple[str, str], ast.stmt] = {}
+    sites: dict[tuple[str, str], Any] = {}
     for name, tree in trees.items():
         for stmt in tree.body:
             for module, _local in _statement_imports(stmt, exports):
