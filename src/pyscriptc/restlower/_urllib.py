@@ -45,8 +45,6 @@ from pyscriptc.restlower._shared import (
 )
 from pyscriptc.tirserde import dict_to_node, node_to_dict
 
-_RESPONSE = _class("HttpResponse")
-_REQUEST = _class("HttpRequest")
 _METHODS = {"GET", "HEAD", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"}
 
 
@@ -168,7 +166,7 @@ def _emit_open(
             _record_field(lo, node, url_arg, "headers", span),
             _record_field(lo, node, url_arg, "timeout", span),
         ]
-        return lo._abi_call("urllib.request", "urlopen", args, _RESPONSE, "ps_http_request", span)
+        return lo._abi_call("urllib.request", "urlopen", args, _class("HttpResponse"), "ps_http_request", span)
     return _emit_open_url(lo, node, span, url_arg, data, timeout, headers, method)
 
 
@@ -212,7 +210,7 @@ def _emit_open_url(
         header_block or empty_str,
         time_arg or zero,
     ]
-    return lo._abi_call("urllib.request", "urlopen", args, _RESPONSE, "ps_http_request", span)
+    return lo._abi_call("urllib.request", "urlopen", args, _class("HttpResponse"), "ps_http_request", span)
 
 
 def _request_record(
@@ -243,7 +241,7 @@ def _request_record(
             header_block or empty_str,
             time_arg or zero,
         ],
-        _REQUEST,
+        _class("HttpRequest"),
         "ps_http_request_new",
         span,
     )
