@@ -104,7 +104,7 @@ def _const_str_node(value: str, span: dict[str, Any], extra: dict[str, Any] | No
     const record has no slot for, so the spelling keeps the dict whole.
     """
 
-    node = node_to_dict(_ir.const_str(value, t_leaf("str"), _mk_span(span)))
+    node: dict[str, Any] = node_to_dict(_ir.const_str(value, t_leaf("str"), _mk_span(span)))
     if extra:
         node.update(extra)
     return node
@@ -126,7 +126,7 @@ def _island_call_node(
     spells the call and the extras ride along on the dict.
     """
 
-    node = node_to_dict(
+    node: dict[str, Any] = node_to_dict(
         _ir.call(
             _ir.module_callee(module, name),
             [dict_to_node(arg) for arg in args],
