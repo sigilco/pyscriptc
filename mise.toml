@@ -19,6 +19,8 @@
 #   lint            ruff check
 #   format-check    ruff format --check
 #   check           lint + format-check + the unit (compat2) test selection
+#   check:fast      the pre-push checks on uncommitted changes (no pytest suite)
+#   hooks:install   point git core.hooksPath at scripts/hooks (the pre-push hook)
 #   bench:baseline  perf regression gate against benchmarks/baseline/reference*.json
 #   compat:json     rebuild data/compat/compat.json (add --check to compare)
 #   compat:ladder   rebuild data/compat/ladder.json
@@ -28,15 +30,22 @@
 #   docs:config     regenerate the config key tables in docs/reference/config.md
 #   docs:diagnostics  regenerate docs/reference/diagnostics.md from the registry
 #   boxed:cost      boxed ledger window (add --reach/--probe-times when you have them)
+#   divergence:ledger  regenerate docs/reference/divergence-ledger.json from the probes
 #   ir:hashes       canonical IR hash compare against the committed baseline (linux only, see below)
 #   compile         pyscriptc compile, args pass through (mise run compile FILE --emit bin)
 #   run             pyscriptc run, args pass through (mise run run FILE -- args)
 #   wheel:smoke     build the wheel, install it in a fresh venv, compile+run hello
+#   selfbin         build the self-compiled pyscriptc into dist/selfbin and run its tests
 #   release:rehearse  dispatch release.yml on the master tip (the rehearsal run)
 #
 # CI does not run through mise: the workflows pin uv (the emSign CA incident
 # floor, >= 0.13.4) and node/pnpm independently, and switching would re-resolve
 # tool versions on every run for no gain. mise is the local entrypoint only.
+
+[env]
+# Link venv packages from the shared uv cache with clones instead of copies,
+# so every agent worktree stops duplicating ~140M of site-packages.
+UV_LINK_MODE = "clone"
 
 [tools]
 # Pin tools by major version (major.minor where the major line moves fast,
@@ -125,6 +134,14 @@ description = "lint + format-check + tests/compat2 (the CI unit job)"
 depends = ["lint", "format-check"]
 run = "uv run pytest -q tests/compat2 -m 'not linux_container'"
 
+[tasks."check:fast"]
+description = "Pre-push fast checks on uncommitted changes (ruff, support table, doc scans; no pytest)"
+run = "uv run python scripts/pre_push_hook.py --check"
+
+[tasks."hooks:install"]
+description = "Point git core.hooksPath at the tracked hooks in scripts/hooks"
+run = "git config core.hooksPath scripts/hooks"
+
 # The rest of the checks, one command each. CI runs the raw commands in the
 # workflows, not through mise (see the header comment).
 
@@ -143,6 +160,10 @@ run = "uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladd
 [tasks."support:table"]
 description = "Regenerate data/compat/support.json from compiler and probe data (add --check to compare)"
 run = "uv run python scripts/gen_support_table.py"
+
+[tasks."divergence:ledger"]
+description = "Regenerate docs/reference/divergence-ledger.json from the divergence probes (add --check to compare)"
+run = "uv run python scripts/gen_divergence_ledger.py"
 
 [tasks."docs:what-will-fail"]
 description = "Regenerate data/compat/what_will_fail.json from the R0 corpus (add --check to compare)"
@@ -187,10 +208,27 @@ run = "uv run pyscriptc compile"
 description = "pyscriptc run (content-cached compile + execute), args pass through"
 run = "uv run pyscriptc run"
 
+# Split planner for the lower/ god files (#852): per-method lines, self
+# attributes, call graph, clusters and cut sets, plus long methods, cyclomatic
+# complexity, lower/ import cycles and unused module-level names.
+#   mise run lower:report src/pyscriptc/lower/__init__.py
+#   mise run lower:report src/pyscriptc/lower/__init__.py --json
+[tasks."lower:report"]
+description = "Split report for a lower/ module (args pass through, add --json for JSON)"
+run = "uv run python scripts/lower_split_report.py"
+
+[tasks."wt:prune"]
+description = "List removable agent worktrees under ~/.worktrees (add --yes to remove them)"
+run = "bash scripts/wt_prune.sh"
+
 # Same shape as the wheel-smoke job in ci.yml and the verify job in release.yml.
 [tasks."wheel:smoke"]
 description = "Build the wheel, install it in a fresh venv, compile and run hello"
 run = "bash scripts/wheel_smoke.sh"
+
+[tasks.selfbin]
+description = "Build the self-compiled pyscriptc (a bundle that carries its own runtime) and run its tests"
+run = "uv run pyscriptc compile src/pyscriptc --program --skip-check --island --emit bin --embed-python bundle --embed-headers --bundle-exclude mypy -o dist/selfbin && uv run pytest tests/test_selfbin.py -m slow"
 
 # The rehearsal is a workflow_dispatch of release.yml on the full SHA. Only a
 # run titled "rehearsal <full SHA>" counts for the cut-release and publish gates.

@@ -37,3 +37,4 @@ benchmarks/real/.scratch/
 /with.txt
 /nums.json
 *.obj
+!tests/census_pins/*.json

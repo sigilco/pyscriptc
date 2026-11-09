@@ -71,6 +71,7 @@ def emit_ir_text(
     assert_same_cpython(module)
     if module["fences"]:
         raise IRError("refusing to emit LLVM while fences are present")
-    if not module["functions"]:
+    functions: list[dict[str, Any]] = module["functions"]
+    if not functions:
         raise IRError("module has no functions to emit")
     return Emitter(module).emit(call, [] if args is None else args, standalone=False)

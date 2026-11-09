@@ -73,12 +73,435 @@ def test_the_seam_knows_the_ir_type_mapping() -> None:
     assert _ir._llvm_type({"kind": "list", "elem": {"kind": "int"}}) == "ptr"
 
 
+def test_the_seam_reads_the_kind_tag() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._kind({"kind": "int"}) == "int"
+    assert _ir._kind({"kind": "str"}) == "str"
+
+
+def test_the_seam_reads_the_expression_kind_tag() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._expr_kind({"kind": "const"}) == "const"
+    assert _ir._expr_kind({"kind": "closure"}) == "closure"
+
+
+def test_the_seam_reads_an_absent_kind_tag() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._kind_or_none({"kind": "int"}) == "int"
+    assert _ir._kind_or_none({}) is None
+    assert _ir._kind_or_none(None) is None
+
+
+def test_the_seam_reads_the_node_children() -> None:
+    """The node-shaped readers `_exprs` uses: child expressions, lists,
+    pairs, flags and payloads."""
+    from pyscriptc.emit import _ir
+
+    span = {"file": "a.py", "line": 1}
+    typ = {"kind": "int"}
+    left = {"kind": "const", "type": typ, "value": "1", "span": span}
+    right = {"kind": "name", "id": "x", "type": typ, "span": span}
+    binary = {"kind": "binary", "op": "+", "left": left, "right": right, "type": typ, "span": span}
+    assert _ir._node_op(binary) == "+"
+    assert _ir._node_left(binary) == left
+    assert _ir._node_right(binary) == right
+    assert _ir._node_id(right) == "x"
+
+    subscript = {"kind": "subscript", "value": right, "index": left, "type": typ, "span": span}
+    assert _ir._node_value_node(subscript) == right
+    assert _ir._node_index(subscript) == left
+
+    contains = {"kind": "contains", "hay": left, "needle": right, "negated": True, "type": typ, "span": span}
+    assert _ir._node_hay(contains) == left
+    assert _ir._node_needle(contains) == right
+    assert _ir._node_negated(contains) is True
+    assert _ir._node_negated({"kind": "contains", "hay": left, "needle": right, "type": typ, "span": span}) is False
+
+    unary = {"kind": "unary", "op": "-", "operand": left, "type": typ, "span": span}
+    assert _ir._node_operand(unary) == left
+
+    list_node = {"kind": "list", "elems": [left, right], "type": typ, "span": span}
+    assert _ir._node_elems(list_node) == [left, right]
+    assert _ir._node_elems({"kind": "list", "type": typ, "span": span}) == []
+
+    pair = {"key": left, "value": right}
+    assert _ir._pair_key(pair) == left
+    assert _ir._pair_value(pair) == right
+    dict_node = {"kind": "dict", "pairs": [pair], "type": typ, "span": span}
+    assert _ir._node_pairs(dict_node) == [pair]
+    assert _ir._node_pairs({"kind": "dict", "type": typ, "span": span}) == []
+
+    value_callee = {"kind": "value", "target": right}
+    assert _ir._node_target_node(value_callee) == right
+    call = {"kind": "call", "callee": value_callee, "args": [left], "type": typ, "span": span}
+    assert _ir._node_callee(call) == value_callee
+    assert _ir._node_args(call) == [left]
+    assert _ir._node_args({"kind": "call", "callee": value_callee, "type": typ, "span": span}) == []
+
+    closure = {"kind": "closure", "name": "inner", "env": [], "type": typ, "span": span}
+    assert _ir._node_name(closure) == "inner"
+    assert _ir._node_env(closure) == []
+    assert _ir._node_env({"kind": "closure", "name": "inner", "type": typ, "span": span}) == []
+
+    attr = {"kind": "attr", "name": "field", "type": typ, "value": right, "span": span}
+    assert _ir._node_name(attr) == "field"
+
+    item_init = {"init": left, "type": typ}
+    item_name = {"name": "y", "type": typ}
+    assert _ir._env_item_init(item_init) == left
+    assert _ir._env_item_init(item_name) is None
+    assert _ir._env_item_name(item_name) == "y"
+
+
+def test_the_seam_reads_the_abi_and_call_records() -> None:
+    """The record readers `_abi` and `_calls` use: the runtime symbol, the
+    thread and island plans, the shim specs, the callee and arg payloads."""
+    from pyscriptc.emit import _ir
+
+    typ = {"kind": "int"}
+    left = {"kind": "name", "id": "x", "type": typ}
+    right = {"kind": "name", "id": "y", "type": typ}
+
+    assert _ir._node_symbol({"kind": "expr", "symbol": "ps_seq_new"}) == "ps_seq_new"
+    assert _ir._node_fn_name({"kind": "expr", "fn": "add"}) == "add"
+
+    closure = {"kind": "closure", "name": "worker", "type": typ}
+    thread = {"closure": closure, "size": 16}
+    assert _ir._node_thread({"kind": "expr", "thread": thread}) == thread
+    assert _ir._thread_closure(thread) == closure
+    assert _ir._thread_size(thread) == 16
+
+    island = {"name": "render", "want": typ}
+    assert _ir._node_island({"kind": "expr", "island": island}) == island
+    assert _ir._island_want(island) == typ
+    assert _ir._island_text(island) == "render"
+    assert _ir._island_key({"key": "q"}) == "q"
+    assert _ir._node_island_fn({"kind": "expr", "island_fn": island}) == island
+
+    spec = {"bound": [typ], "params": [], "return": typ}
+    assert _ir._spec_bound(spec) == [typ]
+    assert _ir._spec_params(spec) == []
+    assert _ir._spec_return(spec) == typ
+
+    assert _ir._arg_type({"name": "x", "type": typ}) == typ
+    assert _ir._elem_of({"kind": "list", "elem": typ}) == typ
+    assert _ir._key_of({"kind": "dict", "key": left, "value": right}) == left
+    assert _ir._value_of({"kind": "dict", "key": left, "value": right}) == right
+    cls = {"name": "tuple_2", "fields": [{"name": "_0", "type": typ}]}
+    assert _ir._class_fields(cls) == cls["fields"]
+
+    assert _ir._opt_record({"want": typ}, "want") == typ
+    assert _ir._opt_record({}, "want") is None
+    assert _ir._record({"want": typ}, "want") == typ
+    marked = _ir._mark_fmt(typ)
+    assert marked["fmt"] == 1
+    assert {k: v for k, v in marked.items() if k != "fmt"} == typ
+
+    assert _ir._callee_kind({"kind": "module"}) == "module"
+    assert _ir._callee_name({"kind": "builtin", "name": "len"}) == "len"
+    assert _ir._callee_module({"kind": "module", "module": "math"}) == "math"
+    assert _ir._callee_receiver({"kind": "method", "receiver": "str"}) == "str"
+    assert _ir._callee_tuple({"kind": "method", "tuple": "tuple_2_int_str"}) == "tuple_2_int_str"
+
+
+def test_the_abi_and_calls_emitters_read_no_raw_node_key() -> None:
+    """`_abi` and `_calls` walk the IR through the `_ir` seam: no raw
+    string-literal dict key read on an IR node stays in either module.
+    The exception-table lookups and the dict-literal write are not IR
+    reads, so they stay out of the key set."""
+
+    ir_keys = {
+        "kind",
+        "type",
+        "span",
+        "value",
+        "object",
+        "callee",
+        "args",
+        "env",
+        "stub",
+        "thread_stub",
+        "thread",
+        "operand",
+        "left",
+        "right",
+        "hay",
+        "needle",
+        "elems",
+        "pairs",
+        "index",
+        "cond",
+        "expr",
+        "target",
+        "fn",
+        "symbol",
+        "island",
+        "island_fn",
+        "closure",
+        "size",
+        "want",
+        "name",
+        "key",
+        "elem",
+        "bound",
+        "params",
+        "return",
+        "receiver",
+        "tuple",
+        "module",
+        "fields",
+        "id",
+        "op",
+        "island_npos",
+        "island_nkw",
+        "island_starred",
+        "island_kwargs",
+        "daemon",
+        "islandSource",
+        "json_flags",
+        "format_kwnames",
+        "format_style",
+        "fmt",
+        "returnType",
+    }
+    for name in ("_abi.py", "_calls.py"):
+        source = (SRC / "emit" / "llvm" / name).read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Subscript):
+                continue
+            if not isinstance(node.slice, ast.Constant) or not isinstance(node.slice.value, str):
+                continue
+            assert isinstance(node.ctx, ast.Load), f"{name}:{node.lineno}: raw key write"
+            key = node.slice.value
+            assert key not in ir_keys, f"{name}:{node.lineno}: raw read of IR key {key!r}; use the _ir seam"
+
+
+def test_the_seam_reads_the_statement_children() -> None:
+    """The node-shaped readers `_stmts` uses: bodies, handlers, raise
+    payloads and assignment targets."""
+    from pyscriptc.emit import _ir
+
+    span = {"file": "a.py", "line": 1}
+    typ = {"kind": "int"}
+    value = {"kind": "const", "type": typ, "value": "1", "span": span}
+    name = {"kind": "name", "id": "x", "type": typ, "span": span}
+    assign = {"kind": "assign", "target": "x", "value": value, "span": span}
+    assert _ir._node_target(assign) == "x"
+    assert _ir._node_value_node(assign) == value
+
+    expr_stmt = {"kind": "expr", "expr": value, "span": span}
+    assert _ir._node_expr(expr_stmt) == value
+
+    then_body = [assign]
+    else_body = [expr_stmt]
+    if_stmt = {"kind": "if", "cond": name, "then": then_body, "else": else_body, "span": span}
+    assert _ir._node_cond(if_stmt) == name
+    assert _ir._node_then(if_stmt) == then_body
+    assert _ir._node_else(if_stmt) == else_body
+
+    while_stmt = {"kind": "while", "cond": name, "body": then_body, "span": span}
+    assert _ir._node_body(while_stmt) == then_body
+
+    handler = {"exc": ["ValueError"], "body": then_body, "excslot": "e", "codes": [10]}
+    assert _ir._handler_exc(handler) == ["ValueError"]
+    assert _ir._handler_codes(handler) == [10]
+    assert _ir._handler_codes({"exc": ["ValueError"], "body": then_body}) == []
+    assert _ir._opt_excslot(handler) == "e"
+    assert _ir._opt_excslot({"exc": ["ValueError"], "body": then_body}) is None
+    try_stmt = {"kind": "try", "body": then_body, "handlers": [handler], "span": span}
+    assert _ir._node_handlers(try_stmt) == [handler]
+    assert _ir._span_of(try_stmt) == span
+    assert _ir._items(try_stmt, "finalbody") == []
+    assert _ir._items(try_stmt, "orelse") == []
+
+    container = {"kind": "name", "id": "xs", "type": {"kind": "list", "elem": typ}, "span": span}
+    setitem = {"kind": "setitem", "container": container, "index": value, "value": name, "span": span}
+    assert _ir._node_container(setitem) == container
+    assert _ir._node_index(setitem) == value
+    obj = {"kind": "name", "id": "p", "type": {"kind": "class", "name": "Point"}, "span": span}
+    setattr_stmt = {"kind": "setattr", "object": obj, "name": "x", "value": value, "span": span}
+    assert _ir._node_object(setattr_stmt) == obj
+    assert _ir._node_name(setattr_stmt) == "x"
+
+    raise_stmt = {"kind": "raise", "exc": "ValueError", "code": 4, "message": value, "span": span}
+    assert _ir._node_exc(raise_stmt) == "ValueError"
+    assert _ir._opt_node_code(raise_stmt) == 4
+    assert _ir._opt_node_code({"kind": "raise", "exc": "ValueError", "span": span}) is None
+    assert _ir._opt_node_message(raise_stmt) == value
+    assert _ir._opt_node_message({"kind": "raise", "exc": "ValueError", "span": span}) is None
+    cause = {"kind": "name", "id": "err", "type": {"kind": "exc"}, "span": span}
+    from_stmt = {"kind": "raise", "exc": "ValueError", "cause": cause, "span": span}
+    assert _ir._opt_node_cause(from_stmt) == cause
+    assert _ir._opt_node_cause(raise_stmt) is None
+    assert _ir._node_id(cause) == "err"
+
+
+def test_the_seam_reads_the_function_record() -> None:
+    """The record readers `_funcs` uses: name, params, span, return type, env, boxed."""
+    from pyscriptc.emit import _ir
+
+    fn = {
+        "name": "main",
+        "params": [{"name": "x", "type": {"kind": "int"}}],
+        "returnType": {"kind": "none"},
+        "locals": [],
+        "body": [],
+        "span": {"file": "a.py", "line": 1},
+        "env": [{"name": "y", "type": {"kind": "str"}}],
+        "boxed": ["y"],
+    }
+    assert _ir._opt_str(fn, "name") == "main"
+    assert _ir._return_type(fn) == {"kind": "none"}
+    assert _ir._span_of(fn) == {"file": "a.py", "line": 1}
+    assert _ir._items(fn, "params") == [{"name": "x", "type": {"kind": "int"}}]
+    assert _ir._items(fn, "locals") == []
+    assert _ir._items(fn, "env") == [{"name": "y", "type": {"kind": "str"}}]
+    assert _ir._name_list(fn, "boxed") == ["y"]
+    assert _ir._has(fn, "env") is True
+    assert _ir._has(fn, "stub") is False
+    assert _ir._opt_str({"name": "x"}, "name") == "x"
+    assert _ir._opt_str({}, "name") == ""
+    assert _ir._opt_span(fn) == {"file": "a.py", "line": 1}
+    assert _ir._opt_span({"name": "x"}) is None
+
+
+def test_the_seam_reads_the_type_record_and_markers() -> None:
+    from pyscriptc.emit import _ir
+
+    typ = {"kind": "class", "name": "Handle", "island": True, "handle": True}
+    assert _ir._type_of({"type": typ}) == typ
+    assert _ir._kind(_ir._type_of({"type": typ})) == "class"
+    assert _ir._flag_of(typ, "island") is True
+    assert _ir._flag_of(typ, "handle") is True
+    assert _ir._flag_of({"kind": "int"}, "island") is False
+
+
+def test_the_seam_reads_the_optional_and_map_fields() -> None:
+    from pyscriptc.emit import _ir
+
+    param = {"name": "x", "type": {"kind": "int"}, "default": {"kind": "const", "value": "1"}}
+    assert _ir._opt_default(param) == {"kind": "const", "value": "1"}
+    assert _ir._opt_default({"name": "y"}) is None
+    assert _ir._opt_int({"exc_parent": 7}, "exc_parent", 0) == 7
+    assert _ir._opt_int({}, "exc_parent", 0) == 0
+    assert _ir._opt_int({"exc_code": 3}, "exc_parent", 9) == 9
+    module = {"sourceFile": "m.py", "islandGlobals": {"g": "int:1"}}
+    assert _ir._str_map(module, "islandGlobals") == {"g": "int:1"}
+    assert _ir._str_map({"sourceFile": "m.py"}, "islandGlobals") == {}
+    assert _ir._entry_span(module) == {"file": "m.py", "line": 1}
+
+
+def test_the_seam_reads_the_const_payload() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._const_text({"kind": "const", "value": "1"}) == "1"
+    assert _ir._const_bool({"kind": "const", "value": True}) is True
+
+
+def test_the_seam_builds_the_none_type() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._none_type() == {"kind": "none"}
+
+
+def test_the_seam_reads_the_node_kind_tags() -> None:
+    from pyscriptc.emit import _ir
+
+    assert _ir._node_kind({"kind": "assign"}) == "assign"
+    assert _ir._node_type_kind({"kind": "const", "type": {"kind": "int"}}) == "int"
+    assert _ir._maybe_node_kind({"kind": "raise"}) == "raise"
+    assert _ir._maybe_node_kind({"target": "x"}) is None
+    assert _ir._maybe_node_type_kind({"kind": "name", "type": {"kind": "str"}}) == "str"
+    assert _ir._maybe_node_type_kind({"kind": "pass"}) is None
+
+
 def test_the_seam_knows_the_symbol_naming() -> None:
     from pyscriptc.emit import _ir
 
     assert _ir._fn_symbol("main") == "ps.user.main"
     assert _ir._fn_symbol("other") == "other"
     assert _ir._safe("a.b.c") == "a_b_c"
+
+
+def test_the_seam_knows_the_typed_accessors() -> None:
+    """The typed IR reads an emitter needs: kind tags, class and field names."""
+
+    from pyscriptc.emit import _ir
+
+    assert _ir._kind({"kind": "int"}) == "int"
+    assert _ir._kind({"kind": "class", "name": "tuple_2_int_str"}) == "class"
+    assert _ir._type_name({"kind": "class", "name": "tuple_2_int_str"}) == "tuple_2_int_str"
+    field = {"name": "_0", "type": {"kind": "str"}}
+    assert _ir._field_name(field) == "_0"
+    assert _ir._field_type(field) == {"kind": "str"}
+    assert _ir._kind(_ir._field_type(field)) == "str"
+    indexed = {**field, "index": 2}
+    assert _ir._field_index(indexed) == 2
+    module = {"functions": [{"name": "main", "params": []}], "sourceFile": "a.py", "fences": []}
+    assert _ir._items(module, "functions")[0]["name"] == "main"
+    assert _ir._name_list(module, "fences") == []
+    assert _ir._opt_str(module, "sourceFile") == "a.py"
+    assert _ir._opt_module_fallback(module) is None
+    fallback = {"moduleTopLevel": "island"}
+    assert _ir._opt_module_fallback({"fallback": fallback, "functions": []}) == fallback
+    assert _ir._opt_str_or_none(fallback, "moduleTopLevel") == "island"
+    assert _ir._has({"sep": "x"}, "sep") is True
+    assert _ir._has({"sep": "x"}, "end") is False
+    assert _ir._opt_str_or_none({"file": "stderr"}, "file") == "stderr"
+    assert _ir._opt_str_or_none({}, "file") is None
+    sep = {"kind": "const", "type": {"kind": "str"}, "value": ","}
+    end = {"kind": "const", "type": {"kind": "str"}, "value": ""}
+    print_call = {"kind": "call", "sep": sep, "end": end}
+    assert _ir._opt_node_sep(print_call) == sep
+    assert _ir._opt_node_end(print_call) == end
+    assert _ir._opt_node_sep({"kind": "call"}) is None
+    assert _ir._opt_node_end({"kind": "call"}) is None
+    cls = {"name": "tuple_2_int_str", "fields": [field]}
+    assert _ir._items(cls, "fields") == [field]
+
+
+def test_the_seam_knows_the_container_accessors() -> None:
+    """The typed IR reads a stdlib emitter needs: element kinds and optionality."""
+
+    from pyscriptc.emit import _ir
+
+    assert _ir._elem_kind({"kind": "list", "elem": {"kind": "int"}}) == "int"
+    assert _ir._elem_kind({"kind": "dict", "elem": {"kind": "str"}}) == "str"
+    assert _ir._is_optional({"kind": "int", "optional": True}) is True
+    assert _ir._is_optional({"kind": "int"}) is False
+    assert _ir._is_optional({"kind": "int", "optional": False}) is False
+
+
+def test_the_seam_reads_stdlib_type_children() -> None:
+    """The type-record readers `_stdlib` uses: nested elem/value types and
+    the argument list a copy call carries."""
+    from pyscriptc.emit import _ir
+
+    list_t = {"kind": "list", "elem": {"kind": "int"}}
+    dict_t = {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "float"}}
+    opt_t = {"kind": "int", "optional": True, "elem": {"kind": "int"}}
+    assert _ir._elem_type(list_t) == {"kind": "int"}
+    assert _ir._elem_type(opt_t) == {"kind": "int"}
+    assert _ir._map_value_type(dict_t) == {"kind": "float"}
+    arg = {"kind": "name", "id": "xs", "type": list_t}
+    call = {"kind": "call", "args": [arg], "type": list_t}
+    assert _ir._node_args(call) == [arg]
+    assert _ir._type_of(arg) == list_t
+
+
+def test_the_seam_reads_function_records() -> None:
+    """The function-record readers `_exprs` uses for direct calls and closures."""
+    from pyscriptc.emit import _ir
+
+    param = {"name": "x", "type": {"kind": "int"}}
+    fn = {"name": "__main__.f", "params": [param], "returnType": {"kind": "int"}}
+    assert _ir._fn_name(fn) == "__main__.f"
+    assert _ir._fn_params(fn) == [param]
+    assert _ir._fn_params({"name": "g", "params": []}) == []
 
 
 def test_every_emitter_area_lives_in_its_own_module() -> None:
@@ -88,6 +511,7 @@ def test_every_emitter_area_lives_in_its_own_module() -> None:
     modules = sorted(path.name for path in area.glob("_*.py") if path.name != "__init__.py")
     assert modules == [
         "_abi.py",
+        "_base.py",
         "_calls.py",
         "_core.py",
         "_driver.py",
@@ -100,11 +524,15 @@ def test_every_emitter_area_lives_in_its_own_module() -> None:
     ]
     # Every area module holds exactly one class, the mixin it contributes.
     # `_runtime.py` is the exception: it is the declaration table, not an area.
+    # `_base.py` holds the typed state and method stubs every mixin inherits.
     for name in modules:
         tree = ast.parse((area / name).read_text(encoding="utf-8"))
         classes = [n for n in tree.body if isinstance(n, ast.ClassDef)]
         if name == "_runtime.py":
             assert not classes, name
+            continue
+        if name == "_base.py":
+            assert [c.name for c in classes] == ["EmitterBase"], name
             continue
         assert len(classes) == 1, name
         assert classes[0].name.endswith("Mixin") or name == "_driver.py", name
@@ -131,6 +559,9 @@ def test_the_emitter_has_no_duplicated_method() -> None:
 
     seen: dict[str, str] = {}
     for base in Emitter.__mro__:
+        if base.__name__ == "EmitterBase":
+            # The typed stub base: its stubs sit behind every real method.
+            continue
         for value in vars(base).values():
             if not callable(value) and not isinstance(value, (staticmethod, classmethod)):
                 continue

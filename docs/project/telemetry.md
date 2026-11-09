@@ -19,6 +19,7 @@ Every field of every event, in full:
 | all                 | `pyscriptc_version`                                                      | `0.4.0`                           | which release has which problem                                                                   |
 | all                 | `python_version`                                                         | `3.14` (major.minor only)         | which Python versions to support                                                                  |
 | all                 | `platform`                                                               | `darwin`, `linux`                 | which targets matter                                                                              |
+| all                 | `internal`                                                               | `false`                           | true when the event comes from a source checkout, an editable install, `PYSC_INTERNAL=1` or CI (CI never sends events; the flag marks our own smoke and dev traffic in the dashboard) |
 | all                 | `$ip` (null), `$geoip_disable` (true), `$process_person_profile` (false) |                                   | ask PostHog not to store the IP, not to geolocate and not to build a person profile               |
 | `cli.invoked`       | `subcommand`                                                             | `compile`                         | which commands are used                                                                           |
 | `compile.finished`  | `duration_ms`                                                            | `412`                             | performance regressions                                                                           |
@@ -56,7 +57,7 @@ pyscriptc telemetry reset-id  # new random id
 ```
 
 Or set `PYSC_NO_TELEMETRY=1` or `DO_NOT_TRACK=1`.
-Telemetry is always silent on CI and in development builds built without `POSTHOG_PROJECT_TOKEN`.
+Telemetry is always silent on CI, in development builds built without `POSTHOG_PROJECT_TOKEN`, and for our own smoke jobs (they run the release binary with `PYSC_INTERNAL=1`, since `env -i` strips `CI`).
 
 ## First-run notice
 

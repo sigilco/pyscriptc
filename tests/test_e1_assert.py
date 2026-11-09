@@ -31,6 +31,7 @@ from tests.test_gates import run_cli, write_case
 from tests.test_spike import ROOT
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node
 
 
 def oracle_script(path: Path) -> str:
@@ -167,17 +168,21 @@ assert probe() == 1, "entry broke"
     assert mod["fences"] == []
     probe = next(fn for fn in mod["functions"] if fn["name"] == "probe")
     (guard,) = probe["body"][:1]
-    assert guard["kind"] == "if"
-    assert guard["cond"]["kind"] == "unary" and guard["cond"]["op"] == "not"
-    (raised,) = guard["then"]
-    assert raised["kind"] == "raise" and raised["exc"] == "AssertionError"
-    assert raised["message"]["kind"] == "const" and raised["message"]["value"] == "math broke"
+    guard = dict_to_node(guard)
+    assert guard.kind == "if"
+    assert guard.cond.kind == "unary" and guard.cond.op == "not"
+    (raised,) = guard.then
+    raised = dict_to_node(raised)
+    assert raised.kind == "raise" and raised.exc == "AssertionError"
+    assert raised.message.kind == "const" and raised.message.svalue == "math broke"
     entry = _entry(mod)
     assert entry is not None
     (guard,) = entry["body"][:1]
-    assert guard["kind"] == "if" and guard["cond"]["op"] == "not"
-    (raised,) = guard["then"]
-    assert raised["kind"] == "raise" and raised["message"]["value"] == "entry broke"
+    guard = dict_to_node(guard)
+    assert guard.kind == "if" and guard.cond.op == "not"
+    (raised,) = guard.then
+    raised = dict_to_node(raised)
+    assert raised.kind == "raise" and raised.message.svalue == "entry broke"
 
 
 def test_assert_kept_no_minus_o_semantics() -> None:
@@ -193,6 +198,6 @@ def probe() -> int:
 """
     )
     probe = next(fn for fn in mod["functions"] if fn["name"] == "probe")
-    kinds = [stmt["kind"] for stmt in probe["body"]]
+    kinds = [dict_to_node(stmt).kind for stmt in probe["body"]]
     assert "if" in kinds  # the guard survived lowering
     assert mod["fences"] == []

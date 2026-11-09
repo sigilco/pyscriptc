@@ -11,53 +11,55 @@ closed set of calls. Unknown syntax and queued stdlib modules stay fences.
 from __future__ import annotations
 
 import ast
-import sys
 import time
 from pathlib import Path
 from typing import Any, NoReturn
 
+from pyscriptc import _irnode as _ir
+
+# boxed:begin
+from pyscriptc.boxed import DEF_HANDLE_SYMBOL  # boxed:end
 from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
-from pyscriptc.ffi_manifest import is_handle_type
+from pyscriptc.ffi_manifest import is_handle_type  # noqa: F401  # moved-verbatim import
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version, types_equal
+from pyscriptc.lower._boxed_resolve import BoxedResolveMixin
 from pyscriptc.lower._calls import CallsMixin
 from pyscriptc.lower._classes import ClassesMixin
 from pyscriptc.lower._closures import ClosuresMixin
 from pyscriptc.lower._core import (
-    _CMP,
     _TRUTHY,
     Binding,
     Fence,
+    _any_accepts,
     _attr,
     _compare,
     _const_none,
+    _const_str,
     _declared_globals,
-    _dotted,
-    _has_typevar,
-    _ir_kinds_of,
-    _is_none_expr,
-    _name,
-    _peek_annotated_params,
-    _peek_annotation,
+    _has_typevar,  # noqa: F401  # moved-verbatim import
+    _maybe_type_kind,
+    _node_kind,
+    _node_type_kind,
     _show,
     _subst_type,
-    _tuple_assign,
+    _type_kind,
+    _type_rt,
     module_needs_slot,
 )
+from pyscriptc.lower._coro_adapter import coro_module  # noqa: F401  # moved-verbatim import
+from pyscriptc.lower._entry import EntryMixin
 from pyscriptc.lower._expr import ExprMixin
+from pyscriptc.lower._infer import TypeInferMixin
+from pyscriptc.lower._misc_emit import MiscEmitMixin
+from pyscriptc.lower._module_driver import ModuleDriverMixin
 from pyscriptc.lower._stdlib import StdlibDispatchMixin
-from pyscriptc.lower._stdlib_shared import (
-    _ERASED_MODULES,
-    _module_assigned,
-    _release_erased_import,
-)
 from pyscriptc.lower._stmt import (
     StmtMixin,
     _always_returns,
     _ast_exits,
     _is_docstring,
-    _is_main_guard,
     _stmt_breaks_this_loop,
     _stmt_continues_this_loop,
 )
@@ -71,9 +73,96 @@ from pyscriptc.stdlib_queue import (
     staged_resources,
 )
 from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
+from pyscriptc.tirserde import dict_to_span as dict_to_span_local
+
+WHOLE_TABLE = "*"
 
 
-class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, ClassesMixin, ClosuresMixin):
+def _mk_span(span: dict[str, Any]) -> Any:
+    """The Span record the dict-IR span spells."""
+
+    return dict_to_span_local(span)
+
+
+def _mk_type(typ: dict[str, Any]) -> Any:
+    """The T record the dict-IR type spells."""
+
+    return dict_to_type(typ)
+
+
+def _call_node(callee: dict[str, Any], args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The call node one dict-IR call spells."""
+
+    return node_to_dict(
+        _ir.call(dict_to_node(callee), [dict_to_node(arg) for arg in args], _mk_type(typ), _mk_span(span), "", "", -1)
+    )
+
+
+def _function_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The call to a lowered function."""
+
+    return _call_node({"kind": "function", "name": name}, args, typ, span)
+
+
+def _builtin_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The call to a builtin."""
+
+    return _call_node({"kind": "builtin", "name": name}, args, typ, span)
+
+
+def _expr_node(expr: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The expression statement node."""
+
+    return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
+
+
+def _unary_not_node(operand: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The `not operand` node with the bool type."""
+
+    return node_to_dict(_ir.unary("not", dict_to_node(operand), _ir.t_leaf("bool"), _mk_span(span)))
+
+
+def _closure_node(name: str, params: list[dict[str, Any]], ret: dict[str, Any], span: dict[str, Any]) -> Any:
+    """The closure node with the empty environment."""
+
+    return node_to_dict(
+        _ir.closure(name, [], _ir.t_func([dict_to_type(p["type"]) for p in params], dict_to_type(ret)), _mk_span(span))
+    )
+
+
+def _maybe_node_kind(node: dict[str, Any]) -> str | None:
+    """The kind tag of an IR node, or None when the record carries none."""
+
+    if "kind" not in node:
+        return None
+    return _node_kind(node)
+
+
+def _record_kind(record: dict[str, Any]) -> str:
+    """The kind tag of a record the typed layer cannot carry.
+
+    A package export row (`func`, `const`, `class`, `module`) is not IR and
+    has no typed record, so its tag reads off the plain dict in one place.
+    """
+    kind: str = record["kind"]
+    return kind
+
+
+class Lowerer(
+    CoroMixin,
+    StdlibDispatchMixin,
+    ExprMixin,
+    StmtMixin,
+    CallsMixin,
+    ClassesMixin,
+    ClosuresMixin,
+    TypeInferMixin,
+    EntryMixin,
+    BoxedResolveMixin,
+    MiscEmitMixin,
+    ModuleDriverMixin,
+):
     def __init__(self, filename: str, source: str, target: str | None = None, config: Any = None) -> None:
         self.filename = filename
         self.source = source
@@ -123,6 +212,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         self.comp_init: dict[str, Any] | None = None
         self.comp_expect: dict[str, Any] | None = None
         self.comp_ready = False
+        # `all`/`any` over a comprehension fuses the loop into a bool
+        # accumulator instead of materializing the element list: the pair
+        # is (result name, want_all). None means the comp builds its list.
+        self.comp_pred: tuple[str, bool] | None = None
         # The inference peek (issue #500): while True, `_expr` is running
         # speculatively to learn a value's type; the emitted IR and the
         # temp counter are discarded, and any fence becomes the inference
@@ -183,6 +276,14 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # Class name -> the hidden local that owns its island handle, reset
         # per function scope like `island_modules`.
         self.island_class_handles: dict[str, str] = {}
+        # boxed:begin
+        # The per-module plane split: another module's island classes this
+        # module imported (`from other import Cls` where `Cls` rides that
+        # module's island floor). Name -> (defining module, class name); the
+        # handle, the call and the base-class refusal all go through the
+        # namespaced seam (`ps_island_mod_def_handle`).
+        self.island_floor_classes: dict[str, tuple[str, str]] = {}
+        # boxed:end
         # The per-definition probe state: the definition list to probe and
         # the names the probe fenced.
         self._boxed_functions: list[ast.FunctionDef] = []
@@ -201,6 +302,26 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # the island (Decision A). `entry_fn_name` then names the entry whose
         # fences drop with the top level.
         self._boxed_top_island = False
+        # The per-module plane split: a program compile keeps the native lane
+        # and the island lane side by side, so a call into another module's
+        # island floor crosses the boundary instead of refusing.
+        self._boxed_plane_split = False
+        # The island group (the plane split's cycle rule): this unit rides
+        # the island floor whole-module. The merge sets it from the program
+        # plan's cycle members before the catalog pass, so the export table
+        # agrees on which definitions the unit keeps.
+        self._boxed_island_unit = False
+        # The island group's own module-level fences drop with its top
+        # level: the group's bootstrap execs the real body, so a lambda the
+        # checker refuses or an empty container literal is CPython's own
+        # there, exactly as under the whole-program island.
+        self._boxed_island_unit_drops_module_fences = False
+        # The island group's member names (the cycle rule's closed set). The
+        # group bootstrap installs every member in `sys.modules` before the
+        # per-module seeds run, so a seed import of a group member resolves
+        # against that namespace even when the member's own exports carry no
+        # island flag.
+        self._boxed_island_group: set[str] = set()
         # boxed:end
         self.module_name = ""
         self.is_package = False
@@ -258,6 +379,13 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # tree twice for the same `ast.Global` nodes. Bodies are not mutated
         # after parsing, so identity is a stable key within one lower_file run.
         self._globals_cache: dict[int, frozenset[str]] = {}
+        # `global X` names a function assigns from a function-local import
+        # (`from pyscriptc import assess as _assess` then `assess = _assess`):
+        # X resolves at module scope exactly like the top-level import would.
+        # The record carries what the replayed import bound so the write can
+        # prove it is the alias init and not some other store. Populated by
+        # `_scan_global_aliases` before any body lowers.
+        self.global_aliases: dict[str, dict[str, Any]] = {}
         # The function body being lowered, so `del name` can see a later load.
         self.fn_body: list[ast.stmt] = []
         # Names bound to frozenset(...). The value is still the set list. .add and
@@ -266,6 +394,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # `if x is not None:` narrowing on a tagged optional: inside the taken
         # branch a read of the name lowers to its `_val` field. name -> opt typ.
         self.opt_unwrap: dict[str, dict[str, Any]] = {}
+        # Proven element types of Any-container reads (issue #781), keyed by
+        # the read node's (line, col): the emitter loads the proven LLVM
+        # shape out of the unresolved cell.
+        self._any_proven: dict[tuple[int, int], dict[str, Any]] = {}
         # Full signatures (names, defaults, keyword-only flags) of nested defs,
         # keyed by the identity of the local's func type, so a call through
         # that local binds keywords like a call to a module-level def. A
@@ -297,1223 +429,37 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # inferred-type map. None means no bridge: lowering keeps every
         # inference fence exactly as before.
         self.bridge: Any = None
-
-    def _bridge_type(self, node: ast.expr) -> dict[str, Any] | None:
-        """The IR type the checker inferred for an expression, or None.
-
-        The bridge answers only when it proved a type the lowered subset can
-        express; anything else returns None and the caller keeps its fence.
-        """
-        if self.bridge is None:
-            return None
-        inferred = self.bridge.inferred_type(node, self.classes)
-        if inferred is None:
-            return None
-        return inferred
-
-    def _bridge_def(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> Any:
-        """DefFacts the checker holds for one `def`, or None without a bridge."""
-        if self.bridge is None:
-            return None
-        return self.bridge.def_facts(node)
-
-    def _bridge_param_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, arg: ast.arg) -> dict[str, Any] | None:
-        """The IR type the checker proved for an unannotated parameter, or None."""
-        if self.bridge is None:
-            return None
-        return self.bridge.param_type(fn, arg.arg, self.classes)
-
-    def _bridge_return_type(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any] | None:
-        """The IR type the checker inferred for a missing return annotation."""
-        if self.bridge is None:
-            return None
-        return self.bridge.return_type(fn, self.classes)
-
-    _PEEK_UNSAFE = {"abi_call", "free", "consume", "yield_expr", "await_expr"}
-
-    def _infer_type_of(self, node: ast.expr) -> dict[str, Any] | None:
-        """The type lowering would give `node`, or None when it does not lower.
-
-        The peek (issue #500) lowers the expression speculatively: the IR
-        goes to a throwaway prelude and the temp counter is restored, so a
-        non-trivial value lowers twice. Comprehension scaffolding is nested
-        and restored like any other state; the read-only expressions return
-        identical types on the real pass, which then emits the effects.
-        Calls whose results are lowered outside the IR (abi thunks, handle
-        frees and consumes) are refused: the peek must not run the runtime
-        twice. A fence inside the peek is the refusal, not a diagnostic:
-        inference never guesses, and the caller keeps its own message.
-        """
-
-        class _Peek:
-            def __enter__(s) -> bool:
-                if self.inf_peek or self.function is None:
-                    return False
-                s.saved_prelude = self.prelude
-                s.saved_temp_n = self.temp_n
-                s.saved_fences = self.caught
-                s.saved_comp = (
-                    self.comp_elt,
-                    self.comp_key,
-                    self.comp_kind,
-                    self.comp_gens,
-                    self.comp_ifs,
-                    self.comp_dest,
-                    self.comp_init,
-                    self.comp_expect,
-                    self.comp_ready,
-                )
-                s.saved_dead = self.dead_names
-                s.saved_exc = self.exc_stack
-                s.saved_broke = self.broke_flag
-                s.saved_break = self.break_flag
-                s.saved_cont = self.continue_flag
-                # boxed:begin
-                # A peek cannot bind an island module handle local (issues
-                # #650, #643): the island calls it walks return an isolated
-                # handle node instead of touching the scope's prelude.
-                s.saved_peeking = self.peeking
-                self.peeking = True
-                # boxed:end
-                self.prelude = []
-                self.caught = []
-                self.inf_peek = True
-                self.inf_depth += 1
-                return True
-
-            def __exit__(s, *exc) -> None:
-                if not hasattr(s, "saved_prelude"):
-                    return
-                self.inf_depth -= 1
-                if self.inf_depth == 0:
-                    self.inf_peek = False
-                self.prelude = s.saved_prelude
-                self.temp_n = s.saved_temp_n
-                self.caught = s.saved_fences
-                (
-                    self.comp_elt,
-                    self.comp_key,
-                    self.comp_kind,
-                    self.comp_gens,
-                    self.comp_ifs,
-                    self.comp_dest,
-                    self.comp_init,
-                    self.comp_expect,
-                    self.comp_ready,
-                ) = s.saved_comp
-                self.dead_names = s.saved_dead
-                self.exc_stack = s.saved_exc
-                self.broke_flag = s.saved_broke
-                self.break_flag = s.saved_break
-                self.continue_flag = s.saved_cont
-                # boxed:begin
-                self.peeking = s.saved_peeking
-                # boxed:end
-
-        if any(k in self._PEEK_UNSAFE for k in _ir_kinds_of(node)):
-            return None
-        with _Peek() as ok:
-            if not ok:
-                return None
-            try:
-                value = self._expr(node)
-            except Fence:
-                return None
-            if self.caught:
-                return None
-            return value["type"]
-
-    def _infer_type_known(self, node: ast.expr) -> dict[str, Any] | None:
-        """The type of a call to a `def` this module already signed, or None.
-
-        The peek cannot lower a user call speculatively (the callee's body
-        may not have lowered yet), but the signature pass has already
-        proven the return types of every def that signed. A direct call
-        whose callee is one of those names returns the signature's return
-        type without lowering anything: the real pass emits the call.
-        """
-
-        if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-            return None
-        # boxed:begin
-        # The boxed tier (issue #612): a call to an island function is an
-        # opaque handle, never a typed return; the peek must not give the
-        # call site the signature's return type, because the body never
-        # lowers and the trampoline marshals by annotation only.
-        if node.func.id in self.island_fns:
-            return None
-        # boxed:end
-        sig = self.sigs.get(node.func.id)
-        if sig is None or node.func.id in self.generic_fns:
-            return None
-        params, ret = sig
-        if ret["kind"] == "none" or _has_typevar(ret):
-            return None
-        if any(k in self._PEEK_UNSAFE for k in _ir_kinds_of(node)):
-            return None
-        return ret
-
-    def _tuple_fields_of(self, typ: dict[str, Any] | None) -> list[dict[str, Any]] | None:
-        """The field types of a synthetic tuple class type, or None.
-
-        `_tuple_type` spells the fields into the class name
-        (`tuple_3_str_str_str`); this decodes the slugs back to the IR
-        types. A type that is not a synthetic tuple, or a slug the subset
-        cannot express, returns None so the caller refuses rather than
-        approximate.
-        """
-
-        if not isinstance(typ, dict) or typ.get("kind") != "class":
-            return None
-        info = self.classes.get(typ["name"])
-        if info is None or not info.get("tuple") or not info.get("synthetic"):
-            return None
-        return [field["type"] for field in info["fields"]]
-
-    def _infer_signature(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> dict[str, Any] | None:
-        """The return type the function's own body proves, or None.
-
-        The peek (issue #500) scans the body's `return` statements, lowers
-        each returned expression under the peek, and keeps the type when
-        every return agrees, at least one return exists, and every path
-        returns. Only what the body proves is acceptable: a missing
-        parameter annotation, a call that does not lower or a type the
-        subset cannot express means the peek returns None and the caller
-        keeps its fence. Defaults are irrelevant here on purpose: a typed
-        default is a value at the call site, never the body's parameter
-        type, so it does not flow into the inferred return. The PS1004
-        fall-off-the-end fence is replayed by the real pass, which signs
-        and lowers the body for real.
-        """
-        if fn.returns is not None or self.function is None:
-            return None
-        if self.inf_peek:
-            # A signature being peeked proves no further def's return: the
-            # nested peek would replay the same fences and recurse.
-            return None
-        if isinstance(fn, ast.AsyncFunctionDef):
-            return None
-        for node in ast.walk(fn):
-            if isinstance(node, (ast.Yield, ast.YieldFrom)):
-                return None
-        # The body's own local assignments participate: a returned value
-        # may name a local (`return mapping.get(k)`), and the local's type
-        # is the same body-proven fact this peek derives. The scan is the
-        # same top-level shape the real body lowers; a value that does not
-        # lower leaves the name out.
-        saved_locals = self.locals
-        body_locals = dict(_peek_annotated_params(self, fn))
-        # The annotated parameters are visible to the scan immediately: a
-        # value expression may name one (`[0.0] * n` under `n: int`), and
-        # the fact is the def's own annotation, not a guess.
-        self.locals = {**saved_locals, **body_locals}
-        saved_fn_body = self.fn_body
-        self.fn_body = list(fn.body)
-        try:
-            for item in fn.body:
-                if isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name):
-                    name = item.targets[0].id
-                    if name in body_locals:
-                        continue
-                    # An empty display says nothing on its own; the same
-                    # accumulated-type pass the real assignment uses reads
-                    # the appends and item writes in this body. The fn_body
-                    # window above is what that pass scans.
-                    typ = self._infer_accumulated_type(item) or self._infer_type_of(item.value)
-                    if typ is not None and typ["kind"] != "none":
-                        body_locals[name] = typ
-                        self.locals[name] = typ
-                elif (
-                    isinstance(item, ast.Assign)
-                    and len(item.targets) == 1
-                    and isinstance(item.targets[0], ast.Tuple)
-                    and all(isinstance(elt, ast.Name) for elt in item.targets[0].elts)
-                ):
-                    # `stem, dot, ext = value.rpartition(".")`: a fixed-arity
-                    # tuple unpack of a call the peek can prove. The synthetic
-                    # tuple class name carries the field kinds
-                    # (`tuple_3_str_str_str`), and each name takes its field
-                    # type; a type the name does not decode leaves the whole
-                    # unpack out (never a guess).
-                    typ = self._infer_type_of(item.value)
-                    fields = self._tuple_fields_of(typ)
-                    if fields is not None and len(fields) == len(item.targets[0].elts):
-                        for elt, field in zip(item.targets[0].elts, fields, strict=True):
-                            body_locals[elt.id] = field
-                            self.locals[elt.id] = field
-        finally:
-            self.fn_body = saved_fn_body
-        self.locals = {**saved_locals, **body_locals}
-        returns: list[dict[str, Any]] = []
-        # The return scan lowers returned values through `_infer_type_of`,
-        # whose own peek guard refuses a nested peek. The scan window sets
-        # no flag here: the peek opens per returned expression.
-        try:
-            for stmt in ast.walk(fn):
-                if isinstance(stmt, ast.Return):
-                    returns.append(stmt)
-            if any(item.value is None for item in returns):
-                # A bare `return`: the body proves nothing beyond None, but
-                # mixing bare and valued returns means the paths disagree.
-                # Fall back to the zero-return rule below only when none
-                # carries a value.
-                if not all(item.value is None for item in returns):
-                    return None
-            if not returns or all(item.value is None for item in returns):
-                # No return at all, or only bare ones: every path falls off
-                # the end, so the body proves `None` (CPython semantics,
-                # not a guess). A generator is refused above by the yield
-                # scan. The PS1004 fence does not apply: nothing can fall
-                # off because nothing expects a value.
-                return {"kind": "none"}
-            inferred = None
-            for item in returns:
-                assert item.value is not None
-                typ = self._infer_type_of(item.value)
-                if typ is None or typ["kind"] == "none":
-                    return None
-                if inferred is None:
-                    inferred = typ
-                elif not types_equal(inferred, typ):
-                    return None
-        finally:
-            self.locals = saved_locals
-        assert inferred is not None
-        if _has_typevar(inferred):
-            return None
-        return inferred
-
-    def _bindings_types(self) -> dict[str, dict[str, Any]]:
-        """The import-bound modules as peekable types.
-
-        The peek lowers module attribute calls (`os.path.splitext(x)`) and
-        needs the module names in `locals` as opaque records the attribute
-        path resolves. The binding table already proved each import lowers
-        (a bad import fenced in `_live_statements`), so this trusts it.
-        """
-
-        out: dict[str, dict[str, Any]] = {}
-        for name, binding in self.bindings.items():
-            if binding.kind == "module":
-                out[name] = {"kind": "module", "name": binding.module}
-        return out
-
-    def _pin_namespace_locals(
-        self, functions: list[ast.FunctionDef | ast.AsyncFunctionDef]
-    ) -> list[dict[str, Any]] | None:
-        """The Namespace fields the module's `add_argument` calls register.
-
-        The pin pass runs before any body lowers, so a namespace attribute
-        argument (`batch_rename(args.work_dir, ...)`) has no field types yet:
-        the real `add_argument` lowering registers them later. This reads the
-        same closed keyword set from the AST, without lowering anything, so
-        the peek can type the attribute. Anything the real handler would
-        fence (an unknown keyword, a non-constant name) returns None and the
-        pin refuses the parameter, exactly as today.
-
-        The scan covers every function in the module, not one caller: an
-        argparse parser is module state, and a script may build it in one
-        function (`get_parser`) and read the namespace in another (`main`).
-        """
-
-        from pyscriptc.restlower._argparse import peek_namespace_fields
-
-        body: list[ast.stmt] = []
-        for fn in functions:
-            body.extend(fn.body)
-        fields = peek_namespace_fields(self, body)
-        if fields is None:
-            return None
-        info = self.classes.get("Namespace")
-        if info is None:
-            return None
-        # The peek's Namespace layout is the registered one. The real
-        # `add_argument` lowering overwrites it with the same records, so
-        # the two agree; the peek never runs the real handler.
-        info["fields"] = fields
-        info["own_fields"] = fields
-        return fields
-
-    def _pin_call_site_params(
-        self, functions: list[ast.FunctionDef | ast.AsyncFunctionDef], fences: list[Fence]
-    ) -> None:
-        """Pin unannotated parameters from their call sites (issue #500).
-
-        Runs after the first signature pass, before any body lowers. A
-        parameter with no annotation and no default, whose every call site
-        passes a value of one proven type, gets that type: the signature
-        pass re-runs for the defs that changed, so their return inference
-        sees the pinned parameter. Soundness: every call site must agree,
-        a parameter any call passes an unprovable value to stays fenced,
-        and nothing here reads a def whose signature already exists with
-        all parameters annotated. Recursion through the pinned def itself
-        is skipped (the call inside its own body is not a pinning site).
-        """
-
-        by_name = {fn.name: fn for fn in functions if isinstance(fn, ast.FunctionDef)}
-        pending = [
-            fn
-            for fn in by_name.values()
-            if not isinstance(fn, ast.AsyncFunctionDef)
-            and any(
-                arg.annotation is None and not self._has_default(fn, arg.arg)
-                for arg in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
-            )
-        ]
-        if not pending:
-            return
-        # The first signature pass fenced the unannotated parameters this
-        # pass is about to prove. A def the pin rescues has its stale
-        # first-pass fence dropped: the rescued signature is the answer and
-        # the earlier PS1001 was a state this pass replaces.
-        for _round in range(3):
-            changed = False
-            for fn in pending:
-                if fn.name in self.sigs:
-                    continue
-                unannotated = [
-                    arg
-                    for arg in fn.args.posonlyargs + fn.args.args + fn.args.kwonlyargs
-                    if arg.annotation is None and not self._has_default(fn, arg.arg)
-                ]
-                if not unannotated:
-                    continue
-                pins = self._call_site_types(fn, unannotated, by_name)
-                if not pins:
-                    continue
-                for arg, typ in pins.items():
-                    arg.annotation = self._pin_annotation(typ)
-                saved_prelude = self.prelude
-                saved_caught = self.caught
-                saved_temp_n = self.temp_n
-                saved_function = self.function
-                self.prelude = []
-                self.caught = []
-                self.temp_n = saved_temp_n
-                self.function = fn.name
-                changed = True
-                try:
-                    signed = self._signature(fn, None, "method")
-                    if signed is None or self.caught:
-                        continue
-                except Fence:
-                    continue
-                finally:
-                    self.prelude = saved_prelude
-                    self.caught = saved_caught
-                    self.temp_n = saved_temp_n
-                    self.function = saved_function
-                self.sigs[fn.name] = signed
-                pinned_names = {arg.arg for arg in pins}
-                fences[:] = [
-                    item
-                    for item in fences
-                    if not (
-                        item.code == "PS1001"
-                        and item.function == fn.name
-                        and item.message in {f"parameter {name} needs an annotation" for name in pinned_names}
-                    )
-                ]
-            if not changed:
-                break
-
-    def _has_default(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
-        """True when the named positional or keyword-only parameter has a default."""
-
-        plain = fn.args.posonlyargs + fn.args.args
-        missing = len(plain) - len(fn.args.defaults)
-        for index, arg in enumerate(plain):
-            if arg.arg == name:
-                return index >= missing
-        for arg, default in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True):
-            if arg.arg == name:
-                return default is not None
-        return False
-
-    def _call_site_types(
-        self,
-        fn: ast.FunctionDef | ast.AsyncFunctionDef,
-        unannotated: list[ast.arg],
-        by_name: dict[str, ast.FunctionDef | ast.AsyncFunctionDef],
-    ) -> dict[ast.arg, dict[str, Any]]:
-        """The one type every call site proves for each unannotated parameter.
-
-        A call site inside any function body (not the pinned def's own, to
-        skip recursion) contributes the argument's peeked type. The first
-        disagreement, or a call whose argument does not lower, refuses the
-        parameter: no pin.
-        """
-
-        wanted = {arg.arg: arg for arg in unannotated}
-        pins: dict[str, dict[str, Any]] = {}
-
-        def _call_site_locals(caller: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
-            """Bind the caller body's own local names for the argument peeks.
-
-            `get_category(ext)` passes a local the caller bound earlier; the
-            pin pass runs before any body lowers, so the peek needs those
-            names. The walk is recursive in source order (`if`/`for`/`while`
-            bodies hold the binding the call site reads, like
-            `file_names = sys.argv[1:]` under an `if len(sys.argv)`), and a
-            name bound twice with different types leaves the table: the
-            ambiguity refuses the pin rather than guessing. Loop targets
-            resolve from their iterable when its type is known.
-            """
-
-            self.locals = self._bindings_types()
-
-            def _bind(name: str, typ: dict[str, Any] | None) -> None:
-                if typ is None or typ["kind"] == "none":
-                    return
-                known = self.locals.get(name)
-                if known is not None and not types_equal(known, typ):
-                    self.locals.pop(name, None)
-                    return
-                self.locals[name] = typ
-
-            def _ns_type() -> dict[str, Any] | None:
-                """The Namespace type, when the caller registered arguments.
-
-                `args = parser.parse_args()` lowers late; the pin walk binds
-                the local so an attribute argument (`args.work_dir`) peeks
-                through the field table the add_argument scan built.
-                """
-
-                if self.classes.get("Namespace", {}).get("fields"):
-                    return {"kind": "class", "name": "Namespace"}
-                return None
-
-            def _assign_type(value: ast.expr) -> dict[str, Any] | None:
-                if (
-                    isinstance(value, ast.Call)
-                    and isinstance(value.func, ast.Attribute)
-                    and value.func.attr == "parse_args"
-                    and (typ := _ns_type()) is not None
-                ):
-                    return typ
-                return self._infer_type_of(value)
-
-            def _visit(body: list[ast.stmt]) -> None:
-                for item in body:
-                    if isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name):
-                        if item.targets[0].id in self.bindings:
-                            continue
-                        _bind(item.targets[0].id, _assign_type(item.value))
-                    elif (
-                        isinstance(item, ast.Assign)
-                        and len(item.targets) == 1
-                        and isinstance(item.targets[0], ast.Tuple)
-                        and all(isinstance(elt, ast.Name) for elt in item.targets[0].elts)
-                    ):
-                        # `_, ext = os.path.splitext(name)`: a fixed-arity
-                        # tuple decodes like the return peek's unpack, each
-                        # name taking its field's type. A list RHS decodes
-                        # as its element type for every name: the real
-                        # unpack length-checks at run time and a length
-                        # mismatch is CPython's ValueError, so the binding
-                        # is exactly as proven as the unpack itself.
-                        value_type = self._infer_type_of(item.value)
-                        fields = self._tuple_fields_of(value_type)
-                        if (
-                            fields is None
-                            and isinstance(value_type, dict)
-                            and value_type.get("kind") == "list"
-                            and not value_type.get("set")
-                        ):
-                            fields = [value_type["elem"]] * len(item.targets[0].elts)
-                        if fields is not None and len(fields) == len(item.targets[0].elts):
-                            for elt, field in zip(item.targets[0].elts, fields, strict=True):
-                                _bind(elt.id, field)
-                    if isinstance(item, ast.AugAssign) and isinstance(item.target, ast.Name):
-                        left = self.locals.get(item.target.id)
-                        if left is not None:
-                            binop = ast.BinOp(
-                                left=ast.Name(id=item.target.id, ctx=ast.Load()), op=item.op, right=item.value
-                            )
-                            ast.copy_location(binop, item)
-                            _bind(item.target.id, self._infer_type_of(binop))
-                    if isinstance(item, ast.For) and isinstance(item.target, ast.Name):
-                        iter_typ = self._infer_type_of(item.iter)
-                        if iter_typ is not None and iter_typ.get("kind") in {"list", "dict"}:
-                            elem = iter_typ["elem"] if iter_typ["kind"] == "list" else iter_typ["key"]
-                            _bind(item.target.id, elem)
-                    if isinstance(item, ast.If):
-                        _visit(item.body)
-                        _visit(item.orelse)
-                    if isinstance(item, (ast.For, ast.While)):
-                        if isinstance(item, ast.For) and isinstance(item.target, ast.Name):
-                            iter_typ = self._infer_type_of(item.iter)
-                            if iter_typ is not None and iter_typ.get("kind") in {"list", "dict"}:
-                                elem = iter_typ["elem"] if iter_typ["kind"] == "list" else iter_typ["key"]
-                                _bind(item.target.id, elem)
-                        _visit(item.body)
-                        _visit(item.orelse)
-                    if isinstance(item, ast.With):
-                        # `with open(p) as f` binds the handle local like the
-                        # real lowering does; a general context manager is
-                        # refused by its own expression peek.
-                        named = [
-                            it.optional_vars
-                            for it in item.items
-                            if it.optional_vars is not None and isinstance(it.optional_vars, ast.Name)
-                        ]
-                        for it in item.items:
-                            if isinstance(it.optional_vars, ast.Name):
-                                opened = self._infer_type_of(it.context_expr)
-                                if opened is not None and opened.get("kind") == "class":
-                                    _bind(it.optional_vars.id, opened)
-                        if len(item.items) == 1 or named:
-                            _visit(item.body)
-                    if isinstance(item, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                        continue
-
-            # Annotated parameters of the caller are facts the def states,
-            # not guesses: an argument the call site passes as a bare
-            # parameter (`format_array("t", [n])`) peeks through them. The
-            # pins from the caller's own rescue ride along the same way.
-            # They bind before the walk: a local's own value may read a
-            # parameter (`f = open(fname)`), and the peek needs it then.
-            for arg in caller.args.posonlyargs + caller.args.args + caller.args.kwonlyargs:
-                if arg.annotation is None:
-                    continue
-                typ = _peek_annotation(arg.annotation)
-                if typ.get("kind") not in {None, "__peek_unresolved__"} and arg.arg not in self.bindings:
-                    self.locals[arg.arg] = typ
-            _visit(caller.body)
-
-        saved_pin_locals = self.locals
-        self._pin_namespace_locals(list(by_name.values()))
-        for caller in by_name.values():
-            _call_site_locals(caller)
-            for node in ast.walk(caller):
-                if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Name):
-                    continue
-                if node.func.id != fn.name:
-                    continue
-                if caller is fn:
-                    continue
-                for index, arg_node in enumerate(node.args):
-                    plain = fn.args.posonlyargs + fn.args.args
-                    if index >= len(plain) or plain[index].arg not in wanted:
-                        continue
-                    name = plain[index].arg
-                    typ = self._infer_type_of(arg_node)
-                    if typ is None or typ["kind"] == "none":
-                        pins.pop(name, None)
-                        wanted.pop(name, None)
-                        continue
-                    if name in pins and not types_equal(pins[name], typ):
-                        pins.pop(name, None)
-                        wanted.pop(name, None)
-                        continue
-                    if name in wanted:
-                        pins[name] = typ
-                for kw in node.keywords:
-                    if kw.arg is None or kw.arg not in wanted:
-                        continue
-                    typ = self._infer_type_of(kw.value)
-                    if typ is None or typ["kind"] == "none":
-                        pins.pop(kw.arg, None)
-                        wanted.pop(kw.arg, None)
-                        continue
-                    if kw.arg in pins and not types_equal(pins[kw.arg], typ):
-                        pins.pop(kw.arg, None)
-                        wanted.pop(kw.arg, None)
-                        continue
-                    if kw.arg in wanted:
-                        pins[kw.arg] = typ
-        self.locals = saved_pin_locals
-        out: dict[ast.arg, dict[str, Any]] = {}
-        for name, typ in pins.items():
-            if name in wanted:
-                out[wanted[name]] = typ
-        return out
-
-    def _pin_annotation(self, typ: dict[str, Any]) -> ast.AST:
-        """The annotation spelling for a pinned parameter type, or a poison one.
-
-        `_annotation` re-reads the annotation when the signature pass
-        re-runs, so the spelling must round-trip: scalars spell as
-        themselves, lists and dicts as generics, a class as its name. A
-        type with no spelling here means the pin is refused (the caller
-        never sees it: `_call_site_types` only produces the subset this
-        helper reads).
-        """
-
-        kind = typ.get("kind")
-        if kind in {"int", "float", "bool", "str", "bytes"}:
-            return ast.Name(id=kind, ctx=ast.Load())
-        if kind == "list" and typ.get("set"):
-            return ast.Subscript(
-                value=ast.Name(id="set", ctx=ast.Load()), slice=ast.Name(id="int", ctx=ast.Load()), ctx=ast.Load()
-            )
-        if kind == "list":
-            elem = self._pin_annotation(typ["elem"])
-            return ast.Subscript(value=ast.Name(id="list", ctx=ast.Load()), slice=elem, ctx=ast.Load())
-        if kind == "dict":
-            key = self._pin_annotation(typ["key"])
-            value = self._pin_annotation(typ["value"])
-            return ast.Subscript(
-                value=ast.Name(id="dict", ctx=ast.Load()),
-                slice=ast.Tuple(elts=[key, value], ctx=ast.Load()),
-                ctx=ast.Load(),
-            )
-        if kind == "class":
-            return ast.Name(id=typ["name"], ctx=ast.Load())
-        return ast.Name(id="__pin_unsupported__", ctx=ast.Load())
-
-    def _infer_fence(self, node: ast.AST, target: str) -> NoReturn:
-        """The refusal fence, byte-identical to the pre-inference message.
-
-        The rule and the hint stay where the reader looks them up: the
-        `param-inference` / `local-inference` / `return-inference` families
-        carry the refactor hint, and `pyscriptc explain PS1001` the rule.
-        Ambiguity (a bare `None`, a lambda, an empty display, a call that
-        does not lower) is a fence, never a guess.
-        """
-        self.fail(node, "PS1001", f"{target} needs an annotation before use")
+        # Cross-module parameter pinning (issue #87, `pyscriptc infer`):
+        # the checker's call-site facts, keyed by module stem and qualified
+        # name, with the source line/col of each call. Set by `pyscriptc
+        # infer`; None means the compiler's own same-module pin stands.
+        self.call_site_facts: Any = None
+        # Every fact the checker proved and the lowerer accepted this run,
+        # for `compile --debug` and `pyscriptc infer`. A record carries the
+        # module, qualified name, the accepted IR type and a render of the
+        # checker's proof. The bridge owns the list when one is wired, so
+        # a package compile gathers every file's records in one place.
+        self.infer_records: list[dict[str, Any]] = []
+        # The pin-pass caller caches (issue #500, per pin round): the
+        # def-independent facts of each caller, reused across the pending
+        # defs of one `_pin_call_site_params` run. The calls list is the
+        # caller's Name-callee call nodes (a pure AST walk); the locals
+        # table is what `_call_site_locals` derives, keyed by the pin epoch
+        # so a pin landing mid-round (a new caller-parameter annotation, a
+        # new signature) recomputes the callers it can now see differently.
+        # Both reset at the start of every pin pass.
+        self._pin_epoch: int = 0
+        self._pin_caller_calls: dict[int, list[ast.Call]] = {}
+        self._pin_caller_locals: dict[tuple[int, int], dict[str, dict[str, Any]]] = {}
+        # The export-table reads this run made (issue #424, the catalog
+        # fixpoint): (module, member) pairs, or (module, None) for a
+        # module-presence check. The catalog memo compares exactly these
+        # entries between rounds, so a unit whose imports did not change
+        # reuses its previous round's result instead of re-lowering.
+        self._export_reads: set[tuple[str, str | None]] = set()
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
-
-    # boxed:begin
-    def _boxed_resolve(self, fences: list[Fence]) -> None:
-        """The boxed planner, before any body lowers (issue #612).
-
-        Runs the fence-free probe per definition so the plane map is known
-        before call sites lower: a fenced definition's fences carry
-        `_boxed_probe` and leave no trace, and its name lands in
-        `island_fns`, which routes the calls to it through the island
-        trampoline. Definitions the probe clears lower native with their
-        real fences intact (a later fence in the body still refuses).
-        """
-        if not self.fallback_definitions:
-            return
-        saved_caught = self.caught
-        try:
-            for fn in self._boxed_functions:
-                if fn.name in self.declared or fn.name in self.generic_fns:
-                    continue
-                # boxed:begin
-                # Issue #676: the deferred decorator pass already planned a
-                # name the island seed owns; its decorator fences dropped
-                # with the definition, so it never lowers and no probe runs.
-                if fn.name in self._boxed_island:
-                    continue
-                # boxed:end
-                probe_fences: list[Fence] = []
-                saved_function = self.function
-                self.function = fn.name
-                try:
-                    self._boxed_probe(fn, probe_fences)
-                finally:
-                    self.function = saved_function
-                if probe_fences:
-                    self._boxed_island.add(fn.name)
-        finally:
-            self.caught = saved_caught
-        self.island_fns = set(self._boxed_island)
-        self._boxed_demoted_by = {}
-
-        # Issue #677: annotated `int` is i64 (divergence 1), so a definition
-        # that accumulates an unbounded int natively aborts on overflow where
-        # the island would print CPython's big int. A conservative static
-        # check finds the growth shape and routes the whole definition to the
-        # island instead: an unannotated definition rides the island exactly
-        # like a fenced one, so this closes the gap without changing the
-        # typed-subset contract. Runs after the reset above so the demotion
-        # reasons survive the #620 cascade below.
-        for fn in self._boxed_functions:
-            if fn.name in self.island_fns or fn.name not in self.sigs or fn.name in self.generic_fns:
-                continue
-            growth = _bigint_growth(fn)
-            if growth is not None:
-                self._boxed_island.add(fn.name)
-                self._boxed_demoted_by[fn.name] = f"possible i64 overflow at {growth}"
-        self.island_fns = set(self._boxed_island)
-        boxed_fns_by_name = {fn.name: fn for fn in self._boxed_functions}
-
-        # Issue #620: Cascade island definitions to native siblings.
-        # If an island definition calls a native sibling, demote that sibling
-        # transitively to a fixpoint.
-        # Issue #674: a native caller passing a mutable container (list,
-        # set, dict) to an island callee loses in-place mutation: the
-        # trampoline marshals a fresh island copy and nothing copies the
-        # cells back. Demote the caller to the island so the call is an
-        # island-to-island call on the same object. One fixpoint: demoting
-        # a caller (#674) can make its own native callees need the #620
-        # demotion and the other way around.
-        changed = True
-        while changed:
-            changed = False
-            for fn in self._boxed_functions:
-                if fn.name not in self.island_fns:
-                    continue
-                # Issue #675: a native sibling read as a value (passed as a
-                # callable, reduced over, stored) is no more reachable
-                # native-side than one called directly (issue #620): the
-                # name does not resolve in the island namespace either way.
-                # Demote any bare name load, not only a call.
-                loaded = set()
-                for node in ast.walk(fn):
-                    if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Load):
-                        loaded.add(node.id)
-                    elif isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-                        # `mod.helper` names `mod`, not `helper`.
-                        loaded.add(node.value.id)
-                for callee in loaded:
-                    if callee in boxed_fns_by_name and callee not in self.island_fns:
-                        if callee in self.generic_fns:
-                            continue
-                        self.island_fns.add(callee)
-                        self._boxed_island.add(callee)
-                        if callee not in self._boxed_demoted_by:
-                            self._boxed_demoted_by[callee] = fn.name
-                        changed = True
-            for fn in self._boxed_functions:
-                if fn.name in self.island_fns:
-                    continue
-                if fn.name in self.generic_fns or fn.name in self.declared:
-                    continue
-                for node in ast.walk(fn):
-                    if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
-                        continue
-                    callee = node.func.id
-                    if callee not in self.island_fns or callee not in boxed_fns_by_name:
-                        continue
-                    if self._island_call_passes_mutable(callee):
-                        self.island_fns.add(fn.name)
-                        self._boxed_island.add(fn.name)
-                        self._boxed_demoted_by.setdefault(
-                            fn.name,
-                            f"island function {callee} takes a mutable container argument "
-                            "(a copy-in copy-out seam would lose in-place mutation, issue #674)",
-                        )
-                        changed = True
-                        break
-
-        # Issue #628: cascade the island class to the compiled functions
-        # that name it. The class object and its instances exist only
-        # island-side, so a function that uses one runs island-side too
-        # (the #620 rule, with the class as the island definition).
-        if self.island_classes:
-            for fn in self._boxed_functions:
-                if fn.name in self.island_fns:
-                    continue
-                used = sorted(
-                    node.id for node in ast.walk(fn) if isinstance(node, ast.Name) and node.id in self.island_classes
-                )
-                if used:
-                    self.island_fns.add(fn.name)
-                    self._boxed_island.add(fn.name)
-                    self._boxed_demoted_by.setdefault(fn.name, f"island class {used[0]}")
-
-        self._boxed_sibling_fences: list[Fence] = []
-        # Keep the PS2002 diagnostic only where demotion is impossible and say why.
-        for fn in self._boxed_functions:
-            if fn.name not in self.island_fns:
-                continue
-            for node in ast.walk(fn):
-                if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
-                    callee = node.func.id
-                    if callee in self.sigs and callee not in self.island_fns:
-                        if callee in self.generic_fns:
-                            reason = (
-                                f"generic compiled function {callee} cannot be demoted to the island; "
-                                "the island-to-compiled seam is the `--emit binding` surface"
-                            )
-                        elif callee not in boxed_fns_by_name:
-                            reason = (
-                                f"{callee} is not a module-level definition and cannot be demoted to the island; "
-                                "the island-to-compiled seam is the `--emit binding` surface"
-                            )
-                        else:
-                            reason = (
-                                "the island-to-compiled seam is the `--emit binding` surface; "
-                                f"annotate {callee} so it lowers native-to-native, "
-                                "or drop its annotations so it joins the island"
-                            )
-                        msg = f"{fn.name} runs on the island and cannot call the compiled function {callee}: {reason}"
-                        fences.append(Fence("PS2002", msg, span_of(node, self.filename), fn.name))
-                        self._boxed_sibling_fences.append(fences[-1])
-
-    def _island_call_passes_mutable(self, callee: str) -> bool:
-        """Whether the island callee has a mutable container parameter
-        (issue #674).
-
-        The callee's proven signature is the fact: an unprovable signature
-        fenced the callee itself, so `sigs` answers for every parameter that
-        marshals at all. A list (a set lowers as a list with the set flag),
-        a dict or an optional wrapper of either mutates in place, so the
-        copy-in seam would lose the mutation. Scalars, str and bytes are
-        immutable and stay on the copy-in trampoline. Call-site binding is
-        deliberately ignored: the callee's contract is that the parameter
-        can be mutated, and any caller that binds it has the same hazard.
-        """
-        try:
-            params, _ret = self.sigs[callee]
-        except KeyError:
-            return True
-        for param in params:
-            kind = param["type"]["kind"]
-            elem = param["type"].get("elem") or {}
-            if kind in {"list", "dict"} or param["type"].get("set"):
-                return True
-            if param["type"].get("optional") and elem.get("kind") in {"list", "dict"}:
-                return True
-        return False
-
-    def _boxed_island_class(self, node: ast.ClassDef) -> None:
-        """Plan one class definition for the island (issue #628).
-
-        The class leaves every native table, so a compiled call site resolves
-        it through the island handle path (or demotes, see `_boxed_resolve`),
-        and the class lowering pass skips it: CPython defines it island-side.
-        """
-        self.island_classes.add(node.name)
-        self.classes.pop(node.name, None)
-        self.declared.discard(node.name)
-        self.known_classes.discard(node.name)
-        self.class_aliases.pop(node.name, None)
-
-    def _boxed_replan(self, fences: list[Fence]) -> None:
-        """Re-run the function planner after a class joins the island late.
-
-        A class that only fences while its method bodies lower becomes
-        island after `_boxed_resolve` already ran. `island_fns` recomputes
-        from the accumulated `_boxed_island` set (so a demotion is never
-        undone), and the sibling refusal fences the previous pass appended
-        are dropped before the new pass appends its own.
-        """
-        if not self.fallback_definitions:
-            return
-        stale = set(map(id, self._boxed_sibling_fences))
-        fences[:] = [fence for fence in fences if id(fence) not in stale]
-        self._boxed_resolve(fences)
-        # The entry's probe ran before this class joined the island, so it
-        # may have cleared uses the island class now expresses differently.
-        # A fence there is the whole top level fencing (Decision A): the
-        # module body runs island-side, exactly as if the probe had run after
-        # the class decision.
-        entry_name = self.entry_fn_name
-        if self._boxed_top_island or entry_name is None:
-            return
-        entry = next((fn for fn in self._boxed_functions if fn.name == entry_name), None)
-        if entry is None:
-            return
-        probe: list[Fence] = []
-        saved_function = self.function
-        self.function = entry.name
-        try:
-            self._boxed_probe(entry, probe)
-        finally:
-            self.function = saved_function
-        if probe:
-            self._boxed_top_island = True
-            self._boxed_island.add(entry.name)
-            self.island_fns.add(entry.name)
-
-    def _boxed_probe(self, fn: ast.FunctionDef, sink: list[Fence]) -> None:
-        """Lower `fn`'s body into `sink`, discarding the IR.
-
-        The scope setup mirrors the real body pass (issue #612): the
-        signature's parameters become the locals, the per-function state
-        starts fresh, and everything restores after. Without it the probe
-        would fence on the function's own parameters (`url` is not a local)
-        and misplan every function that reads one.
-        """
-
-        self.caught = sink
-        try:
-            saved: dict[str, Any] = {
-                "locals": self.locals,
-                "prelude": self.prelude,
-                "temp": self.temp_n,
-                "modules": self.island_modules,
-                "class_handles": self.island_class_handles,
-                "globals": self.fn_globals,
-                "nonlocals": self.fn_nonlocals,
-                "captures": self.captures,
-                "frozen": self.frozen_names,
-                "unwrap": self.opt_unwrap,
-                "boxed": self.boxed_names,
-                "fn_body": self.fn_body,
-                "handle_locals": self.handle_locals,
-                "consumed": self.consumed_handles,
-                "returned": self.returned_handles,
-                "borrowed": self.borrowed_handles,
-            }
-            try:
-                self.temp_n = 0
-                self.prelude = []
-                self.island_modules = {}
-                self.island_class_handles = {}
-                self.fn_globals = self._globals_for(fn.body)
-                self.fn_nonlocals = set()
-                self.captures = {}
-                params, ret = self._coro_body_sig(fn.name)
-                self.locals = {param["name"]: param["type"] for param in params}
-                self.frozen_names = set()
-                self.opt_unwrap = {}
-                self.boxed_names = set()
-                self.fn_body = list(fn.body)
-                self.handle_locals = {}
-                self.consumed_handles = set()
-                self.returned_handles = set()
-                self.borrowed_handles = {
-                    name for name, typ in self.locals.items() if isinstance(typ, dict) and is_handle_type(typ)
-                }
-                body = self._body(list(fn.body))
-                if not self.caught:
-                    body = self._scope_exit_frees(body, span_of(fn, self.filename))
-                    if ret["kind"] != "none" and not _always_returns(body):
-                        sink.append(
-                            Fence(
-                                "PS1004",
-                                f"{fn.name} can fall off the end and return None",
-                                span_of(fn, self.filename),
-                                fn.name,
-                            )
-                        )
-            except Fence as exc:
-                sink.append(exc)
-            finally:
-                self.locals = saved["locals"]
-                self.prelude = saved["prelude"]
-                self.temp_n = saved["temp"]
-                self.island_modules = saved["modules"]
-                self.island_class_handles = saved["class_handles"]
-                self.fn_globals = saved["globals"]
-                self.fn_nonlocals = saved["nonlocals"]
-                self.captures = saved["captures"]
-                self.frozen_names = saved["frozen"]
-                self.opt_unwrap = saved["unwrap"]
-                self.boxed_names = saved["boxed"]
-                self.fn_body = saved["fn_body"]
-                self.handle_locals = saved["handle_locals"]
-                self.consumed_handles = saved["consumed"]
-                self.returned_handles = saved["returned"]
-                self.borrowed_handles = saved["borrowed"]
-        finally:
-            self.caught = []
-
-    def _boxed_island_source(
-        self,
-        tree: ast.Module,
-        island: set[str],
-        top_level_island: bool,
-        globals_out: dict[str, str],
-    ) -> str:
-        """The source text the island seed execs (issue #612, #613).
-
-        With a native top level (Stage 2) the seed must not re-execute
-        side-effecting top-level statements (the native init already ran
-        them; a second run doubles output). It carries the statements an
-        island function needs to resolve its names: every top-level `import`
-        (module bindings, no side effects beyond the import itself, which
-        CPython caches), module assignments whose value is a literal or a
-        deterministic initializer, and the source segment of every island
-        definition.
-
-        With the island top level (Stage 3, Decision A) the seed is the
-        module's own source text: the embedded interpreter execs it as the
-        `__main__` body exactly once (`ps_island_top_seed` sets `__name__`),
-        so the script's main guard fires island-side and `raise
-        SystemExit(...)` delivers the process status (Decision E). The
-        annotated scalar globals the top level binds are recorded in
-        `globals_out` so the emitter unboxes them once at init into native
-        readers (Decision E).
-        """
-
-        if not top_level_island:
-            return self._boxed_stage2_source(tree, island)
-        # The annotated scalar globals the top level binds join the native
-        # slot table from their module-level AnnAssign, so a typed native
-        # reader unboxes the island value once at init. An annotated global
-        # normally binds as a constant (no slot); here the annotation gives
-        # the slot its type instead. An unannotated top-level global never
-        # got a slot (it fenced): it stays island-only.
-        for stmt in tree.body:
-            if not (isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)):
-                continue
-            name = stmt.target.id
-            if name in self.constants:
-                # The split bound it as a module constant (annotation plus a
-                # simple value). The island top level owns the binding, so
-                # the constant replay leaves and the slot table takes the
-                # name: a typed native reader unboxes the island value
-                # through the shadow slot instead of folding the literal.
-                del self.constants[name]
-                self.declared.discard(name)
-            if name in self.declared:
-                continue
-            slot = self.global_slots.get(name)
-            if slot is None:
-                try:
-                    typ = self._annotation(stmt.annotation)
-                except Fence:
-                    continue
-                if not self._boxed_unboxable_global(typ):
-                    continue
-                self.global_slots[name] = {"type": typ, "active": False}
-                slot = self.global_slots[name]
-            elif slot.get("island"):
-                continue
-            else:
-                typ = slot.get("type")
-                if slot.get("active") or not self._boxed_unboxable_global(typ):
-                    continue
-            try:
-                self._activate_slot(name, stmt)
-            except Fence:
-                self.global_slots.pop(name, None)
-                self.declared.discard(name)
-                continue
-            slot["island"] = True
-            kind = typ["kind"]
-            if kind == "list":
-                pad = self._boxed_island_pad_code(typ["elem"])
-                globals_out[name] = f"5:{pad}"
-            else:
-                globals_out[name] = str({"int": 1, "str": 3, "bool": 4, "bytes": 6}[kind])
-        for slot_name, slot in self.global_slots.items():
-            if not slot.get("active") or slot.get("island"):
-                continue
-            typ = slot.get("type")
-            if not self._boxed_unboxable_global(typ):
-                continue
-            slot["island"] = True
-            kind = typ["kind"]
-            if kind == "list":
-                pad = self._boxed_island_pad_code(typ["elem"])
-                globals_out[slot_name] = f"5:{pad}"
-            else:
-                globals_out[slot_name] = str({"int": 1, "str": 3, "bool": 4, "bytes": 6}[kind])
-        return self.source
-
-    def _boxed_island_pad_code(self, typ: dict[str, Any]) -> int:
-        """The `pad` element code `_island_pad` emits, mirrored at the lowerer.
-
-        The trampoline stores an unboxed list cell per element; the pad names
-        the element kind the same way the emitter's `_ISLAND_ARG_CODES` does.
-        """
-
-        from pyscriptc.emit.llvm._abi import AbiMixin
-
-        return AbiMixin._ISLAND_ARG_CODES[typ["kind"]]
-
-    def _boxed_stage2_source(self, tree: ast.Module, island: set[str]) -> str:
-        """The Stage 2 seed: imports, literal module values, island defs."""
-        segments: list[str] = []
-        for stmt in tree.body:
-            if isinstance(stmt, (ast.Import, ast.ImportFrom)):
-                segments.append(ast.get_source_segment(self.source, stmt) or "")
-                continue
-            if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and self._boxed_is_literal_module_value(stmt):
-                segment = ast.get_source_segment(self.source, stmt)
-                if segment:
-                    segments.append(segment)
-        for node in ast.walk(tree):
-            if isinstance(node, ast.FunctionDef) and node.name in island:
-                segment = self._boxed_definition_source(node)
-                if segment:
-                    segments.append(segment)
-            # Issue #628: an island class definition joins the seed too, in
-            # source order beside the island functions that instantiate it.
-            elif isinstance(node, ast.ClassDef) and node.name in self.island_classes:
-                segment = self._boxed_definition_source(node)
-                if segment:
-                    segments.append(segment)
-        return "\n\n\n".join(segment for segment in segments if segment)
-
-    def _boxed_definition_source(self, node: ast.AST) -> str:
-        """One definition's source text, decorators included.
-
-        `ast.get_source_segment` starts a decorated definition at its `def`
-        or `class` line, so the decorator lines come from the decorator
-        expressions themselves. An island class without its decorator would
-        silently lose it (a `@dataclass(frozen=True)` class would lose its
-        generated `__init__`, issue #628).
-        """
-        segment = ast.get_source_segment(self.source, node)
-        if not segment:
-            return ""
-        imprint = []
-        for decorator in getattr(node, "decorator_list", []) or []:
-            text = ast.get_source_segment(self.source, decorator)
-            if text:
-                imprint.append(f"@{text}")
-        if not imprint:
-            return segment
-        return "\n".join([*imprint, segment])
-
-    def _boxed_is_literal_module_value(self, stmt: ast.Assign | ast.AnnAssign) -> bool:
-        """True when the value is safe to re-execute island-side.
-
-        A literal (a constant or a display of constants) is always safe.
-        An initializer built from deterministic calls (`Path.home() / x`)
-        also re-executes to the same value, and the dogfood scripts read
-        such globals (`SESSION_DIR`, `ROOT`) from island functions; the
-        re-execution divergence is documented (plan Decision E: globals
-        are one-directional at this seam, and Stage 3 replaces this rule
-        with an island-owned top level). An import-bound name resolves
-        through the seeded imports, so attribute and call chains over it
-        lower island-side too.
-        """
-        value = getattr(stmt, "value", None)
-        if value is None:
-            return False
-        for node in ast.walk(value):
-            if isinstance(node, (ast.expr_context, ast.operator, ast.boolop, ast.unaryop, ast.cmpop)):
-                continue
-            if isinstance(node, ast.Constant):
-                continue
-            if isinstance(node, (ast.List, ast.Tuple, ast.Set, ast.Dict)):
-                continue
-            if isinstance(node, ast.UnaryOp):
-                continue
-            if isinstance(
-                node,
-                (
-                    ast.Name,
-                    ast.Attribute,
-                    ast.Call,
-                    ast.BinOp,
-                    ast.BoolOp,
-                    ast.JoinedStr,
-                    ast.FormattedValue,
-                    ast.IfExp,
-                ),
-            ):
-                continue
-            return False
-        return True
-
-    def _boxed_unboxable_global(self, typ: Any) -> bool:
-        """True when an island global's annotation is a marshalable scalar.
-
-        Decision E (issue #613): a native reader unboxes the island value
-        once after the seed runs; the accepted shapes are the ones the
-        native global-slot runtime can hold and the native readers can read
-        back - bool, int, str, bytes, and lists of scalars. Float has no
-        native slot getter today, so it stays island-side (a native reader
-        of it fences with the named diagnostic); `Path` and other handles
-        stay island-side the same way.
-        """
-
-        if not isinstance(typ, dict):
-            return False
-        if typ.get("island") or typ.get("optional"):
-            return False
-        kind = typ.get("kind")
-        if kind in {"bool", "int", "str", "bytes"}:
-            return True
-        if kind == "list":
-            elem = typ.get("elem") or {}
-            return not elem.get("optional") and elem.get("kind") in {"bool", "int", "float", "str", "bytes"}
-        return False
-
-    # boxed:end
 
     def mobile_guard(self, node: ast.AST, surface: str, key: str) -> None:
         """Fence a surface a mobile target cannot carry.
@@ -1562,550 +508,6 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         E1 replaces the body with the first real AST-to-AST pass.
         """
         return tree
-
-    def module(self, tree: ast.Module) -> dict[str, Any]:
-        # Issue #587: a deeply nested AST overflows the lowerer's recursive
-        # descent with an uncaught RecursionError. CPython's parser still
-        # accepts these programs (its own nesting guard only counts
-        # parentheses), so the guard lives here: past the depth the
-        # recursive passes can handle, the module fences with the fit
-        # diagnostic instead of crashing the compiler.
-        if (depth := _ast_depth(tree)) > MAX_LOWER_DEPTH:
-            fence = Fence(
-                "PS3002",
-                f"nesting is deeper than the lowerer handles: {depth} AST levels (over {MAX_LOWER_DEPTH})",
-                span_of(_deepest_node(tree), self.filename),
-                None,
-            )
-            return {
-                "irVersion": IR_VERSION,
-                "subset": SUBSET,
-                "cpython": cpython_version(),
-                "sourceFile": self.filename,
-                "entry": None,
-                "functions": [],
-                "classes": [],
-                "fences": [fence.as_dict()],
-            }
-        tree = self._desugar(tree)
-        fences: list[Fence] = []
-        functions: list[ast.FunctionDef] = []
-        class_nodes: list[ast.ClassDef] = []
-        live = self._live_statements(list(tree.body), fences)
-        self.global_slots = self._scan_global_slots(live)
-        entry_stmts = self._split_entry(live, functions, class_nodes, fences)
-        # boxed:end
-        entry_fn = self._entry_function(entry_stmts, functions)
-        entry_name = entry_fn[0].name if entry_fn else None
-        self.entry_fn_name = entry_name
-        functions.extend(entry_fn)
-        # boxed:end
-        self._install_synthetics(class_nodes, fences)
-        imported = {name for name, info in self.classes.items() if info.get("imported")}
-        imported.update(self.class_aliases)
-        self.known_classes = {node.name for node in class_nodes}
-        self.known_classes.update(name for name, info in self.classes.items() if info.get("synthetic"))
-        self.known_classes.update(imported)
-        for node in class_nodes:
-            self.function = node.name
-            self.caught = []
-            # boxed:begin
-            # Issue #628: a class whose definition fences (a decorator, class
-            # keywords, a class-body statement) is planned for the island, and
-            # its fences drop with it: the island seed defines the class in
-            # CPython, exactly like an island function.
-            if self.fallback_definitions:
-                class_fences: list[Fence] = []
-                try:
-                    self._collect_class(node)
-                except Fence as exc:
-                    class_fences.append(exc)
-                class_fences.extend(self.caught)
-                if class_fences:
-                    self._boxed_island_class(node)
-                else:
-                    fences.extend(class_fences)
-                continue
-            # boxed:end
-            try:
-                self._collect_class(node)
-            except Fence as exc:
-                fences.append(exc)
-            fences.extend(self.caught)
-        for fn in functions:
-            self.function = fn.name
-            if fn.name in self.declared:
-                fences.append(Fence("PS2002", f"{fn.name} is already bound", span_of(fn, self.filename), fn.name))
-                continue
-            try:
-                kind = "static" if self._is_module_staticmethod(fn) else "method"
-                self.sigs[fn.name] = self._coro_signature(fn) or self._signature(fn, None, kind)
-            except Fence as exc:
-                fences.append(exc)
-                # boxed:begin
-                # The signature itself fenced (an unannotated parameter or
-                # return, issue #612): under the fallback tier this plans
-                # the definition for the island, and the planner drops the
-                # fence with the definition.
-                if self.fallback_definitions:
-                    self._boxed_island.add(fn.name)
-                # boxed:end
-            else:
-                params, ret = self.sigs[fn.name]
-                if _has_typevar(ret) or any(_has_typevar(param["type"]) for param in params):
-                    self.generic_fns[fn.name] = fn
-        self._pin_call_site_params(functions, fences)
-        if self.deferred_module:
-            self._bind_deferred_module(fences)
-        # boxed:begin
-        # The boxed plane decision happens here, before any body lowers, so
-        # every call site sees the same `island_fns` (issue #612). Names the
-        # deferred decorator pass planned early (issue #676) join the probe
-        # set, so `_boxed_resolve` sees the same island set the planner
-        # would have produced from a body fence.
-        self._boxed_functions = list(functions)
-        self._boxed_resolve(fences)
-        # The island top level (issue #613, Decision A): the synthesized
-        # entry is the module body, so it is probed like any definition.
-        # A fenced probe means module-level statements fence native - the
-        # whole top level runs island-side and the entry's fences drop with
-        # it (the entry never lowers native: the body pass skips it).
-        # Module-level import fences (PS2001/PS2002, issue #627) route the
-        # module top level to the island floor as well. A deferred module
-        # assignment fence ("a module assignment must be a constant", Refs
-        # #641) carries the `__module__` sentinel instead of None, and
-        # routes the top level the same way: the seed execs the real
-        # statement, so the value is CPython's own.
-        if self.fallback_definitions:
-            probe_fences: list[Fence] = []
-            if entry_fn:
-                saved_function = self.function
-                self.function = entry_name
-                try:
-                    self._boxed_probe(entry_fn[0], probe_fences)
-                finally:
-                    self.function = saved_function
-            has_import_fence = any(
-                fence.function in (None, "__module__") and fence.code in ("PS2001", "PS2002") for fence in fences
-            )
-            self._boxed_top_island = bool(probe_fences) or has_import_fence
-            if self._boxed_top_island:
-                if probe_fences:
-                    fences.extend(probe_fences)
-                if entry_name:
-                    self._boxed_island.add(entry_name)
-        # boxed:end
-        if self.cataloguing:
-            self.function = None
-            return {
-                "irVersion": IR_VERSION,
-                "subset": SUBSET,
-                "cpython": cpython_version(),
-                "sourceFile": self.filename,
-                "entry": None,
-                "functions": [],
-                "classes": [],
-                "fences": [fence.as_dict() for fence in fences],
-            }
-        lowered_classes: list[dict[str, Any]] = []
-        for node in class_nodes:
-            info = self.classes.get(node.name)
-            if info is None or info.get("synthetic") or info.get("typevars"):
-                continue
-            self.function = node.name
-            self.caught = []
-            # boxed:begin
-            # Issue #628: a class that only fences while its method bodies
-            # lower joins the island too. The fence and the class's fences
-            # drop, and the function planes are re-planned so a compiled
-            # caller of the now-island class demotes with it.
-            class_mark = len(fences)
-            nested_mark = len(self.nested_fns)
-            # boxed:end
-            try:
-                lowered = self._lower_class(node)
-            except Fence as exc:
-                fences.append(exc)
-                fences.extend(self.caught)
-                # boxed:begin
-                if self.fallback_definitions:
-                    self._boxed_island_class(node)
-                    del fences[class_mark:]
-                    self.nested_fns = self.nested_fns[:nested_mark]
-                    self._boxed_replan(fences)
-                # boxed:end
-                continue
-            fences.extend(self.caught)
-            # boxed:begin
-            if self.fallback_definitions and self.caught:
-                self._boxed_island_class(node)
-                del fences[class_mark:]
-                self.nested_fns = self.nested_fns[:nested_mark]
-                self._boxed_replan(fences)
-                continue
-            # boxed:end
-            if lowered is not None and not self.caught:
-                lowered_classes.append(lowered)
-        lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
-        lowered: list[dict[str, Any]] = []
-        for fn in functions:
-            if fn.name not in self.sigs or fn.name in self.generic_fns:
-                continue
-            # boxed:begin
-            # A definition planned for the island never lowers (issue
-            # #612): its probe already fenced, the fences dropped, and the
-            # island runs its real body. The entry joins this list when the
-            # top level is island (issue #613).
-            if self.fallback_definitions and fn.name in self.island_fns:
-                continue
-            # boxed:end
-            self.function = fn.name
-            self.temp_n = 0
-            self.prelude = []
-            # boxed:begin
-            self.island_modules = {}
-            self.island_class_handles = {}
-            # boxed:end
-            self.caught = []
-            self.fn_globals = self._globals_for(fn.body)
-            self.fn_nonlocals = set()
-            self.captures = {}
-            params, ret = self._coro_body_sig(fn.name)
-            self.locals = {param["name"]: param["type"] for param in params}
-            self.frozen_names = set()
-            self.opt_unwrap = {}
-            self.boxed_names = set()
-            self.fn_body = list(fn.body)
-            # Manifest handle ownership is per-function scope: a fresh
-            # function owns nothing (issue #224). Its handle parameters are
-            # borrows: the caller keeps ownership.
-            self.handle_locals = {}
-            self.consumed_handles = set()
-            self.returned_handles = set()
-            self.borrowed_handles = {
-                name for name, typ in self.locals.items() if isinstance(typ, dict) and is_handle_type(typ)
-            }
-            # Function-local imports rebind module names: snapshot the
-            # compile-time binding tables so they restore when the body ends.
-            saved_bindings = dict(self.bindings)
-            saved_aliases = dict(self.type_aliases)
-            saved_declared = set(self.declared)
-            saved_typevars = dict(self.typevars)
-            try:
-                body = self._scope_exit_frees(self._body(list(fn.body)), span_of(fn, self.filename))
-                if self.caught:
-                    fences.extend(self.caught)
-                    # The entry is not a user function: its fences are already
-                    # in the module list and block emission, so the partial
-                    # body still carries the flip signal in the IR.
-                    if entry_name is None or fn.name != entry_name:
-                        continue
-                if ret["kind"] != "none" and not _always_returns(body):
-                    self.fail(fn, "PS1004", f"{fn.name} can fall off the end and return None")
-                record = {
-                    "name": self._ir_name(fn.name),
-                    "params": params,
-                    "returnType": ret,
-                    "locals": [{"name": name, "type": typ} for name, typ in self.locals.items()],
-                    "body": body,
-                    "span": span_of(fn, self.filename),
-                }
-                if self.boxed_names:
-                    record["boxed"] = sorted(self.boxed_names)
-                lowered.append(record)
-            except Fence as exc:
-                fences.append(exc)
-            finally:
-                self.bindings = saved_bindings
-                self.type_aliases = saved_aliases
-                self.declared = saved_declared
-                self.typevars = saved_typevars
-        self._drain_instances(lowered, lowered_classes, fences)
-        lowered.extend(self.nested_fns)
-        lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
-        # The deferred classes (the argparse namespace) grew their fields
-        # while the statements lowered, so they close here.
-        lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}, deferred_only=True))
-        # boxed:begin
-        # The boxed per-definition planner (issue #612): the fence list of a
-        # definition planned for the island leaves the module fence list and
-        # the definition leaves the lowered list (its body never lowered).
-        # Stage 3 (issue #613): a fenced entry probe plans the whole top
-        # level for the island (Decision A is all-or-nothing in both
-        # directions), and the annotated scalar globals the top level binds
-        # unbox once into native readers.
-        fallback_map: dict[str, Any] | None = None
-        if self.fallback_definitions:
-            from pyscriptc import boxed as _boxed
-
-            island = set(self.island_fns)
-            # The island top level (issue #613): the entry name is the
-            # island's own entry (the seed runs the whole module body), so
-            # it stays out of the native lowered list and its fences drop
-            # with the top level. A native top level keeps the Stage 2
-            # shape: the entry lowers native, an island function is a
-            # trampoline call from it.
-            if self._boxed_top_island:
-                if entry_name:
-                    island.add(entry_name)
-                    lowered = [record for record in lowered if record["name"] != entry_name]
-                fences = [
-                    fence
-                    for fence in fences
-                    if (fence.function != entry_name if entry_name is not None else True)
-                    and not (fence.function in (None, "__module__") and fence.code in ("PS2001", "PS2002"))
-                ]
-            else:
-                island.discard(entry_name)
-            self.island_fns = island
-            lowered = [record for record in lowered if record["name"] not in island]
-            siblings = set(map(id, self._boxed_sibling_fences))
-            fences = [fence for fence in fences if fence.function not in island or id(fence) in siblings]
-            # The island seed is the whole module body island-side (issue
-            # #613, the original source, `__name__ = "__main__"`) or the
-            # Stage 2 shape (only the pieces island functions need resolve
-            # their names).
-            top_level_island = self._boxed_top_island
-            all_names = [record["name"] for record in lowered] + [fn.name for fn in functions]
-            fallback_map = _boxed.plane_map(
-                [fence.as_dict() for fence in fences],
-                [{"name": n} for n in dict.fromkeys(all_names)],
-                entry_name,
-                top_level_island,
-                demoted_by=self._boxed_demoted_by,
-                # Issue #628: the class planes the collect and lowering passes
-                # decided, so the summary reports what the binary does.
-                classes=[{"name": node.name, "island": node.name in self.island_classes} for node in class_nodes],
-            )
-            for name in island:
-                if name == entry_name or (name.startswith("__") and name.endswith("__")):
-                    continue
-                fallback_map["functions"][name] = _boxed.ISLAND
-            for name in self.island_classes:
-                fallback_map["classes"][name] = _boxed.ISLAND
-            island_globals: dict[str, str] = {}
-            module_plane = ""
-            # An island class needs the seed even when no function rides it:
-            # a native class method reaches the class through its handle.
-            if island or top_level_island or self.island_classes:
-                module_plane = self._boxed_island_source(tree, island, top_level_island, island_globals)
-        # boxed:end
-        self.function = None
-        names = [item["name"] for item in lowered]
-        module = {
-            "irVersion": IR_VERSION,
-            "subset": SUBSET,
-            "cpython": cpython_version(),
-            "sourceFile": self.filename,
-            # A definition-only module keeps the old shape: entry is the first
-            # function. Only a synthesized entry overrides that.
-            "entry": entry_name if entry_name in names else lowered[0]["name"] if lowered else None,
-            "functions": lowered,
-            "classes": lowered_classes,
-            "fences": [fence.as_dict() for fence in fences],
-        }
-        # boxed:begin
-        if fallback_map is not None:
-            module["fallback"] = fallback_map
-            if module_plane:
-                module["islandSource"] = module_plane
-            if island_globals:
-                module["islandGlobals"] = island_globals
-        # boxed:end
-        if self.global_inits:
-            module["globals"] = self.global_inits
-        return self._coro_finish(module)
-
-    def _split_entry(
-        self,
-        live: list[ast.stmt],
-        functions: list[ast.FunctionDef],
-        class_nodes: list[ast.ClassDef],
-        fences: list[Fence],
-    ) -> list[ast.stmt]:
-        """Walk the live statements: definitions stay where they are, script
-        statements collect into the entry body, in source order.
-
-        A module assignment tries the constant binding first. When the module
-        also carries live script statements the failed binding rolls back and
-        the assignment lowers inside the entry instead; a definition-only
-        module keeps the constant fence it always raised. `pass` is inert
-        (C3) and never makes a script.
-        """
-        entry_stmts: list[ast.stmt] = []
-        failed_assigns: list[tuple[ast.stmt, int]] = []
-        bare_decls: list[ast.AnnAssign] = []
-        definitions = (ast.Import, ast.ImportFrom, ast.Pass, ast.FunctionDef, ast.ClassDef, ast.AnnAssign, ast.Assign)
-        self._script_line = min(
-            (stmt.lineno for stmt in live if not isinstance(stmt, definitions) and not _is_docstring(stmt)),
-            default=None,
-        )
-        scriptish = self._script_line is not None
-        divert = self._diverted_literals(live) if scriptish else set()
-        for stmt in live:
-            if isinstance(stmt, (ast.Import, ast.ImportFrom, ast.Pass)):
-                continue
-            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
-                if not self._accept_module_function(stmt, fences):
-                    continue
-                functions.append(stmt)
-            elif isinstance(stmt, ast.ClassDef):
-                class_nodes.append(stmt)
-            elif isinstance(stmt, (ast.AnnAssign, ast.Assign)):
-                targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
-                if any(isinstance(t, ast.Name) and t.id in divert for t in targets):
-                    entry_stmts.append(stmt)
-                    continue
-                snapshot = (dict(self.constants), set(self.declared), len(fences))
-                self.caught = []
-                self._bind_module_assign(stmt)
-                # A failed binding rolls back at once, so later assignments
-                # bind against the pre-statement state. Its fences stay for
-                # now; when the module turns out to be a script they are
-                # retracted and the statement lowers inside the entry.
-                if self.caught:
-                    self.constants = snapshot[0]
-                    self.declared = snapshot[1]
-                    fences.extend(self.caught)
-                    failed_assigns.append((stmt, snapshot[2]))
-                elif isinstance(stmt, ast.AnnAssign) and stmt.value is None:
-                    # Bound nothing, but a script may still need the
-                    # declaration: the name's real assignment lowers inside
-                    # the entry and reads `locals` for its annotation.
-                    bare_decls.append(stmt)
-                self.caught = []
-            elif _is_docstring(stmt):
-                continue
-            else:
-                entry_stmts.append(stmt)
-        if entry_stmts:
-            # This module is a script: retract the fences the failed constant
-            # bindings raised; those assignments lower inside the entry
-            # instead, in source order. Bindings that did not fence stay
-            # bound - a script may still carry true constants.
-            retract = min((at for _, at in failed_assigns), default=len(fences))
-            if retract < len(fences):
-                del fences[retract:]
-            entry_stmts.extend(stmt for stmt, _ in failed_assigns)
-            # A bare declaration follows its name into the entry unless already bound.
-            for stmt in bare_decls:
-                if isinstance(stmt.target, ast.Name) and stmt.target.id not in self.declared:
-                    entry_stmts.append(stmt)
-            entry_stmts.sort(key=lambda stmt: stmt.lineno)
-        return entry_stmts
-
-    def _diverted_literals(self, live: list[ast.stmt]) -> set[str]:
-        """Names bound at module scope whose entry reassigns or mutates them.
-
-        Module constants re-emit their literal on every read, so a script's
-        `counts[k] = v` would write into a throwaway dict; the binding lowers
-        inside the entry instead unless the name hides inside a def/class.
-        Similarly, any module variable reassigned in the script must lower
-        inside the entry so its updates take effect.
-        """
-        bound: set[str] = set()
-        for stmt in live:
-            if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
-                targets = stmt.targets if isinstance(stmt, ast.Assign) else [stmt.target]
-                bound.update(t.id for t in targets if isinstance(t, ast.Name))
-        if not bound:
-            return set()
-        hidden: set[str] = set()
-        for stmt in live:
-            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                hidden.update(n.id for n in ast.walk(stmt) if isinstance(n, ast.Name) and n.id in bound)
-        mutated: set[str] = set()
-        for stmt in live:
-            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
-                continue
-            if self._script_line is not None and stmt.lineno >= self._script_line:
-                for n in ast.walk(stmt):
-                    if isinstance(n, ast.Name) and n.id in bound and isinstance(n.ctx, (ast.Store, ast.Del)):
-                        mutated.add(n.id)
-            for n in ast.walk(stmt):
-                if (
-                    isinstance(n, ast.Subscript)
-                    and isinstance(n.value, ast.Name)
-                    and n.value.id in bound
-                    and isinstance(n.ctx, (ast.Store, ast.Del))
-                ):
-                    mutated.add(n.value.id)
-        return mutated - hidden
-
-    def _entry_function(self, stmts: list[ast.stmt], functions: list[ast.FunctionDef]) -> list[ast.FunctionDef]:
-        """The synthesized entry for module-level statements.
-
-        A definition-only module (imports, constants, functions, classes,
-        docstrings) synthesizes nothing: the IR is exactly what it was before
-        entry lowering existed. Scripts get one function named `main`, or
-        `__entry__` when the module defines its own `main` - the user's name
-        always wins - carrying the live statements in source order.
-
-        Package units never synthesize one: a package is a library, its
-        modules are namespaced, and `sigs` feeds the export table.
-
-        A program's `__main__` module does synthesize one: it is the script
-        the whole program runs, so its top-level statements are the entry.
-        A program's other modules synthesize `__init__`: their body runs when
-        the program first imports them, before the importing module's body.
-        """
-        if not stmts:
-            return []
-        if self.module_name and not self._is_program_main():
-            if not self.module_init:
-                return []
-            taken = {fn.name for fn in functions} | self.declared
-            name = "__init__" if "__init__" not in taken else "__init_entry__"
-            return [self._make_entry(stmts, name)]
-        if self.cataloguing:
-            # The cataloguing pass only needs the signatures. The program's
-            # entry is not an export, so it is not synthesized here.
-            return []
-        taken = {fn.name for fn in functions} | self.declared
-        name = "main" if "main" not in taken else "__entry__"
-        return [self._make_entry(stmts, name)]
-
-    def _make_entry(self, stmts: list[ast.stmt], name: str) -> ast.FunctionDef:
-        """A synthetic no-argument function carrying `stmts` in source order."""
-
-        fn = ast.FunctionDef(
-            name=name,
-            args=ast.arguments(
-                posonlyargs=[],
-                args=[],
-                vararg=None,
-                kwonlyargs=[],
-                kw_defaults=[],
-                kwarg=None,
-                defaults=[],
-            ),
-            body=stmts,
-            decorator_list=[],
-            returns=ast.Constant(value=None),
-            type_comment=None,
-            type_params=[],
-        )
-        for stmt in stmts:
-            ast.copy_location(fn, stmt)
-        fn.lineno = stmts[0].lineno
-        fn.col_offset = 0
-        fn.end_lineno = stmts[-1].end_lineno
-        fn.end_col_offset = 0
-        return fn
-
-    def _is_program_main(self) -> bool:
-        """True for the `__main__` module of a program directory.
-
-        Project mode: the named entry module plays the same role under its
-        own dotted name.
-        """
-
-        return self.program and (self.module_name == "__main__" or self.entry_module)
-
-    def _is_main_module(self) -> bool:
-        """True when this module runs as `__main__` (a script or program entry)."""
-
-        return not self.module_name or self._is_program_main()
 
     def _ir_name(self, name: str) -> str:
         if self.module_name:
@@ -2161,12 +563,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 # A param whose TypeVar resolved to none takes no runtime
                 # slot (void is not a value); it drops from the signature
                 # and binds as the `None` constant for the body.
-                dropped = {param["name"] for param in params if param["type"]["kind"] == "none"}
+                dropped = {param["name"] for param in params if _type_kind(param["type"]) == "none"}
                 params = [param for param in params if param["name"] not in dropped]
                 self.locals = {param["name"]: param["type"] for param in params}
                 saved_consts = {name: self.constants.get(name) for name in dropped}
                 for name in dropped:
-                    self.constants[name] = {"kind": "const", "value": None, "type": {"kind": "none"}}
+                    self.constants[name] = {"kind": "const", "value": None, "type": _type_rt({"kind": "none"})}
                 self.frozen_names = set()
                 self.opt_unwrap = {}
                 self.boxed_names = set()
@@ -2182,7 +584,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     if self.caught:
                         fences.extend(self.caught)
                         continue
-                    if ret["kind"] != "none" and not _always_returns(body):
+                    if _type_kind(ret) != "none" and not _always_returns(body):
                         self.fail(fn, "PS1004", f"{fn.name} can fall off the end and return None")
                     record = {
                         "name": self._ir_name(emit_name),
@@ -2210,9 +612,67 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                         else:
                             self.constants[name] = prev
 
-    def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
+    def _bind_star(self, module: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        """Bind the names `from module import *` brings in.
+
+        CPython binds the module's `__all__` when it has one and every
+        public name otherwise. The export table records the module's
+        `__all__` under the `__all__` key, so the star binds the same set.
+        A name the table does not carry is skipped: the star import only
+        brings in what the module exports.
+        """
+
+        exported = self._export_lookup(module, None)
+        if exported is None:
+            fences.append(
+                Fence(
+                    "PS2002",
+                    f"{module} is not a module in this package",
+                    span_of(stmt, self.filename),
+                    None,
+                )
+            )
+            return
+        declared = exported.get("__all__")
+        names = declared.get("names") if isinstance(declared, dict) else None
+        for name in sorted(exported):
+            if name == "__all__":
+                continue
+            if names is not None:
+                if name not in names:
+                    continue
+            elif name.startswith("_"):
+                continue
+            self._bind_one_export(module, name, name, stmt, fences)
+
+    def _export_lookup(self, module: str, member: str | None) -> dict[str, Any] | None:
+        """One export-table read, recorded for the catalog memo.
+
+        Every read the lowerer makes goes through here (or through the
+        helpers that call it), so the catalog memo can compare exactly the
+        entries a unit consumed: when they are unchanged, the unit's
+        lowering is unchanged and the previous round's result stands.
+        """
+
         package = self.package or {}
-        item = package.get(module, {}).get(name)
+        self._export_reads.add((module, member))
+        bucket = package.get(module)
+        if bucket is None:
+            return None
+        return bucket if member is None else bucket.get(member)
+
+    def _export_table(self) -> dict[str, dict[str, dict[str, Any]]]:
+        """The whole export table, recorded as one table-wide read.
+
+        A scan over every bucket sees everything, so the catalog memo
+        invalidates the unit when any part of the table changes.
+        """
+
+        self._export_reads.add((WHOLE_TABLE, None))
+        return self.package or {}
+
+    def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        item = self._export_lookup(module, name)
         if item is None:
             fences.append(
                 Fence(
@@ -2226,11 +686,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         if local in self.bindings or local in self.constants or local in self.declared or local in self.sigs:
             fences.append(Fence("PS2002", f"{local} is already bound", span_of(stmt, self.filename), None))
             return
-        if item["kind"] == "const":
+        if _record_kind(item) == "const":
             self.constants[local] = item["value"]
             self.declared.add(local)
             return
-        if item["kind"] == "func":
+        if _record_kind(item) == "func":
             # boxed:begin
             # Refs #641: the defining module planned the function for the
             # island, so the merged module emits no body for it. The runtime
@@ -2239,6 +699,17 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             # seam to cross: the import refuses here, at module level, where
             # the fence survives the module's own island planning.
             if item.get("island"):
+                # The per-module plane split: the defining module planned the
+                # definition for its own island floor, and a program compile
+                # keeps the two planes side by side. The call crosses the
+                # boundary through the boxed seam, namespaced by the
+                # defining module (`ps_island_mod_fn_invoke`). A package
+                # compile (no program) has no per-module seed to cross
+                # into, so it refuses as before.
+                if self.program and self._boxed_cross_module_island():
+                    self.bindings[local] = Binding("island_floor", module, name, False, item["return"])
+                    self.declared.add(local)
+                    return
                 fence = Fence(
                     "PS2002",
                     f"{module}.{name} runs on the island floor of its own module, and importing it "
@@ -2257,13 +728,59 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             self.declared.add(local)
             self._install_return_class(module, item["return"], stmt, fences)
             return
-        if item["kind"] == "class":
+        if _record_kind(item) == "class":
+            # boxed:begin
+            # The defining module planned the class for its own island floor
+            # (issue #628): no native body exists, so the import cannot
+            # install a lowered class record. Binding the name as a
+            # cross-module island class keeps the import from fencing the
+            # module level: the uses that need the class natively (a base
+            # class, an `except` clause) fence their own definition instead
+            # of the whole module, and the uses that only call or pass it
+            # cross the boundary through the boxed seam.
+            if item.get("island"):
+                if self.program and self._boxed_cross_module_island():
+                    # The class object lives in the *defining* module's island
+                    # namespace, which is not always the module the import
+                    # names: a package re-exports it (`from ._utils import
+                    # *`), so the entry carries the owner.
+                    owner = str(item.get("module") or module)
+                    self.bindings[local] = Binding("island_floor_class", owner, name, False)
+                    self.island_floor_classes[local] = (owner, name)
+                    self.declared.add(local)
+                    return
+                fence = Fence(
+                    "PS2002",
+                    f"{module}.{name} runs on the island floor of its own module, and importing it "
+                    "crosses a package boundary into it. Compile the tree as a program "
+                    "(--program --fallback=cpython) so the whole program runs island-side, "
+                    "or make the class lower natively.",
+                    span_of(stmt, self.filename),
+                    None,
+                )
+                fences.append(fence)
+                self._boxed_module_fences.append(fence)
+                return
+            # boxed:end
             self._install_class_export(local, item, stmt, fences)
             return
-        if item["kind"] == "module":
+        if _record_kind(item) == "module":
             # A module re-exported by the package (`from . import core` in
             # `pkg/__init__.py`, issue #405): the name binds the submodule.
             self._bind_pkg_module(local, str(item["module"]), stmt, fences)
+            return
+        if item["kind"] == "global":
+            # A module-level global that lives in a runtime slot in the
+            # defining module. The consumer reads it through the defining
+            # module's qualified key, so the slot is installed locally with
+            # a foreign key and no initializer: the defining module's own
+            # `ps_global_set_*` runs in its module init.
+            self.global_slots[local] = {
+                "type": dict(item["type"]),
+                "active": True,
+                "foreign_key": f"{item['module']}.{item['name']}",
+            }
+            self.declared.add(local)
             return
         fences.append(
             Fence("PS2002", f"{module}.{name} is not a function or constant", span_of(stmt, self.filename), None)
@@ -2278,10 +795,10 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         module still emits it; the consumer sees it imported, like any other
         class export.
         """
-        if typ.get("kind") != "class" or typ["name"] in self.classes:
+        if _maybe_type_kind(typ) != "class" or typ["name"] in self.classes:
             return
-        item = (self.package or {}).get(module, {}).get(typ["name"])
-        if item is None or item["kind"] != "class":
+        item = self._export_lookup(module, typ["name"])
+        if item is None or _record_kind(item) != "class":
             return
         self._install_class_export(typ["name"], item, stmt, fences)
 
@@ -2296,44 +813,27 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return False
         return module == root or module.startswith(root + ".")
 
-    def _is_program_module(self, module: str | None) -> bool:
-        """A program tree's own module: a sibling, or a package inside it.
-
-        In a program the export table is keyed by plain names (`util`,
-        `pkg.x`), so any exact key match, or a dotted name whose head is a
-        program package, is the program's own module. `__main__` is the
-        entry module and never importable.
-
-        A dependency source root's package (issue #398) is the program's own
-        module too: it is exported under its plain name, so `import certifi`
-        binds the package the way a sibling module does.
-        """
-
-        if not self.program or not module or self.package is None:
-            return False
-        if module == "__main__":
-            return True
-        if module in self.package:
-            return True
-        head = module.split(".", 1)[0]
-        if head in self.program_roots:
-            return True
-        return head in self.package and self.package[head] is not None
-
     def _pkg_item(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
-        item = (self.package or {}).get(module, {}).get(member)
+        item = self._export_lookup(module, member)
         if item is None:
             self.fail(node, "PS2001", f"{module}.{member} is not exported by this package")
         return item
 
     def _pkg_export(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
         item = self._pkg_item(node, module, member)
-        if item["kind"] not in {"func", "const"}:
+        if _record_kind(item) not in {"func", "const"}:
             self.fail(node, "PS2001", f"{module}.{member} is not exported by this package")
         return item
 
-    def _linked_call(self, node: ast.Call, span: dict[str, Any], item: dict[str, Any], what: str) -> dict[str, Any]:
-        if item["kind"] != "func":
+    def _linked_call(
+        self,
+        node: ast.Call,
+        span: dict[str, Any],
+        item: dict[str, Any],
+        what: str,
+        expect: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        if _record_kind(item) != "func":
             self.fail(node, "PS2002", f"{what} is not a function")
         # boxed:begin
         # Refs #641: the defining module planned the callee for the island,
@@ -2345,6 +845,15 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         # The refusal is a module-level fence (it belongs to no
         # definition), so it survives the module's own island planning.
         if item.get("island"):
+            # The plane split (see `_bind_one_export`): in a program compile
+            # the call crosses into the defining module's island floor
+            # through the boxed seam instead of refusing. The actual
+            # argument values marshal (the island side receives them
+            # untyped); the result unboxes through the call site's
+            # expectation.
+            if self.program and self._boxed_cross_module_island():
+                name = item["ir_name"].rsplit(".", 1)[1]
+                return self._island_floor_call(node, span, item["ir_name"].rsplit(".", 1)[0], name, expect)
             fence = Fence(
                 "PS2002",
                 f"{what} runs on the island floor of its own module, and this call crosses a "
@@ -2358,13 +867,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             raise fence
         # boxed:end
         args = self._fill_args(node, item["params"], what)
-        return {
-            "kind": "call",
-            "callee": {"kind": "function", "name": item["ir_name"]},
-            "args": args,
-            "type": item["return"],
-            "span": span,
-        }
+        return _function_call(item["ir_name"], args, item["return"], span)
 
     def _body(self, statements: list[ast.stmt]) -> list[dict[str, Any]]:
         body: list[dict[str, Any]] = []
@@ -2386,20 +889,24 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 if isinstance(stmt, ast.If):
                     when_true, when_false = self._narrow_names(stmt.test)
                     then_exits = _ast_exits(stmt.body) or (
-                        len(lowered) == 1 and lowered[0]["kind"] == "if" and _always_returns(lowered[0]["then"])
+                        len(lowered) == 1 and _node_kind(lowered[0]) == "if" and _always_returns(lowered[0]["then"])
                     )
                     else_exits = bool(stmt.orelse) and _ast_exits(stmt.orelse)
                     proven = when_false if then_exits and not else_exits else when_true if else_exits else set()
                     rest = statements[index + 1 :]
                     for name in proven:
-                        if not any(
-                            isinstance(inner, ast.Name)
-                            and inner.id == name
-                            and isinstance(inner.ctx, (ast.Store, ast.Del))
-                            for item in rest
-                            for inner in ast.walk(item)
-                        ):
-                            self.opt_unwrap[name] = self.locals[name]
+                        opt = self._narrow_opt_type(name)
+                        if opt is not None and not self._key_rebinds(name, rest):
+                            self.opt_unwrap[name] = opt
+                elif isinstance(stmt, ast.Assert):
+                    # `assert x is not None` proves x set for the rest of
+                    # this body, the same rule the if-exit arm applies.
+                    proven, _ = self._narrow_names(stmt.test)
+                    rest = statements[index + 1 :]
+                    for name in proven:
+                        opt = self._narrow_opt_type(name)
+                        if opt is not None and not self._key_rebinds(name, rest):
+                            self.opt_unwrap[name] = opt
                 skips = (self.break_flag is not None and _stmt_breaks_this_loop(stmt)) or (
                     self.continue_flag is not None and _stmt_continues_this_loop(stmt)
                 )
@@ -2412,104 +919,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         finally:
             self.opt_unwrap = saved_unwrap
 
-    def _setitem(self, stmt: ast.Assign, span: dict[str, Any]) -> dict[str, Any]:
-        target = stmt.targets[0]
-        assert isinstance(target, ast.Subscript)
-        if isinstance(target.slice, ast.Slice):
-            # `xs[a:b] = ys` splices a list, growing or shrinking it; a step
-            # stays fenced with the slice-read message.
-            slc = target.slice
-            container = self._expr(target.value)
-            kind = container["type"]["kind"]
-            if kind == "list" and container["type"].get("set"):
-                self.fail(target, "PS2002", "a set has no item assignment")
-            if kind != "list":
-                self.fail(target, "PS2002", "slice assignment targets a list")
-            if slc.step is not None:
-                self.fail(target, "PS2002", "slices are not lowered")
-            value = self._expr(stmt.value)
-            if value["type"]["kind"] != "list" or not types_equal(value["type"]["elem"], container["type"]["elem"]):
-                self.fail(stmt, "PS1003", "slice assignment takes a list of the same element type")
-            start, has_start = self._slice_bound(slc.lower, span)
-            stop, has_stop = self._slice_bound(slc.upper, span)
-            flags = [
-                {"kind": "const", "value": str(has_start), "type": {"kind": "int"}, "span": span},
-                {"kind": "const", "value": str(has_stop), "type": {"kind": "int"}, "span": span},
-            ]
-            call = self._abi_call(
-                "builtins",
-                "list.setslice",
-                [container, start, stop, *flags, value],
-                {"kind": "none"},
-                "ps_seq_splice",
-                span,
-            )
-            return {"kind": "expr", "expr": call, "span": span}
-        container = self._expr(target.value)
-        index = self._expr(target.slice)
-        kind = container["type"]["kind"]
-        if kind == "list" and container["type"].get("set"):
-            self.fail(target, "PS2002", "a set has no item assignment")
-        if kind == "list":
-            if index["type"]["kind"] != "int":
-                self.fail(target, "PS1003", "a list index is int")
-            value = self._expr(stmt.value, container["type"]["elem"])
-            self._expect(stmt, value["type"], container["type"]["elem"], "list item")
-        elif kind == "dict":
-            self._expect(target, index["type"], container["type"]["key"], "dict key")
-            value = self._expr(stmt.value, container["type"]["value"])
-            self._expect(stmt, value["type"], container["type"]["value"], "dict value")
-        else:
-            self.fail(target, "PS2002", "item assignment targets a list or dict")
-        return {"kind": "setitem", "container": container, "index": index, "value": value, "span": span}
-
-    def _setattr(self, stmt: ast.Assign, span: dict[str, Any]) -> dict[str, Any]:
-        target = stmt.targets[0]
-        assert isinstance(target, ast.Attribute)
-        obj = self._expr(target.value)
-        if obj["type"]["kind"] != "class":
-            self.fail(target, "PS2001", f"attribute assignment is not lowered ({_dotted(target)})")
-        class_name = obj["type"]["name"]
-        # boxed:begin
-        # An island handle is opaque, and the seam carries values one way:
-        # a compiled attribute write would have to carry the value back into
-        # the island, so it fences instead of reaching a native field table.
-        if obj["type"].get("island"):
-            self.fail(
-                target,
-                "PS2001",
-                f"{class_name} is an island handle: mutate it on the island, or read the result back",
-            )
-        # boxed:end
-        info = self.classes[class_name]
-        if info.get("namedtuple"):
-            self.fail(target, "PS2002", f"{class_name}.{target.attr} is read-only on a namedtuple")
-        field = next((item for item in info["fields"] if item["name"] == target.attr), None)
-        if field is None:
-            self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
-        value = self._expr(stmt.value, field["type"])
-        self._expect(stmt, value["type"], field["type"], target.attr)
-        return {"kind": "setattr", "object": obj, "name": target.attr, "value": value, "span": span}
-
     def _bool_cond(self, node: ast.expr) -> dict[str, Any]:
         if isinstance(node, ast.BoolOp):
             cond = self._boolop(node, span_of(node, self.filename), as_cond=True)
         else:
             cond = self._expr(node)
-        kind = cond["type"]["kind"]
-        if kind == "bool":
-            return cond
-        if kind in _TRUTHY or cond["type"].get("optional"):
-            return self._truthy(cond, span_of(node, self.filename))
-        self.fail(node, "PS2004", "condition must be a bool, not a truthy value")
-        raise AssertionError("unreachable")
-
-    def _bool_cond_of(self, node: ast.expr, want: dict[str, Any]) -> dict[str, Any]:
-        """A condition whose expected type rides down (the `__getattr__` hook)."""
-        if isinstance(node, ast.BoolOp):
-            return self._bool_cond(node)
-        cond = self._expr(node, want)
-        kind = cond["type"]["kind"]
+        kind = _node_type_kind(cond)
         if kind == "bool":
             return cond
         if kind in _TRUTHY or cond["type"].get("optional"):
@@ -2518,7 +933,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         raise AssertionError("unreachable")
 
     def _expect(self, node: ast.AST, got: dict[str, Any], want: dict[str, Any], what: str) -> None:
-        if not types_equal(got, want) and not self._accepts_protocol(want, got):
+        if not types_equal(got, want) and not _any_accepts(want, got) and not self._accepts_protocol(want, got):
             self.fail(node, "PS1003", f"{what} is {_show(got)}, annotation says {_show(want)}")
 
     def _use_status(self, module: str) -> str:
@@ -2565,117 +980,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             return dotted, parent, joined, "lowered"
         return dotted, parent, joined, "missing"
 
-    def _set_display(self, node: ast.Set, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
-        if not node.elts:
-            self.fail(node, "PS1001", "an empty set needs a set annotation")
-        if any(isinstance(elt, ast.Starred) for elt in node.elts):
-            self.fail(node, "PS2002", "set unpacking is not lowered")
-        elem_expect = expect["elem"] if expect and expect.get("set") else None
-        first = self._expr(node.elts[0], elem_expect)
-        elem = first["type"]
-        if elem["kind"] not in {"int", "str"}:
-            self.fail(node, "PS2002", "set elements are int or str")
-        typ = {"kind": "list", "elem": elem, "set": True}
-        if expect and expect.get("set"):
-            self._expect(node, typ, expect, "set")
-        dest = self._temp("set")
-        self.locals[dest] = typ
-        self.prelude.append(_assign(dest, {"kind": "list", "elems": [], "type": typ, "span": span}, span))
-        self.prelude.extend(self._set_insert_stmts(dest, typ, first, span))
-        for elt in node.elts[1:]:
-            value = self._expr(elt, elem)
-            if not types_equal(value["type"], elem):
-                self.fail(node, "PS1003", "set elements have one type")
-            self.prelude.extend(self._set_insert_stmts(dest, typ, value, span))
-        return _name(dest, typ, span)
-
-    def _comp(
-        self,
-        node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp,
-        span: dict[str, Any],
-        expect: dict[str, Any] | None,
-    ) -> dict[str, Any]:
-        # GeneratorExp lowers like ListComp: the elements materialize
-        # eagerly into a list (the eager model documented for R24).
-        if isinstance(node, (ast.ListComp, ast.GeneratorExp)):
-            kind = "list"
-        elif isinstance(node, ast.SetComp):
-            kind = "set"
-        else:
-            kind = "dict"
-        if any(gen.is_async for gen in node.generators):
-            self.fail(node, "PS2002", "async comprehensions are not lowered")
-        for gen in node.generators:
-            if isinstance(gen.target, (ast.Tuple, ast.List)):
-                for elt in gen.target.elts:
-                    if not isinstance(elt, ast.Name):
-                        self.fail(elt, "PS2002", "for unpacks flat names")
-            elif not isinstance(gen.target, ast.Name):
-                self.fail(node, "PS2002", "for targets a single name")
-        dest = self._temp("comp")
-        saved = (
-            self.comp_elt,
-            self.comp_key,
-            self.comp_kind,
-            self.comp_gens,
-            self.comp_ifs,
-            self.comp_dest,
-            self.comp_init,
-            self.comp_expect,
-            self.comp_ready,
-        )
-        self.comp_elt = node.value if isinstance(node, ast.DictComp) else node.elt
-        self.comp_key = node.key if isinstance(node, ast.DictComp) else None
-        self.comp_kind = kind
-        self.comp_gens = node.generators[1:]
-        self.comp_ifs = node.generators[0].ifs
-        self.comp_dest = dest
-        self.comp_init = None
-        self.comp_expect = expect
-        self.comp_ready = False
-        first = node.generators[0]
-        loop = ast.For(target=first.target, iter=first.iter, body=[ast.Pass()], orelse=[], type_comment=None)
-        ast.copy_location(loop, node)
-        try:
-            lowered = self._for(loop, span)
-        finally:
-            init = self.comp_init
-            (
-                self.comp_elt,
-                self.comp_key,
-                self.comp_kind,
-                self.comp_gens,
-                self.comp_ifs,
-                self.comp_dest,
-                self.comp_init,
-                self.comp_expect,
-                self.comp_ready,
-            ) = saved
-        if init is None:
-            self.fail(node, "PS2002", f"{kind} comprehension is not lowered")
-        self.prelude.append(init)
-        self.prelude.extend(lowered)
-        return _name(dest, self.locals[dest], span)
-
     def _store_constant(self, name: str, value: dict[str, Any], node: ast.AST) -> None:
         if name in self.bindings or name in self.declared or name in self.constants or name in self.type_aliases:
             self.fail(node, "PS2002", f"{name} is already bound")
         self.constants[name] = value
         self.declared.add(name)
-
-    def _store_tuple_constant(self, name: str, node: ast.Tuple, stmt: ast.AST) -> None:
-        if len(node.elts) < 2:
-            self.fail(node, "PS2002", "tuples need at least two fields")
-        elems: list[dict[str, Any]] = []
-        for elt in node.elts:
-            value = self._module_fold(elt)
-            if value is None:
-                value = self._expr(elt)
-            if value["kind"] != "const":
-                self.fail(stmt, "PS2002", "a module assignment must be a constant")
-            elems.append(value)
-        self._tuple_type([elem["type"] for elem in elems], node)
-        self._store_constant(name, {"kind": "tuple-const", "elems": elems}, stmt)
 
     def _bind_threading_global(self, name: str, value: dict[str, Any], typ: dict[str, Any], node: ast.AST) -> None:
         """A module-level record with identity binds a global slot.
@@ -2709,45 +1018,72 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
     def _assign_global(self, stmt: ast.Assign, target: str, span: dict[str, Any]) -> list[dict[str, Any]]:
         slot = self.global_slots.get(target)
         if slot is None or not slot.get("active"):
+            if self._global_alias_write(stmt, target):
+                return [{"kind": "pass", "span": span}]
             self.fail(stmt, "PS2002", f"global {target} is not a module slot")
         value = self._expr(stmt.value, slot["type"])
         self._expect(stmt, value["type"], slot["type"], target)
         return [self._global_set(target, value, span)]
+
+    def _global_alias_write(self, stmt: ast.Assign, target: str) -> bool:
+        """`global X` + `X = <name>` where `<name>` is the import the scan aliased.
+
+        The write needs no runtime code: X already resolves through the
+        module-scope binding the alias installed, so the statement lowers to
+        a pass. Any other store to the name keeps the module-slot fence.
+        """
+        rec = self.global_aliases.get(target)
+        if rec is None or not isinstance(stmt.value, ast.Name) or stmt.value.id == target:
+            return False
+        rhs = stmt.value.id
+        if rec["kind"] == "binding":
+            want = rec["binding"]
+            found = self.bindings.get(rhs)
+            return (
+                found is not None
+                and found.kind == want.kind
+                and found.module == want.module
+                and found.attr == want.attr
+            )
+        if rec["kind"] == "class":
+            return self.class_aliases.get(rhs) == rec["class"]
+        return self.constants.get(rhs) is rec["const"]
 
     def _slot_key(self, name: str) -> str:
         if self.module_name:
             return f"{self.module_name}.{name}"
         return name
 
-    # boxed:begin
-    def _slot_island_key(self, name: str) -> str:
-        """The shadow slot key of an island-owned global (issue #613)."""
-
-        return f"__island__{self._slot_key(name)}"
-
-    # boxed:end
-
     def _global_get(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
         slot = self.global_slots[name]
         typ = slot["type"]
-        key = _text_ir(self._slot_key(name), "str", span)
+        # A slot imported from another module reads the defining module's
+        # qualified key: the runtime registry is process-wide and the
+        # defining module's init wrote the value there.
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         # boxed:begin
         # The island top level (issue #613): a global the island bound is a
         # read of the once-unboxed shadow slot, under the island-prefixed key.
         if slot.get("island"):
             key = _text_ir(self._slot_island_key(name), "str", span)
         # boxed:end
-        if typ["kind"] == "str":
+        if _type_kind(typ) == "str":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_str", span)
-        if typ["kind"] == "int":
+        if _type_kind(typ) == "int":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_i64", span)
-        if typ["kind"] == "class" and typ.get("name") == "Path":
+        if _type_kind(typ) == "class" and typ.get("name") == "Path":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_path", span)
-        if typ["kind"] == "func":
+        if _type_kind(typ) == "func":
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
-        if typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
+        if _type_kind(typ) == "class" and typ.get("name") in PTR_CLASSES:
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
-        if typ["kind"] in {"list", "dict"}:
+        # boxed:begin
+        if typ.get("handle"):
+            # An island handle in a module slot (issue #webfw): the slot holds
+            # the opaque pointer to the island object.
+            return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
+        # boxed:end
+        if _type_kind(typ) in {"list", "dict"}:
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
         self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
         raise AssertionError("unreachable")
@@ -2768,29 +1104,34 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 "write it in a function that runs on the island, or annotate the global so it lowers native",
             )
         # boxed:end
-        key = _text_ir(self._slot_key(name), "str", span)
-        if typ["kind"] == "str":
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
+        if _type_kind(typ) == "str":
             symbol = "ps_global_set_str"
-        elif typ["kind"] == "int":
+        elif _type_kind(typ) == "int":
             symbol = "ps_global_set_i64"
-        elif typ["kind"] == "class" and typ.get("name") == "Path":
+        elif _type_kind(typ) == "class" and typ.get("name") == "Path":
             symbol = "ps_global_set_path"
-        elif typ["kind"] == "func":
+        elif _type_kind(typ) == "func":
             symbol = "ps_global_set_ptr"
-        elif typ["kind"] == "class" and typ.get("name") in PTR_CLASSES:
+        elif _type_kind(typ) == "class" and typ.get("name") in PTR_CLASSES:
             symbol = "ps_global_set_ptr"
-        elif typ["kind"] in {"list", "dict"}:
+        # boxed:begin
+        elif typ.get("handle"):
+            # An island handle in a module slot (issue #webfw).
+            symbol = "ps_global_set_ptr"
+        # boxed:end
+        elif _type_kind(typ) in {"list", "dict"}:
             symbol = "ps_global_set_ptr"
         else:
             self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
-        return {
-            "kind": "expr",
-            "expr": self._abi_call("builtins", "global_set", [key, value], {"kind": "none"}, symbol, span),
-            "span": span,
-        }
+        return _expr_node(
+            self._abi_call("builtins", "global_set", [key, value], {"kind": "none"}, symbol, span),
+            span,
+        )
 
     def _global_is_set(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
-        key = _text_ir(self._slot_key(name), "str", span)
+        slot = self.global_slots.get(name, {})
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         return self._abi_call("builtins", "global_is_set", [key], {"kind": "bool"}, "ps_global_is_set", span)
 
     def _bind_deferred_module(self, fences: list[Fence]) -> None:
@@ -2825,13 +1166,12 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
             if sig is None:
                 return  # the signature pass already recorded its fence
             params, ret = sig
-            value = {
-                "kind": "closure",
-                "name": self._ir_name(stmt.name),
-                "env": [],
-                "type": {"kind": "func", "params": [p["type"] for p in params], "return": ret},
-                "span": span,
-            }
+            value = _closure_node(
+                self._ir_name(stmt.name),
+                params,
+                ret,
+                span,
+            )
             try:
                 for dec in reversed(stmt.decorator_list):
                     value = self._apply_decorator(dec, value, span)
@@ -2859,7 +1199,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     self._expect(stmt, value["type"], expect, target)
                 else:
                     value = self._expr(stmt.value)
-                if value["type"]["kind"] != "func" and not self.prelude and module_needs_slot(value):
+                if _node_type_kind(value) != "func" and not self.prelude and module_needs_slot(value):
                     # A container or parser at plain-assign scope keeps its
                     # identity through the slot (#512), so it does not fall
                     # through to the constant replay below.
@@ -2867,7 +1207,7 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                     return
             except Fence as exc:
                 self.caught.append(exc)
-            if value is None or self.caught or value["type"]["kind"] != "func" or self.prelude:
+            if value is None or self.caught or _node_type_kind(value) != "func" or self.prelude:
                 # Not a lowered callable (or one needing prelude temps, which
                 # have no home at module scope): replay the ordinary binding
                 # path so constants still bind and fences stay identical.
@@ -2881,6 +1221,42 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
                 self.caught = []
                 return
         self._bind_callable_slot(target, value, span, stmt)
+
+    def _bind_island_global(self, name: str, value: dict[str, Any], node: ast.AST) -> None:
+        """A module-level name bound to an island value adopts the island's object.
+
+        The seed already ran the statement island-side (Stage 2 carries the
+        literal and deterministic-initializer module values), so the object
+        exists exactly once, in the island namespace. A native re-run of the
+        call would create a second object and the two halves of the program
+        would disagree (a Flask app with no routes served the second app).
+        The global slot's initializer is the def-handle trampoline: one read
+        of the island object at init, then every read is that pointer.
+        """
+        typ = value["type"]
+        slot = self.global_slots.get(name)
+        if slot is None:
+            slot = {"type": typ, "active": False}
+            self.global_slots[name] = slot
+        else:
+            existing = slot.get("type")
+            if existing is not None and not types_equal(existing, typ):
+                self.fail(node, "PS2002", f"global {name} is already bound")
+            slot["type"] = typ
+        if not slot.get("active"):
+            self._activate_slot(name, node)
+        call = self._abi_call(
+            "island",
+            name,
+            [],
+            typ,
+            DEF_HANDLE_SYMBOL,
+            span_of(node, self.filename),
+        )
+        call["island"] = {"name": name}
+        call["island_def"] = {"name": name}
+        init = self._global_set(name, call, span_of(node, self.filename))
+        self.global_inits.append(init["expr"])
 
     def _bind_callable_slot(self, name: str, value: dict[str, Any], span: dict[str, Any], node: ast.AST) -> None:
         slot = self.global_slots.get(name)
@@ -2897,27 +1273,11 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         init = self._global_set(name, value, span)
         self.global_inits.append(init["expr"])
 
-    def _is_none(self, node: ast.Compare, span: dict[str, Any], negated: bool) -> dict[str, Any]:
-        left, right = node.left, node.comparators[0]
-        # A process slot's `is None` is the unset flag. Every other None literal
-        # is the existing == / != compare against none.
-        if _is_none_expr(right):
-            name = self._slot_read_name(left)
-            if name is not None:
-                return self._slot_is_unset(name, span, negated)
-            return self._compare_none(node, self._expr(left), negated, span, none_on_left=False)
-        if _is_none_expr(left):
-            name = self._slot_read_name(right)
-            if name is not None:
-                return self._slot_is_unset(name, span, negated)
-            return self._compare_none(node, self._expr(right), negated, span, none_on_left=True)
-        return self._identity(node, span, negated)
-
     def _slot_is_unset(self, name: str, span: dict[str, Any], negated: bool) -> dict[str, Any]:
         flag = self._global_is_set(name, span)
         if negated:
             return flag
-        return {"kind": "unary", "op": "not", "operand": flag, "type": {"kind": "bool"}, "span": span}
+        return _unary_not_node(flag, span)
 
     def _compare_none(
         self,
@@ -2928,149 +1288,18 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
         *,
         none_on_left: bool,
     ) -> dict[str, Any]:
-        kind = value["type"]["kind"]
+        kind = _node_type_kind(value)
         if kind == "class" and value["type"].get("optional"):
             tag = _attr(value, "_tag", {"kind": "bool"}, span)
             if negated:
                 return tag
-            return {"kind": "unary", "op": "not", "operand": tag, "type": {"kind": "bool"}, "span": span}
+            return _unary_not_node(tag, span)
         if kind not in {"none", "int", "float", "bool", "str", "bytes"}:
             self.fail(node, "PS2004", f"{_show(value['type'])} cannot compare with None")
         none = _const_none(span)
         op = "!=" if negated else "=="
         left, right = (none, value) if none_on_left else (value, none)
         return _compare(op, left, right, span)
-
-    def _slot_read_name(self, node: ast.expr) -> str | None:
-        if not isinstance(node, ast.Name) or node.id in self.locals:
-            return None
-        slot = self.global_slots.get(node.id)
-        if slot is None or not slot.get("active"):
-            return None
-        return node.id
-
-    def _materialize_tuple(
-        self, elems: list[dict[str, Any]], span: dict[str, Any], node: ast.AST | None = None
-    ) -> dict[str, Any]:
-        typ = self._tuple_type([elem["type"] for elem in elems], node or ast.Pass())
-        temp = self._temp("tuple")
-        self.locals[temp] = typ
-        self.prelude.extend(_tuple_assign(temp, typ, elems, span))
-        return _name(temp, typ, span)
-
-    def _live_statements(
-        self,
-        statements: list[ast.stmt],
-        fences: list[Fence],
-        rebound: set[str] | None = None,
-    ) -> list[ast.stmt]:
-        # Names assigned by user code. A later `if TYPE_CHECKING` is the typing
-        # constant only while that name is still the erased import.
-        if rebound is None:
-            rebound = set()
-        live: list[ast.stmt] = []
-        for stmt in statements:
-            if isinstance(stmt, ast.Import):
-                self._bind_import(stmt, fences)
-                live.append(stmt)
-                _release_erased_import(stmt, rebound)
-                continue
-            if isinstance(stmt, ast.ImportFrom):
-                self._bind_from(stmt, fences)
-                live.append(stmt)
-                _release_erased_import(stmt, rebound)
-                continue
-            if _is_main_guard(stmt):
-                if self._is_main_module():
-                    # C3: the canonical guard's body is live script text. It joins
-                    # the entry in source order; an `else` under a `__name__` test
-                    # never runs as `__main__`, so it stays dropped.
-                    live.extend(self._live_statements(list(stmt.body), fences, rebound))
-                    continue
-                # An imported module is not `__main__`: the guard body never
-                # runs there, and the `else` branch does.
-                live.extend(self._live_statements(list(stmt.orelse), fences, rebound))
-                continue
-            if _is_docstring(stmt):
-                continue
-            if isinstance(stmt, ast.If):
-                taken = self._static_branch(stmt, rebound)
-                if taken is None:
-                    live.append(stmt)
-                    rebound.update(_module_assigned(stmt))
-                    continue
-                # The other branch is not lowered. Its imports and annotations stay unread.
-                live.extend(self._live_statements(taken, fences, rebound))
-                continue
-            live.append(stmt)
-            rebound.update(_module_assigned(stmt))
-        return live
-
-    def _static_branch(self, stmt: ast.If, rebound: set[str]) -> list[ast.stmt] | None:
-        held = self._version_holds(stmt.test)
-        if held is None:
-            held = self._type_checking_value(stmt.test, rebound)
-        if held is None:
-            return None
-        return list(stmt.body if held else stmt.orelse)
-
-    def _type_checking_value(self, node: ast.expr, rebound: set[str]) -> bool | None:
-        """typing.TYPE_CHECKING is False. `not TYPE_CHECKING` is True. Anything else is not this fold."""
-        if isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
-            inner = self._type_checking_value(node.operand, rebound)
-            if inner is None:
-                return None
-            return not inner
-        if isinstance(node, ast.Name):
-            if node.id in rebound:
-                return None
-            if self.type_aliases.get(node.id) == "TYPE_CHECKING":
-                return False
-            return None
-        if (
-            isinstance(node, ast.Attribute)
-            and node.attr == "TYPE_CHECKING"
-            and isinstance(node.value, ast.Name)
-            and node.value.id not in rebound
-        ):
-            binding = self.bindings.get(node.value.id)
-            if binding is not None and binding.kind == "erased" and binding.module in _ERASED_MODULES:
-                return False
-        return None
-
-    def _version_holds(self, test: ast.expr) -> bool | None:
-        if not isinstance(test, ast.Compare) or len(test.ops) != 1 or len(test.comparators) != 1:
-            return None
-        op = _CMP.get(type(test.ops[0]))
-        if op is None:
-            return None
-        left = self._version_operand(test.left)
-        right = self._version_operand(test.comparators[0])
-        if left == "version" and isinstance(right, tuple):
-            return _cmp_version(op, right)
-        if right == "version" and isinstance(left, tuple):
-            flipped = {">=": "<=", "<=": ">=", ">": "<", "<": ">", "==": "==", "!=": "!="}[op]
-            return _cmp_version(flipped, left)
-        return None
-
-    def _version_operand(self, node: ast.expr) -> str | tuple[int, ...] | None:
-        if self._is_version_info(node):
-            return "version"
-        if isinstance(node, ast.Tuple) and node.elts and all(_is_int_const(elt) for elt in node.elts):
-            return tuple(int(elt.value) for elt in node.elts if isinstance(elt, ast.Constant))
-        return None
-
-    def _is_version_info(self, node: ast.expr) -> bool:
-        if not isinstance(node, ast.Attribute) or node.attr != "version_info" or not isinstance(node.value, ast.Name):
-            return False
-        binding = self.bindings.get(node.value.id)
-        return (
-            binding is not None
-            and binding.kind == "module"
-            and binding.module == "sys"
-            and not binding.rooted
-            and not binding.queued
-        )
 
     def _globals_for(self, body: list[ast.stmt]) -> frozenset[str]:
         """`global`-declared names for one function body, walked once.
@@ -3123,21 +1352,158 @@ class Lowerer(CoroMixin, StdlibDispatchMixin, ExprMixin, StmtMixin, CallsMixin, 
 
     def _infer_slot_type(self, node: ast.expr) -> dict[str, Any] | None:
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            return {"kind": "str"}
+            return _type_rt({"kind": "str"})
         if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
-            return {"kind": "int"}
+            return _type_rt({"kind": "int"})
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "str":
-            return {"kind": "str"}
+            return _type_rt({"kind": "str"})
         if self._is_mod(node, "importlib.resources", "as_file"):
-            return {"kind": "class", "name": "Path"}
+            return _type_rt({"kind": "class", "name": "Path"})
         # Checker bridge: the checker inferred the slot's type from the
         # initializer expression; the literal rules above stay the fast path
         # and everything else consults the map when a bridge is wired.
         return self._bridge_type(node)
 
-    def _temp(self, hint: str) -> str:
-        self.temp_n += 1
-        return f".ps_{hint}_{self.temp_n}"
+    def _scan_global_aliases(self, functions: list[ast.FunctionDef]) -> None:
+        """Promote `global X` + `X = <imported name>` writes to module bindings.
+
+        The lazy-loader idiom (`def _load(): global assess; from pyscriptc
+        import assess as _assess; assess = _assess`) writes a module global
+        from inside a function. For the subset the write is a no-op: X takes
+        exactly the binding the function-local import produced, so every
+        reader resolves it like a top-level import of the same name. The
+        scan replays each body's import statements through the real bind
+        pass on a scratch state (restored afterwards), so the alias carries
+        the binding the import would really have made. A name promotes only
+        when every store to it in every body is that alias shape resolving
+        to the same target; anything else keeps today's fences.
+        """
+        records: dict[str, dict[str, Any]] = {}
+        bad: set[str] = set()
+
+        def store_names(target: ast.expr) -> list[str]:
+            if isinstance(target, ast.Name):
+                return [target.id]
+            if isinstance(target, (ast.Tuple, ast.List)):
+                return [name for elt in target.elts for name in store_names(elt)]
+            if isinstance(target, ast.Starred):
+                return store_names(target.value)
+            return []
+
+        saved = (
+            dict(self.bindings),
+            dict(self.type_aliases),
+            dict(self.constants),
+            set(self.declared),
+            dict(self.typevars),
+            dict(self.classes),
+            dict(self.class_aliases),
+            set(self.known_classes),
+            dict(self.pkg_funcs),
+            set(self.synthetics),
+        )
+        try:
+            for fn in functions:
+                declared = self._globals_for(fn.body)
+                if not declared:
+                    continue
+                stores: dict[str, list[ast.expr | None]] = {name: [] for name in declared}
+                for node in ast.walk(ast.Module(body=list(fn.body), type_ignores=[])):
+                    if isinstance(node, ast.Import):
+                        try:
+                            self._bind_import(node, [])
+                        except Fence:
+                            pass
+                    elif isinstance(node, ast.ImportFrom):
+                        try:
+                            self._bind_from(node, [])
+                        except Fence:
+                            pass
+                    elif isinstance(node, ast.Assign):
+                        for target in node.targets:
+                            for name in store_names(target):
+                                if name in stores:
+                                    stores[name].append(node.value)
+                    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                        for name in store_names(node.target):
+                            if name in stores:
+                                stores[name].append(None)
+                for name, values in stores.items():
+                    if name in bad or not values:
+                        continue
+                    found: dict[str, Any] | None = None
+                    ok = True
+                    for value in values:
+                        rec = self._alias_record(value)
+                        if rec is None or (found is not None and rec["key"] != found["key"]):
+                            ok = False
+                            break
+                        found = rec
+                    if not ok or found is None:
+                        bad.add(name)
+                        records.pop(name, None)
+                    else:
+                        records[name] = found
+        finally:
+            (
+                self.bindings,
+                self.type_aliases,
+                self.constants,
+                self.declared,
+                self.typevars,
+                self.classes,
+                self.class_aliases,
+                self.known_classes,
+                self.pkg_funcs,
+                self.synthetics,
+            ) = (
+                saved[0],
+                saved[1],
+                saved[2],
+                saved[3],
+                saved[4],
+                saved[5],
+                saved[6],
+                saved[7],
+                saved[8],
+                saved[9],
+            )
+        for name, rec in records.items():
+            if name in bad:
+                continue
+            self.global_aliases[name] = rec
+            if rec["kind"] == "binding":
+                want = rec["binding"]
+                self.bindings[name] = Binding(want.kind, want.module, want.attr, want.queued, want.type, want.rooted)
+                if want.kind == "pyfunc" and rec.get("item") is not None:
+                    self.pkg_funcs[name] = rec["item"]
+                self.declared.add(name)
+            elif rec["kind"] == "class":
+                self.class_aliases[name] = rec["class"]
+                self.known_classes.add(name)
+                self.declared.add(name)
+            else:
+                self.constants[name] = rec["const"]
+                self.declared.add(name)
+
+    def _alias_record(self, value: ast.expr | None) -> dict[str, Any] | None:
+        """The alias a `global X = <name>` store would install, else None."""
+        if not isinstance(value, ast.Name):
+            return None
+        rhs = value.id
+        found = self.bindings.get(rhs)
+        if found is not None:
+            return {
+                "kind": "binding",
+                "key": ("binding", found.kind, found.module, found.attr),
+                "binding": found,
+                "item": self.pkg_funcs.get(rhs),
+            }
+        if rhs in self.class_aliases:
+            return {"kind": "class", "key": ("class", self.class_aliases[rhs]), "class": self.class_aliases[rhs]}
+        if rhs in self.constants:
+            return {"kind": "const", "key": ("const", id(self.constants[rhs])), "const": self.constants[rhs]}
+        return None
 
 
 def lower_source(
@@ -3256,24 +1622,36 @@ def lower_file(
 def render_fences(module: dict[str, Any], source: str) -> str:
     import re
 
-    raw_fences = module.get("fences") or []
+    raw_fences: list[dict[str, Any]] = module["fences"] if "fences" in module else []
     if not raw_fences:
         return ""
 
     # Deduplicate fences while preserving lowering order.
-    seen: set[tuple[Any, ...]] = set()
+    seen: set[str] = set()
     fences: list[dict[str, Any]] = []
     for f in raw_fences:
-        span = f.get("span") or {}
-        key = (f.get("code"), span.get("file"), span.get("line"), span.get("col"), f.get("message"))
+        span: dict[str, Any] = f["span"] if "span" in f else {}
+        if not span:
+            span = {}
+        key: str = str(
+            (
+                f["code"] if "code" in f else None,
+                span["file"] if "file" in span else None,
+                span["line"] if "line" in span else None,
+                span["col"] if "col" in span else None,
+                f["message"] if "message" in f else None,
+            )
+        )
         if key in seen:
             continue
         seen.add(key)
         fences.append(f)
 
     def _source_for(f: dict[str, Any]) -> str:
-        path = f.get("span", {}).get("file")
-        if path and path != module.get("sourceFile"):
+        span: dict[str, Any] = f["span"] if "span" in f else {}
+        path: str | None = span["file"] if "file" in span else None
+        src_file: str = module["sourceFile"] if "sourceFile" in module else ""
+        if path is not None and path != "" and path != src_file:
             try:
                 return open(path, encoding="utf-8").read()
             except OSError:
@@ -3281,19 +1659,20 @@ def render_fences(module: dict[str, Any], source: str) -> str:
         return source
 
     if len(fences) <= 1:
-        fence = fences[0] if fences else raw_fences[0]
+        fence: dict[str, Any] = fences[0] if fences else raw_fences[0]
         return format_diagnostic(fence, _source_for(fence))
 
-    tree_cache: dict[str | None, Any] = {}
+    tree_cache: dict[str, Any] = {}
 
     def _get_tree(file_path: str | None) -> Any:
-        if file_path not in tree_cache:
-            src = _source_for({"span": {"file": file_path}})
+        key: str = file_path or ""
+        if key not in tree_cache:
+            src = _source_for({"span": {"file": key}})
             try:
-                tree_cache[file_path] = ast.parse(src)
+                tree_cache[key] = ast.parse(src)
             except Exception:
-                tree_cache[file_path] = None
-        return tree_cache[file_path]
+                tree_cache[key] = None
+        return tree_cache[key]
 
     def _assign_targets(tree: Any, line: int) -> set[str]:
         if tree is None:
@@ -3334,23 +1713,24 @@ def render_fences(module: dict[str, Any], source: str) -> str:
         return None
 
     def _stopped_names(fence: dict[str, Any]) -> set[str]:
-        msg = fence.get("message", "")
-        line = fence.get("span", {}).get("line", 0)
-        file_path = fence.get("span", {}).get("file")
+        msg: str = fence["message"] if "message" in fence else ""
+        span: dict[str, Any] = fence["span"] if "span" in fence else {}
+        line: int = span["line"] if "line" in span else 0
+        file_path: str | None = span["file"] if "file" in span else None
         tree = _get_tree(file_path)
 
         names: set[str] = set()
         m = re.search(r"^([a-zA-Z_]\w*)\s+needs an annotation before use", msg)
         if m:
-            names.add(m.group(1))
+            names.add(str(m.group(1)))
         m = re.search(r"^parameter\s+([a-zA-Z_]\w*)\s+needs an annotation", msg)
         if m:
-            names.add(m.group(1))
+            names.add(str(m.group(1)))
         m = re.search(r"^([a-zA-Z_]\w*)\s+needs an initial value", msg)
         if m:
-            names.add(m.group(1))
+            names.add(str(m.group(1)))
 
-        names.update(_assign_targets(tree, line))
+        names |= _assign_targets(tree, line)
         def_name = _def_at(tree, line)
         if def_name:
             names.add(def_name)
@@ -3359,42 +1739,43 @@ def render_fences(module: dict[str, Any], source: str) -> str:
     from pyscriptc.coverage import family_of
 
     def _resolves_to(fence: dict[str, Any]) -> set[str]:
-        msg = fence.get("message", "")
-        code = fence.get("code", "")
+        msg: str = fence["message"] if "message" in fence else ""
+        code: str = fence["code"] if "code" in fence else ""
         fam = family_of(code, msg)
 
         res: set[str] = set()
         m = re.search(r"^([a-zA-Z_]\w*)\s+is not a local or parameter", msg)
         if m:
-            res.add(m.group(1))
+            res.add(str(m.group(1)))
         m = re.search(r"^call to ([a-zA-Z_]\w*)\s+is not lowered", msg)
         if m:
-            res.add(m.group(1))
+            res.add(str(m.group(1)))
         m = re.search(r"^this class ([a-zA-Z_]\w*)\s+is not lowered", msg)
         if m:
-            res.add(m.group(1))
+            res.add(str(m.group(1)))
         m = re.search(r"^([a-zA-Z_]\w*)\s+is not exported", msg)
         if m:
-            res.add(m.group(1))
+            res.add(str(m.group(1)))
         m = re.search(r"cannot re-export unlowered ([a-zA-Z_]\w*)", msg)
         if m:
-            res.add(m.group(1))
+            res.add(str(m.group(1)))
 
         if fam in ("export-cascade", "class-cascade"):
             words = set(re.findall(r"\b[a-zA-Z_]\w*\b", msg))
-            res.update(words)
+            res |= words
 
-        line = fence.get("span", {}).get("line", 0)
-        file_path = fence.get("span", {}).get("file")
+        span: dict[str, Any] = fence["span"] if "span" in fence else {}
+        line: int = span["line"] if "line" in span else 0
+        file_path: str | None = span["file"] if "file" in span else None
         tree = _get_tree(file_path)
-        res.update(_assign_rhs_names(tree, line))
+        res |= _assign_rhs_names(tree, line)
         return res
 
-    root_fences: list[list[Any]] = []
+    root_fences: list[tuple[dict[str, Any], list[dict[str, Any]], set[str]]] = []
 
     for fence in fences:
         target_names = _resolves_to(fence)
-        matched_root = None
+        matched_root: tuple[dict[str, Any], list[dict[str, Any]], set[str]] | None = None
 
         if target_names:
             for item in root_fences:
@@ -3404,15 +1785,19 @@ def render_fences(module: dict[str, Any], source: str) -> str:
                     break
 
         if matched_root is not None:
-            matched_root[1].append(fence)
-            line = fence.get("span", {}).get("line", 0)
-            file_path = fence.get("span", {}).get("file")
+            consequences = matched_root[1]
+            consequences.append(fence)
+            stopped = matched_root[2]
+            span: dict[str, Any] = fence["span"] if "span" in fence else {}
+            line: int = span["line"] if "line" in span else 0
+            file_path: str | None = span["file"] if "file" in span else None
             tree = _get_tree(file_path)
-            matched_root[2].update(_assign_targets(tree, line))
-            matched_root[2].update(_stopped_names(fence))
+            stopped |= _assign_targets(tree, line)
+            stopped |= _stopped_names(fence)
         else:
             s_names = _stopped_names(fence)
-            root_fences.append([fence, [], s_names])
+            consequences: list[dict[str, Any]] = []
+            root_fences.append((fence, consequences, s_names))
 
     parts: list[str] = []
     printed_roots = root_fences[:3]
@@ -3426,17 +1811,13 @@ def render_fences(module: dict[str, Any], source: str) -> str:
             parts.append(f"(and {count} more fences that follow from it)")
 
     if len(root_fences) > 3:
-        rem = sum(1 + len(cons) for _, cons, _ in root_fences[3:])
+        rem = sum(1 + len(cons) for _fence_item, cons, _name_set in root_fences[3:])
         if rem == 1:
             parts.append("(and 1 more fence)")
         elif rem > 1:
             parts.append(f"(and {rem} more fences)")
 
     return "\n".join(parts)
-
-
-def _assign(target: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "assign", "target": target, "value": value, "span": span}
 
 
 # Issue #587: the deepest AST nesting the recursive lowering passes handle.
@@ -3477,95 +1858,57 @@ def _deepest_node(tree: ast.AST) -> ast.AST:
     return best
 
 
-# boxed:begin
-def _bigint_growth(fn: ast.FunctionDef) -> str | None:
-    """The growing operation of an unbounded int accumulation in `fn`, or None.
-
-    Issue #677: annotated `int` lowers as i64 (divergence 1), so native
-    arithmetic aborts on overflow where CPython grows a big int. This check
-    is deliberately conservative: any in-place update of the same name by
-    a multiplying operator (`*=`, `<<=`, `**=`) or an assign of
-    `name <op> anything` back to `name` (the loop-carry shape
-    `r = r * i` / `r <<= 1`) flags the definition. A single `name ** k`
-    assign with a literal exponent of at most 62 and no loop in the body
-    can never leave i64, so it is excluded. Add and subtract are not
-    growth: two i64 adds of in-range values stay in range unless the
-    operands were already huge, while `*`/`<<`/`**` double the bit length
-    every step and outgrow i64 from small constants. The false-positive
-    cost is one demotion to the island; the false-negative cost is an
-    abort, so the check leans wide.
-    """
-    has_loop = any(isinstance(node, (ast.For, ast.While, ast.AsyncFor)) for node in ast.walk(fn))
-    for node in ast.walk(fn):
-        if isinstance(node, ast.AugAssign) and isinstance(node.op, (ast.Mult, ast.LShift, ast.Pow)):
-            if isinstance(node.target, ast.Name):
-                return f"'{node.target.id} {type(node.op).__name__}='"
-        if (
-            isinstance(node, ast.Assign)
-            and isinstance(node.value, ast.BinOp)
-            and isinstance(node.value.op, (ast.Mult, ast.LShift, ast.Pow))
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-            and isinstance(node.value.left, ast.Name)
-            and node.value.left.id == node.targets[0].id
-            and not (isinstance(node.value.op, ast.Pow) and not has_loop and _bounded_pow(node.value.right))
-        ):
-            return f"'{node.targets[0].id} {type(node.value.op).__name__}='"
-    return None
-
-
-def _bounded_pow(node: ast.expr) -> bool:
-    """True for `**` with a literal exponent small enough to stay in i64."""
-
-    return isinstance(node, ast.Constant) and isinstance(node.value, int) and 0 <= node.value <= 62
-
-
-# boxed:end
-
-
 def _const_str_join(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any] | None:
     """Module-level f-string pieces that are already str constants are one str constant."""
 
-    if any(part.get("kind") != "const" or part.get("type", {}).get("kind") != "str" for part in parts):
+    if any(_maybe_node_kind(part) != "const" or _maybe_type_kind(part.get("type", {})) != "str" for part in parts):
         return None
     text = "".join(str(part["value"]) for part in parts)
-    return {"kind": "const", "value": text, "type": {"kind": "str"}, "span": span}
+    return _const_str(text, span)
 
 
 def _concat_str(parts: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
     if not parts:
-        return {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span}
+        return _const_str("", span)
     acc = parts[0]
     for part in parts[1:]:
-        acc = {"kind": "binary", "op": "+", "left": acc, "right": part, "type": {"kind": "str"}, "span": span}
+        acc = node_to_dict(_ir.binary("+", dict_to_node(acc), dict_to_node(part), _ir.t_leaf("str"), _mk_span(span)))
     return acc
 
 
 def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
     """Two constant lists of one element type are one list. A runtime list stays fenced."""
 
-    if left.get("kind") != "list" or right.get("kind") != "list":
+    if _maybe_node_kind(left) != "list" or _maybe_node_kind(right) != "list":
         return None
-    if left["type"]["kind"] != "list" or right["type"]["kind"] != "list":
+    if _type_kind(left["type"]) != "list" or _type_kind(right["type"]) != "list":
         return None
     if left["type"].get("set") or right["type"].get("set"):
         return None
     if not types_equal(left["type"]["elem"], right["type"]["elem"]):
         return None
-    return {
-        "kind": "list",
-        "elems": [*left["elems"], *right["elems"]],
-        "type": {"kind": "list", "elem": left["type"]["elem"]},
-        "span": span,
-    }
+    return node_to_dict(
+        _ir.list_lit(
+            [dict_to_node(elem) for elem in [*left["elems"], *right["elems"]]],
+            _ir.t_list(dict_to_type(left["type"]["elem"])),
+            _mk_span(span),
+        )
+    )
 
 
 def _static_int(expr: dict[str, Any]) -> int | None:
-    if expr.get("kind") == "const" and expr.get("type", {}).get("kind") == "int":
-        value = expr.get("value")
-        if isinstance(value, str) and _int_text(value):
-            return int(value)
-    if expr.get("kind") == "unary" and expr.get("op") == "-" and isinstance(expr.get("operand"), dict):
+    if _maybe_node_kind(expr) == "const" and "type" in expr and _maybe_type_kind(expr["type"]) == "int":
+        if "value" in expr:
+            value: str = expr["value"]
+            if isinstance(value, str) and _int_text(value):
+                return int(value)
+    if (
+        _maybe_node_kind(expr) == "unary"
+        and "op" in expr
+        and expr["op"] == "-"
+        and "operand" in expr
+        and isinstance(expr["operand"], dict)
+    ):
         inner = _static_int(expr["operand"])
         if inner is not None:
             return -inner
@@ -3578,28 +1921,8 @@ def _int_text(value: str) -> bool:
 
 
 def _text_ir(value: str, kind: str, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": value, "type": {"kind": kind}, "span": span}
-
-
-def _is_int_const(node: ast.expr) -> bool:
-    return isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool)
-
-
-def _cmp_version(op: str, parts: tuple[int, ...]) -> bool:
-    current = sys.version_info
-    if op == ">=":
-        return current >= parts
-    if op == ">":
-        return current > parts
-    if op == "<=":
-        return current <= parts
-    if op == "<":
-        return current < parts
-    if op == "==":
-        return current == parts
-    if op == "!=":
-        return current != parts
-    return False
+    ptag = {"str": _ir.P_STR, "int": _ir.P_INT, "float": _ir.P_FLOAT, "bytes": _ir.P_BYTES}[kind]
+    return node_to_dict(_ir.const_node(ptag, value, _ir.t_leaf(kind), _mk_span(span)))
 
 
 def _plain_const_kind(node: ast.expr) -> str | None:

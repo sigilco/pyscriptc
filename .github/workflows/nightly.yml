@@ -63,13 +63,18 @@ jobs:
       # one toolchain.
       - name: Toolchain fingerprint
         id: tc
-        run: echo "v=$(clang --version | head -1 | tr -c 'A-Za-z0-9.\n' '_')" >> "$GITHUB_OUTPUT"
+        run: |
+          echo "v=$(clang --version | head -1 | tr -c 'A-Za-z0-9.\n' '_')" >> "$GITHUB_OUTPUT"
+          # Hash once, before the scorer writes into the workspace. The expression form
+          # hashFiles() is re-evaluated by the cache post step and failed there with
+          # "Fail to hash files under directory" (runs 42464157597, 42475006519).
+          echo "h=$(git ls-files -z uv.lock src/pyscriptc benchmarks/compat2 | grep -zv '^benchmarks/compat2/\.cache/' | xargs -0 sha256sum | sha256sum | cut -c1-40)" >> "$GITHUB_OUTPUT"
 
       - name: Restore scorer cache
         uses: actions/cache@v5
         with:
           path: benchmarks/compat2/.cache
-          key: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-${{ hashFiles('uv.lock', 'src/pyscriptc/**', 'benchmarks/compat2/**', '!benchmarks/compat2/.cache/**') }}
+          key: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-${{ steps.tc.outputs.h }}
           restore-keys: compat2-${{ runner.os }}-${{ steps.tc.outputs.v }}-
 
       - name: oracle is CPython 3.14.9
@@ -105,6 +110,9 @@ jobs:
             echo "compat data unchanged"
           else
             echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+          # The artifact carries the raw JSON too, so the owner can refresh the
+          # data by hand when the bot PR cannot be opened.
           mkdir -p nightly
           cp data/compat/compat.json nightly/compat.json
           cp data/compat/ladder.json nightly/ladder.json
@@ -137,7 +145,6 @@ jobs:
             tests/test_compat_json.py \
             tests/test_compat_site.py \
             tests/test_doc_cadence.py \
-            tests/test_first_class_scripts.py \
             tests/test_support_docs.py \
             -m "not linux_container"
       - name: Open the compat snapshot PR
@@ -287,11 +294,212 @@ jobs:
           retention-days: 90
           if-no-files-found: warn
 
+  # Runtime A/B (epic #817, D2). The emit-flip harness from #943, as a
+  # report-only nightly lane: per-program stdout/stderr/exit verdicts in
+  # the job summary. No threshold; a FAIL row does not open nightly-failure.
+  runtime-ab:
+    name: runtime A/B (direct vs MIR)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Install clang
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang
+
+      - run: uv python install 3.14.9
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Runtime A/B harness
+        id: ab
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p nightly
+          uv run python scripts/runtime_ab.py \
+            --json-out nightly/runtime-ab.json \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            | tee nightly/runtime-ab.txt
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-runtime-ab-${{ github.run_id }}
+          path: nightly/
+          retention-days: 90
+          if-no-files-found: warn
+
+
+  # Strict corpus A/B (#527). The report-only sibling of the scorer's
+  # whitespace-stripped comparison: every runnable probe of the visible
+  # corpus runs natively and under the pinned CPython 3.14 oracle, and
+  # stdout is compared as untrimmed bytes. A DIFF row is a candidate
+  # divergence for the ledger; the job never blocks and never opens
+  # nightly-failure.
+  strict-corpus-ab:
+    name: strict corpus A/B (unstripped bytes)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Install clang
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang
+
+      - run: uv python install 3.14.9
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Strict corpus A/B harness
+        id: strict
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p nightly
+          uv run python scripts/strict_corpus_ab.py \
+            --json-out nightly/strict-corpus-ab.json \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            | tee nightly/strict-corpus-ab.txt
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-strict-corpus-ab-${{ github.run_id }}
+          path: nightly/
+          retention-days: 90
+          if-no-files-found: warn
+
+
+  # The MIR lane nightly (cloud batch FR-1). PYSC_MIR=1 forces the MIR
+  # emission path (`mir_opt_in` in src/pyscriptc/miremit.py; contract:
+  # .agents/docs/mir-escape-hatch.md) for the whole default test
+  # selection, the same set the ci.yml `macos-safe` shards run:
+  # `tests --ignore=tests/compat2 -m "not linux_container"`. It runs the
+  # selection unsharded because a nightly lane is not a merge gate and
+  # one job is cheaper to read than three shards.
+  #
+  # It reports only: the pytest step is continue-on-error, the job feeds
+  # no `report-failure` need, and the outcome lands in the job summary.
+  # A red run means the MIR lane diverged somewhere in the suite; it is
+  # signal for the strangler lane, never a merge blocker. The lane
+  # changes no default: MIR stays opt-in and `MIR_DEFAULT` is untouched.
+  mir-lane:
+    name: MIR lane (PYSC_MIR=1, report only)
+    # Same runner and toolchain pins as the ci.yml macos-safe shards, so
+    # the selection runs where it is defined to pass.
+    runs-on: macos-26
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+
+      - name: Default test selection under PYSC_MIR=1
+        id: tests
+        continue-on-error: true
+        env:
+          PYSC_MIR: "1"
+        run: |
+          set -o pipefail
+          mkdir -p nightly
+          uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container" -n auto \
+            2>&1 | tee nightly/mir-lane.log
+
+      - name: Record outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.tests.outcome }}" = "success" ]; then
+            echo "### MIR lane (PYSC_MIR=1): passed" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### MIR lane (PYSC_MIR=1): FAILED (report only, does not gate)" >> "$GITHUB_STEP_SUMMARY"
+          fi
+          # The pytest summary line carries the pass/fail counts; the full
+          # log ships as the nightly/mir-lane artifact below.
+          grep -E '[0-9]+ (passed|failed|error|skipped|deselected)' nightly/mir-lane.log \
+            | tail -5 >> "$GITHUB_STEP_SUMMARY" || true
+          echo "Full log: the \`nightly-mir-${{ github.run_id }}\` artifact, file nightly/mir-lane.log." \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-mir-${{ github.run_id }}
+          path: nightly/
+          retention-days: 90
+          if-no-files-found: warn
+
+  # The embed acceptance (issue #885). It runs in its own workflow
+  # (embed.yml, on its own schedule at 06:43, after this nightly's 06:17),
+  # so nothing on the nightly page said when it went red. This lane reads
+  # the most recent embed run's conclusion and puts it in the nightly
+  # summary, so a red embed acceptance is visible next to the other nightly
+  # lanes. The embed workflow's own report job opens the issue the moment
+  # the acceptance fails; this lane is the standing "still red?" check.
+  embed-acceptance:
+    name: embed acceptance result
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      failed: ${{ steps.result.outputs.failed }}
+    steps:
+      - name: Read the latest embed run
+        id: run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          # The latest run of the embed workflow on master (the schedule
+          # push runs it unconditionally).
+          conclusion="$(gh api "repos/$REPO/actions/workflows/embed.yml/runs?branch=master&per_page=1" \
+            --jq '.workflow_runs[0] | "\(.status) \(.conclusion) \(.html_url)"')"
+          echo "latest=$conclusion" >> "$GITHUB_OUTPUT"
+          echo "latest embed run: $conclusion"
+
+      - name: Record outcome
+        id: result
+        if: always()
+        run: |
+          set -euo pipefail
+          latest="${{ steps.run.outputs.latest }}"
+          echo "### Embed acceptance (latest run): $latest" >> "$GITHUB_STEP_SUMMARY"
+          case "$latest" in
+            *" success "*) echo "failed=false" >> "$GITHUB_OUTPUT" ;;
+            *" failure "*|*" cancelled "*) echo "failed=true" >> "$GITHUB_OUTPUT" ;;
+            *) echo "failed=false" >> "$GITHUB_OUTPUT" ;;
+          esac
+
   # Failure reporting. One open issue per label; repeat failures add a comment.
   report-failure:
     name: open or update nightly-failure issue
-    needs: [visible-score, boxed-ledger]
-    if: ${{ always() && (needs.visible-score.outputs.failed == 'true' || needs.boxed-ledger.outputs.failed == 'true') }}
+    needs: [visible-score, boxed-ledger, embed-acceptance]
+    if: ${{ always() && (needs.visible-score.outputs.failed == 'true' || needs.boxed-ledger.outputs.failed == 'true' || needs.embed-acceptance.outputs.failed == 'true') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -307,10 +515,11 @@ jobs:
           gh label create nightly-failure --repo "$REPO" --color B60205 \
             --description "Nightly workflow failure" 2>/dev/null || true
           body="$(mktemp)"
-          printf 'Nightly run failed on %s.\n\nRun: %s\n\nVisible score: %s\nBoxed ledger: %s\n' \
+          printf 'Nightly run failed on %s.\n\nRun: %s\n\nVisible score: %s\nBoxed ledger: %s\nEmbed acceptance: %s\n' \
             "$(date -u +%Y-%m-%d)" "$RUN_URL" \
             "${{ needs.visible-score.outputs.failed == 'true' && 'failed' || 'ok' }}" \
-            "${{ needs.boxed-ledger.outputs.failed == 'true' && 'failed' || 'ok' }}" > "$body"
+            "${{ needs.boxed-ledger.outputs.failed == 'true' && 'failed' || 'ok' }}" \
+            "${{ needs.embed-acceptance.outputs.failed == 'true' && 'failed' || 'ok' }}" > "$body"
           existing="$(gh issue list --repo "$REPO" --label nightly-failure --state open \
             --json number --jq '.[0].number // empty')"
           if [ -n "$existing" ]; then

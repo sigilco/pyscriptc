@@ -59,7 +59,23 @@ def test_certifi_library_receipt_matches_cpython(tmp_path: Path, monkeypatch: py
     assert reference.returncode == 0, reference.stderr
 
     binary = tmp_path / "certifi-receipt"
-    assert cli.main(["compile", str(SCRIPT), "--skip-check", "--run", "--emit", "bin", "-o", str(binary)]) == 0
+    assert (
+        cli.main(
+            [
+                "compile",
+                str(SCRIPT),
+                "--skip-check",
+                "--run",
+                "--emit",
+                "bin",
+                "-o",
+                str(binary),
+                "--debug-dir",
+                str(tmp_path / "dbg"),
+            ]
+        )
+        == 0
+    )
 
     staged = tmp_path / "certifi-receipt-data" / "certifi" / "cacert.pem"
     assert staged.is_file(), "the wheel's data file is staged under the dotted path"
@@ -68,6 +84,6 @@ def test_certifi_library_receipt_matches_cpython(tmp_path: Path, monkeypatch: py
     assert probe.stdout == reference.stdout, (probe.stdout, reference.stdout, probe.stderr)
     assert probe.returncode == reference.returncode
 
-    ir = Path(f"{binary}.ir.json")
+    ir = tmp_path / "dbg" / "ir.json"
     fences = json.loads(ir.read_text(encoding="utf-8"))["fences"]
     assert fences == []

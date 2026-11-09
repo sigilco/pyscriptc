@@ -397,3 +397,160 @@ def test_library_import_of_island_definition_refuses(tmp_path: Path) -> None:
     assert "pkg.helper.count" in comp.stderr
     assert "runs on the island floor of its own module" in comp.stderr
     assert "KeyError" not in comp.stderr and "Traceback" not in comp.stderr
+
+
+def test_program_relative_cycle_matches_cpython(tmp_path: Path) -> None:
+    """A `from . import` cycle through a package `__init__` runs island-side.
+
+    The bootstrap finder hands the partially initialized `__init__` to the
+    submodule, so `__init__` finishes first and the submodule's late
+    attribute access reads the finished binding, exactly as CPython runs it.
+    """
+    prog = tmp_path / "cyc"
+    _write(
+        prog,
+        {
+            "__init__.py": "from . import b\n\nGREETING = 'hello'\n\n\ndef greet():\n    return GREETING\n",
+            "b.py": "import cyc\n\n\ndef shout():\n    return cyc.greet().upper()\n",
+            "__main__.py": "from cyc import b\nprint(b.shout())\n",
+        },
+    )
+    binary = tmp_path / "bin"
+    comp = _cli(
+        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+    )
+    assert comp.returncode == 0, comp.stderr
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run([sys.executable, "-m", "cyc"], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
+    assert got.stdout == want.stdout == "HELLO\n"
+
+
+def test_program_importlib_cycle_in_module_matches_cpython(tmp_path: Path) -> None:
+    """A cycle through `importlib.import_module` is invisible to the plan
+    (no import statement closes it), and the island finder gives the run
+    CPython's own partially-initialized-module behavior, so the outputs
+    match."""
+    prog = tmp_path / "dyn"
+    _write(
+        prog,
+        {
+            "__init__.py": "import importlib\n\nb = importlib.import_module('dyn.b')\n\nVALUE = 7\n",
+            "b.py": "import dyn\n\n\ndef get():\n    return dyn.VALUE\n",
+            "__main__.py": "from dyn import b\nprint(b.get())\n",
+        },
+    )
+    binary = tmp_path / "bin"
+    comp = _cli(
+        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+    )
+    assert comp.returncode == 0, comp.stderr
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run([sys.executable, "-m", "dyn"], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert (got.returncode, got.stdout, got.stderr) == (want.returncode, want.stdout, want.stderr)
+
+
+def test_program_entry_only_cycle_compiles_entry_island(tmp_path: Path) -> None:
+    """A sibling-module cycle reached through a single-file entry compiles:
+    the entry itself fences (`call to two is not lowered`, its sibling is
+    caught in the cycle) and the entry-only island seed runs the whole
+    entry body in CPython. Only the entry file rides the seed; the
+    per-module namespace that would carry the siblings is future work
+    (#678 prerequisite)."""
+    prog = tmp_path / "sib"
+    (prog / "pkg").mkdir(parents=True)
+    _write(
+        prog,
+        {
+            "pkg/__init__.py": "",
+            "pkg/a.py": "from . import b\n\n\ndef one() -> int:\n    return 1\n",
+            "pkg/b.py": "from . import a\n\n\ndef two() -> int:\n    return a.one() + 1\n",
+            "main.py": (
+                "from pkg.b import two\n\n\ndef main() -> int:\n    print(two())\n    return 0\n\n\n"
+                "if __name__ == '__main__':\n    main()\n"
+            ),
+        },
+    )
+    binary = tmp_path / "bin"
+    comp = _cli(
+        "compile",
+        str(prog / "main.py"),
+        "--program",
+        "--fallback=cpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+    )
+    assert comp.returncode == 0, comp.stderr
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=prog)
+    want = subprocess.run([sys.executable, "main.py"], capture_output=True, text=True, timeout=60, cwd=prog)
+    assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
+    assert got.stdout == want.stdout == "2\n"
+
+
+def test_package_program_argv0_is_the_entry_path(tmp_path: Path) -> None:
+    """`python -m pkg` records the entry `__main__.py` path as argv[0], so
+    argparse's default `prog` is `__main__.py` (issue #765). The binary
+    must not report its own path: a real CLI derives its usage line from
+    argv[0], and yt-dlp's usage line names the script under CPython."""
+
+    def build(root: Path) -> None:
+        _write(
+            root,
+            {
+                "__init__.py": "",
+                "__main__.py": "import sys\nprint(sys.argv[0])\n",
+                "helper.py": (
+                    "import argparse\n\n\ndef fence() -> None:\n    p = argparse.ArgumentParser()\n    p.print_help()\n"
+                ),
+            },
+        )
+
+    pkg = tmp_path / "mp"
+    build(pkg)
+    binary = tmp_path / "bin"
+    comp = _cli(
+        "compile", str(pkg), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+    )
+    assert comp.returncode == 0, comp.stderr
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run([sys.executable, "-m", "mp"], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
+    assert got.stdout == want.stdout
+    assert got.stdout.endswith("__main__.py\n")
+
+
+def test_program_checker_suppression_from_another_cwd(tmp_path: Path) -> None:
+    """The checker prints paths relative to the compiler's CWD, not the
+    temp config dir it writes. A `--program` compile of a package whose
+    tree sits outside the compiler's CWD kept every island-routed
+    diagnostic unsuppressed (found on yt_dlp: 8,379 diagnostics failed the
+    preflight with `--skip-check` as the only way through)."""
+
+    def build(root: Path) -> None:
+        _write(
+            root,
+            {
+                "__init__.py": "",
+                "__main__.py": "from mp.helper import fence\nprint(fence(1))\n",
+                "helper.py": "def fence(x):\n    y: int = 'not an int'\n    return y\n",
+            },
+        )
+
+    # The package lives outside the compile CWD; the run happens from tmp_path.
+    tree = tmp_path / "elsewhere" / "mp"
+    build(tree)
+    cwd = tmp_path / "cwd"
+    cwd.mkdir()
+    binary = tmp_path / "bin"
+    comp = _cli("compile", str(tree), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=cwd)
+    assert comp.returncode == 0, comp.stderr
+    assert "suppressed" in comp.stderr
+    got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
+    want = subprocess.run(
+        [sys.executable, "-m", "mp"], capture_output=True, text=True, timeout=60, cwd=tmp_path / "elsewhere"
+    )
+    assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
+    assert got.stdout == want.stdout == "not an int\n"

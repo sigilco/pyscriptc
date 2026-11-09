@@ -20,6 +20,8 @@ from pathlib import Path
 import pytest
 from tests.test_gates import run_cli, write_case
 
+from pyscriptc.tirserde import dict_to_type
+
 ROOT = Path(__file__).resolve().parents[1]
 
 
@@ -484,6 +486,7 @@ def test_argparse_keeps_the_closed_surface() -> None:
 
 def test_argparse_namespace_fields_follow_the_options() -> None:
     from pyscriptc.lower import lower_source
+    from pyscriptc.tirserde import dict_to_type
 
     mod = lower_source(
         "import argparse\n"
@@ -498,7 +501,7 @@ def test_argparse_namespace_fields_follow_the_options() -> None:
     )
     assert mod["fences"] == []
     namespace = next(cls for cls in mod["classes"] if cls["name"] == "Namespace")
-    assert [(f["name"], f["type"]["kind"]) for f in namespace["fields"]] == [
+    assert [(f["name"], dict_to_type(f["type"]).kind) for f in namespace["fields"]] == [
         ("name", "str"),
         ("count", "int"),
         ("verbose", "bool"),
@@ -546,12 +549,12 @@ def test_peek_namespace_fields_happy_path() -> None:
         "    args = parser.parse_args()\n"
         "    return 0\n"
     )
-    assert fields == [
-        {"name": "work_dir", "type": {"kind": "str"}},
-        {"name": "count", "type": {"kind": "int"}},
-        {"name": "dry_run", "type": {"kind": "bool"}},
-        {"name": "ratio", "type": {"kind": "float"}},
-        {"name": "verbose", "type": {"kind": "bool"}},
+    assert [(f["name"], dict_to_type(f["type"]).kind) for f in fields] == [
+        ("work_dir", "str"),
+        ("count", "int"),
+        ("dry_run", "bool"),
+        ("ratio", "float"),
+        ("verbose", "bool"),
     ]
 
 
@@ -565,7 +568,7 @@ def test_peek_namespace_fields_skips_non_add_argument_calls() -> None:
         "    args = parser.parse_args()\n"
         "    return 0\n"
     )
-    assert fields == [{"name": "name", "type": {"kind": "str"}}]
+    assert [(f["name"], dict_to_type(f["type"]).kind) for f in fields] == [("name", "str")]
 
 
 @pytest.mark.parametrize(

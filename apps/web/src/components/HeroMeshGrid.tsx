@@ -169,7 +169,7 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
 
   return (
     <div
-      className={`relative w-full overflow-hidden select-none transition-colors duration-700 ${
+      className={`relative isolate w-full overflow-hidden select-none transition-colors duration-700 ${
         isDark ? "bg-[#06080d] text-slate-300" : "bg-[#f8fafc] text-slate-700"
       } ${className}`}
       style={{ minHeight: "80vh" }}
@@ -275,7 +275,7 @@ export const HeroMeshGrid: React.FC<HeroMeshGridProps> = ({
 
       {/* Children Overlay */}
       {children && (
-        <div className="relative z-10 w-full min-h-[80vh] flex flex-col justify-center pointer-events-none">
+        <div className="relative z-20 w-full min-h-[80vh] flex flex-col justify-center pointer-events-none">
           {children}
         </div>
       )}

@@ -11,6 +11,14 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.restlower._shared import (
+    _const_text,
+    _int,
+    _node_type_kind,
+    _t_leaf,
+    _t_list,
+)
+
 
 def _relpath(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`posixpath.relpath(path, start=None)`.
@@ -24,12 +32,12 @@ def _relpath(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     args = []
     for arg_node in node.args:
         arg = lo._expr(arg_node)
-        if arg["type"]["kind"] != "str":
+        if _node_type_kind(arg) != "str":
             lo.fail(node, "PS1003", "posixpath.relpath arguments are str")
         args.append(arg)
     if len(args) == 1:
-        args.append({"kind": "const", "value": "", "type": {"kind": "str"}, "span": span})
-    return lo._abi_call("posixpath", "relpath", args, {"kind": "str"}, "ps_path_relpath", span)
+        args.append(_const_text("", "str", span))
+    return lo._abi_call("posixpath", "relpath", args, _t_leaf("str"), "ps_path_relpath", span)
 
 
 def _os_open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -40,17 +48,17 @@ def _os_open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo.fail(node, "PS2003", "os.open expects 2 or 3 argument(s)")
     args = []
     path = lo._expr(node.args[0])
-    if path["type"]["kind"] != "str":
+    if _node_type_kind(path) != "str":
         lo.fail(node, "PS1003", "os.open takes a str path")
     args.append(path)
     for arg_node in node.args[1:]:
         arg = lo._expr(arg_node)
-        if arg["type"]["kind"] != "int":
+        if _node_type_kind(arg) != "int":
             lo.fail(node, "PS1003", "os.open flags and mode are int")
         args.append(arg)
     if len(args) == 2:
-        args.append({"kind": "const", "value": "511", "type": {"kind": "int"}, "span": span})
-    return lo._abi_call("os", "open", args, {"kind": "int"}, "ps_os_open", span)
+        args.append(_int(511, span))
+    return lo._abi_call("os", "open", args, _t_leaf("int"), "ps_os_open", span)
 
 
 def _walk(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -67,11 +75,11 @@ def _walk(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "os.walk expects 1 argument(s)")
     top = lo._expr(node.args[0])
-    if top["type"]["kind"] != "str":
+    if _node_type_kind(top) != "str":
         lo.fail(node, "PS1003", "os.walk top is str")
-    ls = {"kind": "list", "elem": {"kind": "str"}}
-    elem = lo._tuple_type([{"kind": "str"}, ls, ls], node)
-    return lo._abi_call("os", "walk", [top], {"kind": "list", "elem": elem}, "ps_os_walk", span)
+    ls = _t_list(_t_leaf("str"))
+    elem = lo._tuple_type([_t_leaf("str"), ls, ls], node)
+    return lo._abi_call("os", "walk", [top], _t_list(elem), "ps_os_walk", span)
 
 
 def _os_read(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -83,6 +91,6 @@ def _os_read(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     fd = lo._expr(node.args[0])
     size = lo._expr(node.args[1])
     for arg, what in ((fd, "fd"), (size, "size")):
-        if arg["type"]["kind"] != "int":
+        if _node_type_kind(arg) != "int":
             lo.fail(node, "PS1003", f"os.read {what} is int")
-    return lo._abi_call("os", "read", [fd, size], {"kind": "bytes"}, "ps_os_read", span)
+    return lo._abi_call("os", "read", [fd, size], _t_leaf("bytes"), "ps_os_read", span)
