@@ -47,6 +47,8 @@ export const HeroMinimal: React.FC<HeroMinimalProps> = ({
           <div className="relative flex flex-wrap items-center gap-6">
             <a
               href={docsUrl}
+              data-ph-event="cta_click"
+              data-ph-label="hero_docs"
               className="relative z-10 px-6 py-3 rounded-full bg-white text-black font-medium text-xs hover:bg-slate-200 transition-all shadow-sm"
             >
               Read the documentation ↗
@@ -56,6 +58,8 @@ export const HeroMinimal: React.FC<HeroMinimalProps> = ({
                 contrast whenever a glowing word passed underneath. */}
             <a
               href={compatUrl}
+              data-ph-event="cta_click"
+              data-ph-label="hero_compat"
               className="relative z-10 px-6 py-3 rounded-full text-xs font-medium bg-[#0e1013] border border-white/10 text-[#9aa3b2] hover:text-[#f2f4f7] hover:border-white/20 transition-colors"
             >
               View compatibility matrix ↗

@@ -433,6 +433,43 @@ def test_distribution_is_native_is_unknown_when_not_installed() -> None:
     assert "not installed" in reason
 
 
+def test_a_versioned_dist_info_does_not_mark_another_distribution_native(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`pydantic_core-2.50.1.dist-info` must not mark `pydantic` native.
+
+    The version is the last hyphen-separated segment of the distribution
+    name, so `pydantic_core-2.50.1` strips to `pydantic-core`. Stripping on
+    the first hyphen made the two distributions share a key, and one
+    distribution's compiled wheel then marked the other native, which
+    refused the whole bundle for an app whose own package is pure Python.
+    """
+    from pyscriptc import imports
+
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    pure_info = site / "pydantic-2.14.1.dist-info"
+    pure_info.mkdir()
+    (pure_info / "METADATA").write_text("Name: pydantic\n", encoding="utf-8")
+    (pure_info / "RECORD").write_text("pydantic/__init__.py,,\n", encoding="utf-8")
+    native_info = site / "pydantic_core-2.50.1.dist-info"
+    native_info.mkdir()
+    (native_info / "METADATA").write_text("Name: pydantic_core\n", encoding="utf-8")
+    (native_info / "RECORD").write_text(
+        "pydantic_core/_pydantic_core.cpython-314-x86_64-linux-gnu.so,,\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(imports, "_site_packages", lambda: [site])
+    imports._installed_distributions.cache_clear()
+    try:
+        native, _ = imports.distribution_is_native("pydantic")
+        assert native is False, "the pure distribution must not inherit the native verdict"
+        native, _ = imports.distribution_is_native("pydantic-core")
+        assert native is True, "the distribution with the compiled wheel is native"
+    finally:
+        imports._installed_distributions.cache_clear()
+
+
 @pytest.mark.parametrize("dist", ["numpy", "pyyaml", "psutil"])
 def test_a_known_native_distribution_reads_as_native(dist: str) -> None:
     verdict = classify("x", dist)

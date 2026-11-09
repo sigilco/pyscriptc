@@ -37,4 +37,9 @@ benchmarks/real/.scratch/
 /with.txt
 /nums.json
 *.obj
+
+# social media renders (generated, never committed)
+scripts/social/out/
+scripts/social/demo/demo
+scripts/social/demo/demo.report.json
 !tests/census_pins/*.json
