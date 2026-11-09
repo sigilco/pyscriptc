@@ -22,3 +22,21 @@ sd: dict[str, int] = {"a": 1, "b": 2}
 print(next(iter(sd)), len(sd))
 sd.pop("a")
 print(next(iter(sd)))
+# pop+reinsert churn with interleaved head peeks: the order cache must
+# stay in sync across deletes (issue #1168 runtime path).
+d2: dict[int, int] = {}
+seed = 11
+acc = 0
+for i in range(4000):
+    seed = (seed * 1103515245 + 12345) % 2147483648
+    k = (seed >> 8) % 64
+    if k in d2:
+        v = d2.pop(k)
+        d2[k] = v
+    else:
+        if len(d2) >= 32:
+            d2.pop(next(iter(d2)))
+        d2[k] = i
+    if i % 13 == 0:
+        acc += next(iter(d2))
+print(acc, len(d2))
