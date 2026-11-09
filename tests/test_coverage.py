@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import re
 from pathlib import Path
@@ -176,6 +177,104 @@ def test_coverage_walks_a_program_graph(tmp_path: Path) -> None:
     assert report["summary"]["definitions"] == 2
 
 
+def test_coverage_survives_a_real_package_tree(tmp_path: Path) -> None:
+    """Issue #730: unparsable files are listed, not fatal; issue #764: unnameable ones are skipped."""
+    pkg = tmp_path / "pkg"
+    (pkg / "migrations").mkdir(parents=True)
+    (pkg / "nspkg").mkdir()
+    (pkg / "__init__.py").write_text("from . import a\n", encoding="utf-8")
+    (pkg / "a.py").write_text("from . import b\n\n\ndef f() -> int:\n    return b.g()\n", encoding="utf-8")
+    (pkg / "b.py").write_text("from . import a\n\n\ndef g() -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "migrations" / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "migrations" / "0001_initial.py").write_text("def mig() -> int:\n    return 7\n", encoding="utf-8")
+    (pkg / "broken.py").write_text("def broken(:\n", encoding="utf-8")
+    (pkg / "nspkg" / "mod.py").write_text("def h() -> int:\n    return 3\n", encoding="utf-8")
+    got = run_cli("coverage", str(pkg), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["summary"]["files"] == 5
+    assert report["summary"]["filesFailed"] == 1
+    assert report["summary"]["filesSkipped"] == 1
+    failed = {item["file"].rsplit("/", 1)[-1]: item["reason"] for item in report["failedFiles"]}
+    assert "invalid syntax" in failed["broken.py"]
+    skipped = {item["file"].rsplit("/", 1)[-1]: item["reason"] for item in report["skippedFiles"]}
+    assert skipped["0001_initial.py"] == "not an importable module name"
+    analysed = {item["file"].rsplit("/", 1)[-1] for item in report["capabilities"]["byFile"]}
+    assert "mod.py" in analysed
+    assert "0001_initial.py" not in analysed
+
+
+def test_coverage_skips_a_pyinstaller_hook_file(tmp_path: Path) -> None:
+    """Issue #764: `__pyinstaller/hook-pk.py` is skipped with a note, not a failure."""
+    pkg = tmp_path / "pk"
+    (pkg / "__pyinstaller").mkdir(parents=True)
+    (pkg / "__init__.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "__pyinstaller" / "hook-pk.py").write_text("hook = 'pk'\n", encoding="utf-8")
+    got = run_cli("coverage", str(pkg), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["failedFiles"] == []
+    assert report["summary"]["filesSkipped"] == 1
+    skipped = report["skippedFiles"]
+    assert len(skipped) == 1
+    assert skipped[0]["file"].endswith("__pyinstaller/hook-pk.py")
+    assert skipped[0]["reason"] == "not an importable module name"
+    assert "note: skipped pk/__pyinstaller/hook-pk.py" in skipped[0]["note"]
+
+    text = run_cli("coverage", str(pkg))
+    assert text.returncode == 0, text.stderr
+    assert "could not analyse" not in text.stdout
+    assert "note: skipped pk/__pyinstaller/hook-pk.py; not an importable module name" in text.stdout
+
+
+def test_coverage_text_lists_unanalysed_files(tmp_path: Path) -> None:
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "ok.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "broken.py").write_text("def broken(:\n", encoding="utf-8")
+    got = run_cli("coverage", str(pkg))
+    assert got.returncode == 0, got.stderr
+    assert "could not analyse 1 file(s)" in got.stdout
+    assert "broken.py: invalid syntax" in got.stdout
+
+
+def test_coverage_single_file_parse_failure(tmp_path: Path) -> None:
+    bad = write_case(tmp_path, "bad.py", "def broken(:\n")
+    got = run_cli("coverage", str(bad), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["summary"]["files"] == 1
+    assert report["summary"]["filesFailed"] == 1
+    assert "invalid syntax" in report["failedFiles"][0]["reason"]
+
+
+def test_coverage_survives_a_unit_lowerer_crash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A unit that raises inside the lowering is listed, not fatal (issue #730)."""
+    pkg = tmp_path / "pkg"
+    pkg.mkdir()
+    (pkg / "__init__.py").write_text("", encoding="utf-8")
+    (pkg / "ok.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "boom.py").write_text("def g() -> int:\n    return 2\n", encoding="utf-8")
+
+    import pyscriptc.package as package
+
+    real_module = package.Lowerer.module
+
+    def flaky(self: object, tree: ast.Module) -> dict:
+        if self.filename.endswith("boom.py"):
+            raise RuntimeError("synthetic crash")
+        return real_module(self, tree)
+
+    monkeypatch.setattr(package.Lowerer, "module", flaky)
+    report = coverage.build_report(pkg)
+    assert report["summary"]["files"] == 2
+    assert report["summary"]["filesFailed"] == 1
+    assert report["failedFiles"] == [
+        {"file": str((pkg / "boom.py").resolve()), "reason": "RuntimeError: synthetic crash"}
+    ]
+
+
 def test_coverage_marks_island_imports_from_the_policy_table(tmp_path: Path) -> None:
     script = write_case(
         tmp_path,
@@ -239,6 +338,42 @@ def test_coverage_names_a_wildcard_island_policy(tmp_path: Path) -> None:
     assert any("island lane" in e["message"] for e in report["fences"] if "scipy" in e["message"])
 
 
+def test_bare_isinstance_target_is_a_report_not_a_traceback(tmp_path: Path) -> None:
+    """Issue #484: `isinstance(x, dict)` on a non-dict must not crash the report.
+
+    The want record a bare `dict` isinstance target carries is a shape only
+    (`{"kind": "dict"}`): when the object's kind differed, `_isinstance_holds`
+    fell through to `types_equal` and `type_key` indexed `typ["key"]` on a
+    record that has none. The langchain-core tree tripped it. The pin is the
+    minimal shape plus the lowered result: a kind mismatch folds to False.
+    """
+    from pyscriptc.ir import type_key
+
+    assert type_key({"kind": "dict", "bare": True}) == "dict[?]"
+    source = "\n".join(
+        [
+            "def f(x: str) -> bool:",
+            "    return isinstance(x, dict)",
+            "",
+            "def g(items: list[int]) -> bool:",
+            "    return isinstance(items, dict)",
+            "",
+            "def h(d: dict[str, int]) -> bool:",
+            "    return isinstance(d, dict)",
+        ]
+    )
+    module = lower_source(source, "case.py")
+    assert module["fences"] == []
+    path = write_case(tmp_path, "bare_isinstance.py", source)
+    got = run_cli("coverage", str(path), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["summary"]["fences"] == 0
+    assert report["summary"]["nativeDefinitions"] == 3
+    emitted = run_cli("compile", str(path), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "bare.ir.json"))
+    assert emitted.returncode == 0, emitted.stderr
+
+
 def test_a_cycle_fence_carries_its_own_family(tmp_path: Path) -> None:
     prog = tmp_path / "cyc"
     prog.mkdir()
@@ -300,3 +435,29 @@ def test_island_call_emits_requires_libpython_metadata() -> None:
     assert "@llvm.compiler.used" in ll_island
 
     assert family_of("PS2002", "super is not lowered") == "construct-other"
+
+
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
+_SRC = Path(__file__).resolve().parents[1] / "src" / "pyscriptc"
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_coverage_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "coverage.py") == 0

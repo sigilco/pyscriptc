@@ -52,6 +52,14 @@ int ps_win_setenv(const char *name, const char *value, int overwrite);
    _O_CREAT|_O_EXCL on a randomized suffix. */
 int ps_mkstemp(char *template_path);
 
+/* symlink is CreateSymbolicLinkA (a file link: the runtime carries no
+   directory flag) and readlink has no CRT spelling at all; ps_compat.c
+   answers both. */
+int ps_win_symlink(const char *target, const char *linkpath);
+int64_t ps_win_readlink(const char *path, char *buf, int64_t cap);
+#define ps_symlink(target, linkpath) ps_win_symlink((target), (linkpath))
+#define ps_readlink(path, buf, cap) ps_win_readlink((path), (buf), (cap))
+
 /* mingw has setjmp/longjmp but no sigsetjmp/siglongjmp. The runtime only
    ever uses the savemask-0 form, which saves no signal mask, so the plain
    pair is the same thing there. */
@@ -89,8 +97,16 @@ int ps_mkstemp(char *template_path);
    native mkstemp keeps it. */
 #ifdef __wasi__
 int ps_mkstemp(char *template_path);
+/* The wasm driver refuses os.symlink/os.readlink at link time, so these
+   stubs only need to keep ps_path.c compiling on the wasi sysroot. */
+int ps_wasi_symlink(const char *target, const char *linkpath);
+int64_t ps_wasi_readlink(const char *path, char *buf, int64_t cap);
+#define ps_symlink(target, linkpath) ps_wasi_symlink((target), (linkpath))
+#define ps_readlink(path, buf, cap) ps_wasi_readlink((path), (buf), (cap))
 #else
 #define ps_mkstemp(template_path) mkstemp((template_path))
+#define ps_symlink(target, linkpath) symlink((target), (linkpath))
+#define ps_readlink(path, buf, cap) ((int64_t)readlink((path), (buf), (size_t)(cap)))
 #endif
 
 #endif

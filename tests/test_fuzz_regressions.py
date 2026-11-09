@@ -91,8 +91,10 @@ MUST_FENCE: list[tuple[str, str, tuple[str, ...]]] = [
     ("nested-class", "class A:\n    class B:\n        pass\n", ("PS1204",)),
     # -- expression forms (PS2002/PS2003/PS2004) -----------------------------
     ("walrus-in-call", "def f() -> int:\n    x: int = int(y := 3)\n    return x\n", ("PS2002",)),
-    ("starred-call", "def f() -> int:\n    return print(*[1, 2])\n", ("PS2002",)),
-    ("double-star-call", "def f() -> int:\n    return print(**{'a': 1})\n", ("PS2002",)),
+    # Statically-lengthed starred operands lower (the starred-call slice);
+    # a runtime-length operand keeps the PS2002 fence.
+    ("starred-call", "def f(xs: list[int]) -> int:\n    print(*xs)\n    return 1\n", ("PS2002",)),
+    ("double-star-call", "def f(d: dict[str, int]) -> int:\n    print(**d)\n    return 1\n", ("PS2002",)),
     ("lambda-bound-to-ann-local", "def f() -> int:\n    g: int = lambda x: x\n    return g\n", ("PS1001",)),
     ("await-in-sync", "def f() -> int:\n    return await g()\n", ("PS2002",)),
     ("module-level-await", "await f()\n\n\ndef f() -> int:\n    return 1\n", ("PS2002",)),

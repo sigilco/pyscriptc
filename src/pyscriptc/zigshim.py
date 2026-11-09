@@ -95,10 +95,10 @@ def install_shim(python: str) -> Path:
     directory = shim_dir()
     directory.mkdir(parents=True, exist_ok=True)
     script = directory / "zig"
-    script.write_text(_shim_text(python), encoding="utf-8")
+    script.write_text(_shim_text(python))
     script.chmod(0o755)
     if sys.platform == "win32":
-        (directory / "zig.bat").write_text(_bat_text(python), encoding="utf-8")
+        (directory / "zig.bat").write_text(_bat_text(python))
     return script
 
 

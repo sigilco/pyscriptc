@@ -373,8 +373,8 @@ def test_lwave_fences(tmp_path: Path) -> None:
         ),
         (
             "star.py",
-            "def g(x: int) -> int:\n    return x\ndef f() -> int:\n    xs: list[int] = [1]\n    return g(*xs)\n",
-            "starred calls are not lowered",
+            "def g(x: int) -> int:\n    return x\ndef f() -> int:\n    return g(*[1, 2, 3])\n",
+            "g expects 1 argument(s)",
         ),
         (
             "userdeco.py",

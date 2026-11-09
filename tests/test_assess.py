@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import shutil
 from pathlib import Path
@@ -188,6 +189,33 @@ def test_assess_reflection_culprits(tmp_path: Path, capsys: pytest.CaptureFixtur
     assert data["summary"]["definitions"]["island"] == 1
 
 
+def test_assess_summary_agrees_with_plane_maps(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """The summary definition counts read the per-file plane maps (issue #814).
+
+    The plane map is what the fallback tier plans (a fenced definition rides
+    the island), so the summary cannot disagree with it: the per-file island
+    counts summed must equal the summary's island count.
+    """
+
+    lib_dir = tmp_path / "mylib"
+    lib_dir.mkdir()
+    (lib_dir / "mod_a.py").write_text(MIXED_LIBRARY_A, encoding="utf-8")
+    (lib_dir / "mod_b.py").write_text(REFLECTION_SCRIPT, encoding="utf-8")
+
+    code = cli.main(["assess", str(lib_dir), "--json"])
+    assert code == 0
+    captured = capsys.readouterr()
+    data = json.loads(captured.out)
+
+    plane_island = 0
+    for f in data["files"]:
+        pm = f["planeMap"]
+        plane_island += sum(1 for p in pm.get("functions", {}).values() if p == "island")
+        plane_island += sum(1 for p in pm.get("classes", {}).values() if p == "island")
+    assert data["summary"]["definitions"]["island"] == plane_island
+    assert data["summary"]["definitions"]["island"] >= 1
+
+
 def test_assess_real_app_directory(capsys: pytest.CaptureFixture[str]) -> None:
     jwtapp_path = Path("benchmarks/compat/pyjwt/src/jwtapp")
     assert jwtapp_path.is_dir()
@@ -232,6 +260,29 @@ def test_assess_pure_python_library_directory(tmp_path: Path, capsys: pytest.Cap
     assert any("union" in blk["family"] or "union" in blk["message"] for blk in data["islandRouting"]["staysBlocked"])
 
 
+def test_assess_skips_a_pyinstaller_hook_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Issue #764: an unnameable `.py` file is skipped, not refused."""
+    pkg = tmp_path / "pk"
+    (pkg / "__pyinstaller").mkdir(parents=True)
+    (pkg / "__init__.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "__pyinstaller" / "hook-pk.py").write_text("hook = 'pk'\n", encoding="utf-8")
+
+    code = cli.main(["assess", str(pkg), "--json"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["summary"]["files"]["skipped"] == 1
+    assert data["summary"]["files"]["refused"] == 0
+    hook = next(f for f in data["files"] if f["file"].endswith("hook-pk.py"))
+    assert hook["status"] == "skipped"
+    assert hook["skipReason"] == "not an importable module name"
+
+    code = cli.main(["assess", str(pkg)])
+    assert code == 0
+    text = capsys.readouterr().out
+    assert "1 skipped" in text
+    assert "hook-pk.py: skipped (not an importable module name)" in text
+
+
 def test_assess_json_schema_validation(tmp_path: Path) -> None:
     script = tmp_path / "check.py"
     script.write_text(TYPED_SCRIPT, encoding="utf-8")
@@ -254,7 +305,7 @@ def test_assess_json_schema_validation(tmp_path: Path) -> None:
     assert "files" in report and isinstance(report["files"], list)
     for f in report["files"]:
         assert "file" in f
-        assert f["status"] in ("fully", "partly", "refused")
+        assert f["status"] in ("fully", "partly", "refused", "skipped")
         assert "definitions" in f
         assert "groupedFences" in f
         for group in ("reflection", "untyped-import", "unsupported-construct"):
@@ -371,3 +422,29 @@ def test_assess_capping_and_all_flag(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert "line 7:" in text_all
     assert "line 9:" in text_all
     assert "line 7:" not in text_capped
+
+
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
+_SRC = Path(__file__).resolve().parents[1] / "src" / "pyscriptc"
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_assess_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "assess.py") == 0

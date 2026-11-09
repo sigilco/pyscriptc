@@ -170,7 +170,10 @@ def test_the_bundle_carries_only_a_relative_rpath(tmp_path: Path) -> None:
 def test_the_bundle_stays_inside_the_size_gate(tmp_path: Path) -> None:
     """macOS 40 MB, Linux 60 MB, uncompressed."""
     bundle = _compile(STDLIB_PROGRAM, tmp_path / "out" / "prog", "--island")
-    size = sum(f.stat().st_size for f in bundle.rglob("*") if f.is_file())
+    # lstat, not stat: `libpython3.14.so` is a symlink to the real library
+    # (issue #885) and must be counted once, the way `du -sk` measures the
+    # CI gate.
+    size = sum(f.lstat().st_size for f in bundle.rglob("*") if f.is_file() or f.is_symlink())
     limit = MACOS_BUNDLE_LIMIT if sys.platform == "darwin" else LINUX_BUNDLE_LIMIT
     assert size <= limit, f"the bundle is {size} bytes, over the {limit} byte gate"
 

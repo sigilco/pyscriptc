@@ -2,17 +2,26 @@
 
     python -m benchmarks.compat2.verdict --baseline base.json --candidate new.json
         [--census-before a.json --census-after b.json] [--ledger run-ledger.json]
+        [--wrong-tracker known-wrong.json] [--wrong-age 1]
         [--compile-budget 1.25] [--skip-perf] [--json]
 
-Order: hard gates (soundness ratchet, pass ratchet, perf gate, compile-time
-budget), then primary weighted passes, then secondary census progress. Perf is
-only a gate; it never adds score. Output follows the schema: verdict PASS|FAIL
-plus findings, each with severity, area, expected, observed, fix.
+Order: hard gates (soundness ratchet, known-wrong ratchet, pass ratchet, perf
+gate, compile-time budget), then primary weighted passes, then secondary census
+progress. Perf is only a gate; it never adds score. Output follows the schema:
+verdict PASS|FAIL plus findings, each with severity, area, expected, observed,
+fix. Findings with severity "info" are report-only: they never fail the verdict
+and never enter the oscillation ledger.
 
 Census file: {"fences": [{"id": "PS1001:union", "blocks": 4}, ...]}. Progress is
 the drop in total `blocks` weight (fences removed, weighted by packages blocked).
 The oscillation ledger is a JSON list of {iteration, closed, opened}; a finding
 that reappears after being closed ends the run.
+
+The wrong tracker is a JSON object {"rows": {"<id>": {"seen": N, "issue":
+"<url or null>"}}} aging every row that stays `wrong-output` across consecutive
+verdicts. Past `--wrong-age` runs the row emits a finding: report-only once an
+issue is recorded, P2 while it is still untracked. A tracked row that flips to
+`pass` emits a closing finding and leaves the tracker.
 """
 
 from __future__ import annotations
@@ -75,6 +84,73 @@ def soundness_gate(base: dict[str, Any], cand: dict[str, Any]) -> list[dict[str,
                 )
             )
     return out
+
+
+def known_wrong_gate(
+    base: dict[str, Any], cand: dict[str, Any], tracker: Path, *, min_age: int = 1
+) -> list[dict[str, str]]:
+    """Second arm of the soundness ratchet: a wrong-output row that stays wrong.
+
+    The new-failure arm above cannot see a row that was already `wrong-output`
+    in the baseline, so a known divergence would sit frozen forever. This arm
+    ages each persistent row in `tracker`; past `min_age` runs it is a finding
+    carrying the tracking-issue link (or demanding one). A tracked row that
+    flips to `pass` emits a closing finding and leaves the tracker.
+    """
+    before = _outcomes(base)
+    state: dict[str, Any] = json.loads(tracker.read_text(encoding="utf-8")) if tracker.exists() else {"rows": {}}
+    rows: dict[str, dict[str, Any]] = state.setdefault("rows", {})
+    persistent = {
+        row["id"]
+        for row in cand.get("rows", [])
+        if row["outcome"] == "wrong-output" and before.get(row["id"]) == "wrong-output"
+    }
+    findings = []
+    for rid in sorted(persistent):
+        entry = rows.setdefault(rid, {"seen": 0, "issue": None})
+        entry["seen"] += 1
+        if entry["seen"] < min_age:
+            continue
+        if entry["issue"]:
+            findings.append(
+                _finding(
+                    "info",
+                    f"known-wrong:{rid}",
+                    "a tracked wrong-output row keeps its issue link until it is fixed",
+                    f"{rid} has been wrong-output for {entry['seen']} runs; tracked by {entry['issue']}",
+                    f"close {entry['issue']} when the row flips to pass",
+                )
+            )
+        else:
+            findings.append(
+                _finding(
+                    "P2",
+                    f"known-wrong:{rid}",
+                    "a persistent wrong-output is a tracked divergence, not a frozen constant",
+                    f"{rid} has been wrong-output for {entry['seen']} runs with no tracking issue",
+                    "file a tracking issue and record it under this row in the wrong tracker",
+                )
+            )
+    fixed = {
+        row["id"]
+        for row in cand.get("rows", [])
+        if row["outcome"] == "pass" and before.get(row["id"]) == "wrong-output"
+    }
+    for rid in sorted(fixed | (set(rows) - persistent)):
+        entry = rows.pop(rid, {"seen": 0, "issue": None})
+        if rid not in fixed:
+            continue
+        findings.append(
+            _finding(
+                "info",
+                f"fixed:{rid}",
+                "a known wrong-output row stays wrong-output until the divergence is fixed",
+                f"{rid} is now pass after {entry['seen']} tracked runs",
+                f"close the tracking issue {entry['issue']}" if entry["issue"] else "divergence fixed",
+            )
+        )
+    tracker.write_text(json.dumps(state, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    return findings
 
 
 def must_fence_gate(must_fence_data: dict[str, Any] | None) -> list[dict[str, str]]:
@@ -191,16 +267,19 @@ def verdict(
     budget: float = 1.25,
     skip_perf: bool = False,
     must_fence: dict[str, Any] | None = None,
+    wrong_tracker: Path | None = None,
+    wrong_age: int = 1,
 ) -> dict[str, Any]:
     must_fence_data = must_fence if must_fence is not None else cand.get("must_fence")
     findings = [
         *soundness_gate(base, cand),
         *must_fence_gate(must_fence_data),
+        *(known_wrong_gate(base, cand, wrong_tracker, min_age=wrong_age) if wrong_tracker else []),
         *pass_gate(base, cand),
         *compile_gate(base, cand, budget),
         *perf_gate(skip_perf),
     ]
-    gates_red = bool(findings)
+    gates_red = any(f["severity"] != "info" for f in findings)
     primary = weighted_pass(cand) - weighted_pass(base)
     secondary = census_progress(census_before, census_after)
     if not gates_red and primary <= 0 and secondary <= 0:
@@ -216,10 +295,10 @@ def verdict(
     if ledger is not None:
         previous = json.loads(ledger.read_text()) if ledger.exists() else []
         last_open = set(previous[-1]["opened"]) if previous else set()
-        now_open = {f["area"] for f in findings}
+        now_open = {f["area"] for f in findings if f["severity"] != "info"}
         findings.extend(update_ledger(ledger, sorted(last_open - now_open), sorted(now_open)))
     return {
-        "verdict": "FAIL" if findings else "PASS",
+        "verdict": "FAIL" if any(f["severity"] != "info" for f in findings) else "PASS",
         "primary_delta": primary,
         "census_delta": secondary,
         "findings": findings,
@@ -233,6 +312,16 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--census-before")
     parser.add_argument("--census-after")
     parser.add_argument("--ledger", help="per-run anti-oscillation ledger JSON")
+    parser.add_argument(
+        "--wrong-tracker",
+        help="known-wrong-output tracker JSON; ages persistent wrong-output rows into findings",
+    )
+    parser.add_argument(
+        "--wrong-age",
+        type=int,
+        default=1,
+        help="verdict runs a row may stay wrong-output before it is a finding (default 1)",
+    )
     parser.add_argument("--must-fence", help="must-fence corpus results JSON")
     parser.add_argument("--compile-budget", type=float, default=1.25)
     parser.add_argument("--skip-perf", action="store_true")
@@ -250,6 +339,8 @@ def main(argv: list[str] | None = None) -> int:
         budget=args.compile_budget,
         skip_perf=args.skip_perf,
         must_fence=load(args.must_fence),
+        wrong_tracker=Path(args.wrong_tracker) if args.wrong_tracker else None,
+        wrong_age=args.wrong_age,
     )
     print(json.dumps(result, indent=2))
     return 0 if result["verdict"] == "PASS" else 1

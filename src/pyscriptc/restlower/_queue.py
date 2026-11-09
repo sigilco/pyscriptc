@@ -20,12 +20,20 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _const_int
-
-_QUEUE = {"kind": "class", "name": "Queue"}
-_INT = {"kind": "int"}
-_BOOL = {"kind": "bool"}
-_NONE = {"kind": "none"}
+from pyscriptc.restlower._shared import (
+    _binary,
+    _call_builtin,
+    _cast_float,
+    _const_int,
+    _const_text,
+    _node_kind,
+    _node_type,
+    _node_type_kind,
+    _node_value,
+    _t_leaf,
+    _type_kind,
+    _type_name,
+)
 
 # kind rides to ps_queue_new: 0 Queue, 1 LifoQueue, 2 SimpleQueue.
 _KINDS = {"Queue": 0, "LifoQueue": 1, "SimpleQueue": 2}
@@ -34,12 +42,12 @@ _KINDS = {"Queue": 0, "LifoQueue": 1, "SimpleQueue": 2}
 def _const_number(lo: Any, value: ast.expr, what: str) -> int:
     """A constant int, including the unary-minus spelling."""
     arg = lo._expr(value)
-    if arg["kind"] == "const" and arg["type"]["kind"] in {"int", "bool"}:
-        return int(arg["value"])
+    if _node_kind(arg) == "const" and _node_type_kind(arg) in {"int", "bool"}:
+        return int(_node_value(arg))
     if isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.USub):
         inner = lo._expr(value.operand)
-        if inner["kind"] == "const" and inner["type"]["kind"] == "int":
-            return -int(inner["value"])
+        if _node_kind(inner) == "const" and _node_type_kind(inner) == "int":
+            return -int(_node_value(inner))
     lo.fail(value, "PS1003", f"{what} is a constant int")
     raise AssertionError("unreachable")
 
@@ -48,10 +56,11 @@ def _keyword_bool(lo: Any, value: ast.expr, what: str) -> bool:
     """`block` is a constant bool in this subset: it selects between the
     blocking and the non-blocking call in the runtime."""
     arg = lo._expr(value)
-    if arg["kind"] == "const" and arg["type"]["kind"] == "bool":
-        return bool(arg["value"])
-    if arg["kind"] == "const" and arg["type"]["kind"] == "int":
-        return int(arg["value"]) != 0
+    kind = _node_type_kind(arg)
+    if _node_kind(arg) == "const" and kind == "bool":
+        return bool(_node_value(arg))
+    if _node_kind(arg) == "const" and kind == "int":
+        return int(_node_value(arg)) != 0
     lo.fail(value, "PS1003", f"{what} is a constant bool")
     raise AssertionError("unreachable")
 
@@ -65,29 +74,14 @@ def _timeout_nanos(lo: Any, value: ast.expr | None, span: dict[str, Any]) -> dic
     if value is None:
         return _const_int(-1, span)
     arg = lo._expr(value)
-    if arg["type"]["kind"] == "none":
+    if _node_type_kind(arg) == "none":
         return _const_int(-1, span)
-    if arg["type"]["kind"] == "int":
-        arg = {"kind": "cast", "op": "int_to_float", "value": arg, "type": {"kind": "float"}, "span": span}
-    if arg["type"]["kind"] != "float":
+    if _node_type_kind(arg) == "int":
+        arg = _cast_float(arg, span)
+    if _node_type_kind(arg) != "float":
         lo.fail(value, "PS1003", "the timeout is a number or None")
-    billion = {"kind": "const", "value": "1000000000.0", "type": {"kind": "float"}, "span": span}
-    return {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": "int"},
-        "args": [
-            {
-                "kind": "binary",
-                "op": "*",
-                "left": arg,
-                "right": billion,
-                "type": {"kind": "float"},
-                "span": span,
-            }
-        ],
-        "type": _INT,
-        "span": span,
-    }
+    billion = _const_text("1000000000.0", "float", span)
+    return _call_builtin("int", [_binary("*", arg, billion, _t_leaf("float"), span)], _t_leaf("int"), span)
 
 
 def _queue_call(
@@ -115,10 +109,10 @@ def _queue_call(
         maxsize = _const_number(lo, node.args[0], f"queue.{attr} maxsize")
     if maxsize < 0:
         lo.fail(node, "PS1003", f"queue.{attr} maxsize is a non-negative int")
-    if expect is None or expect.get("name") != "Queue" or "elem" not in expect:
+    if expect is None or _type_name(expect) != "Queue" or "elem" not in expect:
         lo.fail(node, "PS1001", f"queue.{attr}() needs a queue annotation")
     elem = expect["elem"]
-    if elem["kind"] == "bool":
+    if _type_kind(elem) == "bool":
         lo.fail(node, "PS2002", "list[bool] is not lowered")
     from pyscriptc.stdmore import slot_size
 
@@ -141,7 +135,7 @@ def _queue_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
     """Method dispatch for Queue, LifoQueue and SimpleQueue receivers."""
     assert isinstance(node.func, ast.Attribute)
     attr = node.func.attr
-    cls = receiver["type"]["name"]
+    cls = _type_name(_node_type(receiver))
     simple = cls == "SimpleQueue"
 
     def call(typ: dict[str, Any], symbol: str, args: list[dict[str, Any]], what: str) -> dict[str, Any]:
@@ -150,15 +144,15 @@ def _queue_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
     if attr == "qsize":
         lo._reject_keywords(node)
         _no_args(lo, node, f"{cls}.qsize")
-        return call(_INT, "ps_queue_qsize", [], f"{cls}.qsize")
+        return call(_t_leaf("int"), "ps_queue_qsize", [], f"{cls}.qsize")
     if attr == "empty":
         lo._reject_keywords(node)
         _no_args(lo, node, f"{cls}.empty")
-        return call(_BOOL, "ps_queue_empty", [], f"{cls}.empty")
+        return call(_t_leaf("bool"), "ps_queue_empty", [], f"{cls}.empty")
     if attr == "full":
         lo._reject_keywords(node)
         _no_args(lo, node, f"{cls}.full")
-        return call(_BOOL, "ps_queue_full", [], f"{cls}.full")
+        return call(_t_leaf("bool"), "ps_queue_full", [], f"{cls}.full")
     if attr in {"put", "put_nowait"}:
         return _put_call(lo, node, span, receiver, attr == "put_nowait")
     if attr in {"get", "get_nowait"}:
@@ -168,13 +162,13 @@ def _queue_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
         _no_args(lo, node, f"{cls}.task_done")
         if simple:
             lo.fail(node, "PS2001", "SimpleQueue has no task_done")
-        return call(_NONE, "ps_queue_task_done", [], f"{cls}.task_done")
+        return call(_t_leaf("none"), "ps_queue_task_done", [], f"{cls}.task_done")
     if attr == "join":
         lo._reject_keywords(node)
         _no_args(lo, node, f"{cls}.join")
         if simple:
             lo.fail(node, "PS2001", "SimpleQueue has no join")
-        return call(_NONE, "ps_queue_join", [], f"{cls}.join")
+        return call(_t_leaf("none"), "ps_queue_join", [], f"{cls}.join")
     lo.fail(node, "PS2001", f"{cls}.{attr} is not lowered")
     raise AssertionError("unreachable")
 
@@ -211,7 +205,7 @@ def _put_call(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str,
         lo.fail(node, "PS1003", "'block' must be true when a timeout is given")
     item = lo._expr(node.args[0])
     wait = _const_int(0, span) if not block else _timeout_nanos(lo, timeout, span)
-    return lo._abi_call("queue", "put", [receiver, wait, item], _NONE, "ps_queue_put", span)
+    return lo._abi_call("queue", "put", [receiver, wait, item], _t_leaf("none"), "ps_queue_put", span)
 
 
 def _get_call(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any], nowait: bool) -> dict[str, Any]:
@@ -241,7 +235,7 @@ def _get_call(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str,
     if not block and timeout is not None:
         lo.fail(node, "PS1003", "'block' must be true when a timeout is given")
     wait = _const_int(0, span) if not block else _timeout_nanos(lo, timeout, span)
-    typ = receiver["type"]
+    typ = _node_type(receiver)
     if "elem" not in typ:
         lo.fail(node, "PS2002", "this queue has no element type")
     return lo._abi_call("queue", "get", [receiver, wait], typ["elem"], "ps_queue_get", span)

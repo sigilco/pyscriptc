@@ -7,6 +7,7 @@ from typing import Any
 
 from pyscriptc.lower._core import _show
 from pyscriptc.lower._stdlib_shared import _mod_call
+from pyscriptc.restlower._shared import _node_type, _node_type_kind, _t_leaf
 
 
 def _tomllib_call(
@@ -25,8 +26,8 @@ def _tomllib_call(
         lo.fail(node, "PS1001", "tomllib.loads needs the result annotation")
     lo._json_type(node, expect, "tomllib.loads")
     text = lo._expr(node.args[0])
-    if text["type"]["kind"] != "str":
-        lo.fail(node, "PS1003", "tomllib.loads argument is " + _show(text["type"]) + ", expected str")
-    doc = _mod_call("tomllib", "loads", [text], {"kind": "str"}, span)
-    doc["symbol"] = "ps_toml_to_json"
+    if _node_type_kind(text) != "str":
+        lo.fail(node, "PS1003", "tomllib.loads argument is " + _show(_node_type(text)) + ", expected str")
+    doc = _mod_call("tomllib", "loads", [text], _t_leaf("str"), span)
+    doc.update({"symbol": "ps_toml_to_json"})
     return _mod_call("json", "loads", [doc], expect, span)

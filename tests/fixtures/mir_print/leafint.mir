@@ -1,0 +1,55 @@
+; module leafint.py entry=__entry__
+
+fn add(v0:w, v1:w) -> w {
+b0 entry():
+  v2:w = copy v0
+  v3:w = copy v1
+  v4:w = addw v0, v1
+  ret v4
+}
+
+fn sub3(v0:w, v1:w, v2:w) -> w {
+b0 entry():
+  v3:w = copy v0
+  v4:w = copy v1
+  v5:w = copy v2
+  v6:w = subw v0, v1
+  v7:w = subw v6, v2
+  ret v7
+}
+
+fn pick(v0:w, v1:w) -> w {
+b0 entry():
+  v2:w = copy v0
+  v3:w = copy v1
+  v4:b = cltw v0, v1
+  br v4, b1(), b2()
+b1 then():
+  v5:w = copy v3
+  ret v5
+b2 else():
+  jmp b3
+b3 merge():
+  v6:w = copy v2
+  ret v6
+}
+
+fn main() -> void {
+  c0 = w 3
+  c1 = w 4
+  c2 = w 9
+  c3 = w 1
+  c4 = w 2
+b0 entry():
+  v2:w = call @add(c0, c1)
+  v4:w = call @sub3(c2, c3, c4)
+  v5:w = call @pick(v2, v4)
+  v-1:void = call @print(v5)
+  ret
+}
+
+fn __entry__() -> void {
+b0 entry():
+  v-1:void = call @main()
+  ret
+}
