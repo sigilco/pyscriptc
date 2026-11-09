@@ -187,3 +187,27 @@ def test_out_dir_collects_artifacts(tmp_path: Path) -> None:
     assert (out / "ok.o").is_file()
     assert (out / "ok.ll").is_file()
     assert not path.with_suffix(".o").exists()
+
+
+def test_ir_json_not_written_on_a_plain_compile(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "ok.py", CLEAN)
+    got = run_cli("compile", str(path), "--emit", "llvm", "--skip-check")
+    assert got.returncode == 0, got.stderr
+    assert path.with_suffix(".ll").is_file()
+    assert not path.with_suffix(".ir.json").exists()
+
+
+def test_ir_json_written_on_fences(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "mix.py", FENCED)
+    got = run_cli("compile", str(path), "--emit", "llvm", "--skip-check")
+    assert got.returncode == 3, got.stderr
+    fences = json.loads(path.with_suffix(".ir.json").read_text(encoding="utf-8"))["fences"]
+    assert fences and fences[0]["code"] == "PS1104"
+
+
+def test_ir_json_written_with_debug_dir(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "ok.py", CLEAN)
+    dbg = tmp_path / "dbg"
+    got = run_cli("compile", str(path), "--emit", "llvm", "--skip-check", "--debug-dir", str(dbg))
+    assert got.returncode == 0, got.stderr
+    assert (dbg / "ir.json").read_text() == path.with_suffix(".ir.json").read_text()

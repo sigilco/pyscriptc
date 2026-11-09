@@ -1,0 +1,17 @@
+{
+  "mode": "self-vs-self",
+  "src": "/home/own-agents/.worktrees/pyscriptc-tirgate/src/pyscriptc",
+  "runA": {
+    "sha256": "8dcd90d28eadf7da3495059090ca487dcc59bf1a12ac8a0a3fe504ebb8213934"
+  },
+  "runB": {
+    "sha256": "8dcd90d28eadf7da3495059090ca487dcc59bf1a12ac8a0a3fe504ebb8213934"
+  },
+  "report": {
+    "modules": 95,
+    "matched": 95,
+    "divergent": [],
+    "onlyInA": [],
+    "onlyInB": []
+  }
+}

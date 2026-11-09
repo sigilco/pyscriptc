@@ -16,7 +16,21 @@ from __future__ import annotations
 import sys
 from typing import Any
 
-from pyscriptc.emit._ir import _fn_symbol
+from pyscriptc.emit._ir import (
+    _const_text,
+    _fn_symbol,
+    _has,
+    _items,
+    _kind,
+    _kind_or_none,
+    _maybe_node_kind,
+    _node_name,
+    _opt_default,
+    _opt_record,
+    _opt_str,
+    _opt_str_or_none,
+    _type_of,
+)
 
 _SUPPORTED_PARAM_KINDS = frozenset({"int", "float", "bool"})
 _SUPPORTED_RETURN_KINDS = frozenset({"int", "float", "bool", "none"})
@@ -78,7 +92,7 @@ def shared_library_name(stem: str, target: str | None = None) -> str:
 
 def _render_type(t: dict[str, Any]) -> str:
     """Render an IR type dictionary into human-readable type syntax."""
-    kind = t.get("kind", "unknown")
+    kind: str = _kind_or_none(t) or "unknown"
     if kind == "int":
         return "int"
     if kind == "float":
@@ -92,17 +106,25 @@ def _render_type(t: dict[str, Any]) -> str:
     if kind == "none":
         return "None"
     if kind == "list":
-        return f"list[{_render_type(t.get('elem', {}))}]"
+        elem = _opt_record(t, "elem")
+        empty_elem: dict[str, Any] = {}
+        return f"list[{_render_type(elem if elem is not None else empty_elem)}]"
     if kind == "dict":
-        return f"dict[{_render_type(t.get('key', {}))}, {_render_type(t.get('val', {}))}]"
+        key = _opt_record(t, "key")
+        val = _opt_record(t, "val")
+        empty_item: dict[str, Any] = {}
+        key_str = _render_type(key if key is not None else empty_item)
+        val_str = _render_type(val if val is not None else empty_item)
+        return f"dict[{key_str}, {val_str}]"
     if kind == "class":
-        return t.get("name", "class")
+        name = _opt_str(t, "name")
+        return name if name else "class"
     return kind
 
 
-def _python_const_repr(typ: dict[str, Any], raw_val: Any) -> str:
+def _python_const_repr(typ: dict[str, Any], raw_val: str) -> str:
     """Format a default constant value for Python source code."""
-    kind = typ.get("kind")
+    kind = _kind_or_none(typ)
     if kind == "int":
         return repr(int(raw_val))
     if kind == "float":
@@ -126,36 +148,41 @@ def analyze_binding(
     """
     emitted: list[dict[str, Any]] = []
     skipped: list[tuple[str, str]] = []
-    entry = module.get("entry")
+    entry = _opt_str_or_none(module, "entry")
 
-    for fn in module.get("functions", []):
-        name = fn["name"]
+    for fn in _items(module, "functions"):
+        name = _node_name(fn)
         # Skip compiler-synthesized standalone entry functions without params
-        if name in ("main", "__entry__") and name == entry and not fn.get("params"):
+        if name in ("main", "__entry__") and name == entry and not _items(fn, "params"):
             continue
 
         # Nested functions have an environment pointer or a dot in the name
-        if "env" in fn or "." in name:
+        if _has(fn, "env") or "." in name:
             skipped.append((name, "nested function cannot be exported as a top-level binding"))
             continue
 
         reasons: list[str] = []
-        for param in fn.get("params", []):
-            pkind = param.get("type", {}).get("kind")
-            if pkind not in _SUPPORTED_PARAM_KINDS:
-                rendered = _render_type(param.get("type", {}))
-                if pkind in ("str", "bytes"):
+        for param in _items(fn, "params"):
+            ptyp = _opt_record(param, "type")
+            pkind = _kind_or_none(ptyp) if ptyp is not None else None
+            if pkind is None or pkind not in _SUPPORTED_PARAM_KINDS:
+                empty_ptyp: dict[str, Any] = {}
+                rendered = _render_type(ptyp if ptyp is not None else empty_ptyp)
+                pname = _opt_str(param, "name")
+                if pkind == "str" or pkind == "bytes":
                     reasons.append(
-                        f"parameter {param['name']!r} has unsupported type '{rendered}' "
+                        f"parameter {pname!r} has unsupported type '{rendered}' "
                         "(str/bytes C ABI not stabilized for bindings)"
                     )
                 else:
-                    reasons.append(f"parameter {param['name']!r} has unsupported type '{rendered}'")
+                    reasons.append(f"parameter {pname!r} has unsupported type '{rendered}'")
 
-        rkind = fn.get("returnType", {}).get("kind")
-        if rkind not in _SUPPORTED_RETURN_KINDS:
-            rendered = _render_type(fn.get("returnType", {}))
-            if rkind in ("str", "bytes"):
+        rtyp = _opt_record(fn, "returnType")
+        rkind = _kind_or_none(rtyp) if rtyp is not None else None
+        if rkind is None or rkind not in _SUPPORTED_RETURN_KINDS:
+            empty_rtyp: dict[str, Any] = {}
+            rendered = _render_type(rtyp if rtyp is not None else empty_rtyp)
+            if rkind == "str" or rkind == "bytes":
                 reasons.append(
                     f"return type has unsupported type '{rendered}' (str/bytes C ABI not stabilized for bindings)"
                 )
@@ -167,10 +194,11 @@ def analyze_binding(
         else:
             emitted.append(fn)
 
-    for cls in module.get("classes", []):
-        if cls.get("name") in ("BytesIO", "TextIO"):
+    for cls in _items(module, "classes"):
+        cls_name = _opt_str_or_none(cls, "name")
+        if cls_name == "BytesIO" or cls_name == "TextIO":
             continue
-        skipped.append((cls["name"], "classes are not exported in the first-cut ctypes binding"))
+        skipped.append((_node_name(cls), "classes are not exported in the first-cut ctypes binding"))
 
     return emitted, skipped
 
@@ -232,11 +260,14 @@ def render_binding_shim(module_name: str, emitted: list[dict[str, Any]]) -> str:
     lines.append("")
 
     for index, fn in enumerate(emitted):
-        name = fn["name"]
-        params = fn.get("params", [])
-        ret_kind = fn.get("returnType", {}).get("kind", "none")
+        name = _node_name(fn)
+        params = _items(fn, "params")
+        rtyp = _opt_record(fn, "returnType")
+        ret_kind = _kind_or_none(rtyp) if rtyp is not None else None
+        if ret_kind is None:
+            ret_kind = "none"
         c_ret = _C_TYPE_MAP[ret_kind]
-        c_sig = ", ".join(_C_TYPE_MAP[p["type"]["kind"]] for p in params) or "void"
+        c_sig = ", ".join(_C_TYPE_MAP[_kind(_type_of(p))] for p in params) or "void"
         target = f"ps_bind_target_{index}"
         struct = f"ps_bind_args_{index}"
         call_args = ", ".join(f"args->p{i}" for i in range(len(params)))
@@ -251,7 +282,7 @@ def render_binding_shim(module_name: str, emitted: list[dict[str, Any]]) -> str:
         lines.append("typedef struct {")
         lines.append(f"    {target} target;")
         for i, param in enumerate(params):
-            lines.append(f"    {_C_TYPE_MAP[param['type']['kind']]} p{i};")
+            lines.append(f"    {_C_TYPE_MAP[_kind(_type_of(param))]} p{i};")
         if ret_kind != "none":
             lines.append(f"    {c_ret} result;")
         lines.append(f"}} {struct};")
@@ -267,7 +298,7 @@ def render_binding_shim(module_name: str, emitted: list[dict[str, Any]]) -> str:
         lines.append("")
         wrapper = shim_symbol(name)
         c_sig_params = ", ".join(
-            [f"{target} target", *(f"{_C_TYPE_MAP[p['type']['kind']]} p{i}" for i, p in enumerate(params))]
+            [f"{target} target", *(f"{_C_TYPE_MAP[_kind(_type_of(p))]} p{i}" for i, p in enumerate(params))]
         )
         lines.append(f"{c_ret} {wrapper}({c_sig_params}) {{")
         lines.append(f"    {struct} args;")
@@ -403,31 +434,37 @@ def render_binding_module(
     all_names = ["CompiledError"]
 
     for fn in emitted:
-        name = fn["name"]
+        name = _node_name(fn)
         target_symbol = _fn_symbol(name)
-        params = fn.get("params", [])
-        ret_type = fn.get("returnType", {})
-
-        argtypes = [_CTYPES_TYPE_MAP[p["type"]["kind"]] for p in params]
-        restype = _CTYPES_TYPE_MAP[ret_type.get("kind", "none")]
+        params = _items(fn, "params")
+        ret_type: dict[str, Any] | None = _opt_record(fn, "returnType")
+        resolved_ret_type: dict[str, Any] = ret_type if ret_type is not None else {}
+        argtypes = [_CTYPES_TYPE_MAP[_kind(_type_of(p))] for p in params]
+        ret_kind = _kind_or_none(resolved_ret_type)
+        kind_key: str = "none"
+        if ret_kind is not None:
+            kind_key = ret_kind
+        restype: str = _CTYPES_TYPE_MAP[kind_key]
         # The guarded wrapper takes the resolved function pointer first, so
         # its ctypes shape is the logical one with a leading c_void_p.
-        bind_argtypes = ["ctypes.c_void_p", *argtypes]
+        bind_argtypes: list[str] = ["ctypes.c_void_p"]
+        for a in argtypes:
+            bind_argtypes.append(a)
 
         sig_parts: list[str] = []
         call_parts: list[str] = []
         for p in params:
-            pname = p["name"]
-            ptype_str = _PY_TYPE_MAP[p["type"]["kind"]]
-            default = p.get("default")
-            if isinstance(default, dict) and default.get("kind") == "const":
-                val_repr = _python_const_repr(p["type"], default.get("value"))
+            pname = _opt_str(p, "name")
+            ptype_str = _PY_TYPE_MAP[_kind(_type_of(p))]
+            default = _opt_default(p)
+            if default is not None and _maybe_node_kind(default) == "const":
+                val_repr = _python_const_repr(_type_of(p), _const_text(default))
                 sig_parts.append(f"{pname}: {ptype_str} = {val_repr}")
             else:
                 sig_parts.append(f"{pname}: {ptype_str}")
             call_parts.append(pname)
 
-        ret_annot = _PY_TYPE_MAP[ret_type.get("kind", "none")]
+        ret_annot: str = _PY_TYPE_MAP[kind_key]
         sig_str = ", ".join(sig_parts)
         call_str = ", ".join(call_parts)
 
@@ -443,7 +480,7 @@ def render_binding_module(
         lines.append("")
         lines.append(f"def {name}({sig_str}) -> {ret_annot}:")
         args = ", ".join([f"_{name}_ptr", call_str]) if call_str else f"_{name}_ptr"
-        if ret_type.get("kind", "none") == "none":
+        if ret_kind == "none":
             lines.append(f"    _{name}({args})")
             lines.append("    _check()")
         else:

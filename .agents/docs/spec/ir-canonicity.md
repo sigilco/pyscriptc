@@ -115,3 +115,42 @@ Hash the canonical module as `json.dumps(canonical, sort_keys=True, separators=(
 - Counter SSA names. Temp locals are `.ps_<hint>_<n>` with `temp_n` reset per function (`lower.py:242`, `lower.py:918`), and LLVM registers are `%t<n>`/`L<n>.<hint>` reset per function (`llvm.py:1533`). Numbering follows AST traversal order, which is deterministic; the only way counters drift is if the set leak above reorders emission, which the class sort removes. Verdict: canonical, keep in the hash, no kill needed. A counter shift after a real compiler change is signal, not noise.
 - Dict insertion order across CPython versions. Dicts are insertion ordered by language guarantee on every supported version, so the same code on 3.10 through 3.14 produces the same dict order. The cross version risks are the `cpython` stamp (stripped), span attributes from newer `ast` parsers (spans stripped), and float `repr` inside const values (stable across 3.x in practice). Verdict: no canonicalization needed; the residual float repr risk is accepted, and the baseline is regenerated per interpreter anyway since the stamp moves with it.
 - What canonicalization does not kill: nothing else found. The two sorted structures (`classes`, `codes`) plus the fence sort close every run to run divergence observed, and the strip list removes the invocation dependent paths. One process level caveat: `irscore.py` must hash the canonical form and never a raw dump, and any golden dump comparison in review must run both sides under the same `PYTHONHASHSEED` or through canonicalization.
+
+## 7. PROPOSED (2026-11-02, pending owner sign-off): the streaming canonical serializer and the TIR gate
+
+This section is the spec the draft recorded decision `.agents/plans/decisions/2026-11-02-tir-gate-streaming-serializer.md` points at. Nothing in sections 1-6 changes: `canonical.py` is frozen, `IR_HASHES.json` and `irscore.py` keep running, and the new gate is added beside them. Retirement of the old gate is the R5 decision, not this one; it is tracked in issue #830 and the retirement plan rides in open PRs #980 and #973 (not yet on master).
+
+### 7.1 The serializer
+
+`pyscriptc/tirserde.py` (landed on `work/tirgate` as the R2 bootstrap) serializes the canonical payload
+
+    {"schema": CANONICAL_SCHEMA_VERSION, "ir": <canonicalize(module)>}
+
+directly into a `hashlib.sha256` sink: object keys in Python string sort order (exactly what `json.dumps(sort_keys=True)` produces), json `ensure_ascii=False` string escaping (short escapes for `\b\t\n\f\r`, `\uXXXX` lower-case hex for the remaining C0 controls, raw UTF-8 bytes otherwise), `repr` for floats with `allow_nan=False` semantics (a non-finite float reaching IR is a compiler bug and raises), and no dict materialization of the payload at any point.
+
+The contract for the typed-IR migration (R3): per node kind, the serializer emits the node id first, then the schema field order of that kind, then children. Field order in the serializer replaces `sort_keys` as the canonicity mechanism; a field reorder is a schema change and moves every digest through the repin ritual, never silently.
+
+### 7.2 Byte identity with today's canonical bytes
+
+The streaming bytes are byte-identical to the `json.dumps` payload section 5 specifies. This is a checked property, not an assumption: `tirscore --verify-bytes` lowers each probe and `cmp`s the two byte streams per probe. Bootstrap receipt (2026-11-02, Linux, CPython 3.14.9): 13,692 probes, 0 byte mismatches; streaming 4.31s vs dict 2.31s over the corpus (~1.9x wall time, accepted; the dict path retains the payload).
+
+### 7.3 The probe file: probes/TIR_HASHES.json
+
+Format (mirrors `IR_HASHES.json`'s header discipline):
+
+    {"canonical_schema": "canonical-schema/2", "hash_algo": "sha256",
+     "oracle": "<oracle_version()>", "tir_schema": "tir/1",
+     "probes": {"<probe_id>": "<64-hex>"}}
+
+- `tir_schema` versions the probe file itself; a serializer semantic change bumps it and forces regeneration.
+- `canonical_schema` is inherited from section 5; the digests are only valid under the schema version they were generated with.
+- The header carries the oracle version once, so a stale baseline is exit 2 (regenerate, do not hand edit), same as `irscore.py`.
+- When R4 lands, MIR hashes go in a `mir` section of this file or a sibling file under the same header discipline and the same ritual.
+
+### 7.4 The regen ritual (inherited unchanged)
+
+Exactly the 2026-10-22 ritual (`benchmarks/compat2/irscore.py` and note `.agents/notes/2026-10-22-ir-hashes-regen.md`), with `tirscore` in place of `irscore`: two independent runs A and B (`uv run python -m benchmarks.compat2.tirscore benchmarks/compat2/probes --out A.json`, then B), `cmp A B` must be byte-identical, then one copy lands in `probes/TIR_HASHES.json`. Generated on Linux only (ubuntu-24.04, CPython 3.14.x); never by hand on macOS, because canonical IR folds host constants and the macOS baseline differs by hundreds of hashes. Header mismatch (exit 2) means regenerate, never hand-edit.
+
+### 7.5 The Stage-2 fixed-point lane
+
+`benchmarks/compat2/fixpoint.py` lowers every importable module under `src/pyscriptc` (95 modules today) and hashes each canonical IR, twice, and reports per-module divergence. First state is self-vs-self (seed interpreter, both runs); receipt 2026-11-02: 95 compared, 95 matched, 0 divergent (`benchmarks/compat2/fixpoint.json`). When the self-compiled binary can compile the tree (R6), the same `compare_runs` driver reports seed-vs-self, and the per-module divergence count is the headline self-host receipt trending to zero as R3/R4 land.

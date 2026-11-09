@@ -18,9 +18,8 @@ from __future__ import annotations
 
 import re
 import tomllib
-from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
+from typing import Any, Dict
 
 from pyscriptc.errors import SpikeError
 
@@ -28,7 +27,7 @@ CONFIG_CODE = "PS3102"
 
 PEP723_RE = re.compile(r"(?m)^# /// (?P<type>[a-zA-Z0-9-]+)$\s(?P<content>(^#(| .*)$\s)+)^# ///$")
 
-LANES = ("compile", "replace", "extern", "island", "refuse")
+LANES: list[str] = ["compile", "replace", "extern", "island", "refuse"]
 DEFAULT_LANE = "compile"
 
 # The island is never automatic: only a per-import policy entry can select it,
@@ -36,25 +35,29 @@ DEFAULT_LANE = "compile"
 # label coverage and binary metadata print for that lane.
 ISLAND_LABEL = "requires libpython"
 
-_KEYS: dict[str, tuple[type, ...]] = {
-    "entry": (str,),
-    "src": (str, list),
-    "checker": (str,),
-    "driver": (str,),
-    "target": (str,),
-    "fail-on": (str,),
-    "stub-path": (str, list),
-    "ffi": (str, list),
-    "imports": (dict,),
+# The accepted value type of every config key, by name. The names are the
+# runtime type names of the values TOML can hold (`str`, `list`, `dict`,
+# `bool`), so the validator can compare a value's type name against them
+# without reading a type object at run time.
+_KEYS: Dict[str, list[str]] = {
+    "entry": ["str"],
+    "src": ["str", "list"],
+    "checker": ["str"],
+    "driver": ["str"],
+    "target": ["str"],
+    "fail-on": ["str"],
+    "stub-path": ["str", "list"],
+    "ffi": ["str", "list"],
+    "imports": ["dict"],
     # boxed:begin
-    "fallback": (dict, str, bool),
-    "island": (dict,),
+    "fallback": ["dict", "str", "bool"],
+    "island": ["dict"],
     # boxed:end
 }
-_CHOICES = {
-    "checker": ("pyrefly", "mypy", "pyright"),
-    "driver": ("clang", "zig"),
-    "fail-on": ("blockers", "any"),
+_CHOICES: Dict[str, list[str]] = {
+    "checker": ["pyrefly", "mypy", "pyright"],
+    "driver": ["clang", "zig"],
+    "fail-on": ["blockers", "any"],
 }
 
 
@@ -73,31 +76,37 @@ def entry_points(pyproject: Path) -> dict[str, str]:
     """
 
     try:
-        data = _toml(pyproject)
+        data: Dict[str, Any] = _toml(pyproject)
     except ConfigError:
         raise
-    project = data.get("project")
-    if project is None:
+    if "project" not in data:
         return {}
+    project: Dict[str, Any] = data["project"]
     if not isinstance(project, dict):
         raise ConfigError(f"{pyproject}: [project] must be a table")
-    scripts = project.get("scripts")
-    if scripts is None:
+    if "scripts" not in project:
         return {}
+    scripts: Dict[str, str] = project["scripts"]
     if not isinstance(scripts, dict):
         raise ConfigError(f"{pyproject}: [project.scripts] must be a table")
     out: dict[str, str] = {}
     for name, target in scripts.items():
-        if not isinstance(name, str) or not name.isidentifier():
+        if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z_]\w*", name):
             raise ConfigError(f"{pyproject}: [project.scripts].{name!r} is not a valid console script name")
-        if not isinstance(target, str) or target.count(":") != 1:
+        if not isinstance(target, str):
             raise ConfigError(
                 f"{pyproject}: [project.scripts].{name} must be 'module:attribute' (a dotted module, a function name)"
             )
-        module, attr = target.split(":")
-        if not module or not all(part.isidentifier() for part in module.split(".")):
+        parts: list[str] = target.split(":")
+        if len(parts) != 2:
+            raise ConfigError(
+                f"{pyproject}: [project.scripts].{name} must be 'module:attribute' (a dotted module, a function name)"
+            )
+        module: str = parts[0]
+        attr: str = parts[1]
+        if not module or not re.fullmatch(r"[A-Za-z_]\w*(\.[A-Za-z_]\w*)*", module):
             raise ConfigError(f"{pyproject}: [project.scripts].{name}: {module!r} is not a module path")
-        if not attr.isidentifier():
+        if not re.fullmatch(r"[A-Za-z_]\w*", attr):
             raise ConfigError(f"{pyproject}: [project.scripts].{name}: {attr!r} is not an attribute name")
         out[name] = target
     return out
@@ -111,15 +120,27 @@ def project_roots(pyproject: Path) -> tuple[str, ...]:
     pyproject) still resolves.
     """
 
-    base = pyproject.parent
-    data = _toml(pyproject)
-    table = _project_table(data, pyproject)
-    configured = table.get("src") if table else None
-    if configured is None:
-        configured = "src"
-    roots = (configured,) if isinstance(configured, str) else tuple(configured)
-    present = tuple(root for root in roots if (base / root).is_dir())
-    return present or (".",)
+    base: Path = pyproject.parent
+    data: Dict[str, Any] = _toml(pyproject)
+    table: Dict[str, Any] | None = _project_table(data, pyproject)
+    roots: list[str] = []
+    if table is not None and "src" in table:
+        probe: str = table["src"]
+        if isinstance(probe, str):
+            roots.append(probe)
+        else:
+            src_items: list[str] = table["src"]
+            for r in src_items:
+                roots.append(r)
+    if not roots:
+        roots.append("src")
+    present: list[str] = []
+    for root in roots:
+        if (base / root).is_dir():
+            present.append(root)
+    if not present:
+        present.append(".")
+    return _as_tuple(present)
 
 
 def read_pep723(text: str) -> dict[str, Any] | None:
@@ -128,64 +149,123 @@ def read_pep723(text: str) -> dict[str, Any] | None:
     Shared parser: PR #138 carries an identical copy in deps.py; when that
     branch lands it should import this function instead.
     """
-    blocks = [m for m in PEP723_RE.finditer(text) if m.group("type") == "script"]
+    blocks: list[str] = []
+    for m in PEP723_RE.findall(text):
+        if m[0] == "script":
+            blocks.append(m[1])
     if not blocks:
         return None
     if len(blocks) > 1:
         raise ConfigError("more than one `# /// script` block (PEP 723 allows one)")
-    content = "".join(
-        line[2:] if line.startswith("# ") else line[1:] for line in blocks[0].group("content").splitlines(keepends=True)
-    )
+    raw_content: str = blocks[0]
+    lines: list[str] = raw_content.split("\n")
+    last: int = len(lines) - 1
+    content_parts: list[str] = []
+    for index in range(len(lines)):
+        line: str = lines[index]
+        if line.startswith("# "):
+            body: str = line[2:]
+        else:
+            body = line[1:]
+        if index < last:
+            body = body + "\n"
+        content_parts.append(body)
+    content: str = "".join(content_parts)
     try:
-        return tomllib.loads(content)
-    except tomllib.TOMLDecodeError as exc:
+        meta: dict[str, Any] = tomllib.loads(content)
+        return meta
+    except ValueError as exc:
         raise ConfigError(f"invalid TOML in PEP 723 metadata: {exc}") from exc
 
 
-@dataclass(frozen=True)
 class Config:
     """The resolved config for one compile, with its origin for messages."""
 
     origin: Path | None
     source: str  # "pyscriptc.toml" | "pyproject.toml" | "pep723" | "default"
-    entry: str | None = None
-    src: tuple[str, ...] = ()
-    checker: str | None = None
-    driver: str | None = None
-    target: str | None = None
-    fail_on: str | None = None
-    stub_path: tuple[str, ...] = ()
-    ffi: tuple[str, ...] = ()
-    imports: dict[str, str] = field(default_factory=dict)
+    entry: str | None
+    src: tuple[str, ...]
+    checker: str | None
+    driver: str | None
+    target: str | None
+    fail_on: str | None
+    stub_path: tuple[str, ...]
+    ffi: tuple[str, ...]
+    imports: Dict[str, str]
     # boxed:begin
-    fallback: Any = field(default_factory=dict)
-    island: Any = field(default_factory=dict)
+    fallback: Dict[str, Any]
+    island: Dict[str, Any]
     # boxed:end
-    requires_python: str | None = None
-    dependencies: tuple[str, ...] = ()
+    requires_python: str | None
+    dependencies: tuple[str, ...]
+
+    def __init__(
+        self,
+        origin: Path | None = None,
+        source: str = "default",
+        entry: str | None = None,
+        src: tuple[str, ...] | None = None,
+        checker: str | None = None,
+        driver: str | None = None,
+        target: str | None = None,
+        fail_on: str | None = None,
+        stub_path: tuple[str, ...] | None = None,
+        ffi: tuple[str, ...] | None = None,
+        imports: Dict[str, str] | None = None,
+        # boxed:begin
+        fallback: Dict[str, Any] | None = None,
+        island: Dict[str, Any] | None = None,
+        # boxed:end
+        requires_python: str | None = None,
+        dependencies: tuple[str, ...] | None = None,
+    ) -> None:
+        empty_src: tuple[str, ...] = _as_tuple([])
+        self.origin = origin
+        self.source = source
+        self.entry = entry
+        self.src = empty_src if src is None else src
+        self.checker = checker
+        self.driver = driver
+        self.target = target
+        self.fail_on = fail_on
+        self.stub_path = empty_src if stub_path is None else stub_path
+        self.ffi = empty_src if ffi is None else ffi
+        empty_imports: Dict[str, str] = {}
+        self.imports = empty_imports if imports is None else imports
+        # boxed:begin
+        empty_fallback: Dict[str, Any] = {}
+        self.fallback = empty_fallback if fallback is None else fallback
+        empty_island: Dict[str, Any] = {}
+        self.island = empty_island if island is None else island
+        # boxed:end
+        self.requires_python = requires_python
+        self.dependencies = empty_src if dependencies is None else dependencies
 
     # boxed:begin
     def fallback_definitions(self) -> bool:
         """True when [tool.pyscriptc.fallback] enables per-definition island routing."""
         if isinstance(self.fallback, dict):
-            return bool(self.fallback.get("definitions", False)) or self.fallback.get("tier") == "cpython"
-        if isinstance(self.fallback, str):
-            return self.fallback in ("definitions", "cpython")
-        if isinstance(self.fallback, bool):
-            return self.fallback
+            enabled = False
+            if "definitions" in self.fallback:
+                definitions: bool = self.fallback["definitions"]
+                if definitions:
+                    enabled = True
+            if "tier" in self.fallback:
+                tier: str = self.fallback["tier"]
+                if tier == "cpython":
+                    enabled = True
+            return enabled
         return False
 
     def island_embed(self) -> str | None:
         """The `[tool.pyscriptc.island] embed` mode, or None when unset."""
 
         if isinstance(self.island, dict):
-            value = self.island.get("embed")
-            if value is not None:
-                from pyscriptc.embed import MODES
-
+            if "embed" in self.island:
+                value: str = self.island["embed"]
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
-                if value not in MODES:
-                    raise ConfigError(f"{table}.embed must be one of {'|'.join(MODES)}, got {value!r}")
+                if value != "host" and value != "bundle" and value != "auto":
+                    raise ConfigError(f"{table}.embed must be one of host|bundle|auto, got {value!r}")
                 return str(value)
         return None
 
@@ -193,13 +273,11 @@ class Config:
         """The `[tool.pyscriptc.island] stdlib` trim, or None when unset."""
 
         if isinstance(self.island, dict):
-            value = self.island.get("stdlib")
-            if value is not None:
-                from pyscriptc.stdlibzip import STDLIB_MODES
-
+            if "stdlib" in self.island:
+                value: str = self.island["stdlib"]
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
-                if value not in STDLIB_MODES:
-                    raise ConfigError(f"{table}.stdlib must be one of {'|'.join(STDLIB_MODES)}, got {value!r}")
+                if value != "safe" and value != "minimal":
+                    raise ConfigError(f"{table}.stdlib must be one of safe|minimal, got {value!r}")
                 return str(value)
         return None
 
@@ -210,8 +288,11 @@ class Config:
         return lane_for(name, self.imports)
 
     def _resolve(self, paths: tuple[str, ...]) -> tuple[Path, ...]:
-        base = self.origin.parent if self.origin is not None else Path.cwd()
-        return tuple((base / p).resolve() for p in paths)
+        base: Path = self.origin.parent if self.origin is not None else Path.cwd()
+        out: list[Path] = []
+        for p in paths:
+            out.append((base / p).resolve())
+        return tuple(out)
 
     @property
     def stub_paths(self) -> tuple[Path, ...]:
@@ -227,21 +308,25 @@ class Config:
         """Lane of each PEP 723 dependency, keyed by requirement string."""
         return dependency_lanes(self.dependencies, self.imports)
 
-    def island_imports(self) -> tuple[str, ...]:
+    def island_imports(self) -> list[str]:
         """Import names the policy table routes to the island, sorted."""
         names: set[str] = set()
         for name, lane in self.imports.items():
             if lane == "island" and name != "*":
                 names.add(name)
                 names.add(name.replace("-", "_"))
-        return tuple(sorted(names))
+        names_list: list[str] = []
+        for n in names:
+            names_list.append(n)
+        out: list[str] = sorted(names_list)
+        return out
 
     def wildcard_island(self) -> bool:
         """True when `* = "island"` makes every unlisted import island-bound."""
         return self.imports.get("*") == "island"
 
 
-def lane_for(name: str, imports: dict[str, str]) -> tuple[str, str]:
+def lane_for(name: str, imports: Dict[str, str]) -> tuple[str, str]:
     """(lane, matched key) for an imported top-level name.
 
     An exact module name wins over the `*` default; without either, the
@@ -263,7 +348,7 @@ def lane_for(name: str, imports: dict[str, str]) -> tuple[str, str]:
 # Policy-table lane to the lane vocabulary of the import classifier. The
 # island entry is the only way an import reaches that lane: classification
 # never guesses it from the package name or its metadata.
-POLICY_TO_LANE = {
+POLICY_TO_LANE: Dict[str, str] = {
     "compile": "native",
     "replace": "pack",
     "extern": "extern",
@@ -279,7 +364,10 @@ def requirement_name(requirement: str) -> str:
     match = _REQ_NAME_RE.match(requirement)
     if match is None:
         raise ConfigError(f"PEP 723 dependency {requirement!r} is not a valid requirement")
-    return match.group(1)
+    name: str | None = match.group(1)
+    if name is None:
+        raise ConfigError(f"PEP 723 dependency {requirement!r} is not a valid requirement")
+    return name
 
 
 def dependency_lanes(dependencies: tuple[str, ...], imports: dict[str, str] | None = None) -> dict[str, str]:
@@ -292,20 +380,28 @@ def dependency_lanes(dependencies: tuple[str, ...], imports: dict[str, str] | No
     """
     from pyscriptc.imports import classify
 
-    policy = imports or {}
-    star = policy.get("*")
+    if imports is not None:
+        policy: Dict[str, str] = imports
+    else:
+        empty_policy: Dict[str, str] = {}
+        policy = empty_policy
+    star: str | None = policy.get("*")
     lanes: dict[str, str] = {}
     for requirement in dependencies:
-        dist = requirement_name(requirement)
-        module = dist.lower().replace("-", "_").replace(".", "_")
-        chosen = next((policy[k] for k in (dist, dist.lower(), module) if k in policy), None)
-        if chosen is None and star not in (None, "compile"):
+        dist: str = requirement_name(requirement)
+        module: str = dist.lower().replace("-", "_").replace(".", "_")
+        chosen: str | None = None
+        for k in (dist, dist.lower(), module):
+            if k in policy:
+                chosen = policy[k]
+                break
+        if chosen is None and star is not None and star != "compile":
             chosen = star
         if chosen is not None:
             lanes[requirement] = POLICY_TO_LANE[chosen]
             continue
         verdict = classify(module, distribution=dist)
-        lane = verdict["lane"]
+        lane: str = verdict.lane
         lanes[requirement] = "native" if lane == "absent" else lane
     return lanes
 
@@ -321,95 +417,169 @@ def _where(table: str, key: str) -> str:
     return f"[{table}].{key}" if table else key
 
 
-def _string(value: Any, where: str) -> str:
-    if not isinstance(value, str):
-        raise ConfigError(f"{where} must be a string, got {type(value).__name__}")
-    return value
+def _as_tuple(items: list[str]) -> tuple[str, ...]:
+    """The runtime tuple of a name list. The IR models it as a list."""
+    return tuple(items)
 
 
-def _validate(table: str, data: dict[str, Any]) -> dict[str, Any]:
+def _paths(table: Dict[str, Any], key: str) -> tuple[str, ...]:
+    """The `stub-path` or `ffi` entries of a config table, as a tuple."""
+    out: list[str] = []
+    if key in table:
+        probe: str = table[key]
+        if isinstance(probe, str):
+            one: str = table[key]
+            out.append(one)
+        else:
+            entries: list[str] = table[key]
+            for item in entries:
+                out.append(item)
+    return _as_tuple(out)
+
+
+def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in data.items():
         if key not in _KEYS:
-            known = ", ".join(sorted(_KEYS))
-            raise ConfigError(f"{_where(table, key)}: unknown key (known: {known})")
-        types = _KEYS[key]
-        if not isinstance(value, types):
-            want = "/".join(t.__name__ for t in types)
-            raise ConfigError(f"{_where(table, key)} must be {want}, got {type(value).__name__}")
-        if key in _CHOICES and value not in _CHOICES[key]:
-            raise ConfigError(f"{_where(table, key)} must be one of {'|'.join(_CHOICES[key])}, got {value!r}")
+            key_names: list[str] = []
+            for known in _KEYS:
+                key_names.append(known)
+            joined = ", ".join(sorted(key_names))
+            raise ConfigError(f"{_where(table, key)}: unknown key (known: {joined})")
+        names = _KEYS[key]
+        actual: str = type(value).__name__
+        if actual not in names:
+            want = "/".join(names)
+            raise ConfigError(f"{_where(table, key)} must be {want}, got {actual}")
+        if key in _CHOICES and actual == "str":
+            choice_str: str = data[key]
+            if choice_str not in _CHOICES[key]:
+                choice_names: list[str] = []
+                for choice in _CHOICES[key]:
+                    choice_names.append(choice)
+                choice_want = "|".join(choice_names)
+                raise ConfigError(f"{_where(table, key)} must be one of {choice_want}, got {choice_str!r}")
     for key in ("src", "stub-path", "ffi"):
-        if isinstance(data.get(key), list) and not all(isinstance(i, str) for i in data[key]):
-            raise ConfigError(f"{_where(table, key)} must be a list of strings")
+        if key in data:
+            val_list: list[str] = data[key]
+            for item in val_list:
+                if not isinstance(item, str):
+                    raise ConfigError(f"{_where(table, key)} must be a list of strings")
     if "imports" in data:
-        imports = data["imports"]
+        imports: Dict[str, Any] = data["imports"]
         for name, lane in imports.items():
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*|\*", name):
                 raise ConfigError(f"{_where(table, 'imports')}: invalid module name {name!r}")
             if not isinstance(lane, str) or lane not in LANES:
-                raise ConfigError(f"{_where(table, 'imports')}.{name} must be one of {'|'.join(LANES)}, got {lane!r}")
+                lane_want = "|".join(LANES)
+                lane_str = str(lane)
+                raise ConfigError(f"{_where(table, 'imports')}.{name} must be one of {lane_want}, got {lane_str!r}")
     return data
 
 
-def _paths(value: Any) -> tuple[str, ...]:
-    if isinstance(value, str):
-        return (value,)
-    return tuple(value)
+def _src_list(table: Dict[str, Any]) -> list[str]:
+    """The `src` entries of a config table: one string or a list of strings."""
+    out: list[str] = []
+    if "src" in table:
+        probe: str = table["src"]
+        if isinstance(probe, str):
+            one: str = table["src"]
+            out.append(one)
+        else:
+            src: list[str] = table["src"]
+            for item in src:
+                out.append(item)
+    return out
 
 
 def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
     _validate("tool.pyscriptc" if source == "pyproject.toml" else "pyscriptc", table)
-    src = table.get("src", ())
-    if isinstance(src, str):
-        src = (src,)
+    entry: str | None = None
+    if "entry" in table:
+        entry = table["entry"]
+    checker: str | None = None
+    if "checker" in table:
+        checker = table["checker"]
+    driver: str | None = None
+    if "driver" in table:
+        driver = table["driver"]
+    target: str | None = None
+    if "target" in table:
+        target = table["target"]
+    fail_on: str | None = None
+    if "fail-on" in table:
+        fail_on = table["fail-on"]
+    fallback: Dict[str, Any] = {}
+    if "fallback" in table:
+        fallback = table["fallback"]
+    island: Dict[str, Any] = {}
+    if "island" in table:
+        island = table["island"]
+    imports: Dict[str, str] = {}
+    if "imports" in table:
+        imports = table["imports"]
     return Config(
         origin=origin,
         source=source,
-        entry=table.get("entry"),
-        src=tuple(src),
-        checker=table.get("checker"),
-        driver=table.get("driver"),
-        target=table.get("target"),
-        fail_on=table.get("fail-on"),
-        stub_path=_paths(table.get("stub-path", ())),
-        ffi=_paths(table.get("ffi", ())),
-        imports=dict(table.get("imports", {})),
+        entry=entry,
+        src=_as_tuple(_src_list(table)),
+        checker=checker,
+        driver=driver,
+        target=target,
+        fail_on=fail_on,
+        stub_path=_paths(table, "stub-path"),
+        ffi=_paths(table, "ffi"),
+        imports=imports,
         # boxed:begin
-        fallback=table.get("fallback", {}),
-        island=table.get("island", {}),
+        fallback=fallback,
+        island=island,
         # boxed:end
     )
 
 
-def _project_table(data: dict[str, Any], origin: Path) -> dict[str, Any] | None:
-    tool = data.get("tool", {})
+def _project_table(data: Dict[str, Any], origin: Path) -> Dict[str, Any] | None:
+    if "tool" not in data:
+        return None
+    tool: Dict[str, Any] = data["tool"]
     if not isinstance(tool, dict):
         raise ConfigError(f"{origin}: [tool] must be a table")
-    table = tool.get("pyscriptc")
-    if table is None:
+    if "pyscriptc" not in tool:
         return None
+    table: Dict[str, Any] = tool["pyscriptc"]
     if not isinstance(table, dict):
         raise ConfigError(f"{origin}: [tool.pyscriptc] must be a table")
     return table
 
 
-def _deps_of(meta: dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
-    requires = meta.get("requires-python")
-    if requires is not None and not isinstance(requires, str):
-        raise ConfigError("PEP 723 `requires-python` must be a string")
-    deps = meta.get("dependencies")
-    if deps is None:
-        return requires, ()
-    if not isinstance(deps, list) or not all(isinstance(item, str) for item in deps):
+def _deps_of(meta: Dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
+    requires: str | None = None
+    if "requires-python" in meta:
+        req_val: str = meta["requires-python"]
+        if not isinstance(req_val, str):
+            raise ConfigError("PEP 723 `requires-python` must be a string")
+        requires = req_val
+    if "dependencies" not in meta:
+        empty_deps: list[str] = []
+        return requires, tuple(empty_deps)
+    deps_val: list[str] = meta["dependencies"]
+    if not isinstance(deps_val, list):
         raise ConfigError("PEP 723 `dependencies` must be a list of requirement strings")
-    return requires, tuple(deps)
+    deps_list: list[str] = []
+    for item in deps_val:
+        if not isinstance(item, str):
+            raise ConfigError("PEP 723 `dependencies` must be a list of requirement strings")
+        deps_list.append(item)
+    return requires, tuple(deps_list)
 
 
 def _read_script_meta(script: Path) -> dict[str, Any]:
+    parsed: dict[str, Any] | None = None
     try:
-        return read_pep723(script.read_text(encoding="utf-8")) or {}
+        parsed = read_pep723(script.read_text(encoding="utf-8"))
     except OSError:
         return {}
+    if parsed is None:
+        return {}
+    return parsed
 
 
 def load_config(source: Path) -> Config:
@@ -417,21 +587,28 @@ def load_config(source: Path) -> Config:
     start = source.resolve()
     start_dir = start if start.is_dir() else start.parent
     project: Config | None = None
-    for directory in (start_dir, *start_dir.parents):
+    directory = start_dir
+    while True:
         candidate = directory / "pyscriptc.toml"
         if candidate.is_file():
             data = _toml(candidate)
-            table = data.get("pyscriptc", data)
+            if "pyscriptc" in data:
+                table: dict[str, Any] = data["pyscriptc"]
+            else:
+                table = data
             if not isinstance(table, dict):
                 raise ConfigError(f"{candidate}: [pyscriptc] must be a table")
             project = _from_table(table, candidate, "pyscriptc.toml")
             break
         candidate = directory / "pyproject.toml"
         if candidate.is_file():
-            table = _project_table(_toml(candidate), candidate)
-            if table is not None:
-                project = _from_table(table, candidate, "pyproject.toml")
+            ptable = _project_table(_toml(candidate), candidate)
+            if ptable is not None:
+                project = _from_table(ptable, candidate, "pyproject.toml")
                 break
+        if directory.parent == directory:
+            break
+        directory = directory.parent
     meta: dict[str, Any] = {}
     meta_source = "default"
     meta_project: Config | None = None
@@ -444,7 +621,7 @@ def load_config(source: Path) -> Config:
                 meta_project = _from_table(meta_table, start, "pep723")
     if project is None and not meta:
         return Config(origin=None, source="default")
-    requires, deps = _deps_of(meta) if meta else (None, ())
+    requires, deps = _deps_of(meta)
     if project is None and meta_project is not None:
         return Config(
             origin=meta_project.origin,
@@ -464,19 +641,24 @@ def load_config(source: Path) -> Config:
     if project is None:
         return Config(origin=start, source=meta_source, requires_python=requires, dependencies=deps)
     if meta:
-        merged_imports = dict(meta_project.imports if meta_project else {})
-        merged_imports.update(project.imports)
+        merged_imports: dict[str, str] = {}
+        if meta_project is not None:
+            for k, v in meta_project.imports.items():
+                merged_imports[k] = v
+        for k, v in project.imports.items():
+            merged_imports[k] = v
+        empty_paths: tuple[str, ...] = _as_tuple([])
         return Config(
             origin=project.origin,
             source=project.source,
             entry=project.entry or (meta_project.entry if meta_project else None),
-            src=project.src or (meta_project.src if meta_project else ()),
+            src=project.src or (meta_project.src if meta_project else empty_paths),
             checker=project.checker or (meta_project.checker if meta_project else None),
             driver=project.driver or (meta_project.driver if meta_project else None),
             target=project.target or (meta_project.target if meta_project else None),
             fail_on=project.fail_on or (meta_project.fail_on if meta_project else None),
-            stub_path=project.stub_path or (meta_project.stub_path if meta_project else ()),
-            ffi=project.ffi or (meta_project.ffi if meta_project else ()),
+            stub_path=project.stub_path or (meta_project.stub_path if meta_project else empty_paths),
+            ffi=project.ffi or (meta_project.ffi if meta_project else empty_paths),
             imports=merged_imports,
             requires_python=requires,
             dependencies=deps,

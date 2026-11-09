@@ -21,23 +21,25 @@ from tests.test_gates import oracle, run_cli, write_case
 
 from pyscriptc.canonical import hash_module
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node, dict_to_type
 
 
 def _entry(mod: dict) -> dict | None:
     return next((fn for fn in mod["functions"] if fn["name"] == mod["entry"]), None)
 
 
-def _pushes(stmts: list[dict]) -> list[dict]:
-    found: list[dict] = []
+def _pushes(stmts: list[object]) -> list[object]:
+    found: list[object] = []
 
-    def walk(body: list[dict]) -> None:
+    def walk(body: list[object]) -> None:
         for stmt in body:
-            expr = stmt.get("expr")
-            if isinstance(expr, dict) and expr.get("symbol") == "ps_list_push":
+            node = dict_to_node(stmt)
+            expr = node.expr if getattr(node, "expr", None) is not None else None
+            if expr is not None and getattr(expr, "symbol", None) == "ps_list_push":
                 found.append(expr)
-            for key in ("body", "then", "else"):
-                if isinstance(stmt.get(key), list):
-                    walk(stmt[key])
+            for child in (getattr(node, "body", None), getattr(node, "then", None), getattr(node, "else_", None)):
+                if isinstance(child, list):
+                    walk(child)
 
     walk(stmts)
     return found
@@ -58,13 +60,14 @@ def probe(p0: int) -> int:
     push = _pushes(entry["body"])
     assert len(push) == 1
     call = push[0]
-    assert call["callee"] == {"kind": "module", "module": "builtins", "name": "list.append"}
-    assert call["symbol"] == "ps_list_push"
-    assert call["type"] == {"kind": "none"}
-    target, value = call["args"]
-    assert target["kind"] == "name" and target["id"] == "xs"
-    assert target["type"] == {"kind": "list", "elem": {"kind": "int"}}
-    assert value["type"] == {"kind": "int"}
+    callee = dict_to_node(call.callee)
+    assert callee.kind == "module" and callee.module == "builtins" and callee.name == "list.append"
+    assert call.symbol == "ps_list_push"
+    assert call.type.kind == "none"
+    target, value = call.args
+    assert target.kind == "name" and target.id == "xs"
+    assert target.type.kind == "list" and target.type.elem.kind == "int"
+    assert value.type.kind == "int"
 
 
 def test_append_statement_binds_none_like_set_add() -> None:
@@ -79,9 +82,11 @@ def probe() -> int:
     assert mod["fences"] == []
     entry = _entry(mod)
     assert entry is not None
-    stmt = entry["body"][1]
-    assert stmt["kind"] == "expr"
-    assert stmt["expr"]["type"] == {"kind": "none"}
+    stmt = dict_to_node(entry["body"][1])
+    assert stmt.kind == "expr"
+    expr = stmt.expr
+    typ = expr["type"] if isinstance(expr, dict) else expr.type
+    assert dict_to_type(typ).kind == "none" if isinstance(typ, dict) else typ.kind == "none"
 
 
 def test_append_across_call_boundary_matches_cpython(tmp_path: Path) -> None:

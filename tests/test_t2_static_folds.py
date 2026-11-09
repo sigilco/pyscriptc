@@ -18,6 +18,7 @@ from pathlib import Path
 from tests.test_gates import oracle, run_cli, write_case
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node
 
 
 def _oracle_diff(tmp_path: Path, name: str, source: str, func: str = "probe") -> None:
@@ -128,14 +129,32 @@ def probe() -> int:
     found: list[dict[str, object]] = []
 
     def walk(node: object) -> None:
-        if isinstance(node, dict):
-            if node.get("kind") == "call":
-                found.append(node)
-            for value in node.values():
+        converted = dict_to_node(node)
+        if getattr(converted, "kind", None) == "call":
+            found.append(converted)
+            return
+        if isinstance(converted, dict):
+            if converted.get("kind") == "call":
+                found.append(converted)
+            for value in converted.values():
                 walk(value)
-        elif isinstance(node, list):
-            for item in node:
+        elif isinstance(converted, list):
+            for item in converted:
                 walk(item)
+        elif hasattr(converted, "kind"):
+            for child in (
+                converted.value,
+                converted.left,
+                converted.right,
+                converted.operand,
+                converted.expr,
+                converted.args,
+                converted.body,
+                converted.then,
+                converted.else_,
+            ):
+                if child is not None:
+                    walk(child)
 
     walk(body)
     assert found == []
@@ -197,3 +216,32 @@ def probe() -> str:
 """
     )
     assert fences == []
+
+
+def _isinstance_fold(source: str) -> object:
+    mod = lower_source(source)
+    assert mod["fences"] == []
+    return mod["functions"][0]["body"][-1]["value"]
+
+
+def test_isinstance_bare_container_target_folds() -> None:
+    # `isinstance(x, dict)` on a bare container target used to crash in
+    # `type_key` for every operand kind that missed the bare-kind check
+    # (`isinstance(1, dict)` raised KeyError). A bare list/dict target the
+    # kind check misses is a definite False.
+    for expr, want in (
+        ("isinstance(1, dict)", False),
+        ("isinstance([1], dict)", False),
+        ("isinstance({'a': 1}, dict)", True),
+        ("isinstance(1, list)", False),
+        ("isinstance([1], list)", True),
+    ):
+        got = _isinstance_fold(f"def probe() -> bool:\n    return {expr}\n")
+        assert got["kind"] == "const" and got["value"] is want, (expr, got)
+
+
+def test_isinstance_bare_container_on_typed_operands() -> None:
+    got = _isinstance_fold("def probe(d: dict[str, int]) -> bool:\n    return isinstance(d, dict)\n")
+    assert got["kind"] == "const" and got["value"] is True
+    got = _isinstance_fold("def probe(x: int | None) -> bool:\n    return isinstance(x, dict)\n")
+    assert got["kind"] == "const" and got["value"] is False

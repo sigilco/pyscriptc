@@ -78,8 +78,57 @@ def test_release_class():
     assert rb.release_class("0.4.1", hotfix=True) == "hotfix"
     assert rb.release_class("0.5.0") == "minor"
     assert rb.release_class("1.0.0") == "major"
+    # A beta tag is a checkpoint, not a prerelease: it is never published to PyPI.
     assert rb.release_class("0.5.0rc1", hotfix=True) == "prerelease"
-    assert rb.release_class("0.6.0b1") == "prerelease"
+    assert rb.release_class("0.6.0b1") == "checkpoint"
+    assert rb.release_class("0.6.0rc1") == "prerelease"
+
+
+def test_checkpoint_class_is_the_beta_tag_class_and_refuses_publish():
+    assert rb.tag_class("v0.6.0-beta.1") == "checkpoint"
+    assert rb.tag_class("v0.6.0-beta.4") == "checkpoint"
+    assert rb.tag_class("v0.6.0-rc.2") == "prerelease"
+    assert rb.tag_class("v0.6.0") == "minor"
+    assert rb.tag_class("v0.6.1") == "patch"
+    assert rb.refuses_publish(rb.CHECKPOINT_CLASS)
+    assert rb.refuses_publish(rb.tag_class("v0.7.0-beta.2"))
+    assert not rb.refuses_publish(rb.tag_class("v0.7.0-rc.1"))
+    assert not rb.refuses_publish(rb.tag_class("v0.7.0"))
+    assert not rb.refuses_publish("patch")
+    assert rb.NO_PUBLISH_CLASSES == frozenset({"checkpoint"})
+
+
+def test_evaluate_checkpoint_bar_is_the_beta_bar_plus_the_checkpoint_line():
+    # A checkpoint keeps the beta bar (iteration cap, feature count, triage)
+    # and adds the line that says it never publishes. The class name, not the
+    # bar, is what the publish job refuses.
+    feats = commits(2, "feat(x): y", SRC)
+    ok = rb.Stats(commits=feats, rehearsed=True)
+    checks = rb.evaluate("checkpoint", "0.6.0b1", ok, TH)
+    assert rb.passed(checks)
+    names = {c.name for c in checks}
+    assert names == {"beta count", "features", "triage", "checkpoint", "rehearsal"}
+    assert not names & {"content", "commits", "gap", "milestone", "minor gap"}
+    assert any(c.name == "checkpoint" and c.status == "pass" for c in checks)
+    # The beta iteration cap still applies to a checkpoint.
+    assert "beta count" in failing(rb.evaluate("checkpoint", "0.6.0b5", ok, TH))
+
+
+def test_cmd_class_exit_codes(monkeypatch, capsys):
+    import pytest
+
+    # The tag CLI is the publish gate: it prints the class and refuses a
+    # checkpoint by exit code, so the workflow does not need to re-derive it.
+    assert rb.cmd_class(type("A", (), {"tag": "v0.6.0"})()) == 0
+    assert capsys.readouterr().out.strip() == "minor"
+    assert rb.cmd_class(type("A", (), {"tag": "v0.6.0-beta.1"})()) == 1
+    err = capsys.readouterr().err
+    assert "never published to PyPI" in err
+    assert rb.cmd_class(type("A", (), {"tag": "v0.6.0-rc.2"})()) == 0
+    assert capsys.readouterr().out.strip() == "prerelease"
+    assert rb.cmd_class(type("A", (), {"tag": "v0.6.0-alpha.1"})()) == 2
+    with pytest.raises(ValueError):
+        rb.tag_class("v0.6.0-alpha.1")
 
 
 def test_user_visible_needs_kind_and_path():

@@ -253,3 +253,39 @@ def test_cli_predicate_command(tmp_path: Path) -> None:
     reduced = (tmp_path / "prog.min.py").read_text(encoding="utf-8")
     assert "marker" in reduced
     assert "x = 1" not in reduced
+
+
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
+_SRC = ROOT / "src" / "pyscriptc"
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_reduce_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "reduce.py") == 0
+
+
+def test_fence_predicate_reads_fences_through_the_ir_seam() -> None:
+    """A fence-code predicate still holds after the module is read via `_items`."""
+
+    verdict = FencePredicate("PS1104").verdict(FENCED)
+    assert verdict.holds
+    miss = FencePredicate("PS9999").verdict(FENCED)
+    assert not miss.holds
+    assert "PS9999" in miss.reason

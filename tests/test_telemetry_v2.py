@@ -35,8 +35,12 @@ def captured(monkeypatch, tmp_path):
         sent.append(json.loads(request.data.decode()))
         return _Resp()
 
-    for name in ("CI", "PYSC_NO_TELEMETRY", "DO_NOT_TRACK", "PYSC_POSTHOG_TOKEN", "PYSC_CACHE_DIR"):
+    for name in ("CI", "PYSC_NO_TELEMETRY", "DO_NOT_TRACK", "PYSC_POSTHOG_TOKEN", "PYSC_CACHE_DIR", "PYSC_INTERNAL"):
         monkeypatch.delenv(name, raising=False)
+    # A dev checkout looks internal (repo src/ on sys.path); scrub so the tests
+    # exercise the normal user path. See tests/test_telemetry.py.
+    scrubbed = [p for p in telemetry.sys.path if "__editable__" not in p and not p.rstrip("/").endswith("/src")]
+    monkeypatch.setattr(telemetry.sys, "path", scrubbed, raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setenv("PYSC_CACHE_DIR", str(tmp_path / "cache"))
     monkeypatch.setattr(telemetry, "_notice_shown_now", True)
@@ -55,6 +59,9 @@ class _SyncThread:
     def start(self):
         if self._target:
             self._target(*self._args)
+
+    def join(self, timeout=None):
+        pass
 
 
 def _events(captured, name):

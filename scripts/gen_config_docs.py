@@ -47,16 +47,16 @@ LANE_DESCRIPTIONS: dict[str, str] = {
 }
 
 TYPE_NAMES = {
-    str: "string",
-    bool: "boolean",
-    int: "integer",
-    dict: "table",
-    list: "list",
+    "str": "string",
+    "bool": "boolean",
+    "int": "integer",
+    "dict": "table",
+    "list": "list",
 }
 
 
-def _type_names(types: tuple[type, ...]) -> str:
-    return " or ".join(f"`{TYPE_NAMES.get(t, t.__name__)}`" for t in types)
+def _type_names(types: list[str]) -> str:
+    return " or ".join(f"`{TYPE_NAMES.get(t, t)}`" for t in types)
 
 
 def render_keys() -> str:

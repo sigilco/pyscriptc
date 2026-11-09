@@ -1,0 +1,22 @@
+; module leafprintsep.py entry=p_str
+; skipped (direct path): p_bytes, p_sep, p_end, p_stderr
+
+fn p_str() -> void {
+  c0 = s 'hi'
+b0 entry():
+  v0:s = copy c0
+  v-1:void = call @print(v0)
+  ret
+}
+
+fn p_stdout() -> void {
+  c0 = w 2
+b0 entry():
+  v-1:void = call @print(c0)
+  ret
+}
+
+fn main() -> void {
+b0 entry():
+  ret
+}

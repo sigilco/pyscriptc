@@ -118,6 +118,17 @@ _ENTRIES = (
         "Annotate with the concrete type the function really takes.",
     ),
     Diagnostic(
+        "PS1107",
+        "unresolved Any-container element",
+        (
+            "dict[K, Any] and list[Any] read their element back as a value of no "
+            "proven type. A read nothing proves fences: the IR cannot pick a slot "
+            "or a load width for it. Assign, pass or annotate the element into a "
+            "typed slot first."
+        ),
+        "Annotate the read target with a concrete type, e.g. `x: int = d[k]`.",
+    ),
+    Diagnostic(
         "PS1105",
         "forward reference annotation",
         "A quoted annotation such as 'Node' is not resolved at compile time.",

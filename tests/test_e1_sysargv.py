@@ -15,6 +15,7 @@ from pathlib import Path
 from tests.test_gates import run_cli, write_case
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node, dict_to_type
 
 
 def test_sys_argv_lowers_without_fences() -> None:
@@ -44,8 +45,10 @@ def probe() -> int:
     walk(probe["body"])
     assert calls
     for call in calls:
-        assert call["callee"] == {"kind": "module", "module": "sys", "name": "argv"}
-        assert call["type"] == {"kind": "list", "elem": {"kind": "str"}}
+        callee = dict_to_node(call["callee"])
+        typ = dict_to_type(call["type"])
+        assert callee.kind == "module" and callee.module == "sys" and callee.name == "argv"
+        assert typ.kind == "list" and typ.elem.kind == "str"
         assert call["args"] == []
 
 
