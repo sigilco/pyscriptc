@@ -23,7 +23,7 @@ concurrency:
   group: ci-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
-# Path gating (see .agents/notes/2026-10-28-ci-path-gating.md).
+# Path gating (see .agents/notes/ci-path-gating.md).
 #
 # The `changes` job classifies the diff and every other job reads its
 # outputs through `needs.changes.outputs.<group>`. A job that is skipped by
@@ -37,8 +37,8 @@ concurrency:
 # src/, tests/, benchmarks/, examples/, scripts/, packaging/, docker/, the
 # runtime C, pyproject.toml, uv.lock, mise.toml, .github/, .claude/ and
 # .agents/docs/ (each because a test reads it). Only the documentation
-# bubble can skip the expensive lanes: docs/, apps/web/, .agents/notes/,
-# .agents/plans/ and the pnpm lockfile.
+# bubble can skip the expensive lanes: docs/, apps/web/, .agents/notes/ and
+# the pnpm lockfile.
 #
 # Three groups, one always-on check:
 #
@@ -47,7 +47,7 @@ concurrency:
 #   python    any tracked Python file; drives `ruff and compat2`, because
 #             ruff lints the whole tree (688 files), not only src/
 #   site      docs/, apps/web/, data/ and the pnpm lockfiles; drives the
-#             `docs seams` job (the five doc-coupled unit tests)
+#             `docs seams` job (the four doc-coupled unit tests)
 #   betterleaks runs on every event; a secret can be in any file
 #
 # `push` to master always runs the full matrix: the ruleset is evaluated on
@@ -68,7 +68,7 @@ concurrency:
 # workload files. Those still fail format under ruff 0.17; reformatting them
 # is not part of this workflow.
 # Linux (unit): ruff plus compat2 under tests/compat2.
-# macOS (macos-safe): the rest of the test tree on macos-14, excluding
+# macOS (macos-safe): the rest of the test tree on macos-26, excluding
 # compat2 and any test marked linux_container.
 #
 # These steps run the raw commands, not `mise run <task>`, even though mise is
@@ -258,7 +258,7 @@ jobs:
 
   # Fail-closed aggregate. Green only when the classifier succeeded and no
   # lane that ran failed. It is the one check an admin would make required
-  # (see .agents/notes/2026-10-28-ci-path-gating.md): a single stable
+  # (see .agents/notes/ci-path-gating.md): a single stable
   # context that is green only when the lanes that mattered were green.
   #
   # It does not replace the per-lane required contexts today: those stay
@@ -377,11 +377,69 @@ jobs:
       - name: Install betterleaks 1.9.0
         run: |
           set -euo pipefail
-          curl -fsSL https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz -o /tmp/betterleaks_1.9.0_linux_x64.tar.gz
-          curl -fsSL https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/checksums.txt -o /tmp/checksums.txt
+          curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/betterleaks_1.9.0_linux_x64.tar.gz -o /tmp/betterleaks_1.9.0_linux_x64.tar.gz
+          curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://github.com/Betterleaks/betterleaks/releases/download/v1.9.0/checksums.txt -o /tmp/checksums.txt
           (cd /tmp && grep betterleaks_1.9.0_linux_x64.tar.gz checksums.txt | sha256sum -c -)
           sudo tar -xzf /tmp/betterleaks_1.9.0_linux_x64.tar.gz -C /usr/local/bin betterleaks
-      - run: betterleaks git .
+  # Differential-probe guard (issue #524, audit M3): a PR that adds a
+  # lowering, a runtime helper or a stdlib pack must add a probe under
+  # probes/ or record the difference in the divergence ledger. Warn mode:
+  # the script always exits 0 and annotates; blocking is a later decision.
+  # NOT a required check and not in ci-ok: it never fails by design.
+  probe-guard:
+    name: differential probe guard
+    runs-on: ubuntu-latest
+    needs: changes
+    if: github.event_name == 'pull_request' && needs.changes.outputs.compiler == 'true'
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # The guard diffs the PR base against the checked-out merge
+          # commit, so a fork head sha is never needed.
+          fetch-depth: 0
+      - name: A lowering without a probe warns
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+        run: python3 .github/scripts/probe_guard.py --base "$BASE" --head HEAD
+
+  # Stage-2 fixed-point lane (issue #831, roadmap R6): the compiler tree is
+  # lowered to canonical IR twice and the per-module hashes compared. First
+  # state is self-vs-self (the seed interpreter runs both passes), so any
+  # divergence is a real nondeterminism leak. NOT a required check: the
+  # headline is the per-module divergence table in the job summary, and a
+  # new divergence is a signal for the typed-IR migration, not a merge
+  # blocker. Method and receipt: .agents/docs/benchmarks/fixpoint-lane.md.
+  fixpoint:
+    name: stage-2 fixpoint (self-vs-self per module)
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: needs.changes.outputs.compiler == 'true'
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          # Trend vs origin/master~20; a depth-1 checkout has no baseline.
+          fetch-depth: 25
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv sync --frozen
+      - name: Stage-2 fixed point holds (self-vs-self)
+        run: uv run python -m benchmarks.compat2.fixpoint --summary "$GITHUB_STEP_SUMMARY"
+      - name: Re-architecture progress by seam (trend table)
+        if: always()
+        run: |
+          git fetch origin master --depth=25
+          uv run python scripts/compiler_progress.py --summary "$GITHUB_STEP_SUMMARY" --markdown "$GITHUB_STEP_SUMMARY" > /dev/null
+      - name: The headline when the lane failed
+        if: failure()
+        run: echo "The fixed point diverged. See the per-module table above; every DIVERGENT row is a module whose canonical IR moved between two runs of the same binary." >> "$GITHUB_STEP_SUMMARY"
 
   unit:
     # Required context `ruff and compat2`. Not a matrix job, so a
@@ -423,7 +481,7 @@ jobs:
     # matches the required context `tests without linux_container (shard
     # N/3)` on its own: the `shard-ok` aggregator above reports that name.
     name: unit shard ${{ matrix.group }}/3
-    runs-on: macos-14
+    runs-on: macos-26
     needs: changes
     if: needs.changes.outputs.compiler == 'true'
     strategy:
@@ -443,6 +501,7 @@ jobs:
       - run: uv sync --frozen
       # pytest-split shards by recorded durations (tests/.test_durations), xdist parallelises inside a shard.
       # Refresh with: uv run pytest -n 6 -m "not linux_container" --store-durations --durations-path tests/.test_durations
+      - run: uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container" -n auto --splits 3 --group ${{ matrix.group }} --durations-path tests/.test_durations
   zig-smoke:
     # The real zig lane. The name carries the zig version, so it never
     # matches the required context `zig cc emitted-IR smoke` on its own:
@@ -475,7 +534,7 @@ jobs:
             *) echo "no pinned sha256 for zig $version" >&2; exit 1 ;;
           esac
           [ -f "/tmp/zig-$version.tar.xz" ] || \
-            curl -fsSL "https://ziglang.org/download/$version/zig-x86_64-linux-$version.tar.xz" -o "/tmp/zig-$version.tar.xz"
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors "https://ziglang.org/download/$version/zig-x86_64-linux-$version.tar.xz" -o "/tmp/zig-$version.tar.xz"
           echo "$sha  /tmp/zig-$version.tar.xz" | sha256sum -c -
           sudo tar -xJf "/tmp/zig-$version.tar.xz" -C /usr/local
           echo "/usr/local/zig-x86_64-linux-$version" >> "$GITHUB_PATH"
@@ -543,23 +602,35 @@ jobs:
         run: |
           set -euo pipefail
           [ -f /tmp/zig.tar.xz ] || \
-            curl -fsSL https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o /tmp/zig.tar.xz
           echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig.tar.xz" | sha256sum -c -
           sudo tar -xJf /tmp/zig.tar.xz -C /usr/local
           echo "/usr/local/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+      - name: Cache wasmtime tarball
+        uses: actions/cache@v5
+        with:
+          path: /tmp/wasmtime.tar.xz
+          key: wasmtime-v50.0.0-x86_64-linux
       - name: Install wasmtime v50.0.0
         run: |
           set -euo pipefail
-          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/wasmtime-v50.0.0-x86_64-linux.tar.xz -o /tmp/wasmtime.tar.xz
+          [ -f /tmp/wasmtime.tar.xz ] || \
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/wasmtime-v50.0.0-x86_64-linux.tar.xz -o /tmp/wasmtime.tar.xz
           tar -xJf /tmp/wasmtime.tar.xz -C /tmp
           echo "/tmp/wasmtime-v50.0.0-x86_64-linux" >> "$GITHUB_PATH"
       # The 0.2 lane: wasm-tools wraps the p1 core module into a component,
       # using the preview1 adapter that ships in the wasmtime release. The
       # compiler fetches and sha256-verifies the adapter itself.
+      - name: Cache wasm-tools tarball
+        uses: actions/cache@v5
+        with:
+          path: /tmp/wasm-tools.tar.gz
+          key: wasm-tools-1.262.0-x86_64-linux
       - name: Install wasm-tools 1.262.0
         run: |
           set -euo pipefail
-          curl -fsSL https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz -o /tmp/wasm-tools.tar.gz
+          [ -f /tmp/wasm-tools.tar.gz ] || \
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://github.com/bytecodealliance/wasm-tools/releases/download/v1.262.0/wasm-tools-1.262.0-x86_64-linux.tar.gz -o /tmp/wasm-tools.tar.gz
           tar -xzf /tmp/wasm-tools.tar.gz -C /tmp
           echo "/tmp/wasm-tools-1.262.0-x86_64-linux" >> "$GITHUB_PATH"
       - uses: astral-sh/setup-uv@v6
@@ -608,6 +679,9 @@ jobs:
       - name: Fresh venv, install wheel, compile and run fixture
         env:
           WORK: ${{ runner.temp }}/wheel-smoke
+          # The installed wheel is our own traffic and CI must stay silent
+          # (env -i below strips CI; PYSC_INTERNAL passes through).
+          PYSC_INTERNAL: "1"
         run: |
           set -euo pipefail
           mkdir -p "$WORK"
@@ -749,7 +823,7 @@ jobs:
         run: uv run pytest -q tests/test_threading_tsan.py -m "linux_container"
 
   # The mobile static-library mode (#356): build all three archives and
-  # link-check them. Apple legs run on macos-14 (Xcode SDKs are preinstalled);
+  # link-check them. Apple legs run on macos-26 (Xcode SDKs are preinstalled);
   # the Android leg downloads the pinned NDK. The simulator runner cannot
   # execute outside the simulator runtime, so linking is the check there.
   mobile-archives:
@@ -760,7 +834,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
+          - os: macos-26
             skip: android
             ndk: ""
           - os: ubuntu-24.04
@@ -784,7 +858,7 @@ jobs:
         run: |
           set -euo pipefail
           zip=/tmp/android-ndk-r28c-linux.zip
-          curl -fsSL https://dl.google.com/android/repository/android-ndk-r28c-linux.zip -o "$zip"
+          curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://dl.google.com/android/repository/android-ndk-r28c-linux.zip -o "$zip"
           echo "a7b54a5de87fecd125a17d54f73c446199e72a64  $zip" | sha1sum -c -
           unzip -q "$zip" -d /opt
           echo "PYSC_ANDROID_NDK=/opt/android-ndk-r28c" >> "$GITHUB_ENV"

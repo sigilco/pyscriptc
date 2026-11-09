@@ -8,10 +8,16 @@ Versions follow PEP 440: pyproject.toml says 0.6.0b1 or 0.6.0rc1, the public tag
 release title use the SemVer-style spelling v0.6.0-beta.1 / v0.6.0-rc.2 (what
 PyPI normalizes them to). `tag_version` and `release_tag` map between the two.
 
+A beta tag (vX.Y.Z-beta.N) has the release class `checkpoint`: an internal mark
+between releases. It gets the release matrix, the draft release and the
+benchmark artifact, and it never reaches PyPI. The publish job refuses the
+class by name.
+
 Subcommands:
   plan              compute the next version, the changelog entry and the bar report
   check-rehearsal   fail unless a rehearsal run covers the parent of a tagged release commit
   tag               map a release tag to its PEP 440 version (--check verifies the spelling)
+  class             the release class of a tag; fails for the classes that never publish
 
 Thresholds come from the environment (set in the top-level env block of cut-release.yml):
 PATCH_MIN_COMMITS, PATCH_MIN_HOURS, PATCH_MIN_PRS, PATCH_MIN_USER_CHANGES, MINOR_MIN_FEATURES,
@@ -41,6 +47,13 @@ STABLE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
 TAG_RE = re.compile(r"^v(\d+)\.(\d+)\.(\d+)(?:-(beta|rc)\.(\d+))?$")
 KIND_PUBLIC = {"b": "beta", "rc": "rc"}
 KIND_PEP440 = {"beta": "b", "rc": "rc"}
+# Release classes. `checkpoint` is the class of an internal checkpoint tag
+# (vX.Y.Z-beta.N): a mark between releases, never published to PyPI.
+CHECKPOINT_CLASS = "checkpoint"
+# The PyPI publish job refuses a checkpoint tag by this name. It is a
+# separate class from `prerelease` on purpose: a beta release is a public
+# prerelease that may be published, a checkpoint never is.
+NO_PUBLISH_CLASSES = frozenset({CHECKPOINT_CLASS})
 
 
 @dataclass(frozen=True)
@@ -157,13 +170,33 @@ def next_version(current: str, bump: str, pre_of: str = "patch", kind: str = "rc
 
 def release_class(version: str, hotfix: bool = False) -> str:
     major, minor, patch, kind, _num = parse_version(version)
-    if kind is not None:
+    if kind == "b":
+        return CHECKPOINT_CLASS
+    if kind == "rc":
         return "prerelease"
     if hotfix:
         return "hotfix"
     if patch > 0:
         return "patch"
     return "minor" if minor > 0 else "major"
+
+
+def tag_class(tag: str) -> str:
+    """The release class of a tag.
+
+    `vX.Y.Z-beta.N` is a checkpoint: an internal mark between releases, never
+    published to PyPI. `vX.Y.Z-rc.N` is a prerelease, `vX.Y.Z` is stable.
+    """
+    return release_class(release_tag(tag))
+
+
+def refuses_publish(cls: str) -> bool:
+    """True for the classes the PyPI publish job refuses by name.
+
+    A checkpoint marks a point between releases. It gets the release matrix,
+    the draft release and the benchmark artifact, and nothing reaches PyPI.
+    """
+    return cls in NO_PUBLISH_CLASSES
 
 
 def milestone_for(milestones: list[dict], version: str) -> dict | None:
@@ -290,7 +323,11 @@ def evaluate(cls: str, version: str, stats: Stats, th: Thresholds, *, bump: str 
                 "measured receipt in the changelog (census delta, boxed ledger window or perf number with baseline)",
             )
         )
-    elif cls == "prerelease":
+    elif cls in ("prerelease", CHECKPOINT_CLASS):
+        # A checkpoint (a beta tag) keeps the beta bar: the same iteration cap,
+        # the same feature count and the same triage line as the prerelease it
+        # grew out of. What makes it different is the class name, which the
+        # publish job refuses by name.
         kind, num = parse_version(version)[3:]
         n = num or 0
         name = "rc count" if kind == "rc" else "beta count"
@@ -314,6 +351,15 @@ def evaluate(cls: str, version: str, stats: Stats, th: Thresholds, *, bump: str 
                     "triage",
                     "manual",
                     "every open milestone issue is in the beta or moved to Future (issue link in the notes)",
+                )
+            )
+        if cls == CHECKPOINT_CLASS:
+            out.append(
+                Check(
+                    "checkpoint",
+                    "pass",
+                    "internal checkpoint tag: the release matrix, the draft release and the benchmark "
+                    "artifact, never PyPI (the publish job refuses this class by name)",
                 )
             )
     else:
@@ -353,7 +399,7 @@ def render_report(checks: list[Check], version: str, cls: str, bypass_reason: st
 def changelog_entry(subjects: list[str], version: str, today: str, cls: str = "patch") -> str | None:
     """Changelog section from conventional commit subjects, or None when nothing is releasable.
 
-    Section map (see .agents/plans/2026-10-21-changelog-structure.md): Breaking changes,
+    Section map (see .agents/docs/release/release-process.md): Breaking changes,
     Features, Performance, Fixes, then a collapsed Internal section. Every section is
     omitted when empty. Highlights and the theme paragraph are placeholders the
     maintainer (or an agent) writes before the release is published.
@@ -556,6 +602,28 @@ def cmd_tag(a: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_class(a: argparse.Namespace) -> int:
+    """Print the release class of a tag, and refuse the classes that never publish.
+
+    The publish job calls this with the tag it was triggered by. A checkpoint
+    tag (vX.Y.Z-beta.N) exits non-zero here, so the job refuses it by name
+    before it can reach PyPI.
+    """
+    try:
+        cls = tag_class(a.tag)
+    except ValueError as e:
+        print(e, file=sys.stderr)
+        return 2
+    print(cls)
+    if refuses_publish(cls):
+        print(
+            f"{a.tag} has the release class {cls!r}: it is an internal checkpoint and is never published to PyPI.",
+            file=sys.stderr,
+        )
+        return 1
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     p = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -576,6 +644,9 @@ def main(argv: list[str] | None = None) -> int:
     tg.add_argument("tag", help="a release tag: vX.Y.Z, vX.Y.Z-beta.N or vX.Y.Z-rc.N")
     tg.add_argument("--check", action="store_true", help="also verify the tag is the canonical spelling")
     tg.set_defaults(fn=cmd_tag)
+    cl = sub.add_parser("class", help="the release class of a tag; refuses the classes that never publish")
+    cl.add_argument("tag", help="a release tag: vX.Y.Z, vX.Y.Z-beta.N or vX.Y.Z-rc.N")
+    cl.set_defaults(fn=cmd_class)
     args = p.parse_args(argv)
     return args.fn(args)
 

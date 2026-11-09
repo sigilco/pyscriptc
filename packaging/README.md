@@ -12,13 +12,13 @@ GitHub Actions workflow [`.github/workflows/release.yml`](../.github/workflows/r
 
 | Target | Runner | Smoke in CI |
 | --- | --- | --- |
-| `pyscriptc-macos-arm64` | `macos-14` | full `packaging/smoke.sh` |
+| `pyscriptc-macos-arm64` | `macos-26` | full `packaging/smoke.sh` |
 | `pyscriptc-macos-x86_64` | `macos-15-intel` | full |
 | `pyscriptc-linux-x86_64` | `ubuntu-24.04` | full (`patchelf` installed on the runner) |
 | `pyscriptc-linux-aarch64` | `ubuntu-24.04-arm` | full |
 | `pyscriptc-windows-x86_64.exe` | `windows-2022` | explain / `--help` only (experimental) |
 
-macOS x86_64 uses the native `macos-15-intel` runner. `macos-13` is retired. The workflow does not cross-compile that target from `macos-14`.
+macOS x86_64 uses the native `macos-15-intel` runner. `macos-13` is retired. The workflow does not cross-compile that target from `macos-26`.
 
 `pyscriptc-windows-x86_64.exe` is experimental. The compiler binary may build with Nuitka MinGW64 (`--assume-yes-for-downloads`, plus `--experimental=force-mingw64` because Nuitka rejects MinGW64 on Python 3.14 otherwise). Programs it emits need POSIX headers (`dirent.h`, `dlfcn.h`, `unistd.h`) and are out of scope, so the Windows smoke does not compile or run. Only that smoke step may fail without failing the job. The Windows build step may not. There is no Windows arm64 artifact.
 

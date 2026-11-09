@@ -302,3 +302,36 @@ def test_next_fences_on_plain_lists(tmp_path: Path) -> None:
     )
     got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "bad2.ll"))
     assert got.returncode == 3, got.stderr
+
+
+def test_next_iter_dict_first_key_is_not_a_full_materialization(tmp_path: Path) -> None:
+    """Issue #1168: `next(iter(d))` on a dict lowers to the head peek
+    (`ps_dict_first_key`), not a full `ps_dict_keys` materialization —
+    the IR shape, plus an oracle diff over mutation and the empty map."""
+    source = "\n".join(
+        [
+            "def probe() -> int:",
+            "    d: dict[int, int] = {}",
+            "    for i in range(8):",
+            "        d[i] = i * i",
+            "    a: int = next(iter(d))",
+            "    d.pop(a)",
+            "    b: int = next(iter(d))",
+            "    v: int = d.pop(3)",
+            "    d[3] = v",
+            "    c: int = next(iter(d))",
+            "    empty: dict[int, int] = {}",
+            "    try:",
+            "        next(iter(empty))",
+            "        b = b + 1000",
+            "    except StopIteration:",
+            "        b = b + 100",
+            "    return a + b * 10 + c * 100",
+        ]
+    )
+    _oracle_diff(tmp_path, "r24_dicthead.py", source)
+    run_cli("compile", str(tmp_path / "r24_dicthead.py"), "--emit", "ir", "-o", str(tmp_path / "r24_dicthead"))
+    ir = (tmp_path / "r24_dicthead.ll").read_text()
+    # The IR name rides the .ll artifact; the abi symbol must appear there.
+    assert "@ps_dict_first_key" in ir
+    assert "@ps_dict_keys" not in ir

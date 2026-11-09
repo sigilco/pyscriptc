@@ -37,6 +37,7 @@ ok = [
   'y: str = chr(n)',
   'a, c = divmod(n, 3)',
   'for i, v in enumerate(xs): pass',
+  'for i, ch in enumerate(s): pass',
   'y: int = getattr(p, "a")',
   'y: bool = hasattr(p, "a")',
   'y: str = hex(n)',
@@ -97,8 +98,7 @@ no = [["key= a function name", 'y: list[int] = sorted(xs, key=abs)', "PS2003"], 
 
 [[builtin]]
 names = ["zip"]
-ok = ['for i, v in zip(xs, ss): pass']
-no = [["more than 2 lists", 'y: int = len(list(zip(xs, xs, xs)))', "PS2003"]]
+ok = ['for i, v in zip(xs, ss): pass', 'y: int = len(list(zip(xs, xs, xs)))', 'for ch, n in zip(s, xs): pass']
 
 [[builtin]]
 names = ["filter"]
@@ -325,8 +325,8 @@ no = [["closing, redirect_stdout, ExitStack, contextmanager", 'with contextlib.c
 
 [[stdlib]]
 names = ["os"]
-ok = ['y: str = os.getcwd()', 'y: list[str] = os.listdir(s)', 'y: str = os.environ["A"]', 'y: str = os.path.join(s, s)', 'y: int = os.getpid()', 'y: str = os.sep', "for r, ds, fs in os.walk(s): pass"]
-no = [["scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid", 'os.scandir(s)', "PS2001"], ["keyword arguments (makedirs exist_ok)", 'os.makedirs(s, exist_ok=True)', "PS2003"]]
+ok = ['y: str = os.getcwd()', 'y: list[str] = os.listdir(s)', 'y: str = os.environ["A"]', 'y: str = os.path.join(s, s)', 'y: int = os.getpid()', 'y: str = os.sep', 'os.symlink(s, s)', 'y: str = os.readlink(s)', "for r, ds, fs in os.walk(s): pass"]
+no = [["scandir, system, urandom, cpu_count, kill, rmdir, getuid", 'os.scandir(s)', "PS2001"], ["keyword arguments (makedirs exist_ok)", 'os.makedirs(s, exist_ok=True)', "PS2003"]]
 
 [[stdlib]]
 names = ["posixpath"]
@@ -507,7 +507,7 @@ no = [["register of a function with arguments, unregister", 'atexit.unregister(n
 
 [[stdlib]]
 names = ["shutil"]
-ok = ['shutil.copyfile(s, s)', 'shutil.rmtree(s)', 'y: str = shutil.which(s)', 'shutil.move(s, s)', 'shutil.copytree(s, s)', 'y: int = shutil.get_terminal_size().columns']
+ok = ['shutil.copyfile(s, s)', 'shutil.rmtree(s)', 'y: str | None = shutil.which(s)', 'shutil.move(s, s)', 'shutil.copytree(s, s)', 'y: int = shutil.get_terminal_size().columns']
 no = [["make_archive, disk_usage, chown", 'shutil.disk_usage(s)', "PS2001"]]
 
 [[stdlib]]
@@ -530,7 +530,7 @@ no = [["field(), asdict", '''@dataclasses.dataclass
 class D:
     a: int
 @@
-y: dict[str, int] = dataclasses.asdict(D(1))''', "PS2001"], ["frozen=, order= and other options", '''@dataclasses.dataclass(frozen=True)
+y: dict[str, int] = dataclasses.asdict(D(1))''', "PS2001"], ["order= and other options", '''@dataclasses.dataclass(order=True)
 class D:
     a: int
 @@
@@ -589,6 +589,9 @@ red = false
 note = "annotation-only: imports are free, annotations are the lowering input, erased before emission; typing names used as values fence"
 ok = [
   'y: int | None = None',
+  'y: list = []',
+  'y: dict = {}',
+  'y: set = set()',
   'y: typing.Optional[int] = None',
   'y: typing.Optional[int] = n if t else None',
   'v: typing.Final[int] = 3',

@@ -5,7 +5,7 @@ The default link must not change: with no mode set (or `host`, the resolved
 exactly as before, byte for byte. The bundle link is tested against a fake
 pack tree; the real fetch is network-dependent and only runs when
 `PYSC_EMBED_POC_PREFIX` points at a python-build-standalone `install/` tree
-(see .agents/plans/2026-10-25-embedding-libpython.md).
+(see `.agents/docs/release/embed-runtime.md`).
 """
 
 from __future__ import annotations
@@ -160,6 +160,29 @@ def test_stage_bundle_writes_bin_and_lib(tmp_path: Path) -> None:
     assert not (tmp_path / "work" / "prog" / "lib" / f"python{VERSION}" / "os.py").exists()
 
 
+@pytest.mark.skipif(sys.platform == "darwin", reason="the Linux pack ships a symlink family")
+def test_stage_bundle_keeps_the_libpython_symlink_a_link(tmp_path: Path) -> None:
+    """Issue #885: the unversioned libpython name stays a symlink.
+
+    Copying it dereferenced the 32 MB library into a second full copy in
+    every bundle, which is what pushed the bundle over the size gate.
+    """
+    pack = _fake_pack(tmp_path / "pack")
+    (tmp_path / "work").mkdir()
+    binary = tmp_path / "work" / "prog"
+    binary.write_bytes(b"\xcf\xfa\xed\xfe")
+    embed.stage_bundle(binary, pack, VERSION, binary)
+    lib_dir = tmp_path / "work" / "prog" / "lib"
+    link = lib_dir / f"libpython{VERSION}.so"
+    real = lib_dir / f"libpython{VERSION}.so.1.0"
+    assert link.is_symlink()
+    assert link.readlink() == Path(f"libpython{VERSION}.so.1.0")
+    assert real.is_file() and not real.is_symlink()
+    # The link must stay relative: an absolute target would break the
+    # relocation the bundle exists for.
+    assert not link.readlink().is_absolute()
+
+
 def test_stage_bundle_writes_share_licenses(tmp_path: Path) -> None:
     """Issue #709: a bundle output carries the license texts in share/licenses/."""
     pack = _fake_pack(tmp_path / "pack")
@@ -311,6 +334,30 @@ def test_run_refuses_bundle_mode(tmp_path: Path) -> None:
     )
     assert done.returncode == 1
     assert "run cache" in done.stderr
+
+
+def test_run_plain_script_when_auto_resolves_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """Issue #1145: a program with no island references never links libpython,
+    so an auto-resolved bundle must not turn the run output into a directory."""
+    from pyscriptc import cli
+
+    monkeypatch.setattr(embed, "host_has_shared_libpython", lambda: False)
+    if embed.resolve_mode("auto") != "bundle":
+        pytest.skip("no locked runtime pack for this host platform")
+    pack = _fake_pack(tmp_path / "pack")
+    monkeypatch.setenv("PYSC_RUNTIME_DIR", str(pack))
+    monkeypatch.setenv("PYSC_CACHE_DIR", str(tmp_path / "cache"))
+    src = tmp_path / "prog.py"
+    src.write_text("print('hello')\n", encoding="utf-8")
+    assert cli.main(["run", str(src), "--skip-check"]) == 0
+    assert "hello" in capfd.readouterr().out
+    binaries = list((tmp_path / "cache" / "bin").glob("*/prog"))
+    assert binaries and all(path.is_file() for path in binaries)
+    # The warm run must hit the cache: the stored entry is the binary file.
+    assert cli.main(["run", str(src), "--skip-check"]) == 0
+    assert "hello" in capfd.readouterr().out
 
 
 def test_config_island_embed_key(tmp_path: Path) -> None:

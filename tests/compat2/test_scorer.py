@@ -113,6 +113,53 @@ def test_compile_budget() -> None:
     assert verdict.verdict(base, cand, skip_perf=True)["findings"][0]["area"] == "compile-time"
 
 
+def test_known_wrong_ratchet_flags_a_persistent_row(tmp_path: Path) -> None:
+    tracker = tmp_path / "wrong.json"
+    base = results({"a": "wrong-output", "b": "pass"})
+    out = verdict.verdict(base, base, skip_perf=True, wrong_tracker=tracker)
+    finding = next(f for f in out["findings"] if f["area"] == "known-wrong:a")
+    assert finding["severity"] == "P2"
+    assert "no tracking issue" in finding["observed"]
+    assert out["verdict"] == "FAIL"
+    assert json.loads(tracker.read_text())["rows"]["a"]["seen"] == 1
+
+
+def test_known_wrong_ratchet_is_report_only_once_tracked(tmp_path: Path) -> None:
+    tracker = tmp_path / "wrong.json"
+    issue = "https://github.com/sigilco/pyscriptc/issues/999"
+    tracker.write_text(json.dumps({"rows": {"a": {"seen": 3, "issue": issue}}}))
+    base = results({"a": "wrong-output", "b": "fence"})
+    cand = results({"a": "wrong-output", "b": "pass"})
+    out = verdict.verdict(base, cand, skip_perf=True, wrong_tracker=tracker)
+    finding = next(f for f in out["findings"] if f["area"] == "known-wrong:a")
+    assert finding["severity"] == "info" and issue in finding["observed"]
+    assert "4" in finding["observed"]
+    assert out["verdict"] == "PASS"
+
+
+def test_known_wrong_flipping_to_pass_closes_the_finding(tmp_path: Path) -> None:
+    tracker = tmp_path / "wrong.json"
+    issue = "https://github.com/sigilco/pyscriptc/issues/999"
+    tracker.write_text(json.dumps({"rows": {"a": {"seen": 4, "issue": issue}}}))
+    base = results({"a": "wrong-output", "b": "fence"})
+    cand = results({"a": "pass", "b": "fence"})
+    out = verdict.verdict(base, cand, skip_perf=True, wrong_tracker=tracker)
+    finding = next(f for f in out["findings"] if f["area"] == "fixed:a")
+    assert finding["severity"] == "info" and issue in finding["fix"]
+    assert out["verdict"] == "PASS"
+    assert "a" not in json.loads(tracker.read_text())["rows"]
+
+
+def test_known_wrong_age_threshold_is_a_parameter(tmp_path: Path) -> None:
+    tracker = tmp_path / "wrong.json"
+    base = results({"a": "wrong-output", "b": "pass"})
+    for _ in range(2):
+        out = verdict.verdict(base, base, skip_perf=True, wrong_tracker=tracker, wrong_age=3)
+        assert not any(f["area"] == "known-wrong:a" for f in out["findings"])
+    out = verdict.verdict(base, base, skip_perf=True, wrong_tracker=tracker, wrong_age=3)
+    assert any(f["area"] == "known-wrong:a" for f in out["findings"])
+
+
 def test_oscillation_terminates(tmp_path: Path) -> None:
     path = tmp_path / "ledger.json"
     good = results({"a": "pass"})

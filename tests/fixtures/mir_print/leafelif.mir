@@ -1,0 +1,139 @@
+; module leafelif.py entry=__entry__
+
+fn pick(v0:w) -> w {
+  c0 = w 0
+  c1 = w 1
+  c2 = w 5
+  c3 = w 2
+  c4 = w 10
+  c5 = w 3
+  c6 = w 4
+b0 entry():
+  v1:w = copy v0
+  v3:b = cltw v0, c0
+  br v3, b1(), b2()
+b1 then():
+  v2:w = copy c1
+  jmp b9
+b2 else():
+  v4:w = copy v1
+  v5:b = cltw v4, c2
+  br v5, b3(), b4()
+b3 then():
+  v2:w = copy c3
+  jmp b8
+b4 else():
+  v6:w = copy v1
+  v7:b = cltw v6, c4
+  br v7, b5(), b6()
+b5 then():
+  v2:w = copy c5
+  jmp b7
+b6 else():
+  v2:w = copy c6
+  jmp b7
+b7 merge():
+  jmp b8
+b8 merge():
+  jmp b9
+b9 merge():
+  v8:w = copy v2
+  ret v8
+}
+
+fn grade(v0:w) -> w {
+  c0 = w 50
+  c1 = w 2
+  c2 = w 75
+  c3 = w 100
+  c4 = w 1
+b0 entry():
+  v1:w = copy v0
+  v3:b = cltw v0, c0
+  br v3, b1(), b2()
+b1 then():
+  v4:w = copy v1
+  v5:w = mulw v4, c1
+  v2:w = copy v5
+  jmp b6
+b2 else():
+  v6:w = copy v1
+  v7:b = cltw v6, c2
+  br v7, b3(), b4()
+b3 then():
+  v8:w = copy v1
+  v9:w = addw v8, c3
+  v2:w = copy v9
+  jmp b5
+b4 else():
+  v10:w = copy v1
+  v11:w = subw v10, c4
+  v2:w = copy v11
+  jmp b5
+b5 merge():
+  jmp b6
+b6 merge():
+  v12:w = copy v2
+  ret v12
+}
+
+fn dead_mid(v0:w) -> w {
+  c0 = w 0
+  c1 = w 1
+  c2 = w 2
+b0 entry():
+  v1:w = copy v0
+  v3:b = cltw v0, c0
+  br v3, b1(), b2()
+b1 then():
+  v2:w = copy c1
+  jmp b6
+b2 else():
+  v4:w = copy v1
+  v5:b = ceqw v4, c0
+  br v5, b3(), b4()
+b3 then():
+  ret c0
+b4 else():
+  v2:w = copy c2
+  jmp b5
+b5 merge():
+  jmp b6
+b6 merge():
+  v6:w = copy v2
+  ret v6
+}
+
+fn main() -> void {
+  c0 = w 1
+  c1 = w 3
+  c2 = w 7
+  c3 = w 20
+  c4 = w 10
+  c5 = w 60
+  c6 = w 90
+  c7 = w 5
+  c8 = w 0
+  c9 = w 9
+b0 entry():
+  v1:w = negw c0
+  v2:w = call @pick(v1)
+  v3:w = call @pick(c1)
+  v4:w = call @pick(c2)
+  v5:w = call @pick(c3)
+  v7:w = call @grade(c4)
+  v8:w = call @grade(c5)
+  v9:w = call @grade(c6)
+  v11:w = negw c7
+  v12:w = call @dead_mid(v11)
+  v13:w = call @dead_mid(c8)
+  v14:w = call @dead_mid(c9)
+  v-1:void = call @print(v2, v3, v4, v5, v7, v8, v9, v12, v13, v14)
+  ret
+}
+
+fn __entry__() -> void {
+b0 entry():
+  v-1:void = call @main()
+  ret
+}

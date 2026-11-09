@@ -284,6 +284,7 @@ def test_generator_return_stays_fenced(tmp_path: Path) -> None:
             [
                 "def g():",
                 "    yield 1",
+                "    yield 'a'",
                 "",
                 "def probe() -> int:",
                 "    return 0",
@@ -318,3 +319,57 @@ def test_families_unchanged() -> None:
     assert family_of("PS1001", "x needs an annotation before use") == "local-inference"
     assert family_of("PS1001", "parameter v needs an annotation") == "param-inference"
     assert family_of("PS1001", "f needs a return annotation") == "return-inference"
+
+
+def test_peek_drains_the_iterator_once(tmp_path: Path) -> None:
+    """Issue #1098: the unannotated-assign shape test must not run the value twice.
+
+    The shape path lowers the call speculatively, then the inference peek
+    lowers it again; a value with a side effect (a generator expression
+    that drains `it`) ran once speculatively and once for real, so the real
+    pass saw a spent iterator. `max(v for v in it)` raised ValueError and
+    `sorted(v for v in it)` returned [].
+    """
+    path = write_case(
+        tmp_path,
+        "drain.py",
+        "\n".join(
+            [
+                "def g(n: int):",
+                "    for i in range(n):",
+                "        yield i",
+                "",
+                "def probe() -> int:",
+                "    it = g(4)",
+                "    xs = max(v for v in it)",
+                "    ys = sorted(v for v in it)",
+                "    return xs * 10 + len(ys)",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "probe")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "probe")
+
+
+def test_callable_and_pinned_shapes_keep_their_binding(tmp_path: Path) -> None:
+    """The shape test still binds a call whose def signed, unchanged."""
+    cases = {
+        "call site pin": (
+            [
+                "def twice(v):",
+                "    return v + v",
+                "",
+                "def probe() -> int:",
+                "    got = twice(21)",
+                "    return got",
+            ],
+            "probe",
+        ),
+    }
+    for name, (lines, call) in cases.items():
+        path = write_case(tmp_path, f"{name}.py", "\n".join(lines) + "\n")
+        got = compile_run(tmp_path, path, call)
+        assert got.returncode == 0, (name, got.stderr)
+        assert got.stdout == oracle(path, call), name

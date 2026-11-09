@@ -158,3 +158,47 @@ def test_r26_union_of_two_values_still_fences(tmp_path: Path) -> None:
     got = run_cli("compile", str(path), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "u.ir.json"))
     assert got.returncode == 3
     assert "union types are not in the IR" in got.stderr
+
+
+def test_r26_optional_attribute_narrowing(tmp_path: Path) -> None:
+    """`t.left is None` / `is not None` narrows a one-level attribute read
+    whose field type is a tagged optional, the same rule a local name
+    follows: after an always-exit guard the rest of the body reads `_val`,
+    and inside a taken `is not None` branch the same unwrap applies."""
+    path = write_case(
+        tmp_path,
+        "opt_attr.py",
+        "\n".join(
+            [
+                "class Tree:",
+                "    def __init__(self, left: Tree | None, right: Tree | None) -> None:",
+                "        self.left = left",
+                "        self.right = right",
+                "",
+                "",
+                "def check(t: Tree) -> int:",
+                "    if t.left is None or t.right is None:",
+                "        return 1",
+                "    return 1 + check(t.left) + check(t.right)",
+                "",
+                "",
+                "def pick(t: Tree) -> int:",
+                "    if t.left is not None:",
+                "        return check(t.left)",
+                "    return 0",
+                "",
+                "",
+                "def run() -> int:",
+                "    leaf = Tree(None, None)",
+                "    print(check(leaf))",
+                "    print(check(Tree(leaf, leaf)))",
+                "    print(pick(Tree(leaf, leaf)))",
+                "    print(pick(leaf))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "run")

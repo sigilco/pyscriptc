@@ -2,7 +2,7 @@
 
 The features pyscriptc rejects by design: constructs that are legal CPython but make compiled programs less reliable, less predictable, or unverifiable statically. Spec only - nothing here is implemented. This is the same posture vercel-labs/scriptc takes against TypeScript reflection and experimental decorators: a closed subset is only trustworthy when it also refuses the host language's footguns, not only its unimplemented surface.
 
-A fence today answers "not lowered yet" (PS2xxx, the epics in `.agents/plans/`). A refusal answers "never, and here is what to write instead". The distinction matters to users: a PS2101 row is a queue position, a refusal is a decision. Refusals live in a dedicated diagnostic range, **PS42xx - refused by design**, registered in `src/pyscriptc/diagnostics.py` with the same `title` / `why` / `fix` shape as existing entries. Existing fence codes and messages are untouched; a PS42xx code is a later rollout gated on this census.
+A fence today answers "not lowered yet" (PS2xxx, the epic queue on the board). A refusal answers "never, and here is what to write instead". The distinction matters to users: a PS2101 row is a queue position, a refusal is a decision. Refusals live in a dedicated diagnostic range, **PS42xx - refused by design**, registered in `src/pyscriptc/diagnostics.py` with the same `title` / `why` / `fix` shape as existing entries. Existing fence codes and messages are untouched; a PS42xx code is a later rollout gated on this census.
 
 The `PS4xxx` numbers this document first proposed are taken: `PS4001`-`PS4016` are the FFI manifest range (`src/pyscriptc/ffi_manifest.py`) and `PS4101` is the mobile-target refusal. The refusal range therefore starts at `PS4201`.
 
@@ -14,7 +14,7 @@ Rows that changed since PR #72 wrote the table:
 
 | Doc row | Probe verdict on master | Consequence |
 | --- | --- | --- |
-| `def f(*args: int)` iterating `args` (PS4019) | **works** - lowers as a `list`, internal calls `f(1, 2)` and iteration match CPython | `*args` half of PS4019 is stale; only starred call sites (`g(*xs)`) stay fenced |
+| `def f(*args: int)` iterating `args` (PS4019) | **works** - lowers as a `list`, internal calls `f(1, 2)` and iteration match CPython | the `*args` half of PS4019 is stale; starred call sites lower when the operand is a list or tuple display (`g(*[1, 2])`) or a dict display with constant str keys (`g(**{"a": 1})` forwards as `g(a=1)`), and only a runtime-length operand (`xs`, `d`, a call result) stays fenced |
 | `**kwargs` (PS4019) | **works** - `def f(**kwargs: int)` with `f(a=1, b=2)` returns 3 | the whole PS4019 row is stale; keyword passing at call sites also works |
 | `@property` getter (PS4201) | **works** - attribute read calls the getter (see the Tier C list in this file); only calling `C.a` and the setter stay fenced | PS4201 narrows to `__getattr__`/`__setattr__`/descriptors |
 | `class E(Exception)` user exceptions | **works** - raise and catch of a user exception class match CPython | not a refusal row; recorded as supported |
@@ -301,7 +301,7 @@ Deliberate divergences that are already lowered and documented; kept because the
 - `'%s' % x`, `'%d' % x`, format specs, mapping keys, tuple arguments, `%%` escapes all lower and match CPython. Caveat: prefer f-strings; this whole surface moved here from the refused table after the census.
 - `x is None` lowers as `==` against `None`. Caveat: correct only because `None` is a singleton; runtime-built operands are the PS4009 divergence.
 - Scalar/heap `is` on literals lowers to value equality or pointer compare (`lower/_expr.py:526`). Caveat: runtime-built equal strings diverge from CPython (compiled answers `0`, CPython `1`); the general form is the PS4009 refusal.
-- `*args` lowers as a `list` (not a `tuple`), `**kwargs` lowers as a `dict`; internal calls and iteration match CPython. Caveat: starred call sites `g(*xs)` still fence. Post-census.
+- `*args` lowers as a `list` (not a `tuple`), `**kwargs` lowers as a `dict`; internal calls and iteration match CPython. Caveat: starred call sites lower only with a statically-shaped operand — a list or tuple display (`g(*[1, 2])`, `g(*(1, 2))`) expands into the known signature positionally, and a dict display with constant str keys (`g(**{"a": 1})`) forwards as explicit keyword arguments. An operand whose shape the compiler cannot see (a bound list or dict name, a call result) still fences PS2002, because the static callee has fixed frame slots and no runtime parameter table to replay a dynamic tail into. Post-census; narrowed 2026-11-03.
 - `@property` getters lower; user exception classes raise and catch; `getattr`/`hasattr` with a string literal lower; bare `except` and `except E as e` lower (E2 M3). Post-census.
 - `os.path.*` is a live alias of the `posixpath` table. Post-census; `pathlib` remains the recommended style.
 - Set iteration is insertion order, not hash order. Caveat: deterministic and stable, but different from CPython - use `sorted()` where order matters.

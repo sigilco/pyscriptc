@@ -15,8 +15,7 @@ import ast
 from typing import Any
 
 from pyscriptc.lower._stdlib_shared import _mod_call
-
-_BYTES: dict[str, Any] = {"kind": "bytes"}
+from pyscriptc.restlower._shared import _node_type, _node_type_kind, _t_leaf
 
 # The option subset. The writer's flag word is a different layout (bit 0
 # sort keys, bits 8-15 indent, bit 16 compact), so `_option` maps the orjson
@@ -46,9 +45,9 @@ def _dumps(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         else:
             lo.fail(node, "PS2003", f"orjson.dumps keyword {keyword.arg} is not lowered")
     value = lo._expr(node.args[0])
-    lo._json_type(node, value["type"], "orjson.dumps")
-    expr = _mod_call("orjson", "dumps", [value], _BYTES, span)
-    expr["json_flags"] = flags
+    lo._json_type(node, _node_type(value), "orjson.dumps")
+    expr = _mod_call("orjson", "dumps", [value], _t_leaf("bytes"), span)
+    expr.update({"json_flags": flags})
     return expr
 
 
@@ -74,6 +73,6 @@ def _loads(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any]
         lo.fail(node, "PS1001", "orjson.loads needs the result annotation")
     lo._json_type(node, expect, "orjson.loads")
     arg = lo._expr(node.args[0])
-    if arg["type"]["kind"] not in {"str", "bytes"}:
-        lo.fail(node, "PS1003", "orjson.loads argument is " + repr(arg["type"]) + ", expected str or bytes")
+    if _node_type_kind(arg) not in {"str", "bytes"}:
+        lo.fail(node, "PS1003", "orjson.loads argument is " + repr(_node_type(arg)) + ", expected str or bytes")
     return _mod_call("orjson", "loads", [arg], expect, span)

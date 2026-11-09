@@ -10,22 +10,24 @@ from __future__ import annotations
 
 import ast
 import copy
-from typing import Any, NoReturn
+from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc import coro
-from pyscriptc.boxed import island_class_type
-from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
-from pyscriptc.coro import enabled
+from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.errors import span_of
-from pyscriptc.ffi_manifest import handle_type
 from pyscriptc.ir import type_key, types_equal
+from pyscriptc.lower._annotations import (
+    AnnotationMixin,
+    _type_slug,
+)
+from pyscriptc.lower._classes_more import ClassesMoreMixin
 from pyscriptc.lower._core import (
-    _DICT_FORMS,
-    _LIST_FORMS,
-    _SET_FORMS,
     Fence,
     _assign,
     _has_typevar,
+    _mk_span,
+    _mk_type,
     _name,
     _plain_const_kind,
     _show,
@@ -33,9 +35,10 @@ from pyscriptc.lower._core import (
     _subst_type,
 )
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
-from pyscriptc.reflection import annotation_note, kwargs_parameter_note, metaclass_note
-from pyscriptc.restlower import alias_name, path_attr
+from pyscriptc.reflection import annotation_note, metaclass_note
 from pyscriptc.restlower import method_spec as synth_method
+from pyscriptc.restlower import path_attr
+from pyscriptc.sigrec import T, type_to_dict
 from pyscriptc.stdmore import (
     ALWAYS_CLASSES,
     CLASS_FIELDS,
@@ -43,20 +46,188 @@ from pyscriptc.stdmore import (
     RESERVED_CODE_EXCEPTIONS,
     SYNTHETIC_EXCEPTIONS,
 )
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
-_UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
+
+def _const_str_node(value: str, span: dict[str, Any]) -> dict[str, Any]:
+    """The const str node one dict-IR const spells."""
+    return node_to_dict(_ir.const_node(_ir.P_STR, value, _ir.t_leaf("str"), _mk_span(span)))
+
+
+def _call_node(
+    callee: dict[str, Any],
+    args: list[dict[str, Any]],
+    typ: dict[str, Any],
+    span: dict[str, Any],
+) -> dict[str, Any]:
+    """The call node one dict-IR call spells."""
+    return node_to_dict(
+        _ir.call(
+            dict_to_node(callee),
+            [dict_to_node(arg) for arg in args],
+            _mk_type(typ),
+            _mk_span(span),
+            "",
+            "",
+            -1,
+        )
+    )
+
+
+def _class_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The call to a class constructor."""
+    return _call_node({"kind": "class", "name": name}, args, typ, span)
+
+
+def _function_call(fname: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The call to a lowered function."""
+    return _call_node({"kind": "function", "name": fname}, args, typ, span)
+
+
+def _attr_node(value: dict[str, Any], name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The attribute read node."""
+    return node_to_dict(_ir.attr(name, _mk_type(typ), dict_to_node(value), _mk_span(span)))
+
+
+def _setattr_node(obj: dict[str, Any], name: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The attribute write node."""
+    return node_to_dict(_ir.setattr_stmt(dict_to_node(obj), name, dict_to_node(value), _mk_span(span)))
+
+
+def _binary_node(
+    op: str, left: dict[str, Any], right: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The binary operation node."""
+    return node_to_dict(_ir.binary(op, dict_to_node(left), dict_to_node(right), _mk_type(typ), _mk_span(span)))
+
+
+def _expr_stmt_node(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The expression statement node."""
+    return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
+
+
+def _type_rt(typ: dict[str, Any]) -> dict[str, Any]:
+    """The exact type dict one dict-IR type spells, through the T record."""
+    return node_to_dict(dict_to_type(typ))
+
+
+def _leaf_type(kind: str) -> dict[str, Any]:
+    """The leaf type record one dict-IR leaf type spells."""
+    return _type_rt(_ir.t_leaf(kind))
+
+
+def _list_type(elem: dict[str, Any]) -> dict[str, Any]:
+    """The list type record one dict-IR list type spells."""
+    return _type_rt(_ir.t_list(dict_to_type(elem)))
+
+
+def _class_type(name: str) -> dict[str, Any]:
+    """The class type record one dict-IR class type spells."""
+    return _type_rt(_ir.t_class(name))
+
+
+def _param_row(name: str, typ: dict[str, Any]) -> dict[str, Any]:
+    """The `{name, type}` parameter row one lowered parameter spells."""
+    row: dict[str, Any] = {}
+    row["name"] = name
+    row["type"] = _type_rt(typ)
+    return row
+
+
+def _self_param(class_name: str) -> dict[str, Any]:
+    """The `self` parameter row typed at its class."""
+    return _param_row("self", _class_type(class_name))
+
+
+def _type_kind(typ: dict[str, Any]) -> str:
+    """The kind tag of a type record, read off the typed `T` record."""
+    return _mk_type(typ).kind
+
+
+def _maybe_type_kind(typ: dict[str, Any]) -> str | None:
+    """The kind tag of a type record that may carry none."""
+    if "kind" not in typ:
+        return None
+    return _type_kind(typ)
+
+
+def _node_kind(node: dict[str, Any]) -> str:
+    """The kind tag of an IR node record, read off the typed node record."""
+    return dict_to_node(node).kind
+
+
+def _record_kind(record: dict[str, Any]) -> str:
+    """The kind tag of a record the typed layer cannot carry.
+
+    A class-base descriptor (`enum`, `exception`, `class`) is not an IR
+    node and has no typed record, so its tag stays a plain dict read, in
+    one place.
+    """
+    kind: str = record["kind"]
+    return kind
+
+
+def _base_kind(base: dict[str, Any]) -> str:
+    """The kind tag of a class-base descriptor."""
+    return _record_kind(base)
+
+
+_BASE_ENUM = "enum"
+_BASE_EXCEPTION = "exception"
+
+
+def _enum_base(name: str) -> dict[str, str]:
+    """The enum base descriptor one `_resolve_base` spells."""
+    return {"kind": _BASE_ENUM, "name": name}
+
+
+def _exception_base(name: str) -> dict[str, str]:
+    """The exception base descriptor one `_resolve_base` spells."""
+    return {"kind": _BASE_EXCEPTION, "name": name}
+
+
+def _tuple_default(elems: list[dict[str, Any]], typ: dict[str, Any]) -> dict[str, Any]:
+    """The tuple-default marker record a fixed-shape default spells.
+
+    The marker is not an IR node: the call site replays the stored constant
+    elements, so the record stays a plain dict.
+    """
+    row: dict[str, Any] = {}
+    row["kind"] = "tuple-default"
+    row["elems"] = elems
+    row["type"] = typ
+    return row
+
+
+def _bare_leaf(kind: str) -> dict[str, Any]:
+    """The bare leaf type record an isinstance target spells.
+
+    The `bare` bit has no typed `T` slot, so the record stays a plain dict.
+    """
+    row: dict[str, Any] = {}
+    row["kind"] = kind
+    row["bare"] = True
+    return row
+
+
+def _field_rows(fields: list[tuple[str, T]]) -> list[dict[str, Any]]:
+    """The `{name, type}` dict rows of `(name, T)` records, the
+    record-to-dict boundary of `CLASS_FIELDS` (the typing-hygiene slice).
+    """
+
+    return [{"name": name, "type": type_to_dict(typ)} for name, typ in fields]
+
+
 # Spellings of the bottom type: a function annotated with one never returns a
 # value to its caller (issue #645). Accepted bare or as `typing.` /
 # `typing_extensions.` attributes.
-_NEVER_ALIASES = frozenset({"NoReturn", "Never"})
-_DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Generic", "Callable", "ABC"})
-# Tier-2 erasure (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`):
+# Tier-2 erasure (the tiered-lowering decision; see
+# `.agents/docs/design/checker-bridge.md`):
 # static-typing constructs that vanish before emission. `abc` is an erased
 # module, so these names arrive through `type_aliases` or an erased
 # `_resolve_module` triple.
 _ERASED_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 _ERASED_DECORATORS = frozenset({"abstractmethod", "overload"})
-_IO_HANDLES = {"BinaryIO": "BytesIO", "TextIO": "TextIO"}
 # The dynamic attribute protocol is refused by design (issue #432, the
 # PS42xx refusal family). A hook that intercepts attribute access or writes
 # has nothing to run in: attribute access resolves statically to declared
@@ -83,7 +254,7 @@ _REFUSED_HOOKS: dict[str, str] = {
 }
 
 
-class ClassesMixin:
+class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
     def _install_class_export(self, local: str, item: dict[str, Any], stmt: ast.AST, fences: list[Fence]) -> None:
         name = str(item["name"])
         if name in self.classes and not self.classes[name].get("imported"):
@@ -103,27 +274,27 @@ class ClassesMixin:
         specs: dict[str, list[dict[str, Any]]] = {}
         if "Pattern" in self.synthetics:
             specs["Pattern"] = [
-                {"name": "pattern", "type": {"kind": "str"}},
-                {"name": "flags", "type": {"kind": "int"}},
+                {"name": "pattern", "type": _leaf_type("str")},
+                {"name": "flags", "type": _leaf_type("int")},
             ]
         if "Match" in self.synthetics:
             # %cls.Match layout mirrors the runtime PsMatch: the subject
             # text plus a flat i64 span list, -1 for groups that did not take part.
             specs["Match"] = [
-                {"name": "_text", "type": {"kind": "str"}},
-                {"name": "_spans", "type": {"kind": "list", "elem": {"kind": "int"}}},
+                {"name": "_text", "type": _leaf_type("str")},
+                {"name": "_spans", "type": _list_type(_leaf_type("int"))},
             ]
         if "SplitResult" in self.synthetics:
             specs["SplitResult"] = [
-                {"name": name, "type": {"kind": "str"}} for name in ("scheme", "netloc", "path", "query", "fragment")
+                {"name": name, "type": _leaf_type("str")} for name in ("scheme", "netloc", "path", "query", "fragment")
             ]
         if "HTTPError" in self.synthetics:
-            specs["HTTPError"] = CLASS_FIELDS["HTTPError"]
+            specs["HTTPError"] = _field_rows(CLASS_FIELDS["HTTPError"])
         if "URLError" in self.synthetics:
-            specs["URLError"] = CLASS_FIELDS["URLError"]
-        for name in self.synthetics:
+            specs["URLError"] = _field_rows(CLASS_FIELDS["URLError"])
+        for name in sorted(self.synthetics):
             if name in CLASS_FIELDS:
-                specs[name] = CLASS_FIELDS[name]
+                specs[name] = _field_rows(CLASS_FIELDS[name])
         user_names = {node.name for node in class_nodes}
         for name, fields in specs.items():
             existing = self.classes.get(name)
@@ -200,18 +371,18 @@ class ClassesMixin:
                 protocol = protocol or erased == "Protocol"
                 continue
             resolved = self._resolve_base(base_node)
-            if resolved["kind"] != "class" and len(node.bases) > 1:
+            if _base_kind(resolved) != "class" and len(node.bases) > 1:
                 self.fail(node, "PS2002", "multiple inheritance needs lowered class bases")
             bases.append(resolved)
         base = bases[0] if bases else None
         if deco == "dataclass" and base is not None:
             self.fail(node, "PS2002", "a dataclass has no base")
-        if base is not None and base["kind"] == "enum":
+        if base is not None and _base_kind(base) == "enum":
             self._collect_enum(node, str(base["name"]))
             return
         self.declared.add(node.name)
         parent_name = base["name"] if base is not None else None
-        parent = self.classes.get(parent_name) if parent_name and base and base["kind"] == "class" else None
+        parent = self.classes.get(parent_name) if parent_name and base and _base_kind(base) == "class" else None
         inherited = list(parent["fields"]) if parent is not None else []
         inherited_types = {field["name"]: field["type"] for field in inherited}
         # Extra bases contribute the fields the earlier bases do not already
@@ -231,19 +402,39 @@ class ClassesMixin:
         methods: list[tuple[ast.FunctionDef, str]] = []
         seen: set[str] = set()
         seen_default = False
+        # Class-level constants: `name = <fold>` and `name: T = <fold>` keep
+        # a compile-time value readable as `C.name` and `obj.name`, never an
+        # instance field. Ancestor constants merge in MRO order so the
+        # nearest definer wins, the same rule instance attribute lookup
+        # follows.
+        class_constants: dict[str, dict[str, Any]] = {}
+        for ancestor in reversed(mro[1:]):
+            ancestor_constants = self.classes.get(ancestor, {}).get("constants")
+            if ancestor_constants:
+                class_constants.update(ancestor_constants)
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
             try:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     if stmt.value is not None and deco != "dataclass":
-                        self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
+                        const = self._module_fold(stmt.value)
+                        if const is None or const.get("kind") != "const":
+                            self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
+                        typ = self._annotation(stmt.annotation)
+                        if typ.get("optional"):
+                            if _type_kind(const["type"]) != "none" and not types_equal(const["type"], typ["elem"]):
+                                self.fail(stmt, "PS1003", f"{stmt.target.id} default is not {_show(typ)}")
+                        else:
+                            self._expect(stmt, const["type"], typ, stmt.target.id)
+                        class_constants[stmt.target.id] = const
+                        continue
                     if stmt.target.id in seen or stmt.target.id in inherited_types:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                     typ = self._annotation(stmt.annotation)
-                    if typ["kind"] == "bool":
+                    if _type_kind(typ) == "bool":
                         self.fail(stmt, "PS2002", "bool fields are not lowered")
-                    if typ["kind"] == "func":
+                    if _type_kind(typ) == "func":
                         self.fail(stmt, "PS2002", "callable fields are not lowered")
                     field: dict[str, Any] = {"name": stmt.target.id, "type": typ}
                     if stmt.value is not None:
@@ -252,13 +443,29 @@ class ClassesMixin:
                         try:
                             # An Optional field takes `None` or a constant of its
                             # element type, boxed per construction like a def default.
-                            default = self._expr(stmt.value, None if typ.get("optional") else typ)
+                            # A fixed-shape tuple default stores its constant
+                            # elements, not a materialized record: the generated
+                            # init replays them per omitted argument.
+                            if _maybe_type_kind(typ) == "class" and self.classes.get(typ["name"], {}).get("tuple"):
+                                field_rows = self.classes[typ["name"]]["fields"]
+                                if not isinstance(stmt.value, ast.Tuple) or len(stmt.value.elts) != len(field_rows):
+                                    self.fail(stmt, "PS2002", "a tuple default must match the annotation's shape")
+                                elems = []
+                                for elt, frow in zip(stmt.value.elts, field_rows, strict=True):
+                                    ev = self._expr(elt, frow["type"])
+                                    self._expect(elt, ev["type"], frow["type"], stmt.target.id)
+                                    if _node_kind(ev) != "const":
+                                        self.fail(elt, "PS2002", "a tuple default element must be a constant")
+                                    elems.append(ev)
+                                default = _tuple_default(elems, typ)
+                            else:
+                                default = self._expr(stmt.value, None if typ.get("optional") else typ)
                         finally:
                             self.prelude = saved_prelude
-                        if default["kind"] != "const":
+                        if _node_kind(default) not in {"const", "tuple-default"}:
                             self.fail(stmt, "PS2002", "a dataclass default must be a constant")
                         if typ.get("optional"):
-                            if default["type"]["kind"] != "none" and not types_equal(default["type"], typ["elem"]):
+                            if _type_kind(default["type"]) != "none" and not types_equal(default["type"], typ["elem"]):
                                 self.fail(stmt, "PS1003", f"{stmt.target.id} default is not {_show(typ)}")
                             field["optdefault"] = True
                         else:
@@ -290,6 +497,11 @@ class ClassesMixin:
                         self.fail(stmt, "PS1201", "decorators are not lowered")
                     methods.append((stmt, kind))  # type: ignore[arg-type]
                     continue
+                if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                    const = self._module_fold(stmt.value)
+                    if const is not None and const.get("kind") == "const":
+                        class_constants[stmt.targets[0].id] = const
+                        continue
                 self.fail(stmt, "PS1204", f"{type(stmt).__name__} in a class body is not lowered")
             except Fence as exc:
                 self.caught.append(exc)
@@ -306,7 +518,7 @@ class ClassesMixin:
                 if ancestor_info["method_owner"].get(mname) != ancestor or mname in method_sigs:
                     continue
                 if sig[0] and sig[0][0]["name"] == "self":
-                    sig = ([{"name": "self", "type": {"kind": "class", "name": node.name}}, *sig[0][1:]], sig[1])
+                    sig = ([_self_param(node.name), *sig[0][1:]], sig[1])
                 method_sigs[mname] = sig
                 kinds[mname] = ancestor_info["method_kind"].get(mname, "method")
                 owners[mname] = ancestor
@@ -338,12 +550,26 @@ class ClassesMixin:
         # all-or-nothing.
         if len(self.caught) > body_fences + sig_fences or (sig_fences and not self.cataloguing):
             return
+        if wrote_init and deco != "dataclass":
+            # A written `__init__` is the field declaration the corpus
+            # spells: `self.x = <param>` takes the parameter's annotated
+            # type, `self.x: T = v` takes the annotation. Fields the class
+            # body already named keep their declared type.
+            init_fn = next((method for method, _kind in methods if method.name == "__init__"), None)
+            if init_fn is not None:
+                fields.extend(
+                    self._init_fields(
+                        init_fn,
+                        method_sigs.get("__init__"),
+                        {field["name"] for field in fields} | set(inherited_types),
+                    )
+                )
         generated: str | None = None
         init_target: str | None = None
         if deco == "dataclass":
             if wrote_init:
                 self.fail(node, "PS2002", "a dataclass does not take a written __init__")
-            params = [{"name": "self", "type": {"kind": "class", "name": node.name}}]
+            params = [_self_param(node.name)]
             for field in fields:
                 param: dict[str, Any] = {"name": field["name"], "type": field["type"]}
                 if "default" in field:
@@ -351,7 +577,7 @@ class ClassesMixin:
                     if field.get("optdefault"):
                         param["optdefault"] = True
                 params.append(param)
-            method_sigs["__init__"] = (params, {"kind": "none"})
+            method_sigs["__init__"] = (params, _leaf_type("none"))
             kinds["__init__"] = "method"
             owners["__init__"] = node.name
             generated = "dataclass"
@@ -373,8 +599,8 @@ class ClassesMixin:
                         init_target = name
                         break
                 method_sigs["__init__"] = (
-                    [{"name": "self", "type": {"kind": "class", "name": node.name}}, *method_sigs["__init__"][0][1:]],
-                    {"kind": "none"},
+                    [_self_param(node.name), *method_sigs["__init__"][0][1:]],
+                    _leaf_type("none"),
                 )
                 kinds["__init__"] = "method"
                 owners["__init__"] = node.name
@@ -385,10 +611,18 @@ class ClassesMixin:
             # the secondary base's.
         elif parent is not None and fields and not wrote_init:
             self.fail(node, "PS1001", f"{node.name} needs __init__")
-        exception = bool(base and (base["kind"] == "exception" or (parent and parent.get("exception"))))
+        if deco == "dataclass":
+            # A field default is also the class attribute CPython leaves
+            # behind, so `C.x` reads it like any other class constant.
+            for field in fields:
+                default = field.get("default")
+                if default is not None and default.get("kind") == "const":
+                    class_constants[field["name"]] = default
+        exception = bool(base and (_base_kind(base) == "exception" or (parent and parent.get("exception"))))
         info: dict[str, Any] = {
             "fields": [*inherited, *fields],
             "own_fields": fields,
+            "constants": class_constants,
             "methods": method_sigs,
             "method_kind": kinds,
             "method_owner": owners,
@@ -413,6 +647,62 @@ class ClassesMixin:
         if protocol:
             info["protocol"] = True
         self.classes[node.name] = info
+
+    def _init_fields(
+        self,
+        fn: ast.FunctionDef,
+        sig: tuple[list[dict[str, Any]], dict[str, Any]] | None,
+        taken: set[str],
+    ) -> list[dict[str, Any]]:
+        """Fields a written `__init__` proves by `self.<name>` targets.
+
+        `self.x = <param>` takes the parameter's annotated type;
+        `self.x: T = v` takes the annotation (the value's own check runs
+        in the body pass). Names the class body or a base already
+        declared are skipped: the declared type wins and a mismatch
+        fences at the write.
+        """
+        found: list[dict[str, Any]] = []
+        seen = set(taken)
+        if sig is None:
+            return found
+        params = sig[0]
+        arg_types: dict[str, dict[str, Any]] = {}
+        plain = list(fn.args.posonlyargs) + list(fn.args.args)
+        for index, arg in enumerate(plain):
+            if index < len(params):
+                arg_types[arg.arg] = params[index]["type"]
+        for stmt in ast.walk(fn):
+            target: ast.expr | None = None
+            typ: dict[str, Any] | None = None
+            if isinstance(stmt, ast.AnnAssign) and stmt.value is not None and isinstance(stmt.target, ast.Attribute):
+                target = stmt.target
+                try:
+                    typ = self._annotation(stmt.annotation)
+                except Fence:
+                    continue
+            elif (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Attribute)
+                and isinstance(stmt.value, ast.Name)
+            ):
+                target = stmt.targets[0]
+                typ = arg_types.get(stmt.value.id)
+                if typ is None:
+                    continue
+            else:
+                continue
+            if not isinstance(target, ast.Attribute):
+                continue
+            if not (isinstance(target.value, ast.Name) and target.value.id == "self"):
+                continue
+            name = target.attr
+            if name in seen:
+                continue
+            seen.add(name)
+            found.append({"name": name, "type": copy.deepcopy(typ)})
+        return found
 
     def _mro_chain(self, node: ast.ClassDef, bases: list[dict[str, str]]) -> tuple[list[str], set[str]]:
         """C3 linearization of the bases, plus the primary-base spine.
@@ -490,262 +780,10 @@ class ClassesMixin:
             "__eq__": "bool",
             "__exit__": "bool",
         }.get(name)
-        if want is not None and ret["kind"] != want:
+        if want is not None and _type_kind(ret) != want:
             self.fail(node, "PS1003", f"{class_name}.{name} returns {_show(ret)}, not {want}")
         emit = self._emit_owner(class_name, name)
-        return {
-            "kind": "call",
-            "callee": {"kind": "function", "name": f"cls.{emit}.{name}"},
-            "args": [receiver, *args],
-            "type": ret,
-            "span": span,
-        }
-
-    def _class_decorator(self, node: ast.ClassDef) -> str | None:
-        if not node.decorator_list:
-            return None
-        if len(node.decorator_list) != 1 or not self._is_dataclass_deco(node.decorator_list[0]):
-            self.fail(node, "PS1201", "decorators are not lowered")
-        return "dataclass"
-
-    def _is_dataclass_deco(self, dec: ast.expr) -> bool:
-        target = dec
-        if isinstance(dec, ast.Call):
-            if dec.args or dec.keywords:
-                return False
-            target = dec.func
-        if isinstance(target, ast.Name):
-            binding = self.bindings.get(target.id)
-            return binding is not None and binding.module == "dataclasses" and binding.attr == "dataclass"
-        if isinstance(target, ast.Attribute):
-            resolved = self._resolve_module(target)
-            return resolved is not None and resolved[1] == "dataclasses" and resolved[2] == "dataclass"
-        return False
-
-    def _method_decorator(self, fn: ast.FunctionDef) -> str:
-        # Erased typing decorators (`@abstractmethod`) drop out first, so
-        # `@property @abstractmethod` still resolves to a property.
-        decos = [d for d in fn.decorator_list if self._erased_deco_name(d) is None]
-        if not decos:
-            return "method"
-        if len(decos) != 1:
-            self.fail(fn, "PS1201", "decorators are not lowered")
-        dec = decos[0]
-        target = dec
-        if isinstance(dec, ast.Call):
-            if dec.args or dec.keywords:
-                self.fail(fn, "PS1201", "decorators are not lowered")
-            target = dec.func
-        if isinstance(target, ast.Name) and target.id in {"property", "staticmethod", "classmethod"}:
-            return {"property": "property", "staticmethod": "static", "classmethod": "class"}[target.id]
-        if self._is_contextmanager_deco(fn) and enabled():
-            # `@contextmanager`: the coro pass owns it; the method still
-            # lowers as a plain method (the body is the resume body).
-            return "method"
-        self.fail(fn, "PS1201", "decorators are not lowered")
-        raise AssertionError("unreachable")
-
-    def _is_builtin_object(self, node: ast.expr) -> bool:
-        if not isinstance(node, ast.Name) or node.id != "object":
-            return False
-        if node.id in self.classes or node.id in self.bindings or node.id in self.sigs or node.id in self.constants:
-            return False
-        if node.id in self.declared:
-            return False
-        return True
-
-    def _erased_base_name(self, node: ast.expr) -> str | None:
-        """`ABC`/`ABCMeta`/`Protocol` base through an erased import, or None."""
-        member: str | None = None
-        if isinstance(node, ast.Name):
-            member = self.type_aliases.get(node.id)
-        elif isinstance(node, ast.Attribute):
-            resolved = self._resolve_module(node)
-            if resolved is not None and resolved[3] == "erased":
-                member = resolved[2]
-        return member if member in _ERASED_BASES else None
-
-    def _is_abcmeta_keyword(self, kw: ast.keyword) -> bool:
-        """`metaclass=ABCMeta` — erased like the `ABC` base it is sugar for."""
-        if kw.arg != "metaclass":
-            return False
-        value = kw.value
-        if isinstance(value, ast.Name):
-            return self.type_aliases.get(value.id) == "ABCMeta"
-        if isinstance(value, ast.Attribute):
-            resolved = self._resolve_module(value)
-            return resolved is not None and resolved[3] == "erased" and resolved[2] == "ABCMeta"
-        return False
-
-    def _erased_deco_name(self, dec: ast.expr) -> str | None:
-        """`abstractmethod`/`overload` through an erased import, or None."""
-        member: str | None = None
-        if isinstance(dec, ast.Name):
-            member = self.type_aliases.get(dec.id)
-        elif isinstance(dec, ast.Attribute):
-            resolved = self._resolve_module(dec)
-            if resolved is not None and resolved[3] == "erased":
-                member = resolved[2]
-        return member if member in _ERASED_DECORATORS else None
-
-    def _declaration_only(self, fn: ast.FunctionDef) -> bool:
-        """The body is only a docstring, `pass`, or `...` — a declaration, not an implementation."""
-        for stmt in fn.body:
-            if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
-                continue
-            if isinstance(stmt, ast.Expr) and isinstance(stmt.value, ast.Constant) and stmt.value.value is Ellipsis:
-                continue
-            return False
-        return True
-
-    def _accepts_protocol(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
-        """A Protocol-annotated slot accepts any subclass of the erased class:
-        the marker carries no fields, so every record below it already
-        satisfies its layout. A `gen.` frame class is accepted where an
-        `Iterator[T]`-shaped annotation (the synthetic `iter_` cursor) is
-        expected: the frame's `__next__` return type must equal the
-        annotation's element, and the caller narrows the slot to the frame."""
-        if want["kind"] != "class" or got["kind"] != "class":
-            return False
-        want_name = want.get("name")
-        got_name = got.get("name")
-        if not isinstance(want_name, str) or not isinstance(got_name, str):
-            return False
-        if self.classes.get(want_name, {}).get("iterator") and want.get("elem") is not None:
-            if not got_name.startswith("gen."):
-                return False
-            frame = self.classes.get(got_name)
-            if frame is None or frame.get("coro") != "generator":
-                return False
-            next_ret = frame["methods"].get("__next__", (None, None))[1]
-            return next_ret is not None and types_equal(next_ret, want["elem"])
-        if want_name == "CompletedProcess" and got_name == "CompletedProcessText":
-            # The text-mode run record: the annotation names the stdlib
-            # class, the value is the str-field variant (issue #680).
-            return True
-        if not self.classes.get(want_name, {}).get("protocol"):
-            return False
-        return self._is_subclass_name(got_name, want_name)
-
-    def _narrows_to_generator(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
-        """True when an iterator-shaped annotation holds a generator frame.
-
-        The synthetic `iter_` cursor is a materialized list with an index;
-        a generator frame is a lazy record with `__iter__`/`__next__`. When
-        the value is a frame, the slot keeps the frame type so `next()`,
-        `send()` and `for` dispatch on the real shape.
-        """
-        if want.get("kind") != "class" or got.get("kind") != "class":
-            return False
-        want_name = want.get("name")
-        got_name = got.get("name")
-        if not isinstance(want_name, str) or not isinstance(got_name, str):
-            return False
-        if not self.classes.get(want_name, {}).get("iterator"):
-            return False
-        frame = self.classes.get(got_name)
-        if frame is None or frame.get("coro") != "generator":
-            return False
-        next_ret = frame["methods"].get("__next__", (None, None))[1]
-        return next_ret is not None and types_equal(next_ret, want.get("elem"))
-
-    def _resolve_base(self, node: ast.expr) -> dict[str, str]:
-        enum = self._enum_base_name(node)
-        if enum is not None:
-            return {"kind": "enum", "name": enum}
-        if isinstance(node, ast.Name) and node.id in EXCEPTIONS:
-            return {"kind": "exception", "name": node.id}
-        if isinstance(node, ast.Name) and node.id in self.classes:
-            info = self.classes[node.id]
-            if info.get("synthetic"):
-                self.fail(node, "PS2002", "subclassing a stdlib type is not lowered")
-            if info.get("enum"):
-                self.fail(node, "PS2002", "an enum is not a base")
-            return {"kind": "class", "name": node.id}
-        self.fail(node, "PS2002", "this class base is not lowered")
-        raise AssertionError("unreachable")
-
-    def _enum_base_name(self, node: ast.expr) -> str | None:
-        if isinstance(node, ast.Name):
-            binding = self.bindings.get(node.id)
-            if binding is not None and binding.module == "enum" and binding.attr in {"Enum", "IntEnum"}:
-                return binding.attr
-            return None
-        if isinstance(node, ast.Attribute):
-            resolved = self._resolve_module(node)
-            if resolved is not None and resolved[1] == "enum" and resolved[2] in {"Enum", "IntEnum"}:
-                return resolved[2]
-        return None
-
-    def _collect_enum(self, node: ast.ClassDef, which: str) -> None:
-        self.declared.add(node.name)
-        members: dict[str, int] = {}
-        next_auto = 1
-        for stmt in node.body:
-            if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
-                continue
-            try:
-                target, value = self._enum_assign(stmt)
-                auto = self._enum_auto(value)
-                if auto is None:
-                    number = _const_int_index(value)
-                    if number is None:
-                        self.fail(stmt, "PS2002", "an enum member is an integer constant")
-                else:
-                    if not auto:
-                        self.fail(stmt, "PS2003", "enum.auto takes no arguments")
-                    number = next_auto
-                next_auto = number + 1
-                if target in members:
-                    self.fail(stmt, "PS2002", f"duplicate enum member {target}")
-                members[target] = number
-            except Fence as exc:
-                self.caught.append(exc)
-        if self.caught:
-            return
-        if not members:
-            self.fail(node, "PS2002", "an enum needs a member")
-        self.classes[node.name] = {
-            "fields": [],
-            "own_fields": [],
-            "methods": {},
-            "method_kind": {},
-            "method_owner": {},
-            "base": which,
-            "enum": True,
-            "members": members,
-            "node": node,
-        }
-
-    def _enum_auto(self, value: ast.expr) -> bool | None:
-        """True when the value is a bare `auto()` call with no arguments.
-
-        False means an auto() call with arguments; None means not auto().
-        Both the `from enum import auto` binding and the `enum.auto` dotted
-        spelling resolve onto the enum module table.
-        """
-        if not isinstance(value, ast.Call):
-            return None
-        func = value.func
-        if isinstance(func, ast.Name):
-            binding = self.bindings.get(func.id)
-            if binding is None or binding.module != "enum" or binding.attr != "auto":
-                return None
-        elif isinstance(func, ast.Attribute):
-            resolved = self._resolve_module(func)
-            if resolved is None or resolved[1] != "enum" or resolved[2] != "auto":
-                return None
-        else:
-            return None
-        return not value.args and not value.keywords
-
-    def _enum_assign(self, stmt: ast.stmt) -> tuple[str, ast.expr]:
-        if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
-            return stmt.targets[0].id, stmt.value
-        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name) and stmt.value is not None:
-            return stmt.target.id, stmt.value
-        self.fail(stmt, "PS2002", "an enum body is integer constants")
-        raise AssertionError("unreachable")
+        return _function_call(f"cls.{emit}.{name}", [receiver, *args], ret, span)
 
     def _lower_class(self, node: ast.ClassDef, emit_name: str | None = None) -> dict[str, Any] | None:
         own = emit_name or node.name
@@ -823,7 +861,7 @@ class ClassesMixin:
         params, ret = info["methods"][stmt.name]
         kind = info["method_kind"].get(stmt.name, "method")
         if params and params[0]["name"] == "self":
-            params = [{"name": "self", "type": {"kind": "class", "name": class_name}}, *params[1:]]
+            params = [_self_param(class_name), *params[1:]]
         # A generator method's body lowers under the None-returning resume
         # signature; the outward frame type rides in the method signature.
         params, ret = self._coro_method_body_sig(class_name, stmt.name, params, ret)
@@ -831,7 +869,7 @@ class ClassesMixin:
         self.frozen_names = set()
         self.fn_body = list(stmt.body)
         if kind in {"method", "property"}:
-            self.locals["self"] = {"kind": "class", "name": class_name}
+            self.locals["self"] = _class_type(class_name)
         # Function-local imports rebind module names: snapshot the
         # compile-time binding tables so they restore when the body ends.
         saved_bindings = dict(self.bindings)
@@ -852,7 +890,7 @@ class ClassesMixin:
             missing = sorted(own_names - assigned)
             if missing:
                 self.fail(stmt, "PS1001", f"__init__ does not assign {', '.join(missing)}")
-        if ret["kind"] != "none" and not _always_returns(body):
+        if _type_kind(ret) != "none" and not _always_returns(body):
             self.fail(stmt, "PS1004", f"{stmt.name} can fall off the end and return None")
         return self._method_ir(stmt.name, params, ret, body, span_of(stmt, self.filename))
 
@@ -881,164 +919,52 @@ class ClassesMixin:
             return None
         params, ret = info["methods"]["__init__"]
         span = span_of(node, self.filename)
-        self_type = {"kind": "class", "name": node.name}
+        self_type = _class_type(node.name)
         if mode == "dataclass":
             body = [
-                {
-                    "kind": "setattr",
-                    "object": _name("self", self_type, span),
-                    "name": field["name"],
-                    "value": _name(field["name"], field["type"], span),
-                    "span": span,
-                }
+                _setattr_node(
+                    _name("self", self_type, span), field["name"], _name(field["name"], field["type"], span), span
+                )
                 for field in info["own_fields"]
             ]
         else:
             parent = info.get("init_target") or info["base"]
             args = [_name(param["name"], param["type"], span) for param in params]
-            body = [
-                {
-                    "kind": "expr",
-                    "expr": {
-                        "kind": "call",
-                        "callee": {"kind": "function", "name": f"cls.{parent}.__init__"},
-                        "args": args,
-                        "type": {"kind": "none"},
-                        "span": span,
-                    },
-                    "span": span,
-                }
-            ]
+            body = [_expr_stmt_node(_function_call(f"cls.{parent}.__init__", args, _leaf_type("none"), span), span)]
         self.locals = {param["name"]: param["type"] for param in params}
         return self._method_ir("__init__", params, ret, body, span)
-
-    def _signature(
-        self, fn: ast.FunctionDef, class_name: str | None, kind: str = "method"
-    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
-        """The lowered signature of one `def`, or None for an unprovable one.
-
-        The optional-failure mode serves the return-type inference peek
-        (#500): a default peeked inside `_signature` sees parameters with
-        no default at all (the default is only a value at the call site,
-        never during the body), and any other fence means the signature
-        never proves, so the peek returns None and the caller keeps its
-        fence.
-        """
-        if fn.args.defaults and self.inf_peek:
-            # The peek at this def's own return type: strip the defaults so
-            # a typed default never doubles as the body's parameter type.
-            saved_defaults = fn.args.defaults
-            fn.args.defaults = []
-            try:
-                return self._signature(fn, class_name, kind)
-            finally:
-                fn.args.defaults = saved_defaults
-        # `**kwargs` capture stays lowered (packed into dict[str, T] by
-        # `_fill_varargs`); `/`-positional and `*`-keyword parameters normalize
-        # into the named-parameter machinery instead: positional-only
-        # parameters refuse keywords, keyword-only ones must be passed by
-        # name. See `_fill_args`/`_fill_varargs` for the binding rules.
-        pos_marks = [True] * len(fn.args.posonlyargs) + [False] * len(fn.args.args)
-        args = list(fn.args.posonlyargs) + list(fn.args.args)
-        params: list[dict[str, Any]] = []
-        if kind == "property":
-            if fn.args.vararg is not None or fn.args.kwarg is not None or len(args) != 1 or args[0].arg != "self":
-                self.fail(fn, "PS2002", "a property's only parameter is self")
-            if args[0].annotation is not None:
-                self.fail(args[0], "PS2002", "self is not annotated")
-            if class_name is None:
-                self.fail(fn, "PS1201", "decorators are not lowered")
-            params.append({"name": "self", "type": {"kind": "class", "name": class_name}})
-            args = []
-            pos_marks = []
-        elif kind == "class":
-            if not args or args[0].arg != "cls":
-                self.fail(fn, "PS2002", "a classmethod's first parameter must be cls")
-            if args[0].annotation is not None:
-                self.fail(args[0], "PS2002", "cls is not annotated")
-            # cls is not a value. Class.method(...) does not pass the class object.
-            args = args[1:]
-            pos_marks = pos_marks[1:]
-        elif kind == "static":
-            pass
-        elif class_name is not None:
-            if not args or args[0].arg != "self":
-                self.fail(fn, "PS2002", "a method's first parameter must be self")
-            if args[0].annotation is not None:
-                self.fail(args[0], "PS2002", "self is not annotated")
-            params.append({"name": "self", "type": {"kind": "class", "name": class_name}})
-            args = args[1:]
-            pos_marks = pos_marks[1:]
-        defaults = list(fn.args.defaults)
-        missing = len(args) - len(defaults)
-        for index, arg in enumerate(args):
-            default = defaults[index - missing] if index >= missing else None
-            param = _param(self, arg, fn, default)
-            if pos_marks[index]:
-                param["posonly"] = True
-            if index >= missing:
-                self._param_default(arg, defaults[index - missing], param)
-            params.append(param)
-        if fn.args.vararg is not None:
-            vararg = fn.args.vararg
-            if vararg.annotation is None:
-                self.fail(vararg, "PS1001", f"parameter {vararg.arg} needs an annotation")
-            elem = self._annotation(vararg.annotation)
-            if elem["kind"] == "bool":
-                self.fail(vararg, "PS2002", "list[bool] is not lowered")
-            params.append({"name": vararg.arg, "type": {"kind": "list", "elem": elem}, "vararg": True})
-        for karg, kdef in zip(fn.args.kwonlyargs, fn.args.kw_defaults, strict=True):
-            param = _param(self, karg, fn, kdef)
-            param["kwonly"] = True
-            if kdef is not None:
-                self._param_default(karg, kdef, param)
-            params.append(param)
-        if fn.args.kwarg is not None:
-            kwarg = fn.args.kwarg
-            if kwarg.annotation is None:
-                self.fail(fn, "PS1202", f"{fn.name} declares **{kwarg.arg}: {kwargs_parameter_note()}")
-            value = self._annotation(kwarg.annotation)
-            if value["kind"] == "bool":
-                self.fail(kwarg, "PS2002", "dict values of bool are not lowered")
-            params.append(
-                {
-                    "name": kwarg.arg,
-                    "type": {"kind": "dict", "key": {"kind": "str"}, "value": value},
-                    "kwarg": True,
-                }
-            )
-        if fn.returns is None:
-            # Inference from the body (issue #500): the return peek runs the
-            # signature pass on this def and keeps the return type when the
-            # body alone proves one. Defaults are stripped for the peek, so
-            # a typed default never doubles as the body's parameter type
-            # (the body sees call-site arguments, not defaults). No proof,
-            # no fence from the peek: the caller keeps its own diagnostic.
-            bridged = self._infer_signature(fn)
-            if bridged is None:
-                self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
-            ret = bridged
-        else:
-            ret = self._annotation(fn.returns)
-        # A callable return is heap-allocated (`ps_alloc` pair + env), so it
-        # escapes the frame safely.
-        if class_name is not None and fn.name == "__init__" and ret["kind"] != "none":
-            self.fail(fn, "PS1003", "__init__ returns None")
-        return params, ret
 
     def _param_default(self, arg: ast.arg, default_node: ast.expr, param: dict[str, Any]) -> None:
         if param["type"].get("optional"):
             value = self._expr(default_node)
-            if value["kind"] != "const":
+            if _node_kind(value) != "const":
                 self.fail(default_node, "PS2002", "a default must be a constant")
-            if value["type"]["kind"] != "none" and not types_equal(value["type"], param["type"]["elem"]):
+            if _type_kind(value["type"]) != "none" and not types_equal(value["type"], param["type"]["elem"]):
                 self.fail(default_node, "PS1003", f"{arg.arg} is {_show(value['type'])}, not {_show(param['type'])}")
             param["default"] = value
             param["optdefault"] = True
+        elif _maybe_type_kind(param["type"]) == "class" and self.classes.get(param["type"]["name"], {}).get("tuple"):
+            # A fixed-shape tuple default: the elements must each be
+            # constants, and the shape must match the annotation. The
+            # elements are stored, not a materialized record: every call
+            # site that omits the argument materializes its own copy
+            # (CPython shares one tuple; ours replays — value-identical
+            # for the immutable shapes the subset allows).
+            fields = self.classes[param["type"]["name"]]["fields"]
+            if not isinstance(default_node, ast.Tuple) or len(default_node.elts) != len(fields):
+                self.fail(default_node, "PS2002", "a tuple default must match the annotation's shape")
+            elems = []
+            for elt, field in zip(default_node.elts, fields, strict=True):
+                value = self._expr(elt, field["type"])
+                self._expect(elt, value["type"], field["type"], arg.arg)
+                if _node_kind(value) != "const":
+                    self.fail(elt, "PS2002", "a tuple default element must be a constant")
+                elems.append(value)
+            param["default"] = _tuple_default(elems, param["type"])
         else:
             value = self._expr(default_node, param["type"])
             self._expect(default_node, value["type"], param["type"], arg.arg)
-            if value["kind"] != "const":
+            if _node_kind(value) != "const":
                 self.fail(default_node, "PS2002", "a default must be a constant")
             param["default"] = value
 
@@ -1052,22 +978,10 @@ class ClassesMixin:
         if init is None:
             if node.args or node.keywords:
                 self.fail(node, "PS2003", f"{name} takes no arguments")
-            return {
-                "kind": "call",
-                "callee": {"kind": "class", "name": name},
-                "args": [],
-                "type": {"kind": "class", "name": name},
-                "span": span,
-            }
+            return _class_call(name, [], _class_type(name), span)
         params = [param for param in init[0] if param["name"] != "self"]
         args = self._fill_args(node, params, name)
-        return {
-            "kind": "call",
-            "callee": {"kind": "class", "name": name},
-            "args": args,
-            "type": {"kind": "class", "name": name},
-            "span": span,
-        }
+        return _class_call(name, args, _class_type(name), span)
 
     def _construct_generic(
         self, node: ast.Call, span: dict[str, Any], name: str, init: tuple[Any, Any] | None
@@ -1096,13 +1010,7 @@ class ClassesMixin:
             want = _subst_type(param["type"], mapping)
             if not _has_typevar(want):
                 self._expect(node, arg["type"], want, name)
-        return {
-            "kind": "call",
-            "callee": {"kind": "class", "name": inst},
-            "args": args,
-            "type": {"kind": "class", "name": inst},
-            "span": span,
-        }
+        return _class_call(inst, args, _class_type(inst), span)
 
     def _namedtuple_call(self, node: ast.expr) -> ast.Call | None:
         """The `collections.namedtuple(...)` call, spelled either binding or `collections.namedtuple`."""
@@ -1179,8 +1087,7 @@ class ClassesMixin:
         later ones check against them, like a class without an `__init__`.
         """
         fields = info["nt_fields"]
-        if any(isinstance(arg, ast.Starred) for arg in node.args):
-            self.fail(node, "PS2002", "starred calls are not lowered")
+        node.args = self._expand_starred(node)
         if len(node.args) > len(fields):
             self.fail(node, "PS2003", f"{name}() expects {len(fields)} argument(s)")
         values: dict[str, dict[str, Any]] = {}
@@ -1199,7 +1106,7 @@ class ClassesMixin:
         if not info["fields"]:
             built: list[dict[str, Any]] = []
             for field, arg in zip(fields, args, strict=True):
-                if arg["type"]["kind"] in {"func", "none"}:
+                if _type_kind(arg["type"]) in {"func", "none"}:
                     self.fail(node, "PS2002", f"{name}() field {field} is {_show(arg['type'])}")
                 built.append({"name": field, "type": arg["type"]})
             info["fields"].extend(built)
@@ -1208,113 +1115,14 @@ class ClassesMixin:
                 self.fail(node, "PS2003", f"{name}() expects {len(info['fields'])} argument(s)")
             for field, arg in zip(info["fields"], args, strict=True):
                 self._expect(node, arg["type"], field["type"], f"{name}.{field['name']}")
-        typ = {"kind": "class", "name": name}
+        typ = _class_type(name)
         dest = self._temp("nt").replace(".", "_")
         self.locals[dest] = typ
-        made = {"kind": "call", "callee": {"kind": "class", "name": name}, "args": [], "type": typ, "span": span}
+        made = _class_call(name, [], typ, span)
         self.prelude.append(_assign(dest, made, span))
         for field, arg in zip(fields, args, strict=True):
-            self.prelude.append(
-                {"kind": "setattr", "object": _name(dest, typ, span), "name": field, "value": arg, "span": span}
-            )
+            self.prelude.append(_setattr_node(_name(dest, typ, span), field, arg, span))
         return _name(dest, typ, span)
-
-    def _reject_banned_type(self, node: ast.AST, typ: dict[str, Any]) -> None:
-        if typ["kind"] == "list" and typ["elem"]["kind"] == "bool":
-            self.fail(node, "PS2002", "list[bool] is not lowered")
-        if typ["kind"] == "dict":
-            if typ["key"]["kind"] not in {"int", "str"}:
-                self.fail(node, "PS2002", "dict keys are int or str")
-            if typ["value"]["kind"] == "bool":
-                self.fail(node, "PS2002", "dict values of bool are not lowered")
-
-    def _annotation(self, node: ast.AST) -> dict[str, Any]:
-        if isinstance(node, ast.Name) and node.id in self.tv_subst:
-            return self.tv_subst[node.id]
-        if isinstance(node, ast.Name) and node.id in self.typevars:
-            bound = self.typevars[node.id]
-            if bound is not None:
-                return bound
-            return {"kind": "typevar", "name": node.id}
-        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-            opt = self._optional_pipe(node)
-            if opt is not None:
-                return opt
-            self.fail(node, "PS1101", "union types are not in the IR")
-        formed = self._typing_annotation(node)
-        if formed is not None:
-            return formed
-        if isinstance(node, ast.Attribute):
-            # `typing.NoReturn` / `typing.Never` (issue #645): the qualified
-            # spelling of the bottom type.
-            resolved = self._resolve_module(node)
-            if resolved is not None and resolved[3] == "erased" and resolved[2] in _NEVER_ALIASES:
-                return {"kind": "none"}
-        if isinstance(node, ast.Name) and node.id in {"int", "float", "bool", "str", "bytes"}:
-            return {"kind": node.id}
-        if isinstance(node, ast.Constant) and node.value is None:
-            return {"kind": "none"}
-        if isinstance(node, ast.Name) and (
-            node.id in EXCEPTIONS or node.id == "BaseException" or self.classes.get(node.id, {}).get("exception")
-        ):
-            return {"kind": "exc"}
-        # boxed:begin
-        # An island class annotation is its handle type (issue #628): the
-        # class lives in the embedded interpreter, and an instance crossed
-        # into a compiled local is an opaque handle.
-        if isinstance(node, ast.Name) and node.id in self.island_classes:
-            return island_class_type(node.id)
-        # boxed:end
-        if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
-            return {"kind": "class", "name": self.class_aliases.get(node.id, node.id)}
-        handle = self._handle_annotation(node)
-        if handle is not None:
-            return handle
-        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "list":
-            typ = {"kind": "list", "elem": self._annotation(node.slice)}
-            self._reject_banned_type(node, typ)
-            return typ
-        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "set":
-            elem = self._annotation(node.slice)
-            if elem["kind"] not in {"int", "str"}:
-                self.fail(node, "PS2002", "set elements are int or str")
-            return {"kind": "list", "elem": elem, "set": True}
-        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "tuple":
-            return self._tuple_annotation(node)
-        aliased = self._aliased_annotation(node)
-        if aliased is not None:
-            return aliased
-        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "dict":
-            if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
-                self.fail(node, "PS1001", "dict annotations are dict[key, value]")
-            typ = {
-                "kind": "dict",
-                "key": self._annotation(node.slice.elts[0]),
-                "value": self._annotation(node.slice.elts[1]),
-            }
-            self._reject_banned_type(node, typ)
-            return typ
-        named = self._annotation_class(node)
-        if named is not None:
-            return {"kind": "class", "name": named}
-        inst = self._generic_alias_annotation(node)
-        if inst is not None:
-            return inst
-        self._fail_annotation(node)
-
-    def _fail_annotation(self, node: ast.AST) -> NoReturn:
-        """Fence an annotation the subset does not lower, with the code that names why."""
-        text = ast.unparse(node)
-        if isinstance(node, ast.Constant) and isinstance(node.value, str):
-            self.fail(node, "PS1105", f"the forward reference {text} is not lowered")
-        if isinstance(node, ast.Subscript):
-            self.fail(node, "PS1103", f"the generic annotation {text} is not lowered")
-        tail = text.rsplit(".", 1)[-1]
-        if tail in _DYNAMIC_ANNOTATIONS:
-            self.fail(node, "PS1104", f"{text} is a dynamic or structural type and is not lowered")
-        if isinstance(node, (ast.Name, ast.Attribute)):
-            self.fail(node, "PS1106", f"the annotation {text} names a type that is not lowered")
-        self.fail(node, "PS1001", "this annotation is not in the lowered subset")
 
     def _typevar_call(self, node: ast.expr) -> ast.Call | None:
         """The `TypeVar('T', ...)` call, spelled through a `from typing import
@@ -1347,7 +1155,7 @@ class ClassesMixin:
         for kw in call.keywords:
             if kw.arg == "bound":
                 typ = self._annotation(kw.value)
-                bound = typ if typ["kind"] != "typevar" else None
+                bound = typ if _type_kind(typ) != "typevar" else None
             elif kw.arg in {"covariant", "contravariant"}:
                 continue
             else:
@@ -1375,19 +1183,6 @@ class ClassesMixin:
             return []
         return None
 
-    def _generic_alias_annotation(self, node: ast.AST) -> dict[str, Any] | None:
-        """`Box[int]` on a user `class Box(Generic[T])`: instantiate the class
-        at the argument types; the annotation resolves to `Box_int`."""
-        if not isinstance(node, ast.Subscript) or not isinstance(node.value, ast.Name):
-            return None
-        info = self.classes.get(node.value.id)
-        if info is None or not info.get("typevars"):
-            return None
-        elts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
-        args = [self._annotation(elt) for elt in elts]
-        name = self._instantiate_class(node.value.id, args, node)
-        return {"kind": "class", "name": name}
-
     def _instantiate_class(self, base: str, arg_types: list[dict[str, Any]], node: ast.AST) -> str:
         """Register (or reuse) `base` specialized at `arg_types` and return the
         emitted class name; the specialized record is queued to lower."""
@@ -1397,7 +1192,7 @@ class ClassesMixin:
             self.fail(node, "PS1003", f"{base} takes {len(tvars)} type argument(s)")
         mapping: dict[str, dict[str, Any]] = {}
         for tv, typ in zip(tvars, arg_types, strict=True):
-            if typ["kind"] == "none":
+            if _type_kind(typ) == "none":
                 self.fail(node, "PS1003", f"cannot instantiate {base} with none")
             bound = self.typevars.get(tv)
             if bound is not None and not types_equal(typ, bound):
@@ -1460,21 +1255,14 @@ class ClassesMixin:
         if op in {ast.Add, ast.Sub}:
             sign = "+" if op is ast.Add else "-"
             if left_name in {"Date", "DateTime"} and right_name == "TimeDelta":
-                return {"kind": "binary", "op": sign, "left": left, "right": right, "type": left["type"], "span": span}
+                return _binary_node(sign, left, right, left["type"], span)
             if left_name == "TimeDelta" and right_name == "TimeDelta":
-                return {"kind": "binary", "op": sign, "left": left, "right": right, "type": left["type"], "span": span}
+                return _binary_node(sign, left, right, left["type"], span)
             if op is ast.Sub and left_name == right_name and left_name in {"Date", "DateTime"}:
-                return {
-                    "kind": "binary",
-                    "op": "-",
-                    "left": left,
-                    "right": right,
-                    "type": {"kind": "class", "name": "TimeDelta"},
-                    "span": span,
-                }
+                return _binary_node("-", left, right, _class_type("TimeDelta"), span)
         if op is ast.Div:
             # `p / x` is pathlib's __truediv__/__rtruediv__: joinpath each way.
-            if left_name == "Path" and right["type"]["kind"] == "str":
+            if left_name == "Path" and _type_kind(right["type"]) == "str":
                 return self._abi_call(
                     "pathlib", "Path.__truediv__", [left, right], left["type"], "ps_path_joinpath", span
                 )
@@ -1482,7 +1270,7 @@ class ClassesMixin:
                 return self._abi_call(
                     "pathlib", "Path.__truediv__", [left, right], left["type"], "ps_path_joinpath_p", span
                 )
-            if left["type"]["kind"] == "str" and right_name == "Path":
+            if _type_kind(left["type"]) == "str" and right_name == "Path":
                 return self._abi_call(
                     "pathlib", "Path.__rtruediv__", [left, right], right["type"], "ps_path_rjoin", span
                 )
@@ -1497,11 +1285,9 @@ class ClassesMixin:
         node: ast.AST,
         expect: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
-        if obj["type"]["kind"] == "exc":
+        if _type_kind(obj["type"]) == "exc":
             if name == "args":
-                return self._abi_call(
-                    "builtins", "exc.args", [obj], {"kind": "list", "elem": {"kind": "str"}}, "ps_exc_args", span
-                )
+                return self._abi_call("builtins", "exc.args", [obj], _list_type(_leaf_type("str")), "ps_exc_args", span)
             self.fail(node, "PS2001", f"exception has no attribute {name}")
         if obj.get("symbol") == "ps_exc_class" and obj.get("attrtype") == "type":
             # type(e): the carrier holds the runtime class name. `.__name__`
@@ -1509,7 +1295,7 @@ class ClassesMixin:
             if name == "__name__":
                 return obj
             self.fail(node, "PS2001", f"type(e) has no attribute {name}")
-        if obj["type"]["kind"] != "class":
+        if _type_kind(obj["type"]) != "class":
             note = annotation_note(name)
             if note is not None:
                 self.fail(node, "PS2001", note)
@@ -1524,31 +1310,34 @@ class ClassesMixin:
             # ABI, and reading a field would be a wild access (issue #224).
             self.fail(node, "PS4015", f"{class_name} is an opaque ffi handle and has no attributes")
         if class_name == "Semaphore" and name == "_value":
-            return self._abi_call("threading", "Semaphore._value", [obj], {"kind": "int"}, "ps_sem_value", span)
+            return self._abi_call("threading", "Semaphore._value", [obj], _leaf_type("int"), "ps_sem_value", span)
         if class_name == "AsyncSemaphore" and name == "_value":
             # The asyncio semaphore's counter, the same shape the threading
             # one has: an opaque pointer with a read-only count.
-            return self._abi_call("asyncio", "Semaphore._value", [obj], {"kind": "int"}, "ps_asem_value", span)
+            return self._abi_call("asyncio", "Semaphore._value", [obj], _leaf_type("int"), "ps_asem_value", span)
         if class_name == "Thread" and name == "name":
-            return self._abi_call("threading", "Thread.name", [obj], {"kind": "str"}, "ps_thread_name2", span)
+            return self._abi_call("threading", "Thread.name", [obj], _leaf_type("str"), "ps_thread_name2", span)
         if class_name == "Thread" and name == "daemon":
-            return self._abi_call("threading", "Thread.daemon", [obj], {"kind": "bool"}, "ps_thread_daemon", span)
+            return self._abi_call("threading", "Thread.daemon", [obj], _leaf_type("bool"), "ps_thread_daemon", span)
         info = self.classes.get(class_name)
         if info is None:
             self.fail(node, "PS2001", f"{class_name} has no fields")
         for field in info["fields"]:
             if field["name"] == name:
-                return {"kind": "attr", "value": obj, "name": name, "type": field["type"], "span": span}
+                return _attr_node(obj, name, field["type"], span)
+        if obj["type"].get("optional") and _maybe_type_kind(obj["type"].get("elem", {})) == "class":
+            # `x.f` on a `T | None` cell reads through `_val` once the tag
+            # is proven set; an unset tag raises AttributeError.
+            return self._lookup_attr(self._opt_payload(obj, name, span), name, span, node, expect)
+        # A class-level constant reads through the instance when no instance
+        # field shadows it.
+        const = self._class_const(class_name, name)
+        if const is not None:
+            return {**const, "span": span}
         if info.get("method_kind", {}).get(name) == "property":
             sig = info["methods"][name]
             owner = self._emit_owner(class_name, name)
-            return {
-                "kind": "call",
-                "callee": {"kind": "function", "name": f"cls.{owner}.{name}"},
-                "args": [obj],
-                "type": sig[1],
-                "span": span,
-            }
+            return _function_call(f"cls.{owner}.{name}", [obj], sig[1], span)
         hook = self._getattr_hook(class_name)
         if hook is not None:
             return self._getattr_hook_call(hook, obj, name, span, node, expect)
@@ -1563,6 +1352,21 @@ class ClassesMixin:
             self.fail(node, "PS2001", note)
         self.fail(node, "PS2001", f"{class_name}.{name} is not a field")
         raise AssertionError("unreachable")
+
+    def _class_const(self, class_name: str, attr: str) -> dict[str, Any] | None:
+        """The class-level constant `attr` of `class_name`, or None.
+
+        A method defined on the class itself wins over a same-named
+        constant, matching the class dictionary's own-name precedence;
+        ancestors' methods do not shadow it.
+        """
+        info = self.classes.get(class_name)
+        if info is None:
+            return None
+        const = (info.get("constants") or {}).get(attr)
+        if const is None or info.get("method_owner", {}).get(attr) == class_name:
+            return None
+        return const
 
     def _getattr_hook(self, class_name: str) -> tuple[str, dict[str, Any]] | None:
         """The first `__getattr__` definer in the MRO, as (owner, signature).
@@ -1589,7 +1393,7 @@ class ClassesMixin:
             if ancestor_info.get("method_kind", {}).get("__getattr__", "method") != "method":
                 return None
             params, _ = ancestor_info["methods"]["__getattr__"]
-            if len(params) != 2 or params[1].get("type", {}).get("kind") != "str":
+            if len(params) != 2 or _maybe_type_kind(params[1].get("type", {})) != "str":
                 return None
             return ancestor, ancestor_info["methods"]["__getattr__"]
         return None
@@ -1619,7 +1423,7 @@ class ClassesMixin:
                 f"{owner}.__getattr__ returns {_show(ret)}; the return type must cover the read site exactly",
             )
             raise AssertionError("unreachable")
-        if ret["kind"] in {"none"}:
+        if _type_kind(ret) in {"none"}:
             self.fail(
                 node,
                 "PS4204",
@@ -1633,16 +1437,15 @@ class ClassesMixin:
                 f"{owner}.__getattr__ returns {_show(ret)}, the read site expects {_show(expect)}",
             )
             raise AssertionError("unreachable")
-        return {
-            "kind": "call",
-            "callee": {"kind": "function", "name": f"cls.{owner}.__getattr__"},
-            "args": [obj, {"kind": "const", "value": name, "type": {"kind": "str"}, "span": span}],
-            "type": copy.deepcopy(ret),
-            "span": span,
-        }
+        return _function_call(
+            f"cls.{owner}.__getattr__",
+            [obj, _const_str_node(name, span)],
+            copy.deepcopy(ret),
+            span,
+        )
 
     def _has_attr(self, obj: dict[str, Any], name: str) -> bool:
-        if obj["type"]["kind"] != "class":
+        if _type_kind(obj["type"]) != "class":
             return False
         class_name = obj["type"]["name"]
         info = self.classes.get(class_name)
@@ -1655,555 +1458,6 @@ class ClassesMixin:
         if class_name == "Path" and path_attr(name) is not None:
             return True
         return synth_method(class_name, name) is not None
-
-    def _isinstance_type(self, node: ast.expr) -> dict[str, Any]:
-        if isinstance(node, ast.Name) and node.id in {"int", "float", "bool", "str", "bytes"}:
-            return {"kind": node.id}
-        if isinstance(node, ast.Name) and node.id in {"list", "dict"}:
-            return {"kind": node.id, "bare": True}
-        if isinstance(node, ast.Name) and (
-            node.id in self.classes or node.id in self.class_aliases or node.id in EXCEPTIONS
-        ):
-            name = self.class_aliases.get(node.id, node.id)
-            if self.classes.get(name, {}).get("protocol"):
-                self.fail(node, "PS2001", "isinstance on a Protocol is not lowered")
-            return {"kind": "class", "name": name}
-        if isinstance(node, ast.Name):
-            binding = self.bindings.get(node.id)
-            if binding is not None:
-                alias = alias_name(binding.module, binding.attr)
-                if alias is not None:
-                    return {"kind": "class", "name": alias}
-        if isinstance(node, ast.Attribute):
-            resolved = self._resolve_module(node)
-            if resolved is not None:
-                alias = alias_name(resolved[1], resolved[2])
-                if alias is not None:
-                    return {"kind": "class", "name": alias}
-        self.fail(node, "PS2001", "isinstance type is not in the lowered subset")
-        raise AssertionError("unreachable")
-
-    def _isinstance_holds(self, got: dict[str, Any], want: dict[str, Any]) -> bool:
-        if want.get("bare") and got["kind"] == want["kind"]:
-            return True
-        if want["kind"] == "int" and got["kind"] == "bool":
-            return True
-        if want["kind"] == "class" and got["kind"] == "class":
-            got_name = got.get("name")
-            want_name = want.get("name")
-            if isinstance(got_name, str) and isinstance(want_name, str) and self._is_subclass_name(got_name, want_name):
-                return True
-        return types_equal(got, want)
-
-    def _is_subclass_name(self, got: str, want: str) -> bool:
-        info = self.classes.get(got)
-        if info is None:
-            return False
-        mro = info.get("mro")
-        if mro is not None:
-            return want in mro
-        current: str | None = got
-        seen: set[str] = set()
-        while current and current not in seen:
-            if current == want:
-                return True
-            seen.add(current)
-            info = self.classes.get(current)
-            if info is None:
-                return False
-            parent = info.get("base")
-            current = parent if isinstance(parent, str) else None
-        return False
-
-    def _exception_parent_code(self, base: dict[str, str] | None, parent_name: str | None) -> int:
-        """The code a user exception class registers as its parent.
-
-        A builtin base contributes its table code. A user base contributes
-        that class's own code; the runtime resolves the chain from there.
-        """
-
-        if base is not None and base.get("kind") == "exception":
-            return EXCEPTIONS[base["name"]]
-        if parent_name is not None:
-            info = self.classes.get(parent_name)
-            code = info.get("exc_code") if info is not None else None
-            if isinstance(code, int):
-                return code
-        return EXCEPTIONS["Exception"]
-
-    def _exception_code_of(self, name: str) -> int | None:
-        """The code of one exception class, without its subclasses."""
-
-        if name in EXCEPTIONS:
-            return EXCEPTIONS[name]
-        if name in RESERVED_EXCEPTIONS:
-            return RESERVED_EXCEPTIONS[name]
-        info = self.classes.get(name)
-        code = info.get("exc_code") if info is not None else None
-        return code if isinstance(code, int) else None
-
-    def _exception_codes(self, name: str) -> list[int]:
-        found: list[int] = []
-        if name in EXCEPTIONS:
-            found.append(EXCEPTIONS[name])
-        elif name in RESERVED_EXCEPTIONS:
-            found.append(RESERVED_EXCEPTIONS[name])
-        else:
-            info = self.classes.get(name)
-            code = info.get("exc_code") if info is not None else None
-            if isinstance(code, int):
-                found.append(code)
-        for class_name, info in self.classes.items():
-            code = info.get("exc_code")
-            if class_name == name or not isinstance(code, int):
-                continue
-            if self._is_subclass_name(class_name, name):
-                found.append(code)
-        return found
-
-    def _aliased_annotation(self, node: ast.AST) -> dict[str, Any] | None:
-        if not isinstance(node, ast.Subscript):
-            return None
-        alias = self._annotation_alias(node.value)
-        if alias == "Deque":
-            elem = self._annotation(node.slice)
-            if elem["kind"] == "bool":
-                self.fail(node, "PS2002", "list[bool] is not lowered")
-            return {"kind": "class", "name": "Deque", "elem": elem}
-        if alias == "Task":
-            # `asyncio.Task[T]`: the task handle carries the coroutine's
-            # result type, so `await task` reads the right shape.
-            elem = self._annotation(node.slice)
-            return {"kind": "class", "name": "Task", "elem": elem}
-        if alias == "OrderedDict":
-            if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
-                self.fail(node, "PS1001", "OrderedDict annotations are OrderedDict[key, value]")
-            typ = {
-                "kind": "dict",
-                "key": self._annotation(node.slice.elts[0]),
-                "value": self._annotation(node.slice.elts[1]),
-            }
-            self._reject_banned_type(node, typ)
-            return typ
-        if alias == "Counter":
-            # `counter` marks the dict so a `c[k]` read yields 0 on a miss.
-            typ = {"kind": "dict", "key": self._annotation(node.slice), "value": {"kind": "int"}, "counter": True}
-            self._reject_banned_type(node, typ)
-            return typ
-        if alias == "defaultdict":
-            # `defaultdict` marks the dict so a `d[k]` miss inserts a fresh
-            # default (the zero of the value type) before the read.
-            if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
-                self.fail(node, "PS1001", "defaultdict annotations are defaultdict[key, value]")
-            typ = {
-                "kind": "dict",
-                "key": self._annotation(node.slice.elts[0]),
-                "value": self._annotation(node.slice.elts[1]),
-                "defaultdict": True,
-            }
-            self._reject_banned_type(node, typ)
-            return typ
-        if alias == "Queue":
-            # The queue record holds element-sized slots, so the annotation
-            # carries the element type the way a deque annotation does.
-            elem = self._annotation(node.slice)
-            if elem["kind"] == "bool":
-                self.fail(node, "PS2002", "list[bool] is not lowered")
-            return {"kind": "class", "name": "Queue", "elem": elem}
-        if alias == "AsyncQueue":
-            # `asyncio.Queue[T]`: the same element-sized slots as the sync
-            # queue, on the asyncio record.
-            elem = self._annotation(node.slice)
-            if elem["kind"] == "bool":
-                self.fail(node, "PS2002", "list[bool] is not lowered")
-            return {"kind": "class", "name": "AsyncQueue", "elem": elem}
-        return None
-
-    def _handle_annotation(self, node: ast.AST) -> dict[str, Any] | None:
-        """The IR type of a manifest handle annotation, or None.
-
-        A handle is named two ways: imported (`from demo import Conn`, bound
-        as a `handle` binding) or qualified (`demo.Conn`, an attribute of a
-        manifest module). Both lower to the opaque `class` type the emitter
-        rides as a `ptr` (issue #224).
-        """
-        if isinstance(node, ast.Name):
-            binding = self.bindings.get(node.id)
-            if binding is not None and binding.kind == "handle":
-                return handle_type(binding.attr)
-            return None
-        if isinstance(node, ast.Attribute):
-            resolved = self._resolve_module(node)
-            if resolved is None:
-                return None
-            _dotted, module, member, status = resolved
-            if status not in {"lowered", "value"}:
-                return None
-            manifest = self._ffi_module(module)
-            if manifest is None or manifest.handle(member) is None:
-                return None
-            return handle_type(member)
-        return None
-
-    def _annotation_class(self, node: ast.AST) -> str | None:
-        if isinstance(node, ast.Name):
-            binding = self.bindings.get(node.id)
-            if binding is None:
-                return None
-            return alias_name(binding.module, binding.attr)
-        if isinstance(node, ast.Attribute):
-            resolved = self._resolve_module(node)
-            if resolved is None:
-                return None
-            if resolved[3] == "erased":
-                return _IO_HANDLES.get(resolved[2])
-            return alias_name(resolved[1], resolved[2])
-        return None
-
-    def _annotation_alias(self, node: ast.AST) -> str | None:
-        if isinstance(node, ast.Name):
-            binding = self.bindings.get(node.id)
-            if binding is None:
-                return None
-            if binding.module == "collections" and binding.attr == "deque":
-                return "Deque"
-            if binding.module == "collections" and binding.attr == "OrderedDict":
-                return "OrderedDict"
-            if binding.module == "collections" and binding.attr == "Counter":
-                return "Counter"
-            if binding.module == "collections" and binding.attr == "defaultdict":
-                return "defaultdict"
-            if binding.module == "queue" and binding.attr in {"Queue", "LifoQueue", "SimpleQueue"}:
-                return "Queue"
-            if binding.module == "asyncio" and binding.attr in {"Lock", "Event", "Semaphore"}:
-                return alias_name(binding.module, binding.attr)
-            if binding.module == "asyncio" and binding.attr == "Queue":
-                return "AsyncQueue"
-            return alias_name(binding.module, binding.attr)
-        if isinstance(node, ast.Attribute):
-            resolved = self._resolve_module(node)
-            if resolved is None or resolved[3] != "lowered":
-                return None
-            if resolved[1] == "collections" and resolved[2] == "deque":
-                return "Deque"
-            if resolved[1] == "collections" and resolved[2] == "OrderedDict":
-                return "OrderedDict"
-            if resolved[1] == "collections" and resolved[2] == "Counter":
-                return "Counter"
-            if resolved[1] == "collections" and resolved[2] == "defaultdict":
-                return "defaultdict"
-            if resolved[1] == "queue" and resolved[2] in {"Queue", "LifoQueue", "SimpleQueue"}:
-                return "Queue"
-            if resolved[1] == "asyncio" and resolved[2] == "Task":
-                return "Task"
-            if resolved[1] == "asyncio" and resolved[2] in {"Lock", "Event", "Semaphore"}:
-                return alias_name(resolved[1], resolved[2])
-            if resolved[1] == "asyncio" and resolved[2] == "Queue":
-                return "AsyncQueue"
-        return None
-
-    def _typing_annotation(self, node: ast.AST) -> dict[str, Any] | None:
-        # `-> NoReturn` / `-> Never` (issue #645): the function never returns
-        # a value to its caller. The IR has no bottom type, so the signature
-        # carries `none`: callers read no result, and the body's exit (a
-        # raise or an exit call) is what actually ends the process.
-        if isinstance(node, ast.Name) and node.id in _NEVER_ALIASES:
-            return {"kind": "none"}
-        if isinstance(node, ast.Name) and node.id in self.type_aliases:
-            alias = self.type_aliases[node.id]
-            if alias in _NEVER_ALIASES:
-                return {"kind": "none"}
-            handle = _IO_HANDLES.get(alias)
-            if handle is not None:
-                return {"kind": "class", "name": handle}
-            code = "PS1104" if alias in _DYNAMIC_ANNOTATIONS else "PS1103"
-            self.fail(node, code, f"{alias} is not a lowered type in the IR")
-        if not isinstance(node, ast.Subscript):
-            return None
-        alias = self._typing_alias(node.value)
-        if alias is None:
-            return None
-        if alias == "IO":
-            handle = _io_parameter(node.slice)
-            if handle is None:
-                self.fail(node, "PS1001", "IO is not a lowered type in the IR")
-            return {"kind": "class", "name": handle}
-        if alias in _LIST_FORMS:
-            typ = {"kind": "list", "elem": self._annotation(node.slice)}
-            self._reject_banned_type(node, typ)
-            return typ
-        if alias in _SET_FORMS:
-            elem = self._annotation(node.slice)
-            if elem["kind"] not in {"int", "str"}:
-                self.fail(node, "PS2002", "set elements are int or str")
-            return {"kind": "list", "elem": elem, "set": True}
-        if alias in _DICT_FORMS:
-            if not isinstance(node.slice, ast.Tuple) or len(node.slice.elts) != 2:
-                self.fail(node, "PS1001", "Dict annotations are Dict[key, value]")
-            typ = {
-                "kind": "dict",
-                "key": self._annotation(node.slice.elts[0]),
-                "value": self._annotation(node.slice.elts[1]),
-            }
-            self._reject_banned_type(node, typ)
-            return typ
-        if alias == "Callable":
-            if (
-                not isinstance(node.slice, ast.Tuple)
-                or len(node.slice.elts) != 2
-                or not isinstance(node.slice.elts[0], ast.List)
-            ):
-                self.fail(node, "PS1001", "Callable annotations are Callable[[args], ret]")
-            params = [self._annotation(arg) for arg in node.slice.elts[0].elts]
-            ret = self._annotation(node.slice.elts[1])
-            return {"kind": "func", "params": params, "return": ret}
-        if alias == "Tuple":
-            return self._tuple_annotation(node)
-        if alias == "Iterable" or alias == "Sequence":
-            typ = {"kind": "list", "elem": self._annotation(node.slice)}
-            self._reject_banned_type(node, typ)
-            return typ
-        if alias == "Iterator":
-            return self._iter_type(self._annotation(node.slice), node)
-        if alias == "Generator":
-            return self._generator_annotation(node)
-        if alias in _UNWRAP_FORMS:
-            inner = node.slice
-            if alias == "Annotated":
-                if isinstance(inner, ast.Tuple) and inner.elts:
-                    inner = inner.elts[0]
-                else:
-                    self.fail(node, "PS1001", "Annotated needs a type")
-            return self._annotation(inner)
-        if alias == "Optional":
-            return self._opt_type(self._annotation(node.slice), node)
-        if alias == "Union":
-            parts = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
-            if len(parts) == 2:
-                for i, part in enumerate(parts):
-                    if isinstance(part, ast.Constant) and part.value is None:
-                        return self._opt_type(self._annotation(parts[1 - i]), node)
-            if any(isinstance(part, ast.Constant) and part.value is None for part in parts):
-                self.fail(node, "PS1102", "an optional of a multi-arm union is not in the IR")
-            self.fail(node, "PS1101", "union types are not in the IR")
-        self.fail(node, "PS1103", f"{alias} is not a lowered type in the IR")
-
-    # Spellings of `collections.abc` / `typing` iterator forms that appear in
-    # annotations even when the import sat under `if TYPE_CHECKING:` and was
-    # never bound at runtime. A user class of the same name still wins.
-    _IMPLICIT_ITER_FORMS = frozenset({"Iterator", "Iterable", "Generator", "Sequence"})
-
-    def _typing_alias(self, node: ast.AST) -> str | None:
-        if isinstance(node, ast.Name):
-            if node.id in self.type_aliases:
-                return self.type_aliases[node.id]
-            if node.id in self._IMPLICIT_ITER_FORMS and node.id not in self.classes and node.id not in self.declared:
-                return node.id
-        if isinstance(node, ast.Attribute):
-            resolved = self._resolve_module(node)
-            if resolved is not None and resolved[3] == "erased":
-                return resolved[2]
-        return None
-
-    def _synthetic_classes(self, seen: set[str], deferred_only: bool = False) -> list[dict[str, Any]]:
-        found: list[dict[str, Any]] = []
-        for name, info in self.classes.items():
-            if name in seen or not info.get("synthetic"):
-                continue
-            # A deferred class (the argparse Namespace) grows fields while
-            # the statements lower, so only the closing pass emits it.
-            if deferred_only != bool(info.get("deferred")):
-                continue
-            record = {
-                "name": name,
-                "fields": info["fields"],
-                "methods": [],
-                "span": {"file": self.filename, "line": 1, "col": 1, "endLine": 1, "endCol": 1},
-            }
-            if info.get("exception"):
-                record["exception"] = True
-                record["exc_code"] = info["exc_code"]
-                record["exc_parent"] = info.get("exc_parent", EXCEPTIONS["Exception"])
-            found.append(record)
-        return found
-
-    def _tuple_annotation(self, node: ast.Subscript) -> dict[str, Any]:
-        elts = list(node.slice.elts) if isinstance(node.slice, ast.Tuple) else [node.slice]
-        if any(_ellipsis_const(elt) for elt in elts):
-            # tuple[T, ...] is a homogeneous sequence of zero or more T. That is the
-            # list[T] struct.unpack already returns. A synthetic class would be a new
-            # shape. Mixed or nested ellipsis stays the current fence.
-            if len(elts) == 2 and _ellipsis_const(elts[1]) and not _node_has_ellipsis(elts[0]):
-                elem = self._annotation(elts[0])
-                typ = {"kind": "list", "elem": elem}
-                self._reject_banned_type(node, typ)
-                return typ
-            self.fail(node, "PS1001", "tuple[T, ...] is not in the IR")
-        if len(elts) < 2:
-            self.fail(node, "PS1001", "tuples need at least two fields")
-        return self._tuple_type([self._annotation(elt) for elt in elts], node)
-
-    def _tuple_type(self, fields: list[dict[str, Any]], node: ast.AST) -> dict[str, Any]:
-        if any(field["kind"] == "func" for field in fields):
-            self.fail(node, "PS2002", "callable members are not lowered")
-        label = "tuple[" + ", ".join(_show(field) for field in fields) + "]"
-        name = "tuple_" + str(len(fields)) + "_" + "_".join(_type_slug(field) for field in fields)
-        existing = self.classes.get(name)
-        if existing is None:
-            if name in self.declared:
-                self.fail(node, "PS2002", f"{name} clashes with a tuple type")
-            self.classes[name] = {
-                "fields": [{"name": f"_{index}", "type": field} for index, field in enumerate(fields)],
-                "methods": {},
-                "synthetic": True,
-                "tuple": True,
-            }
-            self.declared.add(name)
-        elif not existing.get("tuple"):
-            self.fail(node, "PS2002", f"{name} clashes with a tuple type")
-        return {"kind": "class", "name": name, "label": label}
-
-    def _generator_annotation(self, node: ast.Subscript) -> dict[str, Any]:
-        """`Generator[T, S, R]` as a value annotation is the iterator cursor
-        over T: the send and return types stay with the generator's own
-        signature, and a local of this type holding a generator frame keeps
-        the frame type (`_narrows_to_generator`)."""
-        if not isinstance(node.slice, ast.Tuple) or not 1 <= len(node.slice.elts) <= 3:
-            self.fail(node, "PS1001", "Generator is Generator[T] or Generator[T, S, R]")
-        return self._iter_type(self._annotation(node.slice.elts[0]), node)
-
-    def _iter_type(self, elem: dict[str, Any], node: ast.AST) -> dict[str, Any]:
-        """`Iterator[T]` / the `iter()` value: a synthetic record
-        {seq: list[T], idx: int} whose cursor `next()`/`for` advance. The
-        sequence materializes eagerly (the R24 model), so the record is a
-        cursor into a list, not a lazy pull."""
-        self._reject_banned_type(node, {"kind": "list", "elem": elem})
-        name = f"iter_{_type_slug(elem)}"
-        existing = self.classes.get(name)
-        if existing is None:
-            if name in self.declared:
-                self.fail(node, "PS2002", f"{name} clashes with an iterator type")
-            self.classes[name] = {
-                "fields": [
-                    {"name": "seq", "type": {"kind": "list", "elem": elem}},
-                    {"name": "idx", "type": {"kind": "int"}},
-                ],
-                "methods": {},
-                "synthetic": True,
-                "iterator": True,
-            }
-            self.declared.add(name)
-        elif not existing.get("iterator"):
-            self.fail(node, "PS2002", f"{name} clashes with an iterator type")
-        return {"kind": "class", "name": name, "elem": elem}
-
-    def _tuple_expr(self, node: ast.Tuple, span: dict[str, Any]) -> dict[str, Any]:
-        if len(node.elts) < 2:
-            self.fail(node, "PS2002", "tuples need at least two fields")
-        elems = [self._expr(elt) for elt in node.elts]
-        return self._materialize_tuple(elems, span, node)
-
-    def _tuple_subscript(self, node: ast.Subscript, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-        index = _const_int_index(node.slice)
-        if index is None:
-            self.fail(node, "PS2002", "a tuple index must be a constant")
-        fields = self.classes[value["type"]["name"]]["fields"]
-        if index < 0:
-            index += len(fields)
-        if index < 0 or index >= len(fields):
-            self.fail(node, "PS2002", "tuple index is out of range")
-        field = fields[index]
-        return {"kind": "attr", "value": value, "name": field["name"], "type": field["type"], "span": span}
-
-    def _optional_pipe(self, node: ast.BinOp) -> dict[str, Any] | None:
-        arms = []
-        pending = [node]
-        while pending:
-            cur = pending.pop()
-            if isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.BitOr):
-                pending.append(cur.right)
-                pending.append(cur.left)
-            else:
-                arms.append(cur)
-        if not any(isinstance(arm, ast.Constant) and arm.value is None for arm in arms):
-            return None
-        rest = [arm for arm in arms if not (isinstance(arm, ast.Constant) and arm.value is None)]
-        distinct = {ast.dump(arm) for arm in rest}
-        if len(distinct) > 1:
-            self.fail(node, "PS1102", "an optional of a multi-arm union is not in the IR")
-        if not rest:
-            return None
-        return self._opt_type(self._annotation(rest[0]), node)
-
-    def _opt_type(self, elem: dict[str, Any], node: ast.AST) -> dict[str, Any]:
-        if elem["kind"] == "none":
-            return {"kind": "none"}
-        if elem.get("optional"):
-            return elem
-        name = "opt_" + _type_slug(elem)
-        existing = self.classes.get(name)
-        if existing is None:
-            if name in self.declared:
-                self.fail(node, "PS2002", f"{name} clashes with an optional type")
-            self.classes[name] = {
-                "fields": [
-                    {"name": "_tag", "type": {"kind": "bool"}},
-                    {"name": "_val", "type": elem},
-                ],
-                "methods": {},
-                "synthetic": True,
-                "optional": True,
-            }
-            self.declared.add(name)
-        elif not existing.get("optional"):
-            self.fail(node, "PS2002", f"{name} clashes with an optional type")
-        return {"kind": "class", "name": name, "label": _show(elem) + " | None", "optional": True, "elem": elem}
-
-
-def _param(
-    lowerer: Any, arg: ast.arg, fn: ast.FunctionDef | None = None, default: ast.expr | None = None
-) -> dict[str, Any]:
-    if arg.annotation is None:
-        # Checker bridge: the checker inferred the parameter's type (from the
-        # default, the callers, or the body). Without a bridged answer the
-        # fence stands (PS1001, param-inference family). Inside the return
-        # peek the refusal becomes a caught fence, so the peek returns None.
-        if fn is not None:
-            inferred = lowerer._bridge_param_type(fn, arg)
-            if inferred is not None:
-                return {"name": arg.arg, "type": inferred}
-        # Issue #500: an unannotated parameter with a default of a proven
-        # type binds to that type. The default is a value the call site may
-        # rely on, so its own lowered type is the fact, not a guess: this is
-        # CPython's `def f(x=0)` reading as `x: int`. A default the peek
-        # cannot type (None, an empty display, a call that does not lower)
-        # keeps the fence.
-        if default is not None:
-            inferred = lowerer._infer_type_of(default)
-            if inferred is not None and inferred["kind"] not in {"none", "func"}:
-                return {"name": arg.arg, "type": inferred}
-        # Both paths raise PS1001; the return peek catches it and returns
-        # None. An unannotated parameter is named by its own fence.
-        lowerer.fail(arg, "PS1001", f"parameter {arg.arg} needs an annotation")
-    return {"name": arg.arg, "type": lowerer._annotation(arg.annotation)}
-
-
-def _ellipsis_const(node: ast.AST) -> bool:
-    return isinstance(node, ast.Constant) and node.value is Ellipsis
-
-
-def _node_has_ellipsis(node: ast.AST) -> bool:
-    return any(_ellipsis_const(child) for child in ast.walk(node))
-
-
-def _io_parameter(node: ast.AST) -> str | None:
-    """IO[bytes] and IO[str] are the handles open() already returns. Any other parameter stays fenced."""
-
-    if isinstance(node, ast.Name) and node.id == "bytes":
-        return "BytesIO"
-    if isinstance(node, ast.Name) and node.id == "str":
-        return "TextIO"
-    return None
 
 
 def _assigned_fields(body: list[ast.stmt]) -> set[str]:
@@ -2233,22 +1487,3 @@ def _nt_fields(node: ast.expr) -> list[str] | None:
         names = [elt.value for elt in node.elts if _plain_const_kind(elt) == "str"]
         return names if len(names) == len(node.elts) else None
     return None
-
-
-def _const_int_index(node: ast.expr) -> int | None:
-    if isinstance(node, ast.Constant) and isinstance(node.value, int) and not isinstance(node.value, bool):
-        return node.value
-    if (
-        isinstance(node, ast.UnaryOp)
-        and isinstance(node.op, ast.USub)
-        and isinstance(node.operand, ast.Constant)
-        and isinstance(node.operand.value, int)
-        and not isinstance(node.operand.value, bool)
-    ):
-        return -node.operand.value
-    return None
-
-
-def _type_slug(typ: dict[str, Any]) -> str:
-    raw = type_key(typ)
-    return "".join(ch if ch.isalnum() else "_" for ch in raw).strip("_")

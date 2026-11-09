@@ -57,6 +57,8 @@ const { title, desc, cmd, close } = i18n.playgroundModal;
           id="modal-copy-btn"
           aria-label="Copy install command"
           title="Copy command"
+          data-ph-event="install_copy"
+          data-ph-props='{"tab":"modal"}'
         >
           <svg
             class="copy-icon"
@@ -78,7 +80,7 @@ const { title, desc, cmd, close } = i18n.playgroundModal;
     </div>
 
     <div class="modal-footer">
-      <a href={siteLinks.docs} class="modal-docs-link">
+      <a href={siteLinks.docs} class="modal-docs-link" data-ph-event="cta_click" data-ph-label="playground_docs">
         Explore Documentation ↗
       </a>
       <button type="button" class="modal-action-btn" id="playground-modal-confirm-btn">
@@ -375,6 +377,7 @@ const { title, desc, cmd, close } = i18n.playgroundModal;
         const text = cmdText.textContent?.trim() || "";
         try {
           await navigator.clipboard.writeText(text);
+          import("../lib/analytics").then((a) => a.track("install_copy", { source: "playground_modal" }));
           const copyText = copyBtn.querySelector(".copy-text");
           if (copyText) copyText.textContent = "Copied!";
           copyBtn.classList.add("copied");

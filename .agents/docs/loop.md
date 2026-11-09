@@ -1,6 +1,6 @@
 # Iteration loop
 
-This file is the procedure for one compiler iteration after `gates-v2`. An agent with this file and the repo can name the target, run the checks, and keep or revert the commit. Epic order lives in `.agents/plans/2026-10-14-waves-after-scorer-v2.md`. File ownership lives in [map.md](map.md). Rules a change has to keep live in [invariants.md](invariants.md).
+This file is the procedure for one compiler iteration after `gates-v2`. An agent with this file and the repo can name the target, run the checks, and keep or revert the commit. Epic order lives in the GitHub milestones and the project board. File ownership lives in [map.md](map.md). Rules a change has to keep live in [invariants.md](invariants.md).
 
 The v1 loop and its KPI floors are retired. Those floors were language 45/56, builtins 120/150, stdlib modules 156/194, stdlib surface 1983/2478, and top 100 10/100. A pytest increase, a packaging fence-count change, a progress-log line, a first-fence string edit, and a flat percent are not the metric.
 
@@ -20,7 +20,7 @@ Do this in a worktree from `.agents/bin/agent-checkout <name>`.
 
 ## Primary metric
 
-Weighted pass under the CPython 3.12 oracle. The 3.12 oracle is the target. This branch's scorer still uses `sys.executable` in `benchmarks/compat2/score.py` until A1's `--oracle` switch exists. The score and verdict commands in this file run with the interpreter this branch runs (`uv run python`).
+Weighted pass under the pinned CPython 3.14 oracle (`PIN_NAME` in `benchmarks/compat2/score.py`; the project target is CPython 3.14.x). The score and verdict commands in this file run with the interpreter this branch runs (`uv run python`).
 
 `weighted_pass` is the sum of the score JSON `weights[id]` over rows whose `outcome` is `pass`. The verdict's `primary_delta` is the candidate sum minus the baseline sum.
 
@@ -35,7 +35,7 @@ Weighted pass under the CPython 3.12 oracle. The 3.12 oracle is the target. This
 | Top 100 corpus function (`top100.<project>.<qual>`) | 2.0 |
 | Top 100 whole package (`top100.<project>`) | 5.0 |
 
-`raises` probes that name a specific exception stay at weight 0 until E2, then 1.0. Weight 0 rows do not move the primary metric. These weights are frozen with `gates-v2` (probe `weight`, and `WEIGHTS` in `benchmarks/compat2/outcomes.py`). An iteration does not edit them.
+`raises` and `mention` probes stay at weight 0 (`RAISES_WEIGHT`, `MENTION_WEIGHT` in `benchmarks/compat2/outcomes.py`; frozen with `gates-v2`). Weight 0 rows do not move the primary metric. An iteration does not edit them.
 
 Before the first keep of an epic, spot-check the baseline score JSON. One id of each class in the table must carry that weight. A mismatch means the freeze is wrong: stop the iteration and report it.
 
@@ -48,7 +48,7 @@ Leading indicator, recorded on every iteration and in the epic boundary report:
 
 ## Epics and budgets
 
-The epic file is `.agents/plans/<date>-epic-<name>.md` (date like `2026-10-14`). Create it before the first edit of the epic. It declares:
+The epic file is a local `.agents/plans/<date>-epic-<name>.md` (untracked session file). Create it before the first edit of the epic. It declares:
 
 - the coverage family key (a key from `pyscriptc.coverage`, for example `module-statements`)
 - the budget N
@@ -214,16 +214,16 @@ Definitions unblocked are the baseline `fencedDefinitions` entries missing from 
 Run the verdict inside the heavy container. It shells out to `python -m benchmarks.baseline.run --check` for the perf gate. Leave `--skip-perf` off. Default compile budget is 1.25 (candidate `compile_s` may be at most 1.25 times the baseline). E0 passes `--compile-budget 1.0` so any rise in `compile_s` fails.
 
 ```bash
-HEAVY=1 docker/run.sh sh -c 'uv run python -m benchmarks.compat2.verdict --baseline .agents/scratch-iter-baseline.json --candidate .agents/scratch-iter-candidate.json --census-before .agents/scratch-census-before.json --census-after .agents/scratch-census-after.json --compile-budget 1.25 > .agents/scratch-verdict.json; status=$?; chmod a+rw .agents/scratch-verdict.json; exit $status'
+HEAVY=1 docker/run.sh sh -c 'uv run python -m benchmarks.compat2.verdict --baseline .agents/scratch-iter-baseline.json --candidate .agents/scratch-iter-candidate.json --census-before .agents/scratch-census-before.json --census-after .agents/scratch-census-after.json --wrong-tracker .agents/scratch-wrong-tracker.json --compile-budget 1.25 > .agents/scratch-verdict.json; status=$?; chmod a+rw .agents/scratch-verdict.json; exit $status'
 ```
 
 For E0, change `--compile-budget 1.25` in that command to `--compile-budget 1.0`.
 
-Exit 0 and `"verdict": "PASS"` means keep is allowed, subject to the epic rules below. Exit 1 means FAIL. E0 is the exception in its section: a lone `progress` finding is not a drop there. The JSON has `verdict`, `primary_delta`, `census_delta`, and `findings` (`severity`, `area`, `expected`, `observed`, `fix`).
+Exit 0 and `"verdict": "PASS"` means keep is allowed, subject to the epic rules below. Exit 1 means FAIL. E0 is the exception in its section: a lone `progress` finding is not a drop there. The JSON has `verdict`, `primary_delta`, `census_delta`, and `findings` (`severity`, `area`, `expected`, `observed`, `fix`). Findings with severity `info` are report only: they never fail the verdict and never enter the oscillation ledger.
 
 The verdict applies these in order. The first four are hard gates: any finding fails the verdict before primary or census can save it. Perf is only a gate. It never adds score.
 
-1. Soundness ratchet. A row whose outcome becomes `wrong-output` or `crash`, and whose baseline outcome was neither, is a failure (`soundness:<id>`).
+1. Soundness ratchet. A row whose outcome becomes `wrong-output` or `crash`, and whose baseline outcome was neither, is a failure (`soundness:<id>`). Its second arm is the known-wrong ratchet: a row that is `wrong-output` in both the baseline and the candidate is a known divergence, not a new break, so the new-failure arm cannot see it. With `--wrong-tracker` the verdict ages the row in the tracker file, and past `--wrong-age` runs it is a P2 finding (`known-wrong:<id>`) until a tracking issue is recorded under its row, after which it is an `info` finding carrying the link. A `wrong-output` row that flips to `pass` is a `fixed:<id>` info finding that closes its issue and drops the row from the tracker.
 2. Pass ratchet. An id that was `pass` and is no longer `pass` is a failure (`pass-ratchet:<id>`), even when another id starts passing.
 3. Perf gate. `benchmarks.baseline.run --check` must pass. Time growth against the reference past 2.0, or RSS growth past 1.25, fails the gate (`benchmarks/baseline/compare.py`).
 4. Compile-time budget. `compile_s` within `--compile-budget` times the baseline (default 1.25).

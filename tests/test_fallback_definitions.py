@@ -657,7 +657,7 @@ def test_fallback_island_class_plane_map(tmp_path: Path) -> None:
         """import dataclasses
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(order=True)
 class Point:
     x: int
     y: int
@@ -702,7 +702,7 @@ if __name__ == "__main__":
     assert summary["fallback"]["classes"]["Point"] == "island"
     assert summary["fallback"]["classes"]["Pair"] == "native"
     module = json.loads((tmp_path / "planes.ir.json").read_text(encoding="utf-8"))
-    assert "@dataclasses.dataclass(frozen=True, slots=True)" in module["islandSource"]
+    assert "@dataclasses.dataclass(order=True)" in module["islandSource"]
 
 
 def test_fallback_island_class_total_ordering(tmp_path: Path) -> None:
@@ -742,7 +742,7 @@ def test_fallback_island_class_dataclass_unusual_args(tmp_path: Path) -> None:
     source_text = """import dataclasses
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(order=True)
 class Point:
     x: int
     y: int
@@ -752,17 +752,18 @@ def main() -> None:
     p = Point(10, 20)
     print(p.x, p.y)
     print(p)
-    p.x = 5
+    print(p < Point(11, 0))
 
 
 if __name__ == "__main__":
     main()
 """
     native, cpython = _compile_and_compare(tmp_path, source_text, name="frozen_dc")
-    # The frozen write raises CPython's FrozenInstanceError on the island.
-    assert cpython.returncode != 0
-    assert native.returncode != 0
-    assert native.stdout == cpython.stdout == "10 20\nPoint(x=10, y=20)\n"
+    # `order=True` is still outside the native dataclass form (frozen and
+    # slots lower natively since #815), so the class runs island-side.
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.returncode == 0, native.stderr
+    assert native.stdout == cpython.stdout == "10 20\nPoint(x=10, y=20)\nTrue\n"
 
 
 def test_fallback_island_class_method_body_fence(tmp_path: Path) -> None:
@@ -906,6 +907,39 @@ if __name__ == "__main__":
     assert cpython.returncode == 0, cpython.stderr
     assert native.stdout == cpython.stdout
     assert native.stdout == "UTC\n"
+
+
+def test_fallback_island_top_level_demoted_by_names_the_fence(tmp_path: Path) -> None:
+    """Issue #678: an island module top level demotes every lowerable
+    function; the plane map records the top-level fence as the cause so
+    the owner can see which import to type or move."""
+    from pyscriptc import assess
+
+    source_text = """from datetime import datetime, timezone
+
+
+def helper() -> int:
+    return 41
+
+
+def main() -> None:
+    print(helper())
+    print(timezone.utc)
+
+
+if __name__ == "__main__":
+    main()
+"""
+    src = tmp_path / "demoted_by_top.py"
+    src.write_text(source_text, encoding="utf-8")
+    report = assess.assess(src)
+    plane_map = report["planeMap"]
+    assert plane_map["moduleTopLevel"] == "island"
+    assert plane_map["functions"]["helper"] == "island"
+    assert plane_map["demotedBy"]["helper"].startswith("module top level is island")
+    # `main` fences on its own (`timezone.utc`), so its cause is the fence,
+    # not the top level.
+    assert "main" not in plane_map["demotedBy"]
 
 
 def test_fallback_module_import_fence_ps2002_relative_runs_island(tmp_path: Path) -> None:

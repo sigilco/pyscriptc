@@ -111,3 +111,45 @@ def probe() -> int:
     got = run_cli("compile", str(path), "--emit", "llvm", "-o", str(tmp_path / "mismatch.ll"))
     assert got.returncode == 2, got.stderr
     assert "not assignable" in got.stderr
+
+
+def test_missing_import_defers_to_lowerer(tmp_path: Path) -> None:
+    source = """
+import totally_not_a_module
+
+def probe() -> int:
+    return 0
+"""
+    path = write_case(tmp_path, "missing_import.py", source)
+    got = run_cli("compile", str(path), "--emit", "llvm", "-o", str(tmp_path / "missing.ll"))
+    assert got.returncode == 3, got.stderr
+    assert "PS2002" in got.stderr
+    assert "closed import table" in got.stderr
+
+
+def test_unknown_name_defers_to_lowerer(tmp_path: Path) -> None:
+    source = """
+def probe() -> int:
+    prnt(1)
+    return 0
+"""
+    path = write_case(tmp_path, "unknown_name.py", source)
+    got = run_cli("compile", str(path), "--emit", "llvm", "-o", str(tmp_path / "unknown.ll"))
+    assert got.returncode == 3, got.stderr
+    assert "PS2002" in got.stderr
+
+
+def test_optional_diagnostic_names_the_subset_remedy(tmp_path: Path) -> None:
+    source = """
+import os
+
+def probe() -> int:
+    v: str = os.getenv("PYSC_TEST_ENV")
+    return len(v)
+"""
+    path = write_case(tmp_path, "getenv_unnarrowed.py", source)
+    got = run_cli("compile", str(path), "--emit", "llvm", "-o", str(tmp_path / "unnarrowed.ll"))
+    assert got.returncode == 2, got.stderr
+    assert "[bad-assignment]" in got.stderr
+    assert "is not None" in got.stderr
+    assert "--skip-check" in got.stderr

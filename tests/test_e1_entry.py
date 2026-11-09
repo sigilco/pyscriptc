@@ -11,6 +11,7 @@ from __future__ import annotations
 
 from pyscriptc.canonical import hash_module
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node, dict_to_type
 
 
 def _entry(mod: dict) -> dict | None:
@@ -56,20 +57,21 @@ for n in range(3):
     )
     entry = _entry(mod)
     assert entry is not None and entry["name"] == "main"
-    assert entry["params"] == [] and entry["returnType"] == {"kind": "none"}
+    assert entry["params"] == [] and dict_to_type(entry["returnType"]).kind == "none"
     # The for lowers to slot init plus a while; the loop body binds a then b
     # per iteration, in source order.
     assert [local["name"] for local in entry["locals"]][:1] == ["n"]
     assert [local["name"] for local in entry["locals"]][-2:] == ["a", "b"]
     found: list[str] = []
 
-    def walk(stmts: list[dict]) -> None:
+    def walk(stmts: list[object]) -> None:
         for stmt in stmts:
-            if stmt["kind"] == "assign" and stmt.get("target") in {"a", "b"}:
-                found.append(stmt["target"])
-            for key in ("body", "then", "else"):
-                if isinstance(stmt.get(key), list):
-                    walk(stmt[key])
+            node = dict_to_node(stmt)
+            if node.kind == "assign" and node.target in {"a", "b"}:
+                found.append(node.target)
+            for child in (node.body, node.then, node.else_):
+                if isinstance(child, list):
+                    walk(child)
 
     walk(entry["body"])
     assert found == ["a", "b", "a", "b"]  # both while legs, a before b
@@ -154,21 +156,22 @@ for i in range(1):
     # body binds r.
     found_r: list[bool] = []
 
-    def walk_r(stmts: list[dict]) -> None:
+    def walk_r(stmts: list[object]) -> None:
         for stmt in stmts:
-            if stmt["kind"] == "assign" and stmt.get("target") == "r":
+            node = dict_to_node(stmt)
+            if node.kind == "assign" and node.target == "r":
                 found_r.append(True)
-            for key in ("body", "then", "else"):
-                if isinstance(stmt.get(key), list):
-                    walk_r(stmt[key])
+            for child in (node.body, node.then, node.else_):
+                if isinstance(child, list):
+                    walk_r(child)
 
     walk_r(entry["body"])
     assert found_r
     assert mod["fences"] == []
     # The constant is still there for readers: f's body inlines it.
     f_fn = next(fn for fn in mod["functions"] if fn["name"] == "f")
-    read = f_fn["body"][0]["value"]
-    assert read["right"]["kind"] == "const" and read["right"]["value"] == "100"
+    read = dict_to_node(f_fn["body"][0]).value
+    assert read.right.kind == "const" and read.right.svalue == "100"
 
 
 def test_failed_constant_binding_joins_the_entry_in_a_script() -> None:
@@ -186,7 +189,7 @@ print(f)
     entry = _entry(mod)
     assert entry is not None and entry["name"] == "main"
     # The print lowers too (E1 item 2), so the entry carries both statements.
-    assert [stmt["kind"] for stmt in entry["body"]] == ["assign", "expr"]
+    assert [dict_to_node(stmt).kind for stmt in entry["body"]] == ["assign", "expr"]
     assert mod["fences"] == []
     assert "call to fact is not lowered" not in {f["message"] for f in mod["fences"]}
 
