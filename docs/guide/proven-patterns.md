@@ -8,7 +8,7 @@ Each pattern states when it fits, the exact command that produced the number, th
 The measurements were taken on macOS arm64 with CPython 3.14.9 as the reference; a different machine moves the absolute numbers, not the shape of them.
 Where a pattern did not pay off, it says so.
 
-The support state of every construct lives on the [compat site]({{PYSC_COMPAT_URL}}); the gaps live in [What will fail](../reference/what-will-fail.md) and in the numbered [divergences](../reference/divergences.md).
+The support state of every construct lives on the [compat site]({{PYSC_COMPAT_URL}}); the gaps live in the numbered [divergences](../reference/divergences.md).
 
 ## Pattern 1: island-compile an existing CLI into one binary
 
@@ -108,7 +108,7 @@ The binary is 585 KB and links no `libpython`, because nothing in it needs the i
 Fields are declared in the class body and assigned in `__init__`, not annotated in `__init__`.
 A list is mutated through a named local, not through an attribute expression.
 `json.dumps` over a dict with mixed value types does not lower, so the JSON is built by concatenation.
-The full per-construct table is in [Typing and idioms](typing.md); the rewrite cost is real and belongs in the estimate, not after it.
+The full per-construct table is in [The Python subset](python-subset.md); the rewrite cost is real and belongs in the estimate, not after it.
 
 ## What did not pay off
 
@@ -121,4 +121,4 @@ The profitable direction is native calls island, and only for bodies heavy enoug
 **Inferring types into untyped code.** The compiler infers what it can prove and refuses the rest: a missing annotation is a `PS1001` fence, never a guessed `Any`.
 An annotation overlay applied to yt-dlp's untyped parameters moved 66 of 7,646 fenced definitions to native on the `url`-shaped parameters alone, and 223 when every remaining parameter was annotated `str`, because the wrong annotations create type-mismatch and name-resolution fences of their own.
 A class-body constant table (3,949 fences) is the larger lever, but it is a compiler feature, not an inference one.
-The [island floor guide](island-floor.md) is the reference for what the fallback tier does and does not do.
+The [libraries and fallback guide](libraries.md) is the reference for what the fallback tier does and does not do.
