@@ -6,8 +6,8 @@
       "label": "Single-file script",
       "corpus": "benchmarks/scripts_corpus/scripts",
       "total": 45,
-      "compiled": 16,
-      "passed": 13,
+      "compiled": 22,
+      "passed": 19,
       "measured": true
     },
     {
@@ -31,8 +31,8 @@
     "lanes": [
       {
         "lane": "native",
-        "imports": 273,
-        "share": 0.8273
+        "imports": 277,
+        "share": 0.8394
       },
       {
         "lane": "pack",
@@ -41,8 +41,8 @@
       },
       {
         "lane": "extern",
-        "imports": 56,
-        "share": 0.1697
+        "imports": 52,
+        "share": 0.1576
       },
       {
         "lane": "island",

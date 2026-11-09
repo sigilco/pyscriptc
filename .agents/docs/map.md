@@ -26,7 +26,6 @@
 | `benchmarks/native/` | C ABI `.so` versus a `PyInit_*` extension on the island |
 | `benchmarks/net/` | The network receipt: loopback HTTP client and `http.server` throughput. Opt-in |
 | `src/pyscriptc/runtime/ps_mix.c` | `dlopen` of that C ABI. No Python headers |
-| `.agents/docs/roadmap.md` | Language order after the stdlib queue |
 
 ## Adding a lowered call
 

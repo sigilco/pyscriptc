@@ -5,7 +5,7 @@ The default link must not change: with no mode set (or `host`, the resolved
 exactly as before, byte for byte. The bundle link is tested against a fake
 pack tree; the real fetch is network-dependent and only runs when
 `PYSC_EMBED_POC_PREFIX` points at a python-build-standalone `install/` tree
-(see .agents/plans/2026-10-25-embedding-libpython.md).
+(see `.agents/docs/release/embed-runtime.md`).
 """
 
 from __future__ import annotations

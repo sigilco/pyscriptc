@@ -38,6 +38,9 @@ benchmarks/real/.scratch/
 /nums.json
 *.obj
 
+# session plans stay on the owner disk; planning lives in GitHub milestones
+.agents/plans/
+
 # social media renders (generated, never committed)
 scripts/social/out/
 scripts/social/demo/demo

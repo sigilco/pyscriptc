@@ -4,7 +4,7 @@ Date: 2026-11-06. Epic: #817. Milestone: v0.9.0. Docs only; no code in this note
 
 How exception edges become MIR control flow without turning MIR into a semantic source of truth. Fences, exception codes, `finally`, and generator suspension already have a lowering on the direct path; this note maps that lowering onto the block-argument CFG the leaf already uses for `if` / `while`.
 
-Read first: `src/pyscriptc/mir.py`, `mirlower.py`, `miremit.py`, `mirverify.py`, `.agents/plans/decisions/2026-11-02-mir-backend-only-contract.md`, `emit/llvm/_stmts.py` (`emit_try`), `runtime/ps_rt.c` (`ps_try_call`), and the generator/`with` decision `.agents/notes/2026-10-24-generator-with-suspend-decision.md`. Generators stay on the HIR path until re-verified (backend-only contract, R5 checklist). This slice does not re-decide suspend-in-`with`.
+Read first: `src/pyscriptc/mir.py`, `mirlower.py`, `miremit.py`, `mirverify.py`, `.agents/plans/decisions/2026-11-02-mir-backend-only-contract.md`, `emit/llvm/_stmts.py` (`emit_try`), `runtime/ps_rt.c` (`ps_try_call`), and the generator/`with` decision `.agents/notes/decisions-and-platform.md` (generator `with` semantics). Generators stay on the HIR path until re-verified (backend-only contract, R5 checklist). This slice does not re-decide suspend-in-`with`.
 
 ## What exists today
 

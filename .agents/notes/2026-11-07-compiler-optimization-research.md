@@ -135,7 +135,7 @@ For us: `None` is a compile-time type in the HIR, so `x: int | None` is currentl
 
 ### 1.9 "Variable arguments: desugared into a stack-allocated or heap-allocated tuple/dict wrapper before function entry"
 
-Verdict: **correct as a technique, already done by us.** `mirlower` lowers `*args` / `**kwargs` through the runtime helper channel; see `.agents/notes/2026-10-25-kwargs-lowering.md`. Nothing to do.
+Verdict: **correct as a technique, already done by us.** `mirlower` lowers `*args` / `**kwargs` through the runtime helper channel; see `.agents/notes/decisions-and-platform.md` (keyword argument lowering). Nothing to do.
 
 ### 1.10 "Dynamic attribute access: `GetAttrDynamic(%x, "foo")`, split into a fast-path tag check and a slow-path C call if inline caching is added later"
 
