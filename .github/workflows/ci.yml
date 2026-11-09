@@ -47,7 +47,7 @@ concurrency:
 #   python    any tracked Python file; drives `ruff and compat2`, because
 #             ruff lints the whole tree (688 files), not only src/
 #   site      docs/, apps/web/, data/ and the pnpm lockfiles; drives the
-#             `docs seams` job (the five doc-coupled unit tests)
+#             `docs seams` job (the four doc-coupled unit tests)
 #   betterleaks runs on every event; a secret can be in any file
 #
 # `push` to master always runs the full matrix: the ruleset is evaluated on
