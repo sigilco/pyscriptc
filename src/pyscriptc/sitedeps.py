@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import shutil
 import sys
+from collections.abc import Sequence
 from pathlib import Path
 
 
@@ -33,26 +34,42 @@ class SiteError(Exception):
     """A user-facing site-packages bundle failure (no traceback)."""
 
 
-def third_party_roots(source: Path) -> list[str]:
+def third_party_roots(source: Path, exclude: Sequence[str] = ()) -> list[str]:
     """The absolute third-party import roots of a program, in source order.
 
     Stdlib roots go to the stdlib zip (issue #659), relative imports stay in
     the program tree, and the program's own package root is not a dependency.
+    `exclude` names roots the caller declares extern (provided by the host,
+    not carried by the bundle): they are dropped with a warning, so a
+    native-backed optional dependency can stay behind while the program
+    still compiles (the self-compile of pyscriptc excludes its lazy mypy
+    bridge that way).
     """
 
     from pyscriptc.imports import collect_imports
 
     source = Path(source)
     own = source.stem if source.is_file() else source.name
+    dropped = sorted(set(exclude))
     found: list[str] = []
     for site in collect_imports(source):
-        if site["level"] > 0 or not site["name"]:
+        level: int = site["level"]
+        name: str = site["name"]
+        if level > 0 or not name:
             continue
-        root = site["name"].split(".")[0]
+        root: str = name.split(".")[0]
         if root in sys.stdlib_module_names or root == own:
+            continue
+        if root in dropped:
             continue
         if root not in found:
             found.append(root)
+    for root in dropped:
+        print(
+            f"warning: {root} declared extern for the bundle; it is not carried "
+            "(the host must provide it, like CPython would for a dead import)",
+            file=sys.stderr,
+        )
     return sorted(found)
 
 
@@ -132,6 +149,14 @@ def stage_site_packages(lib_dir: Path, version: str, roots: list[str]) -> list[s
     dest.mkdir(parents=True, exist_ok=True)
     staged: list[str] = []
     resolved = _closure(roots)
+    # A third-party tool installed in the development environment (pip) is
+    # never a program dependency: its code never travels (issue #885). The
+    # pack interpreter keeps its own pip at runtime; the bundle drops it
+    # like the stdlib trim drops idlelib.
+    known_unstaged = {"pip"}
+    for dist in list(resolved):
+        if dist.lower().replace("_", "-").split("-")[0] in known_unstaged:
+            del resolved[dist]
     for root in roots:
         if not distributions_of(root):
             print(
@@ -139,6 +164,8 @@ def stage_site_packages(lib_dir: Path, version: str, roots: list[str]) -> list[s
                 file=sys.stderr,
             )
     for dist, dist_roots in resolved.items():
+        if dist.lower().replace("_", "-") in known_unstaged:
+            continue
         native, reason = imports.distribution_is_native(dist)
         if native:
             raise SiteError(

@@ -159,7 +159,14 @@ def test_check_reports_a_stale_file(tmp_path: Path) -> None:
 def test_check_passes_on_the_committed_file() -> None:
     if not DEFAULT_OUT.exists():
         pytest.skip("the compat file is not built yet")
-    document = build(previous_path=DEFAULT_OUT)
+    # A file the nightly built carries the scorer output (language rows, weighted
+    # pass). Rebuild over the same score so the check compares like with like;
+    # when the file names a score that is not on disk, it cannot be reproduced.
+    recorded = json.loads(DEFAULT_OUT.read_text(encoding="utf-8")).get("sources", {}).get("score", "")
+    score_path = ROOT / recorded if recorded else None
+    if score_path is not None and not score_path.exists():
+        pytest.skip(f"the committed file was built over {recorded}, which is not on disk")
+    document = build(previous_path=DEFAULT_OUT, score_path=score_path)
     assert check(document, DEFAULT_OUT) == []
 
 

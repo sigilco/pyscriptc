@@ -42,6 +42,7 @@ def oracle(source: str) -> str:
 
 def test_sum_squares_ir_is_python_not_javascript() -> None:
     from pyscriptc.lower import lower_file
+    from pyscriptc.tirserde import dict_to_node, dict_to_type
 
     module, _source = lower_file(str(EXAMPLES / "sum_squares.py"))
     from pyscriptc.ir import IR_VERSION
@@ -54,11 +55,11 @@ def test_sum_squares_ir_is_python_not_javascript() -> None:
     assert module["fences"] == []
     entry = next(fn for fn in module["functions"] if fn["name"] == module["entry"])
     assert entry["name"] == "main"
-    assert [stmt["kind"] for stmt in entry["body"]] == ["expr"]
+    assert [dict_to_node(stmt).kind for stmt in entry["body"]] == ["expr"]
     fn = module["functions"][0]
     assert fn["name"] == "sum_squares"
-    assert fn["returnType"] == {"kind": "int"}
-    assert any(stmt["kind"] == "while" for stmt in fn["body"])
+    assert dict_to_type(fn["returnType"]).kind == "int"
+    assert any(dict_to_node(stmt).kind == "while" for stmt in fn["body"])
     dumped = json.dumps(module)
     assert "f64" not in dumped
     assert "nullT" not in dumped

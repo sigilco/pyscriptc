@@ -580,3 +580,61 @@ def test_verifier_does_not_mutate_the_module() -> None:
     before = copy.deepcopy(module)
     verify_module(module)
     assert module == before
+
+
+# --- typed-HIR seam (V-P1): no raw node-key reads -----------------------------
+
+_SEAM_ACCESSORS = {"_type_kind", "_declared_kind", "_node_kind", "_maybe_node_kind"}
+_IRVERIFY = ROOT / "src" / "pyscriptc" / "irverify.py"
+
+
+def test_the_seam_reads_kind_tags_through_accessors() -> None:
+    from pyscriptc.irverify import _maybe_node_kind, _node_kind
+
+    assert _node_kind({"kind": "assign"}) == "assign"
+    assert _maybe_node_kind({"kind": "raise"}) == "raise"
+    assert _maybe_node_kind({"target": "x"}) is None
+
+
+def test_irverify_has_no_raw_node_kind_reads() -> None:
+    """Kind tags are read only inside the seam accessors, never as dict keys."""
+    import ast
+
+    tree = ast.parse(_IRVERIFY.read_text(encoding="utf-8"))
+    hits: list[str] = []
+
+    class Visitor(ast.NodeVisitor):
+        def __init__(self) -> None:
+            self.inside = 0
+
+        def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+            entered = node.name in _SEAM_ACCESSORS
+            if entered:
+                self.inside += 1
+            self.generic_visit(node)
+            if entered:
+                self.inside -= 1
+
+        visit_AsyncFunctionDef = visit_FunctionDef
+
+        def visit_Subscript(self, node: ast.Subscript) -> None:
+            sl = node.slice
+            if self.inside == 0 and isinstance(sl, ast.Constant) and sl.value == "kind":
+                hits.append(f"L{node.lineno}")
+            self.generic_visit(node)
+
+        def visit_Call(self, node: ast.Call) -> None:
+            func = node.func
+            if (
+                self.inside == 0
+                and isinstance(func, ast.Attribute)
+                and func.attr == "get"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and node.args[0].value == "kind"
+            ):
+                hits.append(f"L{node.lineno}")
+            self.generic_visit(node)
+
+    Visitor().visit(tree)
+    assert hits == [], f"raw kind reads outside accessors: {hits}"

@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _const_int
+from pyscriptc.restlower._shared import _const_int, _node_type_kind, _t_leaf, _t_list
 
 
 def _textwrap_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
@@ -17,7 +17,7 @@ def _textwrap_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> 
             lo.fail(node, "PS2003", f"textwrap.{attr} expects a text argument")
         assert slots[0] is not None
         text = lo._expr(slots[0])
-        if text["type"]["kind"] != "str":
+        if _node_type_kind(text) != "str":
             lo.fail(node, "PS1003", f"textwrap.{attr} text is str")
         if slots[1] is None:
             if attr == "shorten":
@@ -25,18 +25,18 @@ def _textwrap_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> 
             width = _const_int(70, span)
         else:
             width = lo._expr(slots[1])
-            if width["type"]["kind"] != "int":
+            if _node_type_kind(width) != "int":
                 lo.fail(node, "PS1003", f"textwrap.{attr} width is int")
         if attr == "wrap":
             return lo._abi_call(
                 "textwrap",
                 attr,
                 [text, width],
-                {"kind": "list", "elem": {"kind": "str"}},
+                _t_list(_t_leaf("str")),
                 "ps_wrap_wrap",
                 span,
             )
         symbol = "ps_wrap_fill" if attr == "fill" else "ps_wrap_shorten"
-        return lo._abi_call("textwrap", attr, [text, width], {"kind": "str"}, symbol, span)
+        return lo._abi_call("textwrap", attr, [text, width], _t_leaf("str"), symbol, span)
     lo.fail(node, "PS2001", f"textwrap.{attr} is not in the lowered subset of textwrap")
     raise AssertionError("unreachable")

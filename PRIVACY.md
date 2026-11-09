@@ -9,6 +9,7 @@ When telemetry is enabled (it is on by default in release builds, off in CI and 
 - The subcommand you ran (for example `compile` or `coverage`)
 - The pyscriptc version and the CPython version (major.minor only)
 - The operating system platform
+- Whether the event comes from our own traffic (`internal`): a source checkout or editable install, `PYSC_INTERNAL=1`, or CI. CI never sends events; the flag marks maintainer smoke runs so they can be excluded from the dashboard.
 - For `compile` and `coverage`: the outcome (`ok`, `fences`, `check-failed`, `lower-error`, `build-error`), the duration in milliseconds, and aggregate fence counts with diagnostic family names
 - A randomly generated anonymous install id (a uuid4 stored only in `~/.config/pyscriptc/telemetry-id`)
 

@@ -86,6 +86,27 @@ def test_stage_site_packages_copies_pure_trees_and_metadata(tmp_path: Path, monk
     assert staged
 
 
+def test_stage_site_packages_skips_the_pack_tooling(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Issue #885: the pack interpreter's own pip is never a program dependency."""
+    site = _fake_site(tmp_path / "site")
+    (site / "pip").mkdir(parents=True, exist_ok=True)
+    (site / "pip" / "__init__.py").write_text("value = 1\n", encoding="utf-8")
+    pip_info = site / "pip-26.0.dist-info"
+    pip_info.mkdir()
+    (pip_info / "RECORD").write_text("pip/__init__.py,,\npip-26.0.dist-info/RECORD,,\n", encoding="utf-8")
+    (pip_info / "METADATA").write_text("Name: pip\n", encoding="utf-8")
+    monkeypatch.setattr("pyscriptc.imports._site_packages", lambda: [site])
+    from pyscriptc import imports
+
+    imports._installed_distributions.cache_clear()
+    lib_dir = tmp_path / "lib"
+    staged = sitedeps.stage_site_packages(lib_dir, "3.14", ["pip"])
+    dest = lib_dir / "python3.14" / "site-packages"
+    assert "pip" not in staged
+    assert not (dest / "pip").exists()
+    assert not (dest / "pip-26.0.dist-info").exists()
+
+
 def test_stage_site_packages_refuses_native_with_ps4302(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     site = _fake_site(tmp_path / "site")
     monkeypatch.setattr("pyscriptc.imports._site_packages", lambda: [site])

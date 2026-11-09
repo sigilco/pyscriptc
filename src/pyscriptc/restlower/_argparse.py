@@ -24,11 +24,17 @@ from typing import Any
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import _assign, _attr, _name
 from pyscriptc.reflection import kwargs_call_note
-
-_STR = {"kind": "str"}
-_INT = {"kind": "int"}
-_FLOAT = {"kind": "float"}
-_BOOL = {"kind": "bool"}
+from pyscriptc.restlower._shared import (
+    _class,
+    _const_int,
+    _const_text,
+    _if_stmt,
+    _list_lit,
+    _node_type,
+    _node_type_kind,
+    _t_leaf,
+    _t_list,
+)
 
 # The kind codes the runtime reads off the kind table.
 _KIND_STR = 0
@@ -37,14 +43,6 @@ _KIND_BOOL = 2
 _KIND_FLOAT = 3
 
 _ACTIONS = {"store", "store_true", "store_false", "store_const"}
-
-
-def _const_int(value: int, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": str(value), "type": _INT, "span": span}
-
-
-def _const_str(value: str, span: dict[str, Any]) -> dict[str, Any]:
-    return {"kind": "const", "value": value, "type": _STR, "span": span}
 
 
 def _text(node: ast.AST) -> str | None:
@@ -77,8 +75,8 @@ def _folded_constant(lo: Any, node: ast.expr) -> ast.expr:
     found = lo.constants.get(node.id)
     if found is None or found.get("kind") != "const":
         return node
-    kind = found["type"]["kind"]
-    value = found["value"]
+    kind = _node_type_kind(found)
+    value = found.get("value")
     if kind == "str" and isinstance(value, str):
         return ast.Constant(value=value)
     if kind == "bool":
@@ -106,9 +104,9 @@ def path_attribute(
 ) -> dict[str, Any]:
     """A `type=Path` namespace field is stored as str; reading it builds the Path."""
     state = getattr(lo, "argparse_state", None)
-    if state is None or attr not in state.path_dests or value["type"].get("name") != "Namespace":
+    if state is None or attr not in state.path_dests or _node_type(value).get("name") != "Namespace":
         return read
-    return lo._abi_call("pathlib", "Path", [read], {"kind": "class", "name": "Path"}, "ps_path_new", span)
+    return lo._abi_call("pathlib", "Path", [read], _class("Path"), "ps_path_new", span)
 
 
 def peek_namespace_fields(lo: Any, body: list[ast.stmt]) -> list[dict[str, Any]] | None:
@@ -180,15 +178,15 @@ def peek_namespace_fields(lo: Any, body: list[ast.stmt]) -> list[dict[str, Any]]
         if dest is None:
             return None
         if action in {"store_true", "store_false"}:
-            field_type: dict[str, Any] = {"kind": "bool"}
+            field_type: dict[str, Any] = _t_leaf("bool")
         elif type_name == "int":
-            field_type = {"kind": "int"}
+            field_type = _t_leaf("int")
         elif type_name == "float":
-            field_type = {"kind": "float"}
+            field_type = _t_leaf("float")
         elif type_name == "Path":
-            field_type = {"kind": "class", "name": "Path"}
+            field_type = _class("Path")
         else:
-            field_type = {"kind": "str"}
+            field_type = _t_leaf("str")
         fields.append({"name": dest, "type": field_type})
     return fields or None
 
@@ -229,14 +227,25 @@ class ArgparseState:
         self.prog: str = ""
         self.description: str = ""
 
-    def add(self, dest: str, kind: int, field_type: dict[str, Any], arg_meta: dict[str, Any]) -> None:
+    def add(self, dest: str, field: dict[str, Any], kind: int, arg_meta: dict[str, Any]) -> None:
         self.dests[dest] = len(self.fields)
-        self.fields.append({"name": dest, "type": field_type})
+        self.fields.append(field)
         self.kinds.append(kind)
         self.registered_args.append(arg_meta)
 
     def dest_index(self, dest: str) -> int | None:
         return self.dests.get(dest)
+
+
+def _probe_type(type_name: str) -> Any:
+    """The callable argparse's `type=` takes for a spec's type name."""
+    if type_name == "int":
+        return int
+    if type_name == "float":
+        return float
+    if type_name == "str":
+        return str
+    return None
 
 
 def _state(lo: Any) -> ArgparseState:
@@ -256,7 +265,7 @@ def _install_classes(lo: Any) -> None:
     """
     info = lo.classes.get("ArgParser")
     if info is None:
-        fields = [{"name": "_specs", "type": {"kind": "list", "elem": _STR}}]
+        fields = [{"name": "_specs", "type": _t_list(_t_leaf("str"))}]
         lo.classes["ArgParser"] = {
             "fields": fields,
             "own_fields": list(fields),
@@ -320,7 +329,7 @@ def _parser(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         "argparse",
         "ArgumentParser",
         [],
-        {"kind": "class", "name": "ArgParser"},
+        _class("ArgParser"),
         "ps_argparse_new",
         span,
     )
@@ -337,7 +346,7 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
     with a dash. The closed keyword set covers type, default, action,
     required, dest and help.
     """
-    if receiver["type"].get("name") != "ArgParser":
+    if _node_type(receiver).get("name") != "ArgParser":
         lo.fail(node, "PS2001", "add_argument needs an argparse parser")
     if any(keyword.arg is None for keyword in node.keywords):
         lo.fail(node, "PS2002", kwargs_call_note())
@@ -441,18 +450,18 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
 
     if action in {"store_true", "store_false"}:
         kind = _KIND_BOOL
-        field_type = _BOOL
+        field_type = _t_leaf("bool")
         if default == "":
             default = "0" if action == "store_true" else "1"
     elif type_name == "int":
         kind = _KIND_INT
-        field_type = _INT
+        field_type = _t_leaf("int")
     elif type_name == "float":
         kind = _KIND_FLOAT
-        field_type = _FLOAT
+        field_type = _t_leaf("float")
     else:
         kind = _KIND_STR
-        field_type = _STR
+        field_type = _t_leaf("str")
 
     state = _state(lo)
     _install_classes(lo)
@@ -469,17 +478,17 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
         "required": required,
         "help": help_text,
     }
-    state.add(dest, kind, field_type, arg_meta)
+    state.add(dest, {"name": dest, "type": field_type}, kind, arg_meta)
     if type_name == "Path":
         state.path_dests.add(dest)
     lo.classes["Namespace"]["fields"] = list(state.fields)
     lo.classes["Namespace"]["own_fields"] = list(state.fields)
-    spec_expr = _const_str(spec, span)
+    spec_expr = _const_text(spec, "str", span)
     return lo._abi_call(
         "argparse",
         "add_argument",
         [receiver, spec_expr],
-        {"kind": "none"},
+        _t_leaf("none"),
         "ps_argparse_add",
         span,
     )
@@ -493,24 +502,20 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
     given: dict[str, Any] | None = None
     if node.args and not (isinstance(node.args[0], ast.Constant) and node.args[0].value is None):
         given = lo._expr(node.args[0])
-        want = {"kind": "list", "elem": _STR}
-        if not types_equal(given["type"], want) and not (
-            given["type"].get("optional") and types_equal(given["type"]["elem"], want)
+        want = _t_list(_t_leaf("str"))
+        given_type = _node_type(given)
+        if not types_equal(given_type, want) and not (
+            given_type.get("optional") and types_equal(given_type["elem"], want)
         ):
             lo.fail(node, "PS2003", "parse_args takes a list of str or None")
-    if receiver["type"].get("name") != "ArgParser":
+    if _node_type(receiver).get("name") != "ArgParser":
         lo.fail(node, "PS2001", "parse_args needs an argparse parser")
     state = _state(lo)
     _install_classes(lo)
     lo.classes["Namespace"]["fields"] = list(state.fields)
     lo.classes["Namespace"]["own_fields"] = list(state.fields)
     kinds = [_const_int(kind, span) for kind in state.kinds]
-    kinds_expr: dict[str, Any] = {
-        "kind": "list",
-        "elems": kinds,
-        "type": {"kind": "list", "elem": _INT},
-        "span": span,
-    }
+    kinds_expr: dict[str, Any] = _list_lit(kinds, _t_leaf("int"), span)
 
     import argparse as _c_argparse
 
@@ -537,12 +542,9 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
         if arg["help"] is not None:
             kwargs["help"] = arg["help"]
         if arg["is_positional"]:
-            if arg["type_name"] == "int":
-                kwargs["type"] = int
-            elif arg["type_name"] == "float":
-                kwargs["type"] = float
-            elif arg["type_name"] == "str":
-                kwargs["type"] = str
+            probe_type = _probe_type(arg["type_name"])
+            if probe_type is not None:
+                kwargs.update({"type": probe_type})
             if arg["raw_default"] is not None:
                 kwargs["default"] = arg["raw_default"]
             try:
@@ -556,12 +558,9 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
                 kwargs["action"] = "store_const"
                 kwargs["const"] = arg["const"]
             else:
-                if arg["type_name"] == "int":
-                    kwargs["type"] = int
-                elif arg["type_name"] == "float":
-                    kwargs["type"] = float
-                elif arg["type_name"] == "str":
-                    kwargs["type"] = str
+                probe_type = _probe_type(arg["type_name"])
+                if probe_type is not None:
+                    kwargs.update({"type": probe_type})
             if arg["dest"] != _dest_from_flags(arg["flags"]):
                 kwargs["dest"] = arg["dest"]
             if arg["required"]:
@@ -574,9 +573,9 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
                 continue
         seen_strings.update(names)
     help_text = hp.format_help()
-    help_expr = _const_str(help_text, span)
+    help_expr = _const_text(help_text, "str", span)
 
-    namespace = {"kind": "class", "name": "Namespace"}
+    namespace = _class("Namespace")
 
     def parse(args: dict[str, Any] | None) -> dict[str, Any]:
         if args is None:
@@ -587,25 +586,25 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
             "argparse", "parse_args", [receiver, kinds_expr, help_expr, args], namespace, "ps_argparse_parse_list", span
         )
 
-    if given is None or not given["type"].get("optional"):
+    if given is None or not _node_type(given).get("optional"):
         return parse(given)
     # parse_args(argv) with argv a `list[str] | None`: None reads the process arguments.
-    if given["kind"] != "name":
+    if given.get("kind") != "name":
         holder = lo._temp("argv")
-        lo.locals[holder] = given["type"]
+        given_type = _node_type(given)
+        lo.locals[holder] = given_type
         lo.prelude.append(_assign(holder, given, span))
-        given = _name(holder, given["type"], span)
+        given = _name(holder, given_type, span)
     result = lo._temp("ns")
     lo.locals[result] = namespace
-    present = parse(_attr(given, "_val", given["type"]["elem"], span))
+    present = parse(_attr(given, "_val", _node_type(given)["elem"], span))
     absent = parse(None)
     lo.prelude.append(
-        {
-            "kind": "if",
-            "cond": _attr(given, "_tag", _BOOL, span),
-            "then": [_assign(result, present, span)],
-            "else": [_assign(result, absent, span)],
-            "span": span,
-        }
+        _if_stmt(
+            _attr(given, "_tag", _t_leaf("bool"), span),
+            [_assign(result, present, span)],
+            [_assign(result, absent, span)],
+            span,
+        )
     )
     return _name(result, namespace, span)

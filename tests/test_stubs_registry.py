@@ -7,6 +7,7 @@ from pathlib import Path
 
 import pytest
 
+from pyscriptc.sigrec import sig_to_dict
 from pyscriptc.sigregistry import LoweringSignature, Refusal, SignatureRegistry, kind_accepts
 from pyscriptc.stdlib_queue import WAVE_FUNCTIONS
 from pyscriptc.stubs import STDLIB_SUBSET, discover_roots, find_stub, load_stub, stdlib_available
@@ -199,7 +200,7 @@ def test_bundled_signatures_resolve_through_reexports() -> None:
 )
 def test_registry_agrees_with_closed_table(module: str, name: str) -> None:
     """Where typeshed lowers, its signature extends the hand-written row: same leading params and return."""
-    row = WAVE_FUNCTIONS[module][name]
+    row = sig_to_dict(WAVE_FUNCTIONS[module][name])
     kinds = ["bytes" if p["kind"] == "buf" else p["kind"] for p in row["params"]][: row.get("min", len(row["params"]))]
     got = _registry().lowering(module, name, kinds)
     if isinstance(got, Refusal):
@@ -217,4 +218,4 @@ def test_registry_agrees_with_closed_table(module: str, name: str) -> None:
 def test_re_sub_matches_hand_row_exactly() -> None:
     got = _registry().lowering("re", "sub", ["str", "str", "str"])
     assert isinstance(got, LoweringSignature)
-    assert got.spec() == WAVE_FUNCTIONS["re"]["sub"]
+    assert got.spec() == sig_to_dict(WAVE_FUNCTIONS["re"]["sub"])

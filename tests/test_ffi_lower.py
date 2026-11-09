@@ -11,6 +11,7 @@ import pytest
 from pyscriptc.ffi_manifest import FfiManifestError, load_manifests
 from pyscriptc.lower import lower_source
 from pyscriptc.stdlib_queue import ffi_modules, module_status
+from pyscriptc.tirserde import _const_value, dict_to_node
 
 ROOT = Path(__file__).resolve().parents[1]
 MANIFEST = ROOT / "benchmarks" / "native" / "nativeprobe.toml"
@@ -71,9 +72,12 @@ def test_scalar_call_lowers_to_the_abi_symbol() -> None:
     lowered = _lower(source, [manifest])
     assert lowered["fences"] == []
     call = _first_call(lowered)
-    assert call["callee"]["module"] == "demo_math"
-    assert call["symbol"] == "ps_ffi_demo_scale"
-    assert call["type"] == {"kind": "float"}
+    callee = dict_to_node(call.callee if hasattr(call, "callee") else call["callee"])
+    assert callee.module == "demo_math"
+    symbol = call.symbol if hasattr(call, "symbol") else call["symbol"]
+    typ = call.type if hasattr(call, "type") else call["type"]
+    assert symbol == "ps_ffi_demo_scale"
+    assert (typ.kind if not isinstance(typ, dict) else typ["kind"]) == "float"
 
 
 def test_default_argument_fills_the_optional_param() -> None:
@@ -81,7 +85,9 @@ def test_default_argument_fills_the_optional_param() -> None:
     source = "import demo_math\n\ndef main(x: int) -> float:\n    return demo_math.scale(x, 3.5)\n"
     lowered = _lower(source, [manifest])
     assert lowered["fences"] == []
-    assert len(_first_call(lowered)["args"]) == 2
+    call = _first_call(lowered)
+    args = call.args if hasattr(call, "args") else call["args"]
+    assert len(args) == 2
 
 
 def test_arity_mismatch_is_a_stable_compile_error() -> None:
@@ -111,9 +117,9 @@ def test_const_lowers_as_a_literal() -> None:
     lowered = _lower(source, [manifest])
     assert lowered["fences"] == []
     fn = lowered["functions"][0]
-    ret = fn["body"][-1]
-    assert ret["value"]["kind"] == "const"
-    assert ret["value"]["value"] == 3
+    ret = dict_to_node(fn["body"][-1])
+    assert ret.value.kind == "const"
+    assert _const_value(ret.value) == 3 or ret.value.svalue == "3"
 
 
 def test_from_import_binds_manifest_functions_and_consts() -> None:
@@ -122,7 +128,8 @@ def test_from_import_binds_manifest_functions_and_consts() -> None:
     lowered = _lower(source, [manifest])
     assert lowered["fences"] == []
     call = _first_call(lowered)
-    assert call["symbol"] == "ps_ffi_demo_scale"
+    symbol = call.symbol if hasattr(call, "symbol") else call["symbol"]
+    assert symbol == "ps_ffi_demo_scale"
 
 
 def test_cli_rejects_a_stale_manifest(tmp_path: Path) -> None:
@@ -180,11 +187,19 @@ def test_manifest_sources_are_linked_after_f2(tmp_path: Path) -> None:
 def _first_call(module: dict):
     for fn in module["functions"]:
         for stmt in fn["body"]:
-            value = stmt.get("value")
-            if isinstance(value, dict) and value.get("kind") == "call" and "symbol" in value:
+            node = dict_to_node(stmt)
+            value = node.value if not isinstance(node, dict) else node.get("value")
+            value = dict_to_node(value)
+            if getattr(value, "kind", None) == "call" and getattr(value, "symbol", ""):
                 return value
+            if isinstance(value, dict) and value.get("kind") == "call" and "symbol" in value:
+                return dict_to_node(value)
+            if getattr(value, "kind", None) == "cast":
+                inner = dict_to_node(value.value)
+                if getattr(inner, "kind", None) == "call" and getattr(inner, "symbol", ""):
+                    return inner
             if isinstance(value, dict) and value.get("kind") == "cast":
                 inner = value.get("value", {})
                 if inner.get("kind") == "call" and "symbol" in inner:
-                    return inner
+                    return dict_to_node(inner)
     raise AssertionError("no abi call found")

@@ -26,6 +26,9 @@ class _SyncThread:
         if self._target:
             self._target(*self._args)
 
+    def join(self, timeout=None):
+        pass
+
 
 @pytest.fixture
 def captured(monkeypatch, tmp_path):
@@ -44,8 +47,12 @@ def captured(monkeypatch, tmp_path):
         sent.append(json.loads(request.data.decode()))
         return _Resp()
 
-    for name in ("CI", "PYSC_NO_TELEMETRY", "DO_NOT_TRACK", "PYSC_POSTHOG_TOKEN"):
+    for name in ("CI", "PYSC_NO_TELEMETRY", "DO_NOT_TRACK", "PYSC_POSTHOG_TOKEN", "PYSC_INTERNAL"):
         monkeypatch.delenv(name, raising=False)
+    # A dev checkout looks internal (repo src/ or an editable finder on sys.path);
+    # scrub those entries so the sending tests exercise the normal user path.
+    scrubbed = [p for p in telemetry.sys.path if "__editable__" not in p and not p.rstrip("/").endswith("/src")]
+    monkeypatch.setattr(telemetry.sys, "path", scrubbed, raising=False)
     monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
     monkeypatch.setattr(telemetry, "_notice_shown_now", True)
     monkeypatch.setattr(telemetry.threading, "Thread", _SyncThread)
@@ -121,7 +128,7 @@ def test_payload_has_no_ip_and_privacy_flags(captured, monkeypatch):
 
 
 def test_base_properties_minimal():
-    assert set(telemetry.base_properties()) == {"pyscriptc_version", "python_version", "platform"}
+    assert set(telemetry.base_properties()) == {"pyscriptc_version", "python_version", "platform", "internal"}
 
 
 def test_opt_in_mode(captured, monkeypatch, capsys):
@@ -405,3 +412,105 @@ def test_telemetry_subcommand_sends_nothing(captured, monkeypatch):
     monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
     assert _run_cli(["telemetry", "status"]) == 0
     assert captured == []
+
+
+# --- release version, internal flag and delivery ---------------------------------------
+
+
+def test_version_matches_installed_metadata(monkeypatch, tmp_path):
+    """The event version is pinned to the installed package metadata, never a hardcoded literal."""
+    from importlib.metadata import version as metadata_version
+
+    import pyscriptc
+
+    assert pyscriptc.__version__ == metadata_version("pyscriptc")
+    assert pyscriptc.__version__ != "0.1.0"
+    # the workflow stamp wins when present (the release binary has no metadata)
+    stub = type(sys)("pyscriptc._release")
+    stub.VERSION = "9.9.9"
+    monkeypatch.setitem(sys.modules, "pyscriptc._release", stub)
+    import importlib
+
+    importlib.reload(pyscriptc)
+    assert pyscriptc.__version__ == "9.9.9"
+    del sys.modules["pyscriptc._release"]
+    importlib.reload(pyscriptc)
+    assert pyscriptc.__version__ == metadata_version("pyscriptc")
+    props = telemetry.base_properties()
+    assert props["pyscriptc_version"] == pyscriptc.__version__
+
+
+def test_internal_flags(monkeypatch, tmp_path):
+    monkeypatch.setenv("XDG_CONFIG_HOME", str(tmp_path))
+    for name in ("CI", "PYSC_INTERNAL"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setattr(telemetry.sys, "path", ["/usr/lib/python3.14", "/some/venv/lib"], raising=False)
+    assert telemetry.internal() is False
+    monkeypatch.setenv("PYSC_INTERNAL", "1")
+    assert telemetry.internal() is True
+    monkeypatch.delenv("PYSC_INTERNAL")
+    monkeypatch.setenv("CI", "true")
+    assert telemetry.internal() is True
+    monkeypatch.delenv("CI")
+    monkeypatch.setattr(
+        telemetry.sys, "path", ["/repo/src/pyscriptc", "/x/__editable__.pyscriptc.finder.py"], raising=False
+    )
+    assert telemetry.internal() is True
+
+
+def test_internal_blocks_sending_even_with_a_token(captured, monkeypatch):
+    """Our own smoke and dev traffic must never send, token or not."""
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    monkeypatch.setenv("PYSC_INTERNAL", "1")
+    telemetry.track("cli.invoked", {})
+    assert captured == []
+    assert telemetry.base_properties()["internal"] is True
+
+
+def test_base_properties_carry_internal_false(captured, monkeypatch):
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    assert telemetry.base_properties()["internal"] is False
+
+
+def test_events_flush_before_exit(captured, monkeypatch, tmp_path):
+    """A command that queues events and returns must deliver them (flush in cli.main)."""
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    monkeypatch.setattr(telemetry.sys, "path", ["/usr/lib/python3.14"], raising=False)
+    from pyscriptc.cli import main
+
+    rc = main(["explain", "PS2002"])
+    assert rc == 0
+    telemetry.flush()
+    events = [p["event"] for p in captured]
+    assert events == ["cli.invoked"]
+
+    # flush is bounded: a hung post must not block longer than the budget.
+    def slow(request, timeout=None):
+        import time
+
+        time.sleep(5)
+
+    monkeypatch.setattr(telemetry.urllib.request, "urlopen", slow)
+    telemetry._pending.clear()
+    telemetry.track("cli.invoked", {})
+    import time
+
+    started = time.monotonic()
+    telemetry.flush()
+    assert time.monotonic() - started < telemetry._FLUSH_BUDGET_S + 0.5
+
+
+def test_coverage_command_sends_exactly_two_events(captured, monkeypatch, tmp_path):
+    """coverage: cli.invoked plus coverage.reported, delivered before exit."""
+    monkeypatch.setattr(telemetry, "_BAKED_TOKEN", "phc_test")
+    src = tmp_path / "prog.py"
+    src.write_text("def f(x: int) -> int:\n    return x + 1\n")
+    from pyscriptc.cli import main
+
+    rc = main(["coverage", str(src)])
+    assert rc == 0
+    names = [p["event"] for p in captured]
+    assert names.count("cli.invoked") == 1
+    assert names.count("coverage.reported") == 1
+    reported = [p for p in captured if p["event"] == "coverage.reported"][0]
+    assert isinstance(reported["properties"]["fences"], int)

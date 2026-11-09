@@ -272,6 +272,8 @@ def _run_workload(work: Path, workload: dict[str, Any], runs: int) -> dict[str, 
             "native_median_ms": round(native_median_ms, 3),
             "cpython_median_ms": round(cpython_median_ms, 3),
             "time_ratio": native_median_ms / max(cpython_median_ms, 1e-9),
+            "native_ms_spread": _spread(native_ms, native_median_ms),
+            "cpython_ms_spread": _spread(cpython_ms, cpython_median_ms),
             "native_rss_kb": round(native_rss_kb),
             "cpython_rss_kb": round(cpython_rss_kb),
             "rss_ratio": native_rss_kb / max(cpython_rss_kb, 1.0),
@@ -280,6 +282,29 @@ def _run_workload(work: Path, workload: dict[str, Any], runs: int) -> dict[str, 
         }
     )
     return row
+
+
+def _percentile(values: list[float], q: float) -> float:
+    ordered = sorted(values)
+    if not ordered:
+        raise ValueError("percentile of an empty sample")
+    pos = q * (len(ordered) - 1)
+    low = int(pos)
+    high = min(low + 1, len(ordered) - 1)
+    frac = pos - low
+    return ordered[low] * (1.0 - frac) + ordered[high] * frac
+
+
+def _spread(values: list[float], mid: float) -> dict[str, float]:
+    """Interquartile spread of one workload's samples, absolute and relative to the median."""
+
+    p25 = _percentile(values, 0.25)
+    p75 = _percentile(values, 0.75)
+    return {
+        "p25_ms": round(p25, 3),
+        "p75_ms": round(p75, 3),
+        "iqr_over_median": round((p75 - p25) / max(mid, 1e-9), 4),
+    }
 
 
 def _report(rows: list[dict[str, Any]], runs: int, selected: list[str] | None) -> dict[str, Any]:
