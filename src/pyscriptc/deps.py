@@ -1,6 +1,6 @@
 """`pyscriptc deps`: resolve PyPI dependencies and materialise pure-Python wheels.
 
-Partial slice of PyPI support (design: `.agents/plans/2026-10-21-pypi-support-design.md`).
+Partial slice of PyPI support.
 Dependencies come from a PEP 723 `# /// script` block or `[project].dependencies`
 in `pyproject.toml`. `uv` resolves them (universal, for the host CPython
 minor) into a PEP 751 lock (`pylock.*.toml`), never building an sdist, so no

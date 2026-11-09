@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "ad85f58a1410d4fabbc92e6c8d4e77748982828b",
+  "commit": "a539c055a2b7919708ce44cd4b42336dd820c6ee",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages_full": 2,
     "packages_partial": 8,
     "packages_none": 8,
-    "weighted_pass": 954.1,
+    "weighted_pass": 958.1,
     "fences": 2614
   },
   "builtins": [
@@ -683,10 +683,12 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "count, cycle (infinite), permutations, pairwise, batched, tee, dropwhile, compress"
+        "count, cycle (infinite), tee (returns a pair, not an iterator), permutations without a count"
       ],
       "fences": [
-        "PS2001"
+        "PS2001",
+        "PS2002",
+        "PS2003"
       ],
       "note": ""
     },
@@ -1067,7 +1069,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "insort, bisect, key=, list[str]"
+        "key=, lo=, hi="
       ],
       "fences": [
         "PS2001"
@@ -2073,15 +2075,15 @@
       "outcomes": {
         "build-error": 1,
         "excluded": 1395,
-        "fence": 10318,
-        "pass": 1135
+        "fence": 10314,
+        "pass": 1139
       },
-      "weighted_pass": 398.8,
+      "weighted_pass": 402.8,
       "fence_codes": {
         "PS2002": 6489,
         "PS1106": 2720,
-        "PS2001": 971,
-        "PS2003": 54,
+        "PS2001": 966,
+        "PS2003": 55,
         "PS1001": 37,
         "PS1003": 33,
         "PS1104": 12,
@@ -2356,8 +2358,8 @@
     },
     {
       "date": "2026-11-09",
-      "commit": "ad85f58a1410d4fabbc92e6c8d4e77748982828b",
-      "weighted_pass": 954.1,
+      "commit": "a539c055a2b7919708ce44cd4b42336dd820c6ee",
+      "weighted_pass": 958.1,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,

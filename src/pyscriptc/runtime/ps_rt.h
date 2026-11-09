@@ -198,6 +198,10 @@ typedef struct PsMap {
     int32_t *order; /* live rows in insertion order */
     int64_t order_len;
     int32_t order_dirty;
+    /* Per dense row: the row's position in order[] while the cache is in
+       sync. Only read when order_dirty is clear, so a stale entry on a
+       dead row is never consulted. */
+    int32_t *orderpos;
     int64_t rows; /* dense rows written so far; len is the live subset */
 } PsMap;
 
@@ -440,6 +444,7 @@ void ps_stream_write(void *stream, const char *data, int64_t len);
 void ps_map_del(PsMap *m, void *key);
 void ps_map_clear(PsMap *m);
 void ps_map_update(PsMap *dst, PsMap *src);
+void ps_dict_first_key(PsMap *m, void *out);
 PsSeq *ps_dict_values(PsMap *m);
 PsSeq *ps_dict_items(PsMap *m, int64_t voff, int64_t esz);
 PsSeq *ps_str_split_m(

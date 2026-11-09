@@ -58,7 +58,7 @@ Hash-only oracles. `IR_HASHES.json` and `TIR_HASHES.json` store probe id to 64-h
 
 `scripts/gen_emitter_goldens.py` builds dict modules with local helpers (`expr`, `stmt`, `fn`, `make_module`) and writes 36 pretty JSON fixtures plus `tests/fixtures/backend/manifest.json`. A typed on-disk format either regenerates those fixtures from typed constructors or keeps a committed JSON adapter until the goldens move to MIR / LLVM-only.
 
-No pickle, marshal, or msgpack of the IR exists in compiler code. User-program `pickle` is fenced (PS2002). `src/pyscriptc/runcache.py` caches binaries and a stamp JSON, not IR. `benchmarks/compat2/cache.py` caches scorer outcomes keyed on probe + oracle + compiler file hashes; it does not store IR. The "pure-dep IR cache" named in `.agents/plans/2026-10-21-pypi-support-design.md` is still a plan item, not a module. A typed on-disk format does not have to replace a cache that is not there.
+No pickle, marshal, or msgpack of the IR exists in compiler code. User-program `pickle` is fenced (PS2002). `src/pyscriptc/runcache.py` caches binaries and a stamp JSON, not IR. `benchmarks/compat2/cache.py` caches scorer outcomes keyed on probe + oracle + compiler file hashes; it does not store IR. The "pure-dep IR cache" named in the PyPI support design is still a plan item, not a module. A typed on-disk format does not have to replace a cache that is not there.
 
 ## Scorer and gate paths
 

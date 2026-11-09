@@ -1,67 +1,25 @@
 # Decisions
 
-The recorded decisions that bind the compiler. Each entry is dated, names the decision, says why, names the alternatives that were rejected, and points at the artifact that carries the detail. A change to a frozen gate (`AGENTS.md`, "Frozen v2 gates") needs an entry here first.
+The recorded decisions that bind the compiler. A change to a frozen gate (`AGENTS.md`, "Frozen v2 gates") needs an entry here first. One row per decision, newest last; the full prose of each row is in git history (this file before 2026-10-28) and in the linked artifacts.
 
-Entries are appended in date order. The newest is last.
-
-## 2026-10-24 The `str` model is the CPython code-point model
-
-Decision (owner, 2026-10-24): pyscriptc targets byte-for-byte CPython compatibility, so `str` becomes the full CPython code-point model. The storage is UTF-8 bytes, and every operation CPython defines over code points (`len`, indexing, slicing, iteration, comparison, `find`, the case family, `format`, `encode`/`decode`, the regular expression engine, `json`, `csv`, `tomllib`, `yaml`, `unicodedata`) is defined over code points here. Text I/O is UTF-8 by default, per PEP 540 and PEP 686.
-
-Option (c), UTF-8 storage with byte semantics, is rejected as an end state. It would make the stdout bytes match CPython for a literal while `len`, indexing and slicing stayed byte-based, which trades one divergence for another and makes the divergence document claim a parity the model does not have.
-
-Why: the parity contract in `docs/reference/divergences.md` claims that compiled programs match CPython 3.14 on stdout for everything that lowers, and that the empty divergence space is load-bearing. That claim is already false and the failure is silent. A source literal `café` prints `63 61 66 e9` where CPython prints `63 61 66 c3 a9`, and `len()` reads the byte count from `extractvalue %ps.str {v}, 0` (`src/pyscriptc/emit/llvm/_calls.py:30-33`) instead of the code-point count. The contract and the model are one problem, not two.
-
-The alternatives:
-
-- Latin-1 byte model (today): stdout bytes match CPython only for ASCII, and the difference is undocumented. Rejected as the end state.
-- UTF-8 storage with byte semantics: matches stdout bytes for literals and keeps `len`, indexing and slicing wrong. Rejected as the end state; not needed as a stepping stone either, because the phases below land the full model without an intermediate state that has to be unwound.
-- A code-point array (UCS-4 or UCS-2) with UTF-8 only at the I/O boundary: this is what CPython does, and it makes every string operation an array walk. Rejected for pyscriptc: it costs 4 bytes per code point for every program, including the ones that never see a non-ASCII character, and it turns every print and file write into a conversion.
-
-The representation that is chosen is UTF-8 bytes with a cached code-point count and an ASCII flag, carried in a widened `%ps.str` payload. The ASCII flag keeps the common case free (byte count equals code-point count), the cached count keeps `len` a field read, and the memory profile stays at one byte per code point for ASCII text. The surrogate policy is narrow: a `str` holds code points outside U+D800 to U+DFFF, `surrogateescape` decoding is fenced with a named diagnostic, and the gap is recorded as a numbered divergence.
-
-Cost accepted: the runtime audit. The `str` surface is roughly 9.3k lines of bytewise C (`ps_rt.c` 2186, `ps_more.c` 1073, `ps_fmt.c` 1039, `ps_re.c` 1356, `ps_unicode.c` 1521, and the json, csv, toml and yaml codecs 2640), plus the `IR_VERSION` bump, the emitter payload change and the frozen-gate movement in `benchmarks/compat2`.
-
-Where: the plan is `.agents/plans/2026-10-24-codepoint-str-model.md`. The design detail is `.agents/docs/spec/str-model.md` (landed with S1). The epic is issue #472 and the phases are #473 (S1), #474 (S2), #475 (S3), #476 (S4), #477 (S5), #478 (S6) and #479 (S7).
-
-Interim, until the model lands: a compile-time warning fires when a compiled program can emit a non-ASCII byte, and divergence item 3 names the stdout difference. The warning does not change the exit code and does not fence a working program.
-
-## 2026-10-24 S1 moves the frozen v2 gates for the str payload (gate change)
-
-Decision (recorded 2026-10-24, under the owner decision above): S1 of the str epic (issue #473) changes the IR shape, so the frozen v2 gate files move. This row is the recorded gate change that AGENTS.md requires before any frozen file is touched; the owner decision above is the why.
-
-What moves and what does not:
-
-- `benchmarks/compat2/probes/IR_HASHES.json`: every hash changes or is expected to, because the `%ps.str` payload widens and `IR_VERSION` stamps 2 into every module the probes lower. Regenerated with the A/B byte-identical discipline (two runs of `python -m benchmarks.compat2.irscore`, then `cmp`), on Linux only, never on macOS (`canonical.py` folds host constants, and the macOS baseline differs from the Linux one by hundreds of hashes).
-- `benchmarks/compat2/probes/*.jsonl`, `CALIBRATION.json` and `TRIAGE.md`: not moved by S1 itself. S1 changes the payload shape, not the semantics, and the probes' expected stdout does not change. They move in S7, when the model's semantics land and the probe expectations re-run against CPython.
-- `outcomes.py`, the `score.py` weights, `coverage_map.py` and `cache.py`: not moved at all. The S7 receipt records that they did not change.
-- `canonical.py` rules (`.agents/docs/spec/ir-canonicity.md`): unchanged; the canonical form stays deterministic and host-independent in its rules.
-- The `subset` stamp stays `gates-v1`: the same programs lower before and after S1.
-
-Procedural note carried with this row: the IR_HASHES regeneration for S1 lands in the same PR as the payload change and only after this decision, through the `ir-hashes` workflow (generate A and B, `cmp`, copy the artifact). On a macOS checkout the regeneration is never run by hand.
-
-Where: the plan phase S1 is `.agents/plans/2026-10-24-codepoint-str-model.md` ("The frozen gates"), the workflow is `.github/workflows/ir-hashes.yml`, and the platform note is `.agents/notes/2026-10-22-ir-hashes-regen.md`.
-
-## 2026-10-24 The package tiering policy for the blessed list
-
-Decision (owner direction, researched and recorded 2026-10-24): the beta does not chase PyPI compatibility. The compiler builds on the CPython builtin and standard-library subset, and a short blessed list of packages gets a stated surface under exactly one tier each. The tier is the promise made to a beta tester about scope.
-
-The four tiers: T1 compiles the real package from source, unmodified, matching CPython. T2 ships a blessed native pack under the pack format (`.agents/docs/spec/pack-format.md`), the real import name, a subset surface, out of the compiler tree. T3 ships a pyscriptc-native alternative with a CPython-compatible API subset, reached by changing one import line. T4 is out of scope, said plainly.
-
-Two rules bind the policy, and they are what make the promise keepable.
-
-First, a tier is per package, never per feature. A part of a package that is outside its tier's surface is not "partially supported"; the user who needs it is out of scope for that package. A per-feature tier would be a promise nobody can check.
-
-Second, the compiler never approximates a real package. Every name outside a pack's or an alternative's surface fences at compile time with the package name in the reason. This is what makes a conformance suite meaningful: the supported surface is exactly the written surface, and a diff against the real library under CPython covers all of it.
-
-The assignments: `requests` is T1 (epic #428, the pure-Python lane is already open). `orjson` is T2 (the pack format's worked example, #411). `pydantic` is T3 (`pyscriptc-val`, #156). `fastapi` is T3 (`pyscriptc-fastapi`, #231 to #234 under epic #219). `numpy` is T3 (`pyscriptc-ndarray`, #496). `pandas` is T3 (`pyscriptc-frame`, #497). `langchain` is T4.
-
-Why `langchain` is refused: 40 distributions, 7 native extensions, three frameworks deep, and I/O bound against a remote API, so native compilation buys nothing over CPython while every dependency costs fences. Measured fence counts for the rest are in the plan.
-
-Why `pydantic`, `fastapi`, `numpy` and `pandas` are alternatives and not compiled originals: the fence census is dominated by the typing surface (`pydantic` alone is 2565 fences), and `numpy` and `pandas` are ABI-specific wheels, so compiling them is the island tier by another name. The alternatives carry the shapes a compiled program actually wants (validated models, sync routes, a flat typed buffer, a columnar frame) and one import line changes them.
-
-The rejected alternatives: chasing the full typing-introspection surface so the real `pydantic` compiles (real work, recorded on #86 and #88, but it does not unblock the other packages and it cannot compile `pydantic-core`, a Rust extension); an island for `numpy` (links `libpython`, pins the speedup near 1x, and puts the binary back under the boxed ledger); and pretending T4 does not need saying (a tester who asks for `langchain` needs a plain answer, not silence).
-
-What reopens the decision: a package shown to need a second tier (a real-package subset plus an alternative), or a tier surface shown unusable for the archetype it was picked for. A tier change for one package is a new entry, not an edit of this one.
-
-Where: the plan is `.agents/plans/2026-10-24-apps-and-package-strategy.md` (the fence census, the two app archetypes, the grind plan). The probes are `.agents/probes/web_server.py` and `.agents/probes/log_pipeline.py`. The user-facing statement is `docs/guide/packages.md`.
+| Date | Decision | Why (one line) | Rejected alternatives | Detail |
+| --- | --- | --- | --- | --- |
+| 2026-10-21 | Release cadence: the default is not releasing; patch, hotfix, minor and beta bars | PyPI versions are irreversible, so ceremony is the cost of shipping | Keep-releasing standing goal (retired) | `AGENTS.md` "Release policy", `.agents/docs/release/release-process.md` |
+| 2026-10-21 | Planning moves to the GitHub Project and milestones; the roadmap file is dropped | Tickets carry no release statements; releases are milestone changes | In-repo roadmap | Project board 6; milestones `Current`, `Next`, `Later` (`Future`) |
+| 2026-10-22 | `IR_HASHES.json` is generated only on Linux via `ir-hashes.yml` (not a required check) | Canonical IR folds host constants; the macOS baseline differed by 458 hashes | macOS baseline | `.agents/notes/decisions-and-platform.md`, #211 |
+| 2026-10-22 | Checker bridge: pyrefly facts map into lowering behind `--bridge mypy` (E3a, #87) | The checker is the oracle by design; lowering does not duplicate inference | Lowering-own inference | `.agents/docs/design/checker-bridge.md` |
+| 2026-10-23 | User docs state divergences and gaps, never feature lists; support state lives on the compat site | A hand-written support table drifts; generated data cannot | Support tables in `docs/` | `AGENTS.md`, `.agents/docs/doc-cadence.md` |
+| 2026-10-23 | Beta channel: `pre_kind=beta` cuts `vX.Y.Z-beta.N` tags (`X.Y.ZbN` in `pyproject.toml`); beta bar without the minor gates | Testers get an opt-in build before the stable tag | rc-only prerelease | `AGENTS.md` "Release policy", `.agents/docs/release/release-process.md` |
+| 2026-10-23 | Windows stays explain/coverage-only until the interest gate (5% Windows compile share, 10% explain indicator) | Extending the tier is per-feature cost; demand is 1 to 2 percent | Full Windows support now | `.agents/notes/decisions-and-platform.md`, #285 |
+| 2026-10-23 | The library receipt is two minors: v0.7.0 weak receipt (`certifi`), strong receipt (#415) later | Ship the strongest receipt the release can deliver, not the theme implies | Widening v0.7.0 with the typing surface | `.agents/notes/decisions-and-platform.md` |
+| 2026-10-24 | The `str` model is the CPython code-point model over UTF-8 storage (epic #472, S1 to S7) | Byte semantics made the parity contract silently false (`len`, indexing, stdout bytes) | Latin-1 bytes (today), UTF-8 with byte semantics, UCS-4 array | `.agents/docs/spec/str-model.md` |
+| 2026-10-24 | S1 moves the frozen v2 gates for the str payload (gate change) | The `%ps.str` payload widens and `IR_VERSION` stamps 2; hash regen needs a recorded decision | - | `.agents/docs/spec/str-model.md`, `.github/workflows/ir-hashes.yml` |
+| 2026-10-24 | Package tiering: one tier per package (T1 compile real, T2 pack, T3 alternative, T4 refused); never per feature; never approximate | A per-feature tier is a promise nobody can check; fences name the package | Chasing pydantic's typing surface, an island for numpy, silent T4 | `docs/guide/packages.md`, `.agents/probes/*.py` |
+| 2026-10-24 | A generator suspending inside a `with` keeps `__exit__` until the `with` body leaves (#433, G1) | CPython 3.14 behavior, measured against the oracle | Running `__exit__` at the suspension point | `.agents/notes/decisions-and-platform.md`, `src/pyscriptc/coro.py` |
+| 2026-10-25 | Typed-subset positioning: island is the floor, native is the ceiling; guarded speculation permanently dropped | Byte-parity of dynamic Python is retired; refusal-by-default is the soundness guarantee | CPython-parity bailout architecture | `docs/guide/packages.md`, `docs/guide/typing.md` |
+| 2026-10-25 | Two unidirectional interop seams (compiled to island, island to compiled via `--emit binding`); no bidirectional chain | Values cross a seam exactly once per direction; keeps marshalling and the boxed ledger honest | A compiled-island-compiled call chain | `docs/guide/packages.md` |
+| 2026-10-25 | The pack format track is dropped; shipped curated dists stay narrow exceptions | Packs recreate the curated-fork burden; both jobs have cheaper homes | The #430 epic | `.agents/docs/spec/pack-format.md` |
+| 2026-10-25 | GIL by plane: native has none, the island seam takes it on entry, the binding seam is ctypes-safe | Each plane inherits the semantics it runs under | A product-wide GIL | `docs/guide/packages.md` |
+| 2026-10-25 | Introspection stays island-side; diagnostics name the culprit and the typed idiom | No fake schema descriptors; the message tells the truth | Compile-time route extraction (Future, per package) | `docs/guide/packages.md` |
+| 2026-10-25 | Island floor granularity: the fallback unit is the definition; the module top level is all-or-nothing; typed native, untyped island | Per-statement bailout needs a dynamic value type the IR refuses | Per-statement deopt, per-module-only | `.agents/notes/decisions-and-platform.md` |
+| 2026-10-25 | Keyword arguments stay call-site bound; specialization wrappers only for function-value calls | Zero runtime cost for the 99 percent positional calls | Parameter object, dict pass | `.agents/notes/decisions-and-platform.md` |

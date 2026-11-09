@@ -2,7 +2,7 @@ name: ir-hashes
 
 # Canonical IR folds host constants (socket, errno, os, ssl, time, sys, ctypes,
 # pathlib), so IR_HASHES.json is only valid when generated on Linux. Not a
-# required check. See .agents/notes/2026-10-22-ir-hashes-regen.md.
+# required check. See .agents/notes/decisions-and-platform.md (the IR_HASHES platform decision).
 #
 # generate (workflow_dispatch): two runs (A, B), fails unless byte-identical,
 # uploads the file as the `ir-hashes` artifact. Copy it to

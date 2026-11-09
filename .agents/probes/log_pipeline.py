@@ -2,7 +2,7 @@
 
 The shape a CPU-bound pipeline has in the wild: read a CSV, aggregate by key,
 emit JSON. This is the probe the apps strategy measures the data archetype
-with; see `.agents/plans/2026-10-24-apps-and-package-strategy.md` section 2.3.
+with; see `.agents/decisions.md` (the package tiering policy).
 
 Expected today: 0 fences, with two known gaps that make the shape awkward
 rather than fatal:

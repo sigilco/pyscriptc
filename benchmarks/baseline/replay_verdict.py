@@ -1,7 +1,7 @@
 """Replay three historical v1 iterations and the injected-bug drop through the verdict.
 
-The older strategy plan named in AGENTS.md is not in this clone. Expected
-outcomes are the A5 row of ``.agents/plans/2026-10-14-waves-after-scorer-v2.md``:
+Expected outcomes are the historical A5 row (one kept historical iteration
+replays PASS, reverted replay PASS, and the deltas match):
 
 1. one kept historical iteration → PASS
 2. one dropped historical iteration → FAIL

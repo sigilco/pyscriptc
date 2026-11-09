@@ -75,7 +75,7 @@ Cost is paid in three layers, only the first of which this slice should touch:
 
 1. **MIR digest of in-slice functions.** Cheap if the serializer change is additive (new `const` line kinds). Expensive if the `fn`/`module` header format changes: every existing `module_hash` moves and every MIR fixture hash in `test_mir_leaf.py` (today stability is computed, not pinned as a hex literal) still has to be re-checked for LLVM identity. Do not pin hex literals until M-5 lands a baseline file.
 2. **LLVM goldens.** `tests/test_emitter_goldens.py` must stay byte-identical with no re-bless. The MIR lane is an A/B of the direct emitter; if `miremit` recreates `%ps.str` in a different temp order, goldens of the *direct* path do not move but `test_direct_vs_mir_bytes` fails. Fix the emitter, do not re-bless goldens.
-3. **TIR / IR hashes.** Must not move. Ritual for those files is documented in `.agents/notes/2026-10-22-ir-hashes-regen.md` and `.agents/docs/spec/ir-canonicity.md` §7.4 (two runs, `cmp`, Linux only). M-1 does not invoke it.
+3. **TIR / IR hashes.** Must not move. Ritual for those files is documented in `.agents/notes/decisions-and-platform.md` and `.agents/docs/spec/ir-canonicity.md` §7.4 (two runs, `cmp`, Linux only). M-1 does not invoke it.
 
 Practical cost of a well-scoped M-1 implementation: one new leaf fixture, no frozen-file regen, no census pin move, LLVM A/B on the new fixture, and a verifier test that a `w` op cannot read an `s` const. The first time a string helper is added to `fn.helpers`, census pins move only if `mirlower.py` / `miremit.py` gain fences; docs-only this PR does not.
 

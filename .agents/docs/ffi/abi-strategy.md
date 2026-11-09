@@ -94,6 +94,6 @@ owner of the decision.
 - `src/pyscriptc/runtime/ps_rt.h` (struct layout + append-only comment),
   `.agents/docs/invariants.md` (C ABI string/aggregate rules),
   `src/pyscriptc/ir.py` (`IR_VERSION`, `SUBSET`, `assert_same_cpython`),
-  `src/pyscriptc/runtime/ps_mix.c`, `.agents/plans/2026-10-14-waves-after-scorer-v2.md` (phase F FFI).
+  `src/pyscriptc/runtime/ps_mix.c` (the FFI epic, phase F).
 - scriptc: `vercel-labs/scriptc` `packages/compiler/src/backend/runtime-abi.ts`,
   `scripts/verify-linux-abi.mjs` (ABI 22 at v0.3.5).
