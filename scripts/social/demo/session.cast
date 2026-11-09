@@ -1,0 +1,9 @@
+{"version":3,"term":{"cols":80,"rows":14},"timestamp":1793826267,"idle_time_limit":0.4,"command":"/tmp/social-rec.sh","title":"pyscriptc run and build","env":{"SHELL":"/bin/zsh"}}
+[0.05, "o", "$ pyscriptc run demo.py\r\n"]
+[0.132, "o", "rows: 5\r\ntotal: 75\r\nmean: 15\r\n0\r\n"]
+[0.05, "o", "\r\n$ pyscriptc compile demo.py --emit bin -o demo\r\n"]
+[0.35, "o", ""]
+[3.194, "o", "demo\r\n"]
+[0.05, "o", "\r\n$ ./demo\r\n"]
+[0.218, "o", "rows: 5\r\ntotal: 75\r\nmean: 15\r\n0\r\n"]
+[0.05, "x", "0"]
