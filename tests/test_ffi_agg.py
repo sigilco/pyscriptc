@@ -25,6 +25,7 @@ from pyscriptc.emit.llvm import emit_llvm, link_binary
 from pyscriptc.ffi_manifest import load_manifest
 from pyscriptc.lower import lower_source
 from pyscriptc.stdlib_queue import ffi_modules
+from pyscriptc.tirserde import dict_to_node
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "ffi"
@@ -64,9 +65,9 @@ def test_lowered_list_return_rides_the_ptr_abi_path() -> None:
     source = "import ffx\n\ndef main() -> int:\n    names: list[str] = ffx.names()\n    return len(names)\n"
     module, _ = _lower(source)
     assert module["fences"] == []
-    assign = module["functions"][0]["body"][0]
-    assert assign["value"]["kind"] == "call"
-    assert assign["value"]["type"] == {"kind": "list", "elem": {"kind": "str"}}
+    assign = dict_to_node(module["functions"][0]["body"][0])
+    assert assign.value.kind == "call"
+    assert assign.value.type.kind == "list" and assign.value.type.elem.kind == "str"
 
 
 def test_lowered_dict_return_keeps_the_key_value_types() -> None:
@@ -74,12 +75,13 @@ def test_lowered_dict_return_keeps_the_key_value_types() -> None:
     source = "import ffx\n\ndef main() -> str:\n    row: dict[str, str] = ffx.row()\n    return row['name']\n"
     module, _ = _lower(source)
     assert module["fences"] == []
-    assign = module["functions"][0]["body"][0]
-    assert assign["value"]["kind"] == "call"
-    assert assign["value"]["type"] == {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "str"}}
-    read = module["functions"][0]["body"][1]
-    assert read["kind"] == "return" and read["value"]["kind"] == "subscript"
-    assert read["value"]["type"] == {"kind": "str"}
+    assign = dict_to_node(module["functions"][0]["body"][0])
+    assert assign.value.kind == "call"
+    typ = assign.value.type
+    assert typ.kind == "dict" and typ.key.kind == "str" and typ.value.kind == "str"
+    read = dict_to_node(module["functions"][0]["body"][1])
+    assert read.kind == "return" and read.value.kind == "subscript"
+    assert read.value.type.kind == "str"
 
 
 @needs_clang

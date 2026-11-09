@@ -16,6 +16,18 @@ import ast
 from typing import Any
 
 from pyscriptc.reflection import kwargs_call_note
+from pyscriptc.restlower._shared import (
+    _call_builtin,
+    _class,
+    _const_text,
+    _flag,
+    _int,
+    _node_type,
+    _node_type_kind,
+    _t_leaf,
+    _type_kind,
+    _type_name,
+)
 
 
 def _argv(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -23,9 +35,10 @@ def _argv(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "subprocess expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    if arg["type"]["kind"] != "list" or arg["type"].get("set"):
+    arg_t = _node_type(arg)
+    if _type_kind(arg_t) != "list" or _flag(arg_t, "set"):
         lo.fail(node, "PS1003", "subprocess takes a list of str")
-    if arg["type"]["elem"]["kind"] != "str":
+    if _type_kind(arg_t["elem"]) != "str":
         lo.fail(node, "PS1003", "subprocess takes a list of str")
     return arg
 
@@ -108,21 +121,15 @@ def _cwd(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     for keyword in node.keywords:
         if keyword.arg == "cwd":
             val = lo._expr(keyword.value)
-            kind = val["type"]["kind"]
+            kind = _node_type_kind(val)
             if kind == "str":
                 return val
-            if kind == "class" and val["type"].get("name") == "Path":
-                return {
-                    "kind": "call",
-                    "callee": {"kind": "builtin", "name": "str"},
-                    "args": [val],
-                    "type": {"kind": "str"},
-                    "span": span,
-                }
+            if kind == "class" and _type_name(_node_type(val)) == "Path":
+                return _call_builtin("str", [val], _t_leaf("str"), span)
             if kind == "none":
-                return {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span}
+                return _const_text("", "str", span)
             lo.fail(keyword.value, "PS2003", "subprocess.run cwd must be a str or Path")
-    return {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span}
+    return _const_text("", "str", span)
 
 
 def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -147,13 +154,13 @@ def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         flag_value = capture | check | 4 | (enc << 3) | (err << 5)
     else:
         flag_value = capture | check
-    flag = {"kind": "const", "value": str(flag_value), "type": {"kind": "int"}, "span": span}
+    flag = _int(flag_value, span)
     cwd = _cwd(lo, node, span)
     return lo._abi_call(
         "subprocess",
         "run",
         [argv, flag, cwd],
-        {"kind": "class", "name": record},
+        _class(record),
         "ps_sub_run",
         span,
     )
@@ -163,11 +170,11 @@ def _call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     lo.mobile_guard(node, "subprocess.call", "subprocess")
     lo._reject_keywords(node)
     argv = _argv(lo, node, span)
-    return lo._abi_call("subprocess", "call", [argv], {"kind": "int"}, "ps_sub_call", span)
+    return lo._abi_call("subprocess", "call", [argv], _t_leaf("int"), "ps_sub_call", span)
 
 
 def _check_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     lo.mobile_guard(node, "subprocess.check_call", "subprocess")
     lo._reject_keywords(node)
     argv = _argv(lo, node, span)
-    return lo._abi_call("subprocess", "check_call", [argv], {"kind": "int"}, "ps_sub_check_call", span)
+    return lo._abi_call("subprocess", "check_call", [argv], _t_leaf("int"), "ps_sub_check_call", span)

@@ -7,6 +7,7 @@ and exit code as the built binary.
 
 from __future__ import annotations
 
+import ast
 import subprocess
 import sys
 from pathlib import Path
@@ -15,6 +16,10 @@ import pytest
 from tests.test_gates import run_cli
 
 from pyscriptc.config import ConfigError, entry_points, project_roots
+from pyscriptc.project import _retarget_entry
+
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
+_SRC = Path(__file__).resolve().parents[1] / "src" / "pyscriptc"
 
 
 def write_project(tmp_path: Path, name: str, files: dict[str, str], pyproject: str) -> Path:
@@ -223,3 +228,97 @@ def test_config_reports_the_scripts(tmp_path: Path) -> None:
     assert '"hello": "mylib.hello:main"' in got.stdout
     got = run_cli("config", str(root))
     assert "hello: mylib.hello:main" in got.stdout
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_project_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "project.py") == 0
+
+
+def test_retarget_entry_builds_the_console_script_wrapper() -> None:
+    """The synthesized main is the same dict IR the raw literals used to spell."""
+
+    module = {
+        "sourceFile": "src/mylib/hello.py",
+        "entry": "mylib.hello.__entry__",
+        "functions": [
+            {
+                "name": "mylib.hello.__entry__",
+                "params": [],
+                "returnType": {"kind": "none"},
+                "locals": [],
+                "body": [],
+            },
+            {
+                "name": "mylib.hello.main",
+                "params": [],
+                "returnType": {"kind": "int"},
+                "locals": [],
+                "body": [],
+            },
+        ],
+    }
+    _retarget_entry(module, "mylib.hello", "main")
+    assert module["entry"] == "main"
+    wrapper = next(fn for fn in module["functions"] if fn["name"] == "main")
+    assert wrapper["returnType"] == {"kind": "none"}
+    assert wrapper["params"] == []
+    assert wrapper["locals"] == []
+    span = {"file": "src/mylib/hello.py", "line": 1, "col": 1, "endLine": 1, "endCol": 1}
+    assert wrapper["body"] == [
+        {
+            "kind": "expr",
+            "expr": {
+                "kind": "call",
+                "callee": {"kind": "function", "name": "mylib.hello.__entry__"},
+                "args": [],
+                "type": {"kind": "none"},
+                "span": span,
+            },
+            "span": span,
+        },
+        {
+            "kind": "expr",
+            "expr": {
+                "kind": "call",
+                "callee": {"kind": "module", "module": "sys", "name": "exit"},
+                "args": [
+                    {
+                        "kind": "call",
+                        "callee": {"kind": "function", "name": "mylib.hello.main"},
+                        "args": [],
+                        "type": {"kind": "int"},
+                        "span": span,
+                    }
+                ],
+                "type": {"kind": "none"},
+                "span": span,
+                "symbol": "exit",
+            },
+            "span": span,
+        },
+    ]
+
+
+def test_retarget_entry_leaves_a_missing_attribute_alone() -> None:
+    module = {"sourceFile": "a.py", "entry": "main", "functions": [{"name": "other", "returnType": {"kind": "int"}}]}
+    _retarget_entry(module, "mylib.hello", "main")
+    assert module["entry"] == "main"
+    assert [fn["name"] for fn in module["functions"]] == ["other"]

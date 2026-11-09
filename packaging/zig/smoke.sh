@@ -39,7 +39,9 @@ trap 'rm -rf "$work"' EXIT
 # The non-island link set: every runtime C file except ps_island.c, which needs
 # Python.h, and the wasm-only runtime/wasm/rt_wasm.c (a wasm32 EH setjmp shim,
 # not part of the tier-A link set). Same rule as link_binary for programs with
-# no ps_island_ symbols.
+# no ps_island_ symbols. The units compile without PSC_HAVE_CURL, so
+# ps_http_curl.c builds to the stub and no libcurl symbol reaches a macOS
+# cross link (Mach-O has no undefined-weak story; see the fix(tls) commit).
 mapfile -t rt < <(find "$root/src/pyscriptc/runtime" -maxdepth 1 -name '*.c' ! -name 'ps_island.c' | sort)
 
 # build <ll> <target> <out> [extra C units...]: every unit to .o, then objects

@@ -15,6 +15,16 @@ uv run python -m benchmarks.baseline.run --record
 
 `--check` reads the reference file for this host. `--record` replaces that same file with the run just taken. The report also keeps compile time and the linked binary's size; those are not part of the ratio gate.
 
+## Deltas between runs
+
+`delta.py` compares two recorded runs (the JSON files `--json` writes) and prints a markdown table: the median wall time and peak RSS of each run, the ratio between them, and each run's interquartile spread, so a difference that sits inside the noise is visible as such. It is report-only; it never fails on a number.
+
+```bash
+uv run python -m benchmarks.baseline.delta base.json head.json
+```
+
+The `bench` workflow (`.github/workflows/bench.yml`) runs the suite on a pinned ubuntu-24.04 runner for every release tag, every checkpoint tag and every manual dispatch, writes `bench-<tag-or-sha>.json`, uploads it as a workflow artifact, attaches it to the release for a tag, and puts the delta against the previous tag in the run summary.
+
 Both baselines are recorded on the declared target CPython version (`TARGET_CPYTHON`). `--record` requires the exact target CPython micro, refusing any host micro mismatch so recorded reference files stay on the sanctioned version. `--check` warns on a host micro mismatch but requires the reference file itself to have been recorded on the target CPython version.
 
 ## Host slots

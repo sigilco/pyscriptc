@@ -1,6 +1,6 @@
 [project]
 name = "pyscriptc"
-version = "0.7.0"
+version = "0.9.0"
 description = "Lower a typed subset of Python to LLVM, with CPython as the island."
 readme = "README.md"
 requires-python = ">=3.14"
@@ -77,6 +77,7 @@ testpaths = ["tests"]
 pythonpath = ["src", "."]
 markers = [
     "linux_container: Linux dev container suite (HEAVY=1 docker/run.sh). Shells out to clang or only passes on Linux. CI does not run these.",
+    "slow: builds the self-compiled pyscriptc and compiles through it; minutes, not seconds. CI does not run these.",
 ]
 
 [tool.ruff]
@@ -103,6 +104,20 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # The table generator emits C source with percent formats.
 "scripts/gen_case_tables.py" = ["UP031"]
+# Self-host spell: the `Dict` container form is deliberate (the lowercase
+# `dict[str, Any]` annotation fences PS1106 dynamic-annotation rows on
+# every signature; the census lowerer does not resolve PEP 585 spellings).
+"src/pyscriptc/mirlower.py" = ["UP006", "UP035"]
+"src/pyscriptc/miremit.py" = ["UP006", "UP035"]
+# The B11 adapter keeps the same self-host `Dict` spell as the MIR lane.
+"src/pyscriptc/emit/_mir_in.py" = ["UP006", "UP035"]
+# Same self-host spell for the deps report row builder: the lowercase
+# `dict[str, Any]` return/local annotation fences PS1106 (the census
+# lowerer does not resolve PEP 585 spellings on a returned dict).
+"src/pyscriptc/deps.py" = ["UP006", "UP035"]
+"src/pyscriptc/config.py" = ["UP006", "UP035"]
+"src/pyscriptc/ffi_manifest.py" = ["UP006", "UP035"]
+"src/pyscriptc/embed.py" = ["UP006", "UP035"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["pyscriptc"]

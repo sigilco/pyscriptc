@@ -288,7 +288,7 @@ print("hi")
     report = deps.run_deps(script, cache_dir=tmp_path / "cache")
     assert fake["fetched"] == []  # Not re-downloaded
     assert (src_dir / ".imports").read_text(encoding="utf-8") == "yaml\n"
-    assert report["packages"][0]["import_names"] == ("yaml",)
+    assert report["packages"][0]["import_names"] == ["yaml"]
     assert report["importNames"]["yaml"]["distribution"] == "pyyaml"
     assert "importNames" not in report["importNames"]["yaml"]
 
@@ -311,10 +311,10 @@ def test_the_deps_report_lists_import_names_per_distribution(fake: dict[str, Any
     report = deps.run_deps(_script(tmp_path))
     names = {p["name"]: p["import_names"] for p in report["packages"]}
     assert names == {
-        "pyyaml": ("yaml",),
-        "dateutil-ish": ("dateutil", "six"),
-        "opaque": ("tomli",),
-        "bare": (),
+        "pyyaml": ["yaml"],
+        "dateutil-ish": ["dateutil", "six"],
+        "opaque": ["tomli"],
+        "bare": [],
     }
 
 

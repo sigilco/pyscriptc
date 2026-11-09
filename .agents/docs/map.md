@@ -8,7 +8,7 @@
 | `src/pyscriptc/errors.py` | `IRError`, `SpikeError`, `VersionError`, `FitError` |
 | `src/pyscriptc/ir.py` | JSON schema, `IR_VERSION`, `SUBSET`, forbidden scriptc kinds |
 | `src/pyscriptc/lower.py` | Language, classes, calls, `re` / `json` / `urllib.parse` / `base64` / `hashlib` / `struct` |
-| `src/pyscriptc/package.py` | Directory compile. Exports functions, constants, and classes the defining module emits. Skips `__main__.py`. A definition fence precedes "is not exported" |
+| `src/pyscriptc/package.py` | Directory compile. Reads unit IR through `emit/_ir`. Exports functions, constants, and classes the defining module emits. Skips `__main__.py`. A definition fence precedes "is not exported" |
 | `src/pyscriptc/restlower.py` | Remaining queued modules and builtin helpers |
 | `src/pyscriptc/stdlib_queue.py` | Import table, `math` signatures, codec signatures |
 | `src/pyscriptc/stdmore.py` | Rest-of-queue signatures, baked constants, island call list |

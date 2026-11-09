@@ -5,7 +5,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _class, _const_text
+from pyscriptc.restlower._shared import _class, _const_text, _node_type, _node_type_kind
 
 
 def _one(
@@ -21,7 +21,7 @@ def _one(
     if len(node.args) != 1:
         lo.fail(node, "PS2003", f"{module}.{attr} expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    lo._expect(node, arg["type"], want, f"{module}.{attr}")
+    lo._expect(node, _node_type(arg), want, f"{module}.{attr}")
     return lo._abi_call(module, attr, [arg], ret, symbol, span)
 
 
@@ -32,7 +32,7 @@ def _buffer(
         lo.fail(node, "PS2003", f"{module}.{attr} expects 0 or 1 argument(s)")
     if node.args:
         arg = lo._expr(node.args[0])
-        if arg["type"]["kind"] != kind:
+        if _node_type_kind(arg) != kind:
             lo.fail(node, "PS1003", f"{module}.{attr} argument is {kind}")
     else:
         arg = _const_text("", kind, span)

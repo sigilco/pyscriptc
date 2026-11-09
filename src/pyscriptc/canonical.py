@@ -18,6 +18,7 @@ import hashlib
 import json
 import os
 import sys
+from collections.abc import Iterator
 from functools import lru_cache
 from pathlib import Path
 from typing import Any
@@ -52,18 +53,20 @@ def canonicalize(module: dict[str, Any]) -> dict[str, Any]:
     Idempotent: canonicalize(canonicalize(x)) == canonicalize(x). The input
     dict is never mutated.
     """
-    out = _strip(module)
-    classes = out.get("classes")
-    if isinstance(classes, list):
-        out["classes"] = sorted(classes, key=lambda cls: cls.get("name") or "")
+    out: dict[str, Any] = _strip(module)
+    classes_list: list[dict[str, Any]] = []
+    if "classes" in out and isinstance(out["classes"], list):
+        classes_list = out["classes"]
+        out["classes"] = sorted(classes_list, key=lambda cls: cls.get("name") or "")
     for stmt in _walk_stmts(out):
         for handler in stmt.get("handlers", ()):
             if isinstance(handler, dict) and isinstance(handler.get("codes"), list):
                 handler["codes"] = sorted(handler["codes"])
-    fences = out.get("fences")
-    if isinstance(fences, list):
+    fences_list: list[dict[str, Any]] = []
+    if "fences" in out and isinstance(out["fences"], list):
+        fences_list = out["fences"]
         out["fences"] = sorted(
-            fences,
+            fences_list,
             key=lambda fence: (
                 fence.get("code") or "",
                 fence.get("message") or "",
@@ -77,13 +80,12 @@ def canonicalize(module: dict[str, Any]) -> dict[str, Any]:
 
 def hash_module(module: dict[str, Any]) -> str:
     """SHA-256 hex of the schema-versioned canonical form of a module IR dict."""
-    canonical = {
-        "schema": CANONICAL_SCHEMA_VERSION,
-        "ir": canonicalize(module),
-    }
+    canonical: dict[str, Any] = {}
+    canonical["schema"] = CANONICAL_SCHEMA_VERSION
+    canonical["ir"] = canonicalize(module)
     # allow_nan=False on purpose: a NaN reaching IR means a compiler bug and
     # should surface here instead of silently hashing into a digest.
-    payload = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    payload: str = json.dumps(canonical, sort_keys=True, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
 
@@ -152,7 +154,7 @@ def _strip(value: Any) -> Any:
     return copy.copy(value)
 
 
-def _walk_stmts(value: Any):
+def _walk_stmts(value: Any) -> Iterator[dict[str, Any]]:
     """Yield every dict that looks like a statement node, recursively."""
     if isinstance(value, dict):
         if isinstance(value.get("kind"), str) and "handlers" in value:

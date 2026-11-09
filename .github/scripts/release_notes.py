@@ -61,6 +61,20 @@ Please report anything you hit with the beta-feedback template:
 https://github.com/{repo}/issues/new?template=beta-feedback.md
 """
 
+HOW_TO_TEST_CHECKPOINT = """\
+## How to test
+
+This is a checkpoint: an internal build between releases, not a published beta. It is
+never uploaded to PyPI, so `pip install` and `uv tool install` will not find it.
+
+Take the prebuilt binary attached below (verify it against `sha256sums.txt`) and run
+it directly. The benchmark artifact `bench-{tag}.json` rides along with it, so you can
+compare this checkpoint's performance against the previous release.
+
+Please report anything you hit with the beta-feedback template:
+https://github.com/{repo}/issues/new?template=beta-feedback.md
+"""
+
 AGENT_LOGINS = {"cursor", "cursoragent", "cursor-agent", "devin-ai-integration"}
 MAINTAINERS_FILE = Path(".github/maintainers.txt")
 
@@ -112,7 +126,7 @@ def _run(cmd: list[str]) -> str:
 def gh_available() -> bool:
     try:
         subprocess.run(("gh", "--version"), check=True, capture_output=True)
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return False
     return True
 
@@ -125,7 +139,7 @@ def has_breaking_commits(prev: str | None) -> bool:
     rng = f"v{prev}..HEAD" if prev else "HEAD"
     try:
         out = _run(["git", "log", "--no-merges", "--format=%s%n%b", rng])
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return False
     for line in out.splitlines():
         if re.match(r"^\w+(\([^)]*\))?!:", line) or line.startswith("BREAKING CHANGE:"):
@@ -185,7 +199,7 @@ def _has_commit_before(prev: str | None, email: str) -> bool:
         return False
     try:
         out = _run(["git", "log", f"v{prev}", f"--author={email}", "--format=%H", "-1"])
-    except (OSError, subprocess.CalledProcessError):
+    except OSError, subprocess.CalledProcessError:
         return True
     return bool(out.strip())
 
@@ -227,7 +241,11 @@ def build_body(
         out += [credits, ""]
     out += [f"**Full changelog**: {compare_link(repo, previous_tag(changelog, version), version)}", ""]
     if m:
-        out += [HOW_TO_TEST.format(base=m.group(1), version=version, repo=repo or "sigilco/pyscriptc"), ""]
+        # A checkpoint (beta tag) never reaches PyPI, so its block points at
+        # the attached binaries; the published-beta block points at the
+        # prerelease install lines.
+        template = HOW_TO_TEST_CHECKPOINT if m.group(2) == "beta" else HOW_TO_TEST
+        out += [template.format(base=m.group(1), version=version, tag=tag, repo=repo or "sigilco/pyscriptc"), ""]
     out += [footer.rstrip(), ""]
     return "\n".join(out)
 

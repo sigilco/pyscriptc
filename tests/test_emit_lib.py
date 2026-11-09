@@ -180,10 +180,10 @@ def test_android_api_floor(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_android_page_flags_are_the_play_requirement() -> None:
     """The 16 KB alignment pair a shared-object link needs on Android 15+."""
-    assert ANDROID_PAGE_FLAGS == (
+    assert ANDROID_PAGE_FLAGS == [
         "-Wl,-z,max-page-size=16384",
         "-Wl,-z,common-page-size=16384",
-    )
+    ]
 
 
 def _fake_ndk(root: Path) -> Path:

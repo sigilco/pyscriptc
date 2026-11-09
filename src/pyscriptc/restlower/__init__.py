@@ -73,13 +73,22 @@ from pyscriptc.restlower._random import _random_call
 from pyscriptc.restlower._subprocess import _call as _sub_call
 from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
 from pyscriptc.restlower._subprocess import _run as _sub_run
-from pyscriptc.restlower._system import _as_file_value, _atexit_register, _exit, _getenv, _resource_files, _unicode_name
+from pyscriptc.restlower._system import (
+    _as_file_value,
+    _atexit_register,
+    _exit,
+    _getenv,
+    _resource_files,
+    _shutil_which,
+    _unicode_name,
+)
 from pyscriptc.restlower._textwrap import _textwrap_call
 from pyscriptc.restlower._threading import _lock_method, _thread_method, _threading_call
 from pyscriptc.restlower._time import _clock, _sleep, _strftime
 from pyscriptc.restlower._tomllib import _tomllib_call
 from pyscriptc.restlower._urllib import _urllib_request_call
 from pyscriptc.restlower._yaml import _yaml_call
+from pyscriptc.sigrec import Sig, sig_for, type_to_dict
 from pyscriptc.stdmore import (
     CALL_FENCES,
     CLASS_METHODS,
@@ -109,7 +118,7 @@ __all__ = [
 # and the attribute name, whatever subset of those it actually needs.
 Handler = Callable[[Any, ast.Call, dict[str, Any], "dict[str, Any] | None", str], dict[str, Any]]
 
-_DATETIME_ROWS: dict[str, tuple[str, str, int, list[str]]] = {
+_DATETIME_ROWS = {
     "date": ("ps_date_ymd", "Date", 3, ["year", "month", "day"]),
     "datetime": (
         "ps_dt_new",
@@ -138,6 +147,8 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("importlib.resources", "as_file"): lambda lo, node, span, expect, attr: _as_file_value(lo, node, span),
     # The 1-arg form returns the tagged `str | None`; the 2-arg form returns the default instead.
     ("os", "getenv"): lambda lo, node, span, expect, attr: _getenv(lo, node, span),
+    # The tagged `str | None`: None for a missing executable, like CPython.
+    ("shutil", "which"): lambda lo, node, span, expect, attr: _shutil_which(lo, node, span),
     ("time", "strftime"): lambda lo, node, span, expect, attr: _strftime(lo, node, span),
     ("tempfile", "NamedTemporaryFile"): lambda lo, node, span, expect, attr: _named_temp(lo, node, span),
     ("functools", "partial"): lambda lo, node, span, expect, attr: lo._partial_callable(node, span),
@@ -319,11 +330,32 @@ def builtin_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
 
 
 def method_spec(class_name: str, name: str) -> dict[str, Any] | None:
-    return CLASS_METHODS.get(class_name, {}).get(name)
+    """The dict row of a synthetic class method, `sig_for`-cached.
+
+    `CLASS_METHODS` rows are the `Sig` records of the typing-hygiene slice
+    where they have been named and plain dicts where they have not (the
+    deque rows carry an `elem` placeholder no record can express yet); the
+    lowerer reads the dict shape, so this accessor is the boundary.
+    """
+
+    row = CLASS_METHODS.get(class_name, {}).get(name)
+    if row is None:
+        return None
+    return sig_for(row) if isinstance(row, Sig) else row
 
 
 def path_attr(name: str) -> tuple[dict[str, Any], str] | None:
-    return PATH_ATTRS.get(name)
+    """The dict row of a Path property, the record-to-dict boundary.
+
+    `PATH_ATTRS` stores the `T` records of the typing-hygiene slice; the
+    lowerer reads the `{kind, ...}` dict shape.
+    """
+
+    found = PATH_ATTRS.get(name)
+    if found is None:
+        return None
+    typ, symbol = found
+    return (type_to_dict(typ), symbol)
 
 
 def alias_name(module: str, member: str) -> str | None:

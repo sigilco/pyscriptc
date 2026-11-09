@@ -78,7 +78,7 @@ test("no placeholder survives in a built page", { skip: !hasDeploy }, () => {
 });
 
 test("docs pages link the compat page through the placeholder", () => {
-  const page = readFileSync(join(repoRoot, "docs", "guide", "support-model.md"), "utf8");
+  const page = readFileSync(join(repoRoot, "docs", "guide", "python-subset.md"), "utf8");
   assert.ok(page.includes("{{PYSC_COMPAT_URL}}"));
   assert.ok(!page.includes("pyscriptc-compat.pages.dev"));
 });

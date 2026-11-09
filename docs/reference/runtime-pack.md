@@ -5,21 +5,27 @@ description: The bundled CPython runtime pack for `--embed-python=bundle` compil
 
 # Runtime pack and licenses
 
-A `bundle` compile (`--embed-python=bundle`, or the default `auto` mode when the compiler's interpreter has no usable shared `libpython`, as inside the release binary) links and runs a pinned CPython runtime pack instead of the host interpreter. The pack is fetched once, sha256-verified, cached, and carries its licenses with it.
+A `bundle` compile (`--embed-python=bundle`, or the default `auto` mode when the compiler's interpreter has no usable shared `libpython`, as inside the release binary) links and runs a pinned CPython runtime pack instead of the host interpreter.
+The pack is fetched once, sha256-verified, cached, and carries its licenses with it.
 
-The pack is delivered by the embedding slices tracked under issue #651; this page is the licensing and provenance contract that the pack and every output built from it follow.
+This page is the licensing and provenance contract that the pack and every output built from it follow.
 
 ## What the pack contains
 
 The pack for each supported platform (macOS arm64 and Linux x86_64 in the first slice) is a tarball produced from the pinned [python-build-standalone](https://github.com/astral-sh/python-build-standalone) release recorded in `packaging/runtime.lock.toml`:
 
 - `libpython3.14` shared library and the version headers,
-- the standard library as a safe-trimmed zip (modules a program can import; test, idle, tkinter and similar trees are not bundled),
+- the standard library as a safe-trimmed zip (modules a program can import; test, idle, tkinter and similar trees are not bundled, and neither is the pack interpreter's own `site-packages` tooling such as pip),
 - the `licenses/` directory from the matching `full` archive: the CPython license text plus the license of every third-party component compiled into libpython (for example expat, libffi, mpdecimal, OpenSSL, SQLite, zlib, zstd; the authoritative list is the inventory in the pack, not this page).
 
 The lock file pins the release tag, the asset name, the sha256 and the CPython micro version. A pack that does not match the lock is refused before anything is linked.
 
-## Download size and cache
+## Fetching and caching
+
+```sh
+pyscriptc embed fetch              # this machine
+pyscriptc embed fetch --platform linux-x86_64
+```
 
 The compressed pack is tens of megabytes (roughly 27 MB on macOS arm64, 35 MB on Linux x86_64). It is fetched on demand, not at install time: a `bundle` compile without a cached pack says so and names the fetch command before downloading. The unpacked pack is cached under `~/.cache/pyscriptc/runtime/<pack-id>/`.
 
@@ -41,3 +47,30 @@ The compiler itself is Apache-2.0; the preflight checker (pyrefly, MIT) ships in
 ## Asking before shipping
 
 The third-party inventory of the first pack build is confirmed with the project owner before the first public release that ships a pack (the inventory check, not legal advice).
+
+## The self-compiled pyscriptc
+
+pyscriptc can compile itself into a binary that needs no Python, uv or pip on the host. The build is one command from a checkout:
+
+```sh
+pyscriptc compile src/pyscriptc --program --skip-check --island --emit bin \
+  --embed-python bundle --embed-headers --bundle-exclude mypy -o dist/selfbin
+```
+
+The output is a relocatable directory, `dist/selfbin/`, laid out as:
+
+- `bin/selfbin`, the compiler itself (about 3 MB; every module of `src/pyscriptc` is compiled into it, and the program's non-Python files live in `bin/pyscriptc-data/`: the C runtime sources `ps_*.c`, the vendored typeshed, the pyright stubs and the runtime lock),
+- `lib/`, the pinned runtime: `libpython3.14.so`, the stdlib zip and `lib/python3.14/` (dynload modules plus the bundled pure-Python dependencies),
+- `include/`, the CPython headers, staged by `--embed-headers`, so the binary can compile island programs (which include `Python.h`) at run time,
+- `share/licenses/`, the license texts of the bundled runtime.
+
+This is a two-file layout in spirit: the directory is the artifact, and it runs from any path. It is not a single file because the interpreter is a shared library and the stdlib is a zip; both must sit on disk next to the binary for the dynamic loader and the import system.
+
+What the binary needs at run time, and what it does not:
+
+- No Python, uv or pip. The interpreter and the stdlib travel in `lib/`. `env -i PATH=/nonexistent dist/selfbin/bin/selfbin` prints its usage, and compiling a program that does not touch the island needs nothing else.
+- A C toolchain on PATH (clang or zig) for `--emit bin` and `run`, exactly like the installed compiler. A compile with no toolchain fails with PS0001, which names the install options.
+- pyrefly for `check` and the preflight of a compile without `--skip-check`. The binary resolves it like the installed compiler: the `PYREFLY_BIN` override, then a `pyrefly` on PATH. When none is found the compile says so instead of half-running.
+- No network and no pack cache for `--embed-python bundle` compiles: the binary links user programs against the runtime it carries.
+
+`--bundle-exclude mypy` declares the optional mypy bridge an extern dependency: the import stays in the compiled compiler, and the host answers it exactly like CPython answers a dead import. Without the exclusion the bundle refuses the compile, because mypy ships a compiled extension and a bundle carries pure Python only (PS4302).

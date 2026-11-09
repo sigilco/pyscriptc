@@ -254,6 +254,69 @@ def test_a_self_import_is_refused(tmp_path: Path) -> None:
     assert "circular import: selfmod -> selfmod" in got.stderr
 
 
+def test_a_lazy_import_cycle_is_not_an_import_time_cycle(tmp_path: Path) -> None:
+    # A function-local import runs when the function is called, long after
+    # the importing module's body finished, so it cannot close an
+    # import-time cycle. CPython runs this program; the compiler must not
+    # fence it .
+    root = write_tree(
+        tmp_path,
+        "lazycycle",
+        {
+            "__main__.py": "import a\n\nprint(a.one())\n",
+            "a.py": "def one() -> int:\n    import b\n    return b.VAL\n",
+            "b.py": "VAL: int = 42\n",
+        },
+    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "lazy.ir.json"))
+    assert got.returncode == 0, got.stderr
+
+
+def test_a_lazy_import_cycle_matches_cpython(tmp_path: Path) -> None:
+    # The same lazy cycle, run as a binary: the output is CPython's.
+    root = write_tree(
+        tmp_path,
+        "lazycycle2",
+        {
+            "__main__.py": "import a\n\nprint(a.one())\n",
+            "a.py": "def one() -> int:\n    import b\n    return b.VAL\n",
+            "b.py": "VAL: int = 42\n",
+        },
+    )
+    assert_matches_cpython(tmp_path, root)
+
+
+def test_a_lazy_import_cycle_across_two_modules_matches_cpython(tmp_path: Path) -> None:
+    # The cycle closes on both sides through a lazy import.
+    root = write_tree(
+        tmp_path,
+        "lazycycle3",
+        {
+            "__main__.py": "import a\n\nprint(a.one())\n",
+            "a.py": "def one() -> int:\n    import b\n    return b.two()\n",
+            "b.py": "def two() -> int:\n    import a\n    return 42\n",
+        },
+    )
+    assert_matches_cpython(tmp_path, root)
+
+
+def test_a_module_level_cycle_is_still_refused(tmp_path: Path) -> None:
+    # The lazy-import relaxation does not touch the module-level edges: an
+    # import-time cycle is still refused with the path that closes it.
+    root = write_tree(
+        tmp_path,
+        "hardcycle",
+        {
+            "__main__.py": "import a\n\nprint(a.one())\n",
+            "a.py": "import b\n\n\ndef one() -> int:\n    return 1\n",
+            "b.py": "import a\n\n\ndef two() -> int:\n    return 2\n",
+        },
+    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "hard.ir.json"))
+    assert got.returncode == 3, got.stderr
+    assert "circular import: a -> b -> a" in got.stderr
+
+
 def test_a_cycle_inside_a_package_is_refused(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
@@ -335,6 +398,24 @@ def test_a_package_directory_still_skips_dunder_main(tmp_path: Path) -> None:
     )
     got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "lib.ir.json"))
     assert "skipped lib/__main__.py" in got.stderr
+
+
+def test_a_file_that_is_no_module_name_is_skipped_with_a_note(tmp_path: Path) -> None:
+    # `hook-yt_dlp.py` in yt_dlp/__pyinstaller is never importable in CPython
+    # either (a dash); the tree scan skips it with a note instead of
+    # refusing the whole package.
+    root = write_tree(
+        tmp_path,
+        "lib",
+        {
+            "__init__.py": "",
+            "util.py": "def twice(n: int) -> int:\n    return n * 2\n",
+            "__pyinstaller/hook-bad-name.py": "print('never imported')\n",
+        },
+    )
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "lib.ir.json"))
+    assert got.returncode == 0, got.stderr
+    assert "skipped lib/__pyinstaller/hook-bad-name.py" in got.stderr
 
 
 def test_a_missing_program_module_fences_clearly(tmp_path: Path) -> None:
