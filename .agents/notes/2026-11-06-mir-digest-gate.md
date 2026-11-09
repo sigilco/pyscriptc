@@ -8,7 +8,7 @@ How MIR hashes should be recorded beside `TIR_HASHES.json`, what the regen ritua
 
 This note picks a shape for the owner. It does not regenerate `TIR_HASHES.json`, `IR_HASHES.json`, `probes/*.jsonl`, `probes/IR_HASHES.json`, `probes/TIR_HASHES.json`, or `canonical.py`.
 
-Read first: `src/pyscriptc/mir.py` (`serialize`, `module_serialize`, `module_hash`), `tests/test_mir_leaf.py` (`test_mir_hash_stable`), `benchmarks/compat2/tirscore.py`, `.agents/docs/spec/ir-canonicity.md` §7, `.agents/notes/2026-10-22-ir-hashes-regen.md`, `.agents/notes/2026-11-04-nightly-gates-clock.md`, `.github/workflows/nightly-gates.yml`, `.agents/plans/decisions/2026-11-02-mir-backend-only-contract.md`, `.agents/plans/decisions/2026-11-02-tir-gate-streaming-serializer.md`.
+Read first: `src/pyscriptc/mir.py` (`serialize`, `module_serialize`, `module_hash`), `tests/test_mir_leaf.py` (`test_mir_hash_stable`), `benchmarks/compat2/tirscore.py`, `.agents/docs/spec/ir-canonicity.md` §7, `.agents/notes/decisions-and-platform.md`, `.agents/notes/2026-11-04-nightly-gates-clock.md`, `.github/workflows/nightly-gates.yml`, `.agents/plans/decisions/2026-11-02-mir-backend-only-contract.md`, `.agents/plans/decisions/2026-11-02-tir-gate-streaming-serializer.md`.
 
 ## What exists today
 

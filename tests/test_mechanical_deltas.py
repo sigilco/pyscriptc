@@ -1,6 +1,6 @@
 """Mechanical deltas from the native ports: each source compiles and matches CPython 3.14.
 
-The cases are the shapes the port work had to rewrite by hand (`.agents/notes/2026-10-25-port-deltas.md`):
+The cases are the shapes the port work had to rewrite by hand (`.agents/notes/port-deltas.md`):
 narrowing an optional through compound conditions, keyword arguments, argparse option types.
 Each program runs under `pyscriptc verify`, so stdout, stderr and the exit code all diff.
 """

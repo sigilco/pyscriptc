@@ -1,6 +1,7 @@
 """Resumable functions: generators and `async def` coroutines.
 
-Design: `.agents/plans/2026-10-21-async-threads-design.md` (stackless state
+Design: `.agents/docs/design/coroutine-lowering.md` and the async design
+notes (stackless state
 machines in existing IR, no new IR kinds). Two halves live here:
 
 - `CoroMixin`: lower-time hooks mixed into `Lowerer`. A module-level

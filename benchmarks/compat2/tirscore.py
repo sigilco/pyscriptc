@@ -17,7 +17,7 @@ newline: stable bytes, reviewable diffs. Exit codes match irscore.py:
 0 clean (or generated), 1 any hash diff, 2 header mismatch.
 
 The regen ritual is inherited unchanged (note
-.agents/notes/2026-10-22-ir-hashes-regen.md): generate run A and run B, `cmp`
+.agents/notes/decisions-and-platform.md, the IR_HASHES decision): generate run A and run B, `cmp`
 A B byte-identical, copy one into probes/. Linux only.
 """
 

@@ -221,7 +221,8 @@ def _field_rows(fields: list[tuple[str, T]]) -> list[dict[str, Any]]:
 # Spellings of the bottom type: a function annotated with one never returns a
 # value to its caller (issue #645). Accepted bare or as `typing.` /
 # `typing_extensions.` attributes.
-# Tier-2 erasure (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`):
+# Tier-2 erasure (the tiered-lowering decision; see
+# `.agents/docs/design/checker-bridge.md`):
 # static-typing constructs that vanish before emission. `abc` is an erased
 # module, so these names arrive through `type_aliases` or an erased
 # `_resolve_module` triple.
