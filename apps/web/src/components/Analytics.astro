@@ -1,0 +1,23 @@
+---
+// Lazy PostHog loader for the pyscriptc site. Import this component in a
+// layout or page; it renders nothing and defers all work to an idle tick so
+// analytics never blocks rendering. A complete no-op without a token.
+---
+<script>
+  // The token check is a build-time constant: without it the whole block is
+  // dropped and the PostHog bundle is never emitted into the site.
+  if (import.meta.env.PUBLIC_POSTHOG_TOKEN) {
+    const start = () => {
+      import("../lib/analytics").then((analytics) => {
+        analytics.init();
+        analytics.bindDataAttributes();
+        if (document.querySelector("main#main-content")) analytics.bindScrollDepth();
+      });
+    };
+    if ("requestIdleCallback" in window) {
+      (window as unknown as { requestIdleCallback: (cb: () => void) => void }).requestIdleCallback(start);
+    } else {
+      setTimeout(start, 1);
+    }
+  }
+</script>
