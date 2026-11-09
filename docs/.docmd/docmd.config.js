@@ -91,6 +91,7 @@ export default {
         { title: "Using libraries", path: "/guide/libraries/" },
         { title: "HTTP", path: "/guide/http/" },
         { title: "Proven patterns", path: "/guide/proven-patterns/" },
+        { title: "Serving Flask and FastAPI", path: "/guide/web-frameworks/" },
         { title: "Debugging and logs", path: "/guide/debugging/" },
         { title: "Mobile apps", path: "/guide/mobile/" },
         { title: "Examples", path: "/examples/" },
