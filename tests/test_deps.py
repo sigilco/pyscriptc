@@ -159,14 +159,14 @@ def test_load_spec_script_and_pyproject(tmp_path: Path) -> None:
     script = tmp_path / "tool.py"
     script.write_text(SCRIPT, encoding="utf-8")
     spec = deps.load_spec(script)
-    assert spec.kind == "script" and spec.dependencies == ("colorama>=0.4", "PyYAML")
+    assert spec.kind == "script" and spec.requirement_list() == ["colorama>=0.4", "PyYAML"]
     assert spec.lock_path.name == "pylock.tool.toml"
     (tmp_path / "pyproject.toml").write_text(
         '[project]\nname = "x"\nrequires-python = ">=3.12"\ndependencies = ["attrs>=23", "click"]\n', encoding="utf-8"
     )
     spec = deps.load_spec(tmp_path)
     assert spec.kind == "project" and spec.requires_python == ">=3.12"
-    assert spec.dependencies == ("attrs>=23", "click")
+    assert spec.requirement_list() == ["attrs>=23", "click"]
     assert spec.lock_path.name == "pylock.pyscriptc.toml"
 
 

@@ -1047,4 +1047,4 @@ def test_the_manifest_is_a_frozen_dataclass() -> None:
 
 def test_handle_names_are_exposed_as_a_set() -> None:
     parsed = parse_manifest_text(manifest('[[handle]]\nname = "C"\nc_type = "sqlite3 *"\n'))
-    assert parsed.handle_names == frozenset({"C"})
+    assert parsed.handle_names == {"C"}

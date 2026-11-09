@@ -5,7 +5,19 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _const_int
+from pyscriptc.restlower._shared import (
+    _class_elem,
+    _const_int,
+    _dict_node,
+    _flag,
+    _node_type,
+    _node_type_kind,
+    _t_dict,
+    _t_leaf,
+    _type_kind,
+    _type_name,
+    _type_value,
+)
 from pyscriptc.stdmore import slot_size
 
 
@@ -13,21 +25,21 @@ def _deque(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any]
     if len(node.args) > 1:
         lo.fail(node, "PS2003", "deque expects 0 or 1 argument(s)")
     if not node.args:
-        if expect is None or expect.get("name") != "Deque" or "elem" not in expect:
+        if expect is None or _type_name(expect) != "Deque" or "elem" not in expect:
             lo.fail(node, "PS1001", "deque() needs a deque annotation")
         elem = expect["elem"]
-        if elem["kind"] == "bool":
+        if _type_kind(elem) == "bool":
             lo.fail(node, "PS2002", "list[bool] is not lowered")
         size = _const_int(slot_size(elem), span)
         return lo._abi_call("collections", "deque", [size], expect, "ps_deque_empty", span)
     arg = lo._expr(node.args[0])
-    if arg["type"]["kind"] != "list":
+    if _node_type_kind(arg) != "list":
         lo.fail(node, "PS1003", "deque() takes a list")
-    elem = arg["type"]["elem"]
-    if elem["kind"] == "bool":
+    elem = _node_type(arg)["elem"]
+    if _type_kind(elem) == "bool":
         lo.fail(node, "PS2002", "list[bool] is not lowered")
-    typ = {"kind": "class", "name": "Deque", "elem": elem}
-    if expect is not None and expect.get("name") == "Deque":
+    typ = _class_elem("Deque", elem)
+    if expect is not None and _type_name(expect) == "Deque":
         lo._expect(node, typ, expect, "deque")
     size = _const_int(slot_size(elem), span)
     return lo._abi_call("collections", "deque", [size, arg], typ, "ps_deque_from", span)
@@ -48,19 +60,19 @@ def _counter(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, An
     if len(node.args) > 1:
         lo.fail(node, "PS2003", "Counter expects 0 or 1 argument(s)")
     if not node.args:
-        if expect is None or expect["kind"] != "dict":
+        if expect is None or _type_kind(expect) != "dict":
             lo.fail(node, "PS1001", "Counter() needs a Counter annotation")
-        return {"kind": "dict", "pairs": [], "type": {**expect, "counter": True}, "span": span}
+        return _dict_node({**expect, "counter": True}, span)
     arg = lo._expr(node.args[0])
-    at = arg["type"]
-    if at["kind"] == "str":
-        typ = {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "int"}, "counter": True}
+    at = _node_type(arg)
+    if _type_kind(at) == "str":
+        typ = _t_dict(_t_leaf("str"), _t_leaf("int"), counter=True)
         return lo._abi_call("collections", "Counter", [arg], typ, "ps_counter_from_buf", span)
-    if at["kind"] == "list" and not at.get("set") and at["elem"]["kind"] in {"int", "str"}:
-        typ = {"kind": "dict", "key": at["elem"], "value": {"kind": "int"}, "counter": True}
+    if _type_kind(at) == "list" and not _flag(at, "set") and _type_kind(at["elem"]) in {"int", "str"}:
+        typ = _t_dict(at["elem"], _t_leaf("int"), counter=True)
         return lo._abi_call("collections", "Counter", [arg], typ, "ps_counter_from_seq", span)
-    if at["kind"] == "dict" and at["value"]["kind"] == "int":
-        typ = {"kind": "dict", "key": at["key"], "value": {"kind": "int"}, "counter": True}
+    if _type_kind(at) == "dict" and _type_kind(_type_value(at)) == "int":
+        typ = _t_dict(at["key"], _t_leaf("int"), counter=True)
         return lo._abi_call("collections", "Counter", [arg], typ, "ps_counter_from_map", span)
     lo.fail(node, "PS1003", "Counter takes a str, a list of int or str, or a dict of int values")
     raise AssertionError("unreachable")
@@ -85,18 +97,18 @@ def _defaultdict(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str
     if not isinstance(factory, ast.Name) or factory.id not in factories:
         lo.fail(node, "PS2001", "defaultdict factory is list, dict, set, int, float, or str")
     name = factory.id
-    if expect is None or expect["kind"] != "dict":
+    if expect is None or _type_kind(expect) != "dict":
         lo.fail(node, "PS1001", "defaultdict needs a defaultdict annotation")
-    val_t = expect["value"]
+    val_t = _type_value(expect)
     ok = (
-        (name == "list" and val_t["kind"] == "list" and not val_t.get("set"))
-        or (name == "set" and val_t["kind"] == "list" and val_t.get("set"))
-        or (name == "dict" and val_t["kind"] == "dict")
-        or (name in {"int", "float", "str"} and val_t["kind"] == name)
+        (name == "list" and _type_kind(val_t) == "list" and not _flag(val_t, "set"))
+        or (name == "set" and _type_kind(val_t) == "list" and _flag(val_t, "set"))
+        or (name == "dict" and _type_kind(val_t) == "dict")
+        or (name in {"int", "float", "str"} and _type_kind(val_t) == name)
     )
     if not ok:
         lo.fail(node, "PS1003", f"defaultdict({name}) needs a defaultdict annotation whose value is {name}-like")
-    return {"kind": "dict", "pairs": [], "type": {**expect, "defaultdict": True}, "span": span}
+    return _dict_node({**expect, "defaultdict": True}, span)
 
 
 def _ordered(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
@@ -109,7 +121,7 @@ def _ordered(lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, An
         lo.fail(node, "PS2001", "an OrderedDict iterable is not lowered")
     if node.keywords:
         lo.fail(node, "PS2001", "OrderedDict keyword arguments are not lowered")
-    if expect is not None and expect["kind"] != "dict":
+    if expect is not None and _type_kind(expect) != "dict":
         lo.fail(node, "PS1001", "OrderedDict needs a dict annotation")
-    base = expect if expect is not None else {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "int"}}
-    return {"kind": "dict", "pairs": [], "type": {**base, "ordered": True}, "span": span}
+    base = expect if expect is not None else _t_dict(_t_leaf("str"), _t_leaf("int"))
+    return _dict_node({**base, "ordered": True}, span)

@@ -9,11 +9,14 @@ same listener.
 from __future__ import annotations
 
 import http.server
+import subprocess
+import sys
 import threading
 from pathlib import Path
 
 import pytest
-from tests.test_gates import compile_run, oracle, write_case
+import tests.test_gates as gates
+from tests.test_gates import ROOT, compile_run, oracle, write_case
 
 
 class _Handler(http.server.BaseHTTPRequestHandler):
@@ -558,10 +561,134 @@ def test_redirect_308_keeps_the_body(tmp_path: Path, listener: str) -> None:
     assert got.stdout == "payload\n"
 
 
-def test_https_is_refused(tmp_path: Path) -> None:
+def test_https_is_refused_without_the_curl_link(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Without libcurl linked (PSC_CURL_DYNAMIC=1), https raises URLError."""
+    monkeypatch.setitem(gates.ENV, "PSC_CURL_DYNAMIC", "1")
     path = _case(
         tmp_path,
         "https.py",
+        "\n".join(
+            [
+                "import urllib.request",
+                "",
+                "def f(url: str) -> int:",
+                "    caught: int = 0",
+                "    try:",
+                "        r: urllib.request.HTTPResponse = urllib.request.urlopen(url)",
+                "    except OSError:",
+                "        caught = 1",
+                "    return caught",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "f", repr(["https://example.com/"]))
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == "1\n"
+
+
+# --- the https:// path over a registered TLS backend -------------------------
+#
+# The transport contract of ps_tls.h has one backend today: the plaintext
+# TCP one. A TLS backend registers itself through ps_tls_backend(), and the
+# https:// request then travels over that backend. The fake backend here is
+# linked into the test binary through a manifest: it connects to the
+# loopback listener like a TLS backend would connect to a TLS server, so a
+# passing test proves the request went through the transport interface and
+# not through the plaintext socket path.
+
+
+FAKE_TLS = Path(__file__).resolve().parent / "fixtures" / "http_tls_backend"
+
+
+def _compile_run_with_backend(tmp_path: Path, source: Path, func: str, args: str) -> subprocess.CompletedProcess[str]:
+    """Compile and run `source` with the fake TLS backend linked in."""
+    return subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(source),
+            "--ffi",
+            str(FAKE_TLS / "fake_tls.toml"),
+            "--run",
+            "--call",
+            func,
+            "--args",
+            args,
+            "-o",
+            str(tmp_path / func),
+        ],
+        cwd=ROOT,
+        env=gates.ENV,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+
+
+def test_https_goes_through_the_tls_backend(tmp_path: Path, listener: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With a backend registered, an https:// request reads the response.
+
+    PSC_CURL_DYNAMIC=1 keeps libcurl off the link line, so the request takes
+    the registered-backend path this test exists to prove.
+    """
+    monkeypatch.setitem(gates.ENV, "PSC_CURL_DYNAMIC", "1")
+    path = _case(
+        tmp_path,
+        "https_backend.py",
+        "\n".join(
+            [
+                "import urllib.request",
+                "",
+                "def f(url: str) -> str:",
+                "    r: urllib.request.HTTPResponse = urllib.request.urlopen(url)",
+                "    body: bytes = r.read()",
+                "    return body.decode('utf-8')",
+                "",
+            ]
+        ),
+    )
+    # The listener is a plaintext HTTP server; the fake backend speaks to it
+    # over the transport, so the https:// URL resolves to the same host and
+    # port as the http:// tests.
+    url = listener.replace("http://", "https://")
+    got = _compile_run_with_backend(tmp_path, path, "f", repr([f"{url}/plain"]))
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == "hello\n"
+
+
+def test_https_backend_sees_the_request_headers(tmp_path: Path, listener: str, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The backend carries the request the HTTP layer wrote, headers included."""
+    monkeypatch.setitem(gates.ENV, "PSC_CURL_DYNAMIC", "1")
+    path = _case(
+        tmp_path,
+        "https_headers.py",
+        "\n".join(
+            [
+                "import urllib.request",
+                "",
+                "def f(url: str) -> str:",
+                "    r: urllib.request.HTTPResponse = urllib.request.urlopen(url)",
+                "    body: bytes = r.read()",
+                "    return body.decode('utf-8')",
+                "",
+            ]
+        ),
+    )
+    url = listener.replace("http://", "https://")
+    got = _compile_run_with_backend(tmp_path, path, "f", repr([f"{url}/headers"]))
+    assert got.returncode == 0, got.stderr
+    assert "Host:" in got.stdout
+
+
+def test_https_without_a_backend_still_raises(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """With no backend and no libcurl linked, the https:// request raises URLError."""
+    monkeypatch.setitem(gates.ENV, "PSC_CURL_DYNAMIC", "1")
+    path = _case(
+        tmp_path,
+        "https_none.py",
         "\n".join(
             [
                 "import urllib.request",

@@ -54,11 +54,11 @@ def _spawn(
         return subprocess.CompletedProcess(command, returncode=124, stdout="", stderr=f"timed out after {timeout:.0f}s")
 
 
-def _fence_summary(binary: Path) -> dict[str, Any]:
-    """Fence census from the IR written beside the binary (`<o>.ir.json`)."""
-    ir = Path(f"{binary}.ir.json")
+def _fence_summary(debug_dir: Path) -> dict[str, Any]:
+    """Fence census from the IR dumped into the compile's `--debug-dir`."""
+    ir = debug_dir / "ir.json"
     if not ir.is_file():
-        return {"total": None, "note": f"{ir.name} not found next to the binary"}
+        return {"total": None, "note": f"{ir.name} not found in the debug dir"}
     fences = json.loads(ir.read_text(encoding="utf-8"))["fences"]
     return {"total": len(fences), "ids": sorted({f["id"] for f in fences})}
 
@@ -96,6 +96,7 @@ def main() -> int:
     with tempfile.TemporaryDirectory(prefix="ps-library-receipt-") as tmp:
         workdir = Path(tmp)
         binary = workdir / "certifi-receipt"
+        debug_dir = workdir / "dbg"
         done = _spawn(
             [
                 sys.executable,
@@ -109,6 +110,8 @@ def main() -> int:
                 "bin",
                 "-o",
                 str(binary),
+                "--debug-dir",
+                str(debug_dir),
             ],
             env=dict(os.environ),
             timeout=COMPILE_TIMEOUT,
@@ -118,7 +121,7 @@ def main() -> int:
             summary["compile"]["detail"] = f"compile failed:\n{done.stdout}{done.stderr}"
             print(summary["compile"]["detail"], file=sys.stderr)
             return _finish(summary, args.json, failure=True)
-        summary["fences"] = _fence_summary(binary)
+        summary["fences"] = _fence_summary(debug_dir)
         print(f"fences: {summary['fences']['total']}")
 
         # CPython side: the same script, certifi imported from the unpacked

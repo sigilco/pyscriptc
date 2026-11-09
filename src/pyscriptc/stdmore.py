@@ -13,28 +13,31 @@ import sys
 from typing import Any
 
 from pyscriptc.builtins import RESERVED_EXCEPTIONS
+from pyscriptc.sigrec import Sig, T, sig, sig_for, t_class, t_leaf, t_list, type_to_dict
 
-_I: dict[str, Any] = {"kind": "int"}
-_F: dict[str, Any] = {"kind": "float"}
-_B: dict[str, Any] = {"kind": "bool"}
-_S: dict[str, Any] = {"kind": "str"}
-_BY: dict[str, Any] = {"kind": "bytes"}
-_N: dict[str, Any] = {"kind": "none"}
-_LS: dict[str, Any] = {"kind": "list", "elem": _S}
-_LLS: dict[str, Any] = {"kind": "list", "elem": _LS}
-_DATE: dict[str, Any] = {"kind": "class", "name": "Date"}
-_DT: dict[str, Any] = {"kind": "class", "name": "DateTime"}
-_TOD: dict[str, Any] = {"kind": "class", "name": "Time"}
-_DELTA: dict[str, Any] = {"kind": "class", "name": "TimeDelta"}
-_STM: dict[str, Any] = {"kind": "class", "name": "StructTime"}
-_PATH: dict[str, Any] = {"kind": "class", "name": "Path"}
-_STAT: dict[str, Any] = {"kind": "class", "name": "Stat"}
-_TEXT: dict[str, Any] = {"kind": "class", "name": "TextIO"}
-_BIN: dict[str, Any] = {"kind": "class", "name": "BytesIO"}
+_I: T = t_leaf("int")
+_F: T = t_leaf("float")
+_B: T = t_leaf("bool")
+_S: T = t_leaf("str")
+_BY: T = t_leaf("bytes")
+_N: T = t_leaf("none")
+_LS: T = t_list(_S)
+_LLS: T = t_list(_LS)
+_DATE: T = t_class("Date")
+_DT: T = t_class("DateTime")
+_TOD: T = t_class("Time")
+_DELTA: T = t_class("TimeDelta")
+_STM: T = t_class("StructTime")
+_PATH: T = t_class("Path")
+_STAT: T = t_class("Stat")
+_TEXT: T = t_class("TextIO")
+_BIN: T = t_class("BytesIO")
+_STR_LIST: T = t_list(_S)
 
 
-def _sig(params: list[dict[str, Any]], ret: dict[str, Any], symbol: str) -> dict[str, Any]:
-    return {"params": params, "return": ret, "symbol": symbol}
+def _plain_fields(*names: str) -> list[tuple[str, T]]:
+    """`(name, int)` rows: most synthetic classes are flat int records."""
+    return [(name, _I) for name in names]
 
 
 _MISSING: Any = object()
@@ -1226,22 +1229,19 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "asyncio": ("CancelledError",),
 }
 
-CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
-    "Date": [{"name": name, "type": _I} for name in ("year", "month", "day")],
-    "DateTime": [
-        {"name": name, "type": _I} for name in ("year", "month", "day", "hour", "minute", "second", "microsecond")
-    ],
-    "Time": [{"name": name, "type": _I} for name in ("hour", "minute", "second", "microsecond")],
-    "TimeDelta": [{"name": name, "type": _I} for name in ("days", "seconds", "microseconds")],
-    "StructTime": [
-        {"name": name, "type": _I}
-        for name in ("tm_year", "tm_mon", "tm_mday", "tm_hour", "tm_min", "tm_sec", "tm_wday", "tm_yday", "tm_isdst")
-    ],
-    "Path": [{"name": "_path", "type": _S}],
+CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
+    "Date": _plain_fields("year", "month", "day"),
+    "DateTime": _plain_fields("year", "month", "day", "hour", "minute", "second", "microsecond"),
+    "Time": _plain_fields("hour", "minute", "second", "microsecond"),
+    "TimeDelta": _plain_fields("days", "seconds", "microseconds"),
+    "StructTime": _plain_fields(
+        "tm_year", "tm_mon", "tm_mday", "tm_hour", "tm_min", "tm_sec", "tm_wday", "tm_yday", "tm_isdst"
+    ),
+    "Path": [("_path", _S)],
     "Stat": [
-        {"name": "st_mode", "type": _I},
-        {"name": "st_size", "type": _I},
-        {"name": "st_mtime", "type": _F},
+        ("st_mode", _I),
+        ("st_size", _I),
+        ("st_mtime", _F),
     ],
     "Deque": [],
     "TextIO": [],
@@ -1251,52 +1251,52 @@ CLASS_FIELDS: dict[str, list[dict[str, Any]]] = {
     "Full": [],
     "CancelledError": [],
     "TerminalSize": [
-        {"name": "columns", "type": _I},
-        {"name": "lines", "type": _I},
+        ("columns", _I),
+        ("lines", _I),
     ],
     "CompletedProcess": [
-        {"name": "returncode", "type": _I},
-        {"name": "stdout", "type": _BY},
-        {"name": "stderr", "type": _BY},
+        ("returncode", _I),
+        ("stdout", _BY),
+        ("stderr", _BY),
     ],
     # The text-mode record: the same three fields, with the captured
     # streams decoded to str (issue #680).
     "CompletedProcessText": [
-        {"name": "returncode", "type": _I},
-        {"name": "stdout", "type": _S},
-        {"name": "stderr", "type": _S},
+        ("returncode", _I),
+        ("stdout", _S),
+        ("stderr", _S),
     ],
     "Hmac": [
-        {"name": "_key", "type": _BY},
-        {"name": "_msg", "type": _BY},
-        {"name": "_alg", "type": _I},
+        ("_key", _BY),
+        ("_msg", _BY),
+        ("_alg", _I),
     ],
     # The parser holds the encoded spec rows; the namespace fields are
     # declared as the options are registered, so they start empty here.
-    "ArgParser": [{"name": "_specs", "type": {"kind": "list", "elem": _S}}],
+    "ArgParser": [("_specs", _STR_LIST)],
     "Namespace": [],
     # The logger carries the name getLogger recorded.
-    "Logger": [{"name": "_name", "type": _S}],
+    "Logger": [("_name", _S)],
     # The request record carries what urlopen sends; the response carries what
     # came back. The headers ride as the wire block ("Name: value\n" rows).
     "HttpRequest": [
-        {"name": "url", "type": _S},
-        {"name": "method", "type": _S},
-        {"name": "body", "type": _BY},
-        {"name": "headers", "type": _S},
-        {"name": "timeout", "type": _F},
+        ("url", _S),
+        ("method", _S),
+        ("body", _BY),
+        ("headers", _S),
+        ("timeout", _F),
     ],
     "HttpResponse": [
-        {"name": "status", "type": _I},
-        {"name": "headers", "type": _S},
-        {"name": "body", "type": _BY},
+        ("status", _I),
+        ("headers", _S),
+        ("body", _BY),
     ],
     # HTTPError keeps the response the server sent: the body stays readable
     # through read(), the status is the .code CPython puts on the error.
     "HTTPError": [
-        {"name": "status", "type": _I},
-        {"name": "headers", "type": _S},
-        {"name": "body", "type": _BY},
+        ("status", _I),
+        ("headers", _S),
+        ("body", _BY),
     ],
     "URLError": [],
 }
@@ -1324,7 +1324,7 @@ COMPARE_CLASSES = LEX_CLASSES | {"Path"}
 
 # Class constants: `date.min` and friends read a runtime record instead of a
 # baked literal, so the values stay right when the class layout changes.
-CLASS_CONSTANTS: dict[tuple[str, str], tuple[dict[str, Any], str]] = {
+CLASS_CONSTANTS: dict[tuple[str, str], tuple[T, str]] = {
     ("datetime", "date.min"): (_DATE, "ps_date_min"),
     ("datetime", "date.max"): (_DATE, "ps_date_max"),
     ("datetime", "datetime.min"): (_DT, "ps_dt_min"),
@@ -1394,231 +1394,237 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
 }
 
 # Instance methods. `elem` means the deque's element type.
-CLASS_METHODS: dict[str, dict[str, dict[str, Any]]] = {
+CLASS_METHODS: dict[str, dict[str, Sig]] = {
     "Date": {
-        "isoformat": _sig([], _S, "ps_date_iso"),
-        "toordinal": _sig([], _I, "ps_date_ord"),
-        "weekday": _sig([], _I, "ps_date_weekday"),
+        "isoformat": sig([], _S, "ps_date_iso"),
+        "toordinal": sig([], _I, "ps_date_ord"),
+        "weekday": sig([], _I, "ps_date_weekday"),
     },
     "DateTime": {
-        "isoformat": _sig([], _S, "ps_dt_iso"),
-        "date": _sig([], _DATE, "ps_dt_date"),
-        "time": _sig([], _TOD, "ps_dt_time"),
-        "timestamp": _sig([], _F, "ps_dt_timestamp"),
+        "isoformat": sig([], _S, "ps_dt_iso"),
+        "date": sig([], _DATE, "ps_dt_date"),
+        "time": sig([], _TOD, "ps_dt_time"),
+        "timestamp": sig([], _F, "ps_dt_timestamp"),
     },
-    "Time": {"isoformat": _sig([], _S, "ps_tod_iso")},
-    "TimeDelta": {"total_seconds": _sig([], _F, "ps_delta_total")},
+    "Time": {"isoformat": sig([], _S, "ps_tod_iso")},
+    "TimeDelta": {"total_seconds": sig([], _F, "ps_delta_total")},
     "Path": {
-        "as_posix": _sig([], _S, "ps_path_posix"),
-        "exists": _sig([], _B, "ps_path_exists_p"),
-        "is_file": _sig([], _B, "ps_path_isfile_p"),
-        "is_dir": _sig([], _B, "ps_path_isdir_p"),
-        "is_absolute": _sig([], _B, "ps_path_isabs_p"),
-        "read_text": _sig([], _S, "ps_path_read_text"),
-        "read_bytes": _sig([], _BY, "ps_path_read_bytes"),
-        "write_text": _sig([_S], _I, "ps_path_write_text"),
-        "write_bytes": _sig([_BY], _I, "ps_path_write_bytes"),
-        "joinpath": _sig([_S], _PATH, "ps_path_joinpath"),
-        "with_name": _sig([_S], _PATH, "ps_path_with_name"),
-        "resolve": _sig([], _PATH, "ps_path_resolve"),
-        "unlink": _sig([], _N, "ps_path_unlink"),
-        "touch": _sig([], _N, "ps_path_touch"),
-        "rename": _sig([_S], _PATH, "ps_path_rename"),
-        "stat": _sig([], _STAT, "ps_path_stat"),
-        "expanduser": _sig([], _PATH, "ps_path_expanduser_p"),
+        "as_posix": sig([], _S, "ps_path_posix"),
+        "exists": sig([], _B, "ps_path_exists_p"),
+        "is_file": sig([], _B, "ps_path_isfile_p"),
+        "is_dir": sig([], _B, "ps_path_isdir_p"),
+        "is_absolute": sig([], _B, "ps_path_isabs_p"),
+        "read_text": sig([], _S, "ps_path_read_text"),
+        "read_bytes": sig([], _BY, "ps_path_read_bytes"),
+        "write_text": sig([_S], _I, "ps_path_write_text"),
+        "write_bytes": sig([_BY], _I, "ps_path_write_bytes"),
+        "joinpath": sig([_S], _PATH, "ps_path_joinpath"),
+        "with_name": sig([_S], _PATH, "ps_path_with_name"),
+        "resolve": sig([], _PATH, "ps_path_resolve"),
+        "unlink": sig([], _N, "ps_path_unlink"),
+        "touch": sig([], _N, "ps_path_touch"),
+        "rename": sig([_S], _PATH, "ps_path_rename"),
+        "stat": sig([], _STAT, "ps_path_stat"),
+        "expanduser": sig([], _PATH, "ps_path_expanduser_p"),
         # iterdir/glob return the materialized list[Path]; lowering wraps it
         # in the R24 iterator record. mkdir is special-cased for keywords.
-        "iterdir": _sig([], {"kind": "list", "elem": _PATH}, "ps_path_iterdir"),
-        "glob": _sig([_S], {"kind": "list", "elem": _PATH}, "ps_path_glob"),
-        "mkdir": _sig([], _N, "ps_path_mkdir"),
+        "iterdir": sig([], t_list(_PATH), "ps_path_iterdir"),
+        "glob": sig([_S], t_list(_PATH), "ps_path_glob"),
+        "mkdir": sig([], _N, "ps_path_mkdir"),
     },
     "TextIO": {
-        "read": _sig([], _S, "ps_io_read"),
-        "readline": _sig([], _S, "ps_io_readline"),
-        "write": _sig([_S], _I, "ps_io_write"),
-        "close": _sig([], _N, "ps_io_close"),
-        "getvalue": _sig([], _S, "ps_io_value"),
+        "read": sig([], _S, "ps_io_read"),
+        "readline": sig([], _S, "ps_io_readline"),
+        "write": sig([_S], _I, "ps_io_write"),
+        "close": sig([], _N, "ps_io_close"),
+        "getvalue": sig([], _S, "ps_io_value"),
     },
     "BytesIO": {
-        "read": _sig([], _BY, "ps_io_read"),
-        "readline": _sig([], _BY, "ps_io_readline"),
-        "write": _sig([_BY], _I, "ps_io_write"),
-        "close": _sig([], _N, "ps_io_close"),
-        "getvalue": _sig([], _BY, "ps_io_value"),
+        "read": sig([], _BY, "ps_io_read"),
+        "readline": sig([], _BY, "ps_io_readline"),
+        "write": sig([_BY], _I, "ps_io_write"),
+        "close": sig([], _N, "ps_io_close"),
+        "getvalue": sig([], _BY, "ps_io_value"),
     },
     "Deque": {
-        "append": {"params": ["elem"], "return": _N, "symbol": "ps_deque_append"},
-        "appendleft": {"params": ["elem"], "return": _N, "symbol": "ps_deque_appendleft"},
+        "append": {"params": ["elem"], "return": {"kind": "none"}, "symbol": "ps_deque_append"},
+        "appendleft": {"params": ["elem"], "return": {"kind": "none"}, "symbol": "ps_deque_appendleft"},
         "pop": {"params": [], "return": "elem", "symbol": "ps_deque_pop"},
         "popleft": {"params": [], "return": "elem", "symbol": "ps_deque_popleft"},
     },
-    "Hmac": {"digest": _sig([], _BY, "ps_hmac_finish")},
+    "Hmac": {"digest": sig([], _BY, "ps_hmac_finish")},
     "Logger": {
-        "debug": _sig([_S], _N, "ps_log_debug"),
-        "info": _sig([_S], _N, "ps_log_info"),
-        "warning": _sig([_S], _N, "ps_log_warning"),
-        "error": _sig([_S], _N, "ps_log_error"),
-        "critical": _sig([_S], _N, "ps_log_critical"),
-        "exception": _sig([_S], _N, "ps_log_exception"),
+        "debug": sig([_S], _N, "ps_log_debug"),
+        "info": sig([_S], _N, "ps_log_info"),
+        "warning": sig([_S], _N, "ps_log_warning"),
+        "error": sig([_S], _N, "ps_log_error"),
+        "critical": sig([_S], _N, "ps_log_critical"),
+        "exception": sig([_S], _N, "ps_log_exception"),
     },
     "CsvWriter": {
-        "writerow": _sig([_LS], _N, "ps_csv_writerow"),
-        "writerows": _sig([_LLS], _N, "ps_csv_writerows"),
+        "writerow": sig([_LS], _N, "ps_csv_writerow"),
+        "writerows": sig([_LLS], _N, "ps_csv_writerows"),
     },
     "HttpResponse": {
-        "getcode": _sig([], _I, "ps_http_getcode"),
-        "info": _sig([], _S, "ps_http_info"),
-        "read": _sig([], _BY, "ps_http_read"),
+        "getcode": sig([], _I, "ps_http_getcode"),
+        "info": sig([], _S, "ps_http_info"),
+        "read": sig([], _BY, "ps_http_read"),
     },
     "HttpRequest": {},
 }
 
-PATH_ATTRS: dict[str, tuple[dict[str, Any], str]] = {
+PATH_ATTRS: dict[str, tuple[T, str]] = {
     "name": (_S, "ps_path_name"),
     "suffix": (_S, "ps_path_suffix"),
     "stem": (_S, "ps_path_stem"),
     "parent": (_PATH, "ps_path_parent"),
 }
 
-REST_FIXED: dict[str, dict[str, dict[str, Any]]] = {
+REST_FIXED: dict[str, dict[str, Sig]] = {
     "datetime": {
-        "date.today": _sig([], _DATE, "ps_date_today"),
-        "date.fromisoformat": _sig([_S], _DATE, "ps_date_fromiso"),
-        "date.fromordinal": _sig([_I], _DATE, "ps_date_fromord"),
-        "date.fromtimestamp": _sig([_F], _DATE, "ps_date_fromtimestamp"),
-        "datetime.now": _sig([], _DT, "ps_dt_now"),
-        "datetime.fromisoformat": _sig([_S], _DT, "ps_dt_fromiso"),
-        "datetime.fromtimestamp": _sig([_F], _DT, "ps_dt_fromtimestamp"),
-        "datetime.strptime": _sig([_S, _S], _DT, "ps_dt_strptime_entry"),
-        "datetime.combine": _sig([_DATE, _TOD], _DT, "ps_dt_combine"),
+        "date.today": sig([], _DATE, "ps_date_today"),
+        "date.fromisoformat": sig([_S], _DATE, "ps_date_fromiso"),
+        "date.fromordinal": sig([_I], _DATE, "ps_date_fromord"),
+        "date.fromtimestamp": sig([_F], _DATE, "ps_date_fromtimestamp"),
+        "datetime.now": sig([], _DT, "ps_dt_now"),
+        "datetime.fromisoformat": sig([_S], _DT, "ps_dt_fromiso"),
+        "datetime.fromtimestamp": sig([_F], _DT, "ps_dt_fromtimestamp"),
+        "datetime.strptime": sig([_S, _S], _DT, "ps_dt_strptime_entry"),
+        "datetime.combine": sig([_DATE, _TOD], _DT, "ps_dt_combine"),
     },
     "time": {
-        "time": _sig([], _F, "ps_time_time"),
-        "monotonic": _sig([], _F, "ps_time_monotonic"),
-        "perf_counter": _sig([], _F, "ps_time_perf_counter"),
-        "strftime": _sig([_S, _STM], _S, "ps_time_strftime"),
-        "mktime": _sig([_STM], _F, "ps_time_mktime"),
+        "time": sig([], _F, "ps_time_time"),
+        "monotonic": sig([], _F, "ps_time_monotonic"),
+        "perf_counter": sig([], _F, "ps_time_perf_counter"),
+        "strftime": sig([_S, _STM], _S, "ps_time_strftime"),
+        "mktime": sig([_STM], _F, "ps_time_mktime"),
     },
     "pathlib": {
-        "Path.cwd": _sig([], _PATH, "ps_path_cwd"),
-        "Path.home": _sig([], _PATH, "ps_path_home"),
+        "Path.cwd": sig([], _PATH, "ps_path_cwd"),
+        "Path.home": sig([], _PATH, "ps_path_home"),
     },
     "os": {
-        "getcwd": _sig([], _S, "ps_os_getcwd"),
-        "listdir": _sig([_S], _LS, "ps_os_listdir"),
-        "getenv": _sig([_S], _S, "ps_os_getenv"),
-        "remove": _sig([_S], _N, "ps_os_remove"),
-        "rename": _sig([_S, _S], _N, "ps_os_rename"),
-        "makedirs": _sig([_S], _N, "ps_os_makedirs"),
-        "stat": _sig([_S], _STAT, "ps_os_stat"),
-        "access": _sig([_S, _I], _B, "ps_os_access"),
-        "getpid": _sig([], _I, "ps_os_getpid"),
-        "chdir": _sig([_S], _N, "ps_os_chdir"),
-        "chmod": _sig([_S, _I], _N, "ps_os_chmod"),
-        "mkdir": _sig([_S], _N, "ps_os_mkdir"),
-        "replace": _sig([_S, _S], _N, "ps_os_replace"),
-        "unlink": _sig([_S], _N, "ps_os_remove"),
-        "close": _sig([_I], _N, "ps_os_close"),
-        "write": _sig([_I, _BY], _I, "ps_os_write"),
-        "fstat": _sig([_I], _STAT, "ps_os_fstat"),
-        "lstat": _sig([_S], _STAT, "ps_os_lstat"),
-        "utime": _sig([_S], _N, "ps_os_utime"),
+        "getcwd": sig([], _S, "ps_os_getcwd"),
+        "listdir": sig([_S], _LS, "ps_os_listdir"),
+        "getenv": sig([_S], _S, "ps_os_getenv"),
+        "remove": sig([_S], _N, "ps_os_remove"),
+        "rename": sig([_S, _S], _N, "ps_os_rename"),
+        "makedirs": sig([_S], _N, "ps_os_makedirs"),
+        "stat": sig([_S], _STAT, "ps_os_stat"),
+        "access": sig([_S, _I], _B, "ps_os_access"),
+        "getpid": sig([], _I, "ps_os_getpid"),
+        "chdir": sig([_S], _N, "ps_os_chdir"),
+        "chmod": sig([_S, _I], _N, "ps_os_chmod"),
+        "symlink": sig([_S, _S], _N, "ps_os_symlink"),
+        "readlink": sig([_S], _S, "ps_os_readlink"),
+        "mkdir": sig([_S], _N, "ps_os_mkdir"),
+        "replace": sig([_S, _S], _N, "ps_os_replace"),
+        "unlink": sig([_S], _N, "ps_os_remove"),
+        "close": sig([_I], _N, "ps_os_close"),
+        "write": sig([_I, _BY], _I, "ps_os_write"),
+        "fstat": sig([_I], _STAT, "ps_os_fstat"),
+        "lstat": sig([_S], _STAT, "ps_os_lstat"),
+        "utime": sig([_S], _N, "ps_os_utime"),
     },
     "posixpath": {
-        "basename": _sig([_S], _S, "ps_path_base"),
-        "dirname": _sig([_S], _S, "ps_path_dir"),
-        "split": _sig([_S], _LS, "ps_path_split"),
-        "splitext": _sig([_S], _LS, "ps_path_splitext"),
-        "normpath": _sig([_S], _S, "ps_path_norm"),
-        "isabs": _sig([_S], _B, "ps_path_isabs"),
-        "abspath": _sig([_S], _S, "ps_path_abs"),
-        "exists": _sig([_S], _B, "ps_path_exists"),
-        "isfile": _sig([_S], _B, "ps_path_isfile"),
-        "isdir": _sig([_S], _B, "ps_path_isdir"),
-        "expanduser": _sig([_S], _S, "ps_path_expanduser"),
-        "expandvars": _sig([_S], _S, "ps_path_expandvars"),
-        "realpath": _sig([_S], _S, "ps_path_realpath"),
-        "getmtime": _sig([_S], _F, "ps_path_getmtime"),
-        "getsize": _sig([_S], _I, "ps_path_getsize"),
-        "getatime": _sig([_S], _F, "ps_path_getatime"),
-        "islink": _sig([_S], _B, "ps_path_islink"),
-        "splitdrive": _sig([_S], _LS, "ps_path_splitdrive"),
+        "basename": sig([_S], _S, "ps_path_base"),
+        "dirname": sig([_S], _S, "ps_path_dir"),
+        "split": sig([_S], _LS, "ps_path_split"),
+        "splitext": sig([_S], _LS, "ps_path_splitext"),
+        "normpath": sig([_S], _S, "ps_path_norm"),
+        "isabs": sig([_S], _B, "ps_path_isabs"),
+        "abspath": sig([_S], _S, "ps_path_abs"),
+        "exists": sig([_S], _B, "ps_path_exists"),
+        "isfile": sig([_S], _B, "ps_path_isfile"),
+        "isdir": sig([_S], _B, "ps_path_isdir"),
+        "expanduser": sig([_S], _S, "ps_path_expanduser"),
+        "expandvars": sig([_S], _S, "ps_path_expandvars"),
+        "realpath": sig([_S], _S, "ps_path_realpath"),
+        "getmtime": sig([_S], _F, "ps_path_getmtime"),
+        "getsize": sig([_S], _I, "ps_path_getsize"),
+        "getatime": sig([_S], _F, "ps_path_getatime"),
+        "islink": sig([_S], _B, "ps_path_islink"),
+        "splitdrive": sig([_S], _LS, "ps_path_splitdrive"),
     },
     "stat": {
-        "S_ISREG": _sig([_I], _B, "ps_stat_isreg"),
-        "S_ISDIR": _sig([_I], _B, "ps_stat_isdir"),
-        "S_ISLNK": _sig([_I], _B, "ps_stat_islnk"),
+        "S_ISREG": sig([_I], _B, "ps_stat_isreg"),
+        "S_ISDIR": sig([_I], _B, "ps_stat_isdir"),
+        "S_ISLNK": sig([_I], _B, "ps_stat_islnk"),
     },
     "fnmatch": {
-        "fnmatch": _sig([_S, _S], _B, "ps_fnmatch"),
-        "filter": _sig([_LS, _S], _LS, "ps_fnfilter"),
+        "fnmatch": sig([_S, _S], _B, "ps_fnmatch"),
+        "filter": sig([_LS, _S], _LS, "ps_fnfilter"),
     },
-    "warnings": {"warn": _sig([_S], _N, "ps_warn")},
-    "inspect": {"cleandoc": _sig([_S], _S, "ps_island_cleandoc")},
+    "warnings": {"warn": sig([_S], _N, "ps_warn")},
+    "inspect": {"cleandoc": sig([_S], _S, "ps_island_cleandoc")},
     "logging": {
-        "getLogger": _sig([_S], {"kind": "class", "name": "Logger"}, "ps_log_new"),
-        "debug": _sig([_S], _N, "ps_island_log_debug"),
-        "info": _sig([_S], _N, "ps_island_log_info"),
-        "warning": _sig([_S], _N, "ps_island_log_warning"),
-        "error": _sig([_S], _N, "ps_island_log_error"),
-        "critical": _sig([_S], _N, "ps_island_log_critical"),
+        "getLogger": sig([_S], t_class("Logger"), "ps_log_new"),
+        "debug": sig([_S], _N, "ps_island_log_debug"),
+        "info": sig([_S], _N, "ps_island_log_info"),
+        "warning": sig([_S], _N, "ps_island_log_warning"),
+        "error": sig([_S], _N, "ps_island_log_error"),
+        "critical": sig([_S], _N, "ps_island_log_critical"),
     },
-    "socket": {"gethostname": _sig([], _S, "ps_island_hostname")},
-    "threading": {"active_count": _sig([], _I, "ps_thread_active_count")},
-    "subprocess": {"check_output": _sig([{"kind": "list", "elem": _S}], _BY, "ps_island_check_output")},
+    "socket": {"gethostname": sig([], _S, "ps_island_hostname")},
+    "threading": {"active_count": sig([], _I, "ps_thread_active_count")},
+    "subprocess": {"check_output": sig([t_list(_S)], _BY, "ps_island_check_output")},
     "sys": {
-        "stdout.write": _sig([_S], _I, "ps_stdout_write"),
-        "stderr.write": _sig([_S], _I, "ps_stderr_write"),
+        "stdout.write": sig([_S], _I, "ps_stdout_write"),
+        "stderr.write": sig([_S], _I, "ps_stderr_write"),
     },
     "unicodedata": {
-        "category": _sig([_S], _S, "ps_unicode_category"),
-        "combining": _sig([_S], _I, "ps_unicode_combining"),
-        "normalize": _sig([_S, _S], _S, "ps_unicode_normalize"),
-        "is_normalized": _sig([_S, _S], _B, "ps_unicode_is_normalized"),
-        "bidirectional": _sig([_S], _S, "ps_unicode_bidirectional"),
-        "east_asian_width": _sig([_S], _S, "ps_unicode_east_asian_width"),
-        "mirrored": _sig([_S], _I, "ps_unicode_mirrored"),
-        "decimal": _sig([_S], _I, "ps_unicode_decimal"),
-        "digit": _sig([_S], _I, "ps_unicode_digit"),
-        "numeric": _sig([_S], _F, "ps_unicode_numeric"),
-        "decomposition": _sig([_S], _S, "ps_unicode_decomposition"),
-        "lookup": _sig([_S], _S, "ps_unicode_lookup"),
+        "category": sig([_S], _S, "ps_unicode_category"),
+        "combining": sig([_S], _I, "ps_unicode_combining"),
+        "normalize": sig([_S, _S], _S, "ps_unicode_normalize"),
+        "is_normalized": sig([_S, _S], _B, "ps_unicode_is_normalized"),
+        "bidirectional": sig([_S], _S, "ps_unicode_bidirectional"),
+        "east_asian_width": sig([_S], _S, "ps_unicode_east_asian_width"),
+        "mirrored": sig([_S], _I, "ps_unicode_mirrored"),
+        "decimal": sig([_S], _I, "ps_unicode_decimal"),
+        "digit": sig([_S], _I, "ps_unicode_digit"),
+        "numeric": sig([_S], _F, "ps_unicode_numeric"),
+        "decomposition": sig([_S], _S, "ps_unicode_decomposition"),
+        "lookup": sig([_S], _S, "ps_unicode_lookup"),
     },
     "tempfile": {
-        "gettempdir": _sig([], _S, "ps_temp_getdir"),
-        "gettempprefix": _sig([], _S, "ps_temp_prefix"),
-        "mkdtemp": _sig([], _S, "ps_temp_mkdtemp"),
+        "gettempdir": sig([], _S, "ps_temp_getdir"),
+        "gettempprefix": sig([], _S, "ps_temp_prefix"),
+        "mkdtemp": sig([], _S, "ps_temp_mkdtemp"),
     },
     "shutil": {
-        "copyfile": _sig([_S, _S], _S, "ps_shutil_copyfile"),
-        "rmtree": _sig([_S], _N, "ps_shutil_rmtree"),
-        "which": _sig([_S], _S, "ps_shutil_which"),
-        "copy": _sig([_S, _S], _S, "ps_shutil_copy"),
-        "copy2": _sig([_S, _S], _S, "ps_shutil_copy2"),
-        "copytree": _sig([_S, _S], _S, "ps_shutil_copytree"),
-        "move": _sig([_S, _S], _S, "ps_shutil_move"),
-        "get_terminal_size": _sig([], {"kind": "class", "name": "TerminalSize"}, "ps_shutil_get_terminal_size"),
+        "copyfile": sig([_S, _S], _S, "ps_shutil_copyfile"),
+        "rmtree": sig([_S], _N, "ps_shutil_rmtree"),
+        # `which` keeps its row for the call-table inventory (the probe
+        # census counts it), but the _EARLY handler in restlower takes the
+        # call first: the return is the tagged `str | None`, not the fixed
+        # str this row would hand the fixed-call path.
+        "which": sig([_S], _S, "ps_shutil_which"),
+        "copy": sig([_S, _S], _S, "ps_shutil_copy"),
+        "copy2": sig([_S, _S], _S, "ps_shutil_copy2"),
+        "copytree": sig([_S, _S], _S, "ps_shutil_copytree"),
+        "move": sig([_S, _S], _S, "ps_shutil_move"),
+        "get_terminal_size": sig([], t_class("TerminalSize"), "ps_shutil_get_terminal_size"),
     },
     "textwrap": {
-        "dedent": _sig([_S], _S, "ps_wrap_dedent"),
-        "indent": _sig([_S, _S], _S, "ps_wrap_indent"),
+        "dedent": sig([_S], _S, "ps_wrap_dedent"),
+        "indent": sig([_S, _S], _S, "ps_wrap_indent"),
     },
     "platform": {
-        "system": _sig([], _S, "ps_platform_system"),
-        "machine": _sig([], _S, "ps_platform_machine"),
-        "python_version": _sig([], _S, "ps_platform_python_version"),
-        "platform": _sig([], _S, "ps_platform_platform"),
+        "system": sig([], _S, "ps_platform_system"),
+        "machine": sig([], _S, "ps_platform_machine"),
+        "python_version": sig([], _S, "ps_platform_python_version"),
+        "platform": sig([], _S, "ps_platform_platform"),
     },
     "calendar": {
-        "isleap": _sig([_I], _B, "ps_calendar_isleap"),
-        "leapdays": _sig([_I, _I], _I, "ps_calendar_leapdays"),
-        "weekday": _sig([_I, _I, _I], _I, "ps_calendar_weekday"),
+        "isleap": sig([_I], _B, "ps_calendar_isleap"),
+        "leapdays": sig([_I, _I], _I, "ps_calendar_leapdays"),
+        "weekday": sig([_I, _I, _I], _I, "ps_calendar_weekday"),
     },
     "zipfile": {
-        "is_zipfile": _sig([_S], _B, "ps_zipfile_is_zipfile"),
+        "is_zipfile": sig([_S], _B, "ps_zipfile_is_zipfile"),
     },
     "tarfile": {
-        "is_tarfile": _sig([_S], _B, "ps_tarfile_is_tarfile"),
+        "is_tarfile": sig([_S], _B, "ps_tarfile_is_tarfile"),
     },
 }
 
@@ -1704,16 +1710,19 @@ REST_MODULES = frozenset(
 
 
 def _ir_const(value: Any) -> tuple[Any, dict[str, Any]] | None:
+    """`(value, dict type row)`: the constants feed the IR, so the record
+    of the typing-hygiene slice converts here, at the boundary."""
+
     if isinstance(value, bool):
-        return value, _B
+        return value, type_to_dict(_B)
     if isinstance(value, int):
-        return str(int(value)), _I
+        return str(int(value)), type_to_dict(_I)
     if isinstance(value, str):
         if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
             return None
-        return value, _S
+        return value, type_to_dict(_S)
     if isinstance(value, float):
-        return repr(value), _F
+        return repr(value), type_to_dict(_F)
     return None
 
 
@@ -1809,13 +1818,21 @@ def module_constant(module: str, member: str) -> tuple[Any, dict[str, Any]] | No
     return CONSTANTS.get((module, member))
 
 
-def class_constant(module: str, member: str) -> tuple[dict[str, Any], str] | None:
+def class_constant(module: str, member: str) -> tuple[T, str] | None:
     """The type and runtime symbol of a class constant, like `date.max`."""
     return CLASS_CONSTANTS.get((module, member))
 
 
 def fixed_spec(module: str, member: str) -> dict[str, Any] | None:
-    return REST_FIXED.get(module, {}).get(member)
+    """The dict row of a rest call, `sig_for`-cached on first use.
+
+    `REST_FIXED` stores the `Sig` records of the typing-hygiene slice; the
+    lowerer reads the dict shape (`_fixed_call`), so this accessor is the
+    record-to-dict boundary.
+    """
+
+    row = REST_FIXED.get(module, {}).get(member)
+    return sig_for(row) if row is not None else None
 
 
 def type_alias(module: str, member: str) -> str | None:
@@ -1823,7 +1840,7 @@ def type_alias(module: str, member: str) -> str | None:
 
 
 def slot_size(typ: dict[str, Any]) -> int:
-    kind = typ["kind"]
+    kind: str = typ["kind"]
     if kind in {"int", "float", "list", "dict", "class"}:
         return 8
     if kind in {"str", "bytes"}:

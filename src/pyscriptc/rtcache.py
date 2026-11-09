@@ -5,12 +5,18 @@ built once per (source + headers + compiler identity + target + flags) key under
 user cache dir and reused. Missing objects build in parallel, written to a temp file and
 renamed into place, so concurrent compiles never see a partial object.
 `PYSC_NO_RT_CACHE=1` bypasses the cache (objects are then built next to the output).
+
+The `cc --version` probe behind the compiler-identity part of the key costs a
+subprocess per compile, so its answer persists in a `ccid-*` sidecar keyed by
+resolved binary path + mtime + size; a warm cache answers with a read and a
+stat. `PYSC_NO_CC_ID_CACHE=1` forces the probe every time.
 """
 
 from __future__ import annotations
 
 import hashlib
 import os
+import shutil
 import subprocess
 import tempfile
 from concurrent.futures import ThreadPoolExecutor
@@ -40,13 +46,75 @@ def stats() -> dict[str, object]:
     }
 
 
-@cache
-def compiler_identity(cc: tuple[str, ...]) -> str:
+def _cc_id_cache_enabled() -> bool:
+    return os.environ.get("PYSC_NO_CC_ID_CACHE", "") not in ("1", "true", "yes")
+
+
+def _probe_compiler(cc: tuple[str, ...]) -> str:
     try:
         proc = subprocess.run([*cc, "--version"], capture_output=True, text=True, timeout=30)
     except OSError, subprocess.SubprocessError:
         return "unknown:" + " ".join(cc)
     return " ".join(cc) + "\n" + proc.stdout + proc.stderr
+
+
+def _ccid_path(resolved: str, cc: tuple[str, ...]) -> Path:
+    key = resolved + "\x01" + "\x01".join(cc)
+    return cache_dir() / f"ccid-{hashlib.sha256(key.encode()).hexdigest()[:16]}"
+
+
+def _read_ccid(path: Path, resolved: str, stamp: os.stat_result) -> str | None:
+    """The persisted identity when the sidecar matches the binary's (mtime, size)."""
+    try:
+        head, marker, identity = path.read_text(encoding="utf-8").partition("\n---\n")
+    except OSError:
+        return None
+    fields = head.split("\n")
+    if not marker or len(fields) != 3:
+        return None
+    if fields[0] != resolved or fields[1] != str(stamp.st_mtime_ns) or fields[2] != str(stamp.st_size):
+        return None
+    return identity
+
+
+def _write_ccid(path: Path, resolved: str, stamp: os.stat_result, identity: str) -> None:
+    """Persist the probe result atomically; a read-only cache dir just skips it."""
+    body: str = f"{resolved}\n{stamp.st_mtime_ns}\n{stamp.st_size}\n---\n{identity}"
+    tmp: str | None = None
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp = tempfile.mkstemp(prefix=".ccid-", dir=path.parent)
+        with os.fdopen(fd, "w", encoding="utf-8") as handle:
+            handle.write(body)
+        os.replace(tmp, path)
+    except OSError:
+        if tmp is not None:
+            Path(tmp).unlink(missing_ok=True)
+
+
+@cache
+def compiler_identity(cc: tuple[str, ...]) -> str:
+    """The toolchain's `cc --version` identity, answered from a sidecar when fresh.
+
+    The sidecar is keyed by the resolved binary path and validated by
+    (mtime, size), so a swapped or upgraded toolchain re-probes instead of
+    reusing the stale identity. Concurrent compiles either read the complete
+    file or re-probe and atomically replace it; both orders are safe.
+    """
+    resolved = shutil.which(cc[0]) if _cc_id_cache_enabled() else None
+    if resolved is None:
+        return _probe_compiler(cc)
+    try:
+        stamp = os.stat(resolved)
+    except OSError:
+        return _probe_compiler(cc)
+    identity = _read_ccid(_ccid_path(resolved, cc), resolved, stamp)
+    if identity is not None:
+        return identity
+    identity = _probe_compiler(cc)
+    if not identity.startswith("unknown:"):
+        _write_ccid(_ccid_path(resolved, cc), resolved, stamp, identity)
+    return identity
 
 
 @cache

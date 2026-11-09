@@ -213,7 +213,7 @@ def test_config_exposes_island_import_helpers(tmp_path: Path) -> None:
 
     script = _project(tmp_path, "[tool.pyscriptc.imports]\nrequests = 'island'\nattrs = 'island'\n'*' = 'compile'\n")
     cfg = load_config(script)
-    assert cfg.island_imports() == ("attrs", "requests")
+    assert cfg.island_imports() == ["attrs", "requests"]
     assert cfg.wildcard_island() is False
     b = tmp_path / "b"
     b.mkdir()

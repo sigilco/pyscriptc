@@ -2,7 +2,7 @@ Draft release. Not published.
 
 | Target | Artifact | Runner | Smoke |
 | --- | --- | --- | --- |
-| macos-arm64 | `pyscriptc-macos-arm64` | macos-14 | full |
+| macos-arm64 | `pyscriptc-macos-arm64` | macos-26 | full |
 | macos-x86_64 | `pyscriptc-macos-x86_64` | macos-15-intel | full |
 | linux-x86_64 | `pyscriptc-linux-x86_64` | ubuntu-24.04 | full |
 | linux-aarch64 | `pyscriptc-linux-aarch64` | ubuntu-24.04-arm | full |

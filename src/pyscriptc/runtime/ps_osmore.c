@@ -820,10 +820,13 @@ void ps_global_get_path(int64_t n, const char *name, PsPath *out) {
 }
 
 /* shutil.which(cmd): first executable regular file found walking PATH left
-   to right, or KeyError — the subset stand-in for CPython's None. An empty
+   to right. The shared walker returns 1 and copies the path into `out`, or
+   0 (out untouched) for a missing executable: `ps_shutil_which_hit` exposes
+   the flag and `ps_shutil_which_get` the path, so the lowerer can build
+   CPython's `str | None` with the hit-then-fill optional shape. An empty
    PATH entry means the current directory; a cmd that already contains a
    slash is checked directly, like CPython. */
-void ps_shutil_which(int64_t n, const char *s, PsBuf *out) {
+static int32_t ps_shutil_walk(int64_t n, const char *s, PsBuf *out) {
     char *cmd = ps_cstr(n, s);
     const char *env = getenv("PATH");
     const char *dir;
@@ -836,12 +839,14 @@ void ps_shutil_which(int64_t n, const char *s, PsBuf *out) {
     }
     if (strchr(cmd, '/') != NULL) {
         if (stat(cmd, &st) == 0 && S_ISREG(st.st_mode) && access(cmd, X_OK) == 0) {
-            ps_buf_copy(out, cmd, (int64_t)strlen(cmd));
+            if (out != NULL) {
+                ps_buf_copy(out, cmd, (int64_t)strlen(cmd));
+            }
             free(cmd);
-            return;
+            return 1;
         }
         free(cmd);
-        ps_raise_cstr(PS_KEY, "which found no executable");
+        return 0;
     }
     dir = env;
     for (;;) {
@@ -862,9 +867,11 @@ void ps_shutil_which(int64_t n, const char *s, PsBuf *out) {
             }
         }
         if (stat(cand, &st) == 0 && S_ISREG(st.st_mode) && access(cand, X_OK) == 0) {
-            ps_buf_copy(out, cand, (int64_t)strlen(cand));
+            if (out != NULL) {
+                ps_buf_copy(out, cand, (int64_t)strlen(cand));
+            }
             free(cmd);
-            return;
+            return 1;
         }
     next:
         if (end == NULL) {
@@ -873,7 +880,15 @@ void ps_shutil_which(int64_t n, const char *s, PsBuf *out) {
         dir = end + 1;
     }
     free(cmd);
-    ps_raise_cstr(PS_KEY, "which found no executable");
+    return 0;
+}
+
+int32_t ps_shutil_which_hit(int64_t n, const char *s) {
+    return ps_shutil_walk(n, s, NULL);
+}
+
+void ps_shutil_which_get(int64_t n, const char *s, PsBuf *out) {
+    ps_shutil_walk(n, s, out);
 }
 
 PsIO *ps_temp_named(int64_t mode, int64_t keep) {

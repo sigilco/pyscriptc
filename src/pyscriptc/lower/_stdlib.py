@@ -1,9 +1,10 @@
 """Stdlib import binding and module dispatch for the lowerer.
 
 Split out of `__init__.py` as the first E0 move commit. `Lowerer` composes
-this mixin in. The area owns the closed import table: the `_bind_*` family,
-module call dispatch, `_resolve_module`, and the fences that keep queued
-stdlib modules out of the IR.
+this mixin in. The area owns module call dispatch, `_resolve_module`, and the
+fences that keep queued stdlib modules out of the IR. The import-binding
+family (`_bind_import`, `_bind_from`, and their helpers) moved verbatim to
+`lower._stdlib_bind`, which composes here as `StdlibBindMixin`.
 
 Shared module-level helpers (`Fence`, `Binding`, `_package_base`,
 `_is_none_expr`) live in `_core.py`; binding-side helpers shared with the
@@ -16,10 +17,14 @@ from __future__ import annotations
 import ast
 from typing import Any, NoReturn
 
+from pyscriptc import _irnode as _ir
+from pyscriptc._irnode import t_class, t_leaf, t_list
+
 # boxed:begin
 from pyscriptc.boxed import (  # boxed:begin
     DEF_HANDLE_SYMBOL,
     INVOKE_SYMBOL,
+    MOD_DEF_HANDLE_SYMBOL,
     island_class_type,
     island_handle_type,
 )  # boxed:end
@@ -27,10 +32,9 @@ from pyscriptc.coro import enabled
 
 # boxed:end
 from pyscriptc.errors import span_of
-from pyscriptc.ffi_manifest import handle_type, is_handle_type, type_ir
+from pyscriptc.ffi_manifest import FfiManifest, is_handle_type, type_ir
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
-    _FUTURE_OK,
     _MISSING,
     Binding,
     Fence,
@@ -43,40 +47,119 @@ from pyscriptc.lower._core import (
     _const_truthy,
     _is_none_expr,
     _make_const,
+    _mk_span,
+    _mk_type,
     _module_closed,
     _name,
-    _package_base,
     _raw_const,
     _show,
     module_needs_slot,
 )
-from pyscriptc.lower._stdlib_shared import _ERASED_MODULES
+from pyscriptc.lower._misc_emit import _one_identity_note
+from pyscriptc.lower._stdlib_bind import StdlibBindMixin
 from pyscriptc.restlower import alias_name, rest_call
 from pyscriptc.stdlib_queue import (
-    MATH_CONSTANTS,
-    MATH_FUNCTIONS,
-    PACK_MODULES,
-    SPECIAL_FUNCTIONS,
-    canonical_module,
-    dep_lanes,
     ffi_manifests,
-    island_lane,
-    module_status,
     wave_function,
 )
 from pyscriptc.stdmore import (
-    MODULE_CLASSES,
     PTR_CLASSES,
     REST_MODULES,
     member_callable,
     module_constant,
 )
+from pyscriptc.tirserde import dict_to_node, node_to_dict
 
 
 # boxed:begin
 def _island_handle(name: str) -> dict[str, Any]:
     """The opaque handle type of an island value (issue #553)."""
     return island_handle_type(name)
+
+
+def _expr_stmt_node(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The expr-statement node one dict-IR `{"kind": "expr", ...}` spells."""
+
+    return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
+
+
+def _try_stmt_node(body: list[dict[str, Any]], finalbody: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
+    """The try/finally statement one dict-IR `{"kind": "try", ...}` spells."""
+
+    return node_to_dict(
+        _ir.try_stmt(
+            [dict_to_node(stmt) for stmt in body],
+            [],
+            _mk_span(span),
+            None,
+            [dict_to_node(stmt) for stmt in finalbody],
+        )
+    )
+
+
+def _const_str_node(value: str, span: dict[str, Any], extra: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The str-constant node one dict-IR `{"kind": "const", ...}` spells.
+
+    The island keyword marshalling marks the const with extra keys the typed
+    const record has no slot for, so the spelling keeps the dict whole.
+    """
+
+    node: dict[str, Any] = node_to_dict(_ir.const_str(value, t_leaf("str"), _mk_span(span)))
+    if extra:
+        node.update(extra)
+    return node
+
+
+def _island_call_node(
+    module: str,
+    name: str,
+    args: list[dict[str, Any]],
+    typ: dict[str, Any],
+    symbol: str,
+    span: dict[str, Any],
+    extra: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """The island call node: a typed call plus the island's extra keys.
+
+    The island seam carries keys the typed call record has no slot for
+    (`island`, `island_fn`, `island_npos`, `island_nkw`), so the typed node
+    spells the call and the extras ride along on the dict.
+    """
+
+    node: dict[str, Any] = node_to_dict(
+        _ir.call(
+            _ir.module_callee(module, name),
+            [dict_to_node(arg) for arg in args],
+            _mk_type(typ),
+            _mk_span(span),
+            symbol,
+            "",
+            -1,
+        )
+    )
+    if extra:
+        node.update(extra)
+    return node
+
+
+def _island_peek_handle(module: str, span: dict[str, Any]) -> dict[str, Any]:
+    """The isolated island-module handle node the peek outside a scope reads."""
+
+    return node_to_dict(
+        _ir.name_expr(
+            f"<imod:{module}>",
+            t_class(f"{module} module", "", None, False, False, True),
+            _mk_span(span),
+        )
+    )
+
+
+def _set_list_literal(elems: list[dict[str, Any]], elem_kind: str, span: dict[str, Any]) -> dict[str, Any]:
+    """The set-backed list node one dict-IR `{"kind": "list", "set": True}` spells."""
+
+    return node_to_dict(
+        _ir.list_lit([dict_to_node(elem) for elem in elems], t_list(t_leaf(elem_kind), True), _mk_span(span))
+    )
 
 
 # The `%ps.arg` kind codes the trampoline marshals (issue #553); they match
@@ -86,390 +169,7 @@ _ISLAND_SCALARS = frozenset({"int", "float", "str", "bool", "bytes"})
 # boxed:end
 
 
-def _dep_lane_hint(module: str, message: str) -> str:
-    """The fence message for an import that names a locked dependency.
-
-    A dependency on a lane the compiler cannot take (issue #398) is refused
-    with the distribution and the lane hint, so the user knows which
-    dependency refused and what would unblock it. With the #408 map, the
-    key is the recorded import name, not the distribution name read as a
-    module: `import yaml` names PyYAML. An unknown distribution is named as
-    `unknown` rather than guessed; any other import keeps today's message.
-    """
-
-    lanes = dep_lanes()
-    if not lanes:
-        return message
-    head = module.split(".", 1)[0]
-    entry = lanes.get(head)
-    if entry is None:
-        return message
-    if entry.get("importNames") == "unknown":
-        return f"{message} ({entry['distribution']} is locked, on the {entry['lane']} lane: {entry['hint']})"
-    if entry.get("ambiguous"):
-        return f"{message} ({entry['ambiguous']} both provide {head}; lock only one)"
-    return f"{message} ({entry['distribution']} provides {head}, on the {entry['lane']} lane: {entry['hint']})"
-
-
-class StdlibDispatchMixin:
-    def _import_fence_message(self, name: str) -> str:
-        head = name.split(".", 1)[0]
-        if self.config is not None:
-            lane, _key = self.config.lane_for(head)
-            if lane == "refuse":
-                return f"import `{head}` is refused by the `imports` policy"
-        return _dep_lane_hint(name, f"{name} is not in the closed import table")
-
-    def _bind_import(self, stmt: ast.Import, fences: list[Fence]) -> None:
-        for alias in stmt.names:
-            root = alias.name.split(".", 1)[0]
-            if root in _ERASED_MODULES:
-                self.bindings[alias.asname or root] = Binding("erased", root, "", False)
-                continue
-            if self._bind_ffi(alias.name, alias.asname or root):
-                continue
-            if self._is_own_package(alias.name) or self._is_program_module(alias.name):
-                self._bind_own_import(alias, stmt, fences)
-                continue
-            if alias.name.split(".", 1)[0] in PACK_MODULES:
-                self.bindings[alias.asname or alias.name] = Binding("module", alias.name, "", False)
-                self._note_module(alias.name)
-                continue
-            status = module_status(alias.name)
-            if status is None:
-                head = alias.name.split(".", 1)[0]
-                if self.config is not None and self.config.lane_for(head)[0] == "refuse":
-                    fences.append(
-                        Fence(
-                            "PS2002",
-                            f"import `{head}` is refused by the `imports` policy",
-                            span_of(stmt, self.filename),
-                            None,
-                        )
-                    )
-                    continue
-                # boxed:begin
-                if island_lane(alias.name):
-                    parts = alias.name.split(".")
-                    if alias.asname or len(parts) == 1:
-                        bound = alias.asname or parts[0]
-                        module = alias.name
-                        rooted = False
-                    else:
-                        bound = parts[0]
-                        module = parts[0]
-                        rooted = True
-                    self.bindings[bound] = Binding("island", module, "", False, rooted=rooted)
-                    continue
-                # boxed:end
-                fences.append(
-                    Fence(
-                        "PS2002",
-                        self._import_fence_message(alias.name),
-                        span_of(stmt, self.filename),
-                        None,
-                    )
-                )
-                continue
-            parts = alias.name.split(".")
-            if alias.asname or len(parts) == 1:
-                bound = alias.asname or parts[0]
-                rooted = False
-            else:
-                bound = parts[0]
-                rooted = True
-            self.bindings[bound] = Binding("module", alias.name, "", status == "queued", rooted=rooted)
-            self._note_module(alias.name)
-
-    def _bind_from(self, stmt: ast.ImportFrom, fences: list[Fence]) -> None:
-        if stmt.module in _ERASED_MODULES and not stmt.level:
-            for alias in stmt.names:
-                if alias.name == "*":
-                    fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
-                    continue
-                self.type_aliases[alias.asname or alias.name] = alias.name
-            return
-        if stmt.module == "__future__" and not stmt.level:
-            for alias in stmt.names:
-                if alias.name not in _FUTURE_OK:
-                    fences.append(
-                        Fence(
-                            "PS2002",
-                            f"__future__ import {alias.name} is not a type import",
-                            span_of(stmt, self.filename),
-                            None,
-                        )
-                    )
-            return
-        if stmt.level or not stmt.module:
-            if self.package is None:
-                fences.append(Fence("PS2002", "relative import is not lowered", span_of(stmt, self.filename), None))
-                return
-            self._bind_package_import(stmt, fences)
-            return
-        if self._is_own_package(stmt.module) or self._is_program_module(stmt.module):
-            self._bind_own_from(stmt, fences)
-            return
-        if canonical_module(stmt.module) in PACK_MODULES:
-            for alias in stmt.names:
-                local = alias.asname or alias.name
-                if member_callable(stmt.module, alias.name):
-                    self.bindings[local] = Binding("func", stmt.module, alias.name, False)
-                    self._note_module(stmt.module)
-                    continue
-                fences.append(
-                    Fence(
-                        "PS2001",
-                        f"{stmt.module}.{alias.name} is not in the lowered subset of {stmt.module}",
-                        span_of(stmt, self.filename),
-                        None,
-                    )
-                )
-            return
-        status = module_status(stmt.module)
-        if status is None:
-            # boxed:begin
-            if island_lane(stmt.module):
-                for alias in stmt.names:
-                    if alias.name == "*":
-                        fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
-                        continue
-                    local = alias.asname or alias.name
-                    self.bindings[local] = Binding("island_member", stmt.module, alias.name, False)
-                return
-            # boxed:end
-            fences.append(
-                Fence(
-                    "PS2002",
-                    self._import_fence_message(stmt.module),
-                    span_of(stmt, self.filename),
-                    None,
-                )
-            )
-            return
-        # Aliased spellings (os.path -> posixpath) bind against the canonical
-        # table so later calls reach the lowered rows under the real module.
-        module = canonical_module(stmt.module)
-        manifest = self._ffi_module(module)
-        for alias in stmt.names:
-            if alias.name == "*":
-                fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
-                continue
-            if manifest is not None:
-                if manifest.function(alias.name) is not None:
-                    self.bindings[alias.asname or alias.name] = Binding("func", module, alias.name, False)
-                    continue
-                if manifest.handle(alias.name) is not None:
-                    # A handle binds as a type name: annotations on it lower
-                    # to the opaque ptr path (`from demo import Conn` then
-                    # `c: Conn`). It is not a value (issue #224).
-                    self.bindings[alias.asname or alias.name] = Binding(
-                        "handle", module, alias.name, False, handle_type(alias.name)
-                    )
-                    continue
-                if manifest.const(alias.name) is not None:
-                    typ = type_ir(manifest.const(alias.name).type, manifest.handle_names)
-                    self.bindings[alias.asname or alias.name] = Binding("const", module, alias.name, False, typ)
-                    continue
-                fences.append(
-                    Fence(
-                        "PS2001",
-                        f"{module}.{alias.name} is not in the FFI manifest of {module}",
-                        span_of(stmt, self.filename),
-                        None,
-                    )
-                )
-                continue
-            local = alias.asname or alias.name
-            if status == "queued":
-                self.bindings[local] = Binding("func", module, alias.name, True)
-                continue
-            if module == "math" and alias.name in MATH_FUNCTIONS:
-                self.bindings[local] = Binding("func", module, alias.name, False, MATH_FUNCTIONS[alias.name]["return"])
-                continue
-            if module == "math" and alias.name in MATH_CONSTANTS:
-                self.bindings[local] = Binding("const", module, alias.name, False, {"kind": "float"})
-                continue
-            if wave_function(module, alias.name) is not None or alias.name in SPECIAL_FUNCTIONS.get(
-                module, frozenset()
-            ):
-                self.bindings[local] = Binding("func", module, alias.name, False)
-                self._note_module(module)
-                continue
-            constant = module_constant(module, alias.name)
-            if constant is not None:
-                self.bindings[local] = Binding("const", module, alias.name, False, constant[1])
-                continue
-            if member_callable(module, alias.name):
-                self.bindings[local] = Binding("func", module, alias.name, False)
-                self._note_module(module)
-                continue
-            child = f"{module}.{alias.name}"
-            child_status = module_status(child)
-            if child_status is not None:
-                self.bindings[local] = Binding("module", child, "", child_status == "queued")
-                self._note_module(child)
-                continue
-            fences.append(
-                Fence(
-                    "PS2001",
-                    f"{module}.{alias.name} is not in the lowered subset of {module}",
-                    span_of(stmt, self.filename),
-                    None,
-                )
-            )
-
-    def _bind_package_import(self, stmt: ast.ImportFrom, fences: list[Fence]) -> None:
-        if self.program and not self.is_package and "." not in self.module_name:
-            # A program's plain sibling module is not a package: CPython
-            # refuses a relative import there ("attempted relative import
-            # with no known parent package"). Import the sibling by name.
-            fences.append(
-                Fence(
-                    "PS2002",
-                    f"relative import in {self.module_name} has no parent package; import the module by name",
-                    span_of(stmt, self.filename),
-                    None,
-                )
-            )
-            return
-        base = _package_base(self.module_name, self.is_package, stmt.level)
-        if base is None:
-            fences.append(Fence("PS2002", "relative import is not lowered", span_of(stmt, self.filename), None))
-            return
-        if stmt.module:
-            module = ".".join([*base, *stmt.module.split(".")]) if base else stmt.module
-            for alias in stmt.names:
-                if alias.name == "*":
-                    fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
-                    continue
-                self._bind_one_export(module, alias.name, alias.asname or alias.name, stmt, fences)
-            return
-        for alias in stmt.names:
-            if alias.name == "*":
-                fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
-                continue
-            local = alias.asname or alias.name
-            child = ".".join([*base, alias.name]) if base else alias.name
-            package = self.package or {}
-            if child in package:
-                self._bind_pkg_module(local, child, stmt, fences)
-                continue
-            owner = ".".join(base)
-            if owner and alias.name in package.get(owner, {}):
-                if owner != self.module_name and self.program and owner in package:
-                    # CPython runs the owner package's body before this
-                    # import completes; the init call needs the name bound.
-                    self._bind_pkg_module(owner.split(".")[-1], owner, stmt, fences)
-                self._bind_one_export(owner, alias.name, local, stmt, fences)
-                continue
-            fences.append(
-                Fence(
-                    "PS2002",
-                    f"{child} is not a module in this package",
-                    span_of(stmt, self.filename),
-                    None,
-                )
-            )
-
-    def _bind_pkg_module(self, local: str, module: str, stmt: ast.AST, fences: list[Fence]) -> None:
-        existing = self.bindings.get(local)
-        if existing is not None and existing.kind == "pkg" and existing.module == module:
-            # The same module imported twice under the same name: CPython
-            # keeps one binding, and so does this.
-            return
-        if local in self.bindings or local in self.constants or local in self.declared:
-            fences.append(Fence("PS2002", f"{local} is already bound", span_of(stmt, self.filename), None))
-            return
-        self.bindings[local] = Binding("pkg", module, "", False)
-        self.declared.add(local)
-
-    def _bind_own_import(self, alias: ast.alias, stmt: ast.Import, fences: list[Fence]) -> None:
-        package = self.package or {}
-        root = alias.name.split(".", 1)[0]
-        if alias.asname:
-            if alias.name not in package:
-                fences.append(
-                    Fence(
-                        "PS2002",
-                        f"{alias.name} is not a module in this package",
-                        span_of(stmt, self.filename),
-                        None,
-                    )
-                )
-                return
-            self._bind_pkg_module(alias.asname, alias.name, stmt, fences)
-            return
-        if root not in package or (alias.name != root and alias.name not in package):
-            missing = alias.name if alias.name != root else root
-            fences.append(
-                Fence(
-                    "PS2002",
-                    f"{missing} is not a module in this package",
-                    span_of(stmt, self.filename),
-                    None,
-                )
-            )
-            return
-        self._bind_pkg_module(root, root, stmt, fences)
-
-    def _bind_own_from(self, stmt: ast.ImportFrom, fences: list[Fence]) -> None:
-        module = stmt.module or ""
-        package = self.package or {}
-        if self.program and module and module != "__main__":
-            # A program's `from pkg import x` runs pkg's body before it binds
-            # x, and that body's call is spelled `pkg.__init__()`: the module
-            # name is bound here (CPython keeps the module object reachable
-            # the same way; the name itself is this compiler's one addition).
-            head = module.split(".")[0]
-            self._bind_pkg_module(head, head, stmt, fences)
-        for alias in stmt.names:
-            if alias.name == "*":
-                fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
-                continue
-            local = alias.asname or alias.name
-            child = f"{module}.{alias.name}"
-            if child in package:
-                self._bind_pkg_module(local, child, stmt, fences)
-                continue
-            if module in package:
-                if module != self.module_name and child in package and alias.name not in package.get(module, {}):
-                    # CPython's submodule fallback: `from pkg.sub import blob`
-                    # with no `blob` export in `pkg.sub` imports the module
-                    # `pkg.sub.blob` and binds it. The import runs the
-                    # submodule's body, so the unit must be kept too.
-                    self._bind_pkg_module(local, child, stmt, fences)
-                    continue
-                self._bind_one_export(module, alias.name, local, stmt, fences)
-                continue
-            fences.append(
-                Fence(
-                    "PS2002",
-                    f"{module} is not a module in this package",
-                    span_of(stmt, self.filename),
-                    None,
-                )
-            )
-
-    def _note_module(self, module: str) -> None:
-        if module == "re" or module.startswith("re."):
-            if module_status("re") == "lowered":
-                self.synthetics.add("Pattern")
-                self.synthetics.add("Match")
-        if module == "urllib" or module == "urllib.parse" or module.startswith("urllib."):
-            if module_status("urllib.parse") == "lowered":
-                self.synthetics.add("SplitResult")
-        if module == "urllib.request" and module_status("urllib.request") == "lowered":
-            self.synthetics.add("HttpRequest")
-            self.synthetics.add("HttpResponse")
-        if module == "urllib.error" and module_status("urllib.error") == "lowered":
-            self.synthetics.add("HTTPError")
-            self.synthetics.add("URLError")
-        for name, classes in MODULE_CLASSES.items():
-            if module == name or module.startswith(name + "."):
-                if module_status(name) == "lowered":
-                    self.synthetics.update(classes)
-
+class StdlibDispatchMixin(StdlibBindMixin):
     def _accept_module_function(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, fences: list[Fence]) -> bool:
         """Module `@staticmethod` is the function the class decorator already emits.
 
@@ -537,7 +237,7 @@ class StdlibDispatchMixin:
         self.bindings[bound or name] = Binding("module", name, "", False)
         return True
 
-    def _ffi_module(self, name: str) -> Any:
+    def _ffi_module(self, name: str) -> FfiManifest | None:
         return ffi_manifests().get(name)
 
     def _ffi_call(self, node: ast.Call, span: dict[str, Any], module: str, attr: str) -> dict[str, Any]:
@@ -667,7 +367,7 @@ class StdlibDispatchMixin:
             self.handle_locals.pop(name, None)
         if old is None or (isinstance(value_node, ast.Name) and value_node.id == name):
             return []
-        return [{"kind": "expr", "expr": self._free_call(name, old, span), "span": span}]
+        return [_expr_stmt_node(self._free_call(name, old, span), span)]
 
     def _free_call(self, name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         """The IR call that releases one owned handle.
@@ -724,14 +424,29 @@ class StdlibDispatchMixin:
         ]
         if not owned:
             return body
-        frees = [{"kind": "expr", "expr": self._free_call(name, typ, span), "span": span} for name, typ in owned]
-        return [{"kind": "try", "body": body, "handlers": [], "finalbody": frees, "span": span}]
+        frees = [_expr_stmt_node(self._free_call(name, typ, span), span) for name, typ in owned]
+        return [_try_stmt_node(body, frees, span)]
 
     def _module_decorator_fence(self, fn: ast.FunctionDef) -> str | None:
         if not fn.decorator_list:
             return None
         if len(fn.decorator_list) != 1:
-            return "stacked decorators are not lowered"
+            # A stack of user decorators defers to the same wrap pass a
+            # single one does (`_bind_callable_global` applies them
+            # bottom-up). Under the fallback tier the island seed owns the
+            # decorated source, so the stack keeps its fence there. A
+            # builtin spelling anywhere in the stack keeps the stacked
+            # fence: `staticmethod` is not a lowered callable.
+            if self.fallback_definitions:
+                return "stacked decorators are not lowered"
+            for dec in fn.decorator_list:
+                if (isinstance(dec, ast.Name) and dec.id in {"staticmethod", "property", "classmethod"}) or (
+                    isinstance(dec, ast.Call)
+                    and isinstance(dec.func, ast.Name)
+                    and dec.func.id in {"staticmethod", "property", "classmethod"}
+                ):
+                    return "stacked decorators are not lowered"
+            return None
         dec = fn.decorator_list[0]
         if isinstance(dec, ast.Name):
             if dec.id == "staticmethod":
@@ -839,7 +554,7 @@ class StdlibDispatchMixin:
             if kw.arg is not None:
                 val = self._expr(kw.value)
                 self._island_check_arg(kw, val)
-                key = {"kind": "const", "value": kw.arg, "type": {"kind": "str"}, "span": span}
+                key = _const_str_node(kw.arg, span)
                 kw_args.extend([key, val])
             else:
                 val = self._expr(kw.value)
@@ -850,7 +565,7 @@ class StdlibDispatchMixin:
                     key_t = val["type"].get("key") or {}
                     if key_t.get("kind") != "str":
                         self.fail(kw, "PS1003", f"**kwargs keys must be str, got {_show(key_t)}")
-                marker = {"kind": "const", "value": "", "type": {"kind": "str"}, "span": span, "island_kwargs": True}
+                marker = _const_str_node("", span, {"island_kwargs": True})
                 kw_args.extend([marker, val])
 
         all_args = [*pos_args, *kw_args]
@@ -889,7 +604,7 @@ class StdlibDispatchMixin:
             # prelude to hold the import, no scope exit to free the handle.
             # The peeked type is all the caller needs, so return an isolated
             # handle node instead of binding a hidden local.
-            return {"kind": "name", "name": f"<imod:{module}>", "type": _island_handle(f"{module} module")}
+            return _island_peek_handle(module, span)
         if name is None:
             name = self._temp("imod").replace(".", "_")
             typ = _island_handle(f"{module} module")
@@ -897,7 +612,7 @@ class StdlibDispatchMixin:
             call = self._abi_call(
                 module,
                 "import",
-                [{"kind": "const", "value": module, "type": {"kind": "str"}, "span": span}],
+                [_const_str_node(module, span)],
                 typ,
                 "ps_island_import",
                 span,
@@ -956,6 +671,87 @@ class StdlibDispatchMixin:
         self.fail(node, "PS1003", f"island cannot unmarshal {_show(expect)}; {idiom_note}")
 
     # boxed:begin
+    def _island_floor_call(
+        self, node: ast.Call, span: dict[str, Any], module: str, name: str, expect: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """`helper(x)` where `helper` rides another module's island floor.
+
+        The per-module plane split: the same marshalling and `want`
+        unboxing as `_island_fn_call`, with the defining module's name in
+        front of the callee key (`ps_island_mod_fn_invoke`). The caller
+        stays native; the arguments cross as copies (the seam is
+        copy-in), the result unboxes through `want` like the
+        single-namespace trampoline.
+        """
+        marshalled, npos, nkw = self._island_args(node, span)
+        call_expr: dict[str, Any] = _island_call_node(
+            "island",
+            name,
+            marshalled,
+            _island_handle(f"{module}.{name}()"),
+            INVOKE_SYMBOL,
+            span,
+            {"island_fn": {"name": name, "module": module}, "island_npos": npos, "island_nkw": nkw},
+        )
+        if expect is not None and not expect.get("island"):
+            self._island_validate_expect(node, expect)
+            call_expr["type"] = expect
+            call_expr["island_fn"]["want"] = expect
+        return call_expr
+
+    def _island_floor_class_handle(
+        self, local_name: str, module: str, name: str, span: dict[str, Any]
+    ) -> dict[str, Any]:
+        """`Cls` of another module as a value: a handle from its namespace.
+
+        The class object lives in the defining module's island namespace;
+        `ps_island_mod_def_handle(mod, name)` returns a new reference to it,
+        the namespaced shape of `ps_island_def_handle` (issue #628). The
+        hidden local owns the reference for the scope like the in-module
+        handle does.
+        """
+        local = self.island_class_handles.get(local_name)
+        if local is not None and local not in self.locals:
+            del self.island_class_handles[local_name]
+            local = None
+        if local is None:
+            local = self._temp("icls").replace(".", "_")
+            typ = island_class_type(f"{module}.{name}")
+            self.locals[local] = typ
+            call = self._abi_call(module, name, [], typ, MOD_DEF_HANDLE_SYMBOL, span)
+            call["island_mod_def"] = {"module": module, "name": name}
+            self.prelude.append(_assign(local, call, span))
+            self._own_handle(local, typ)
+            self.island_class_handles[local_name] = local
+        return _name(local, self.locals[local], span)
+
+    def _island_floor_class_call(
+        self, node: ast.Call, span: dict[str, Any], module: str, name: str, expect: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """`Cls(...)` where `Cls` rides another module's island floor.
+
+        The class object lives in the defining module's island namespace,
+        where it is callable, so the instantiation is the same namespaced
+        trampoline as `_island_floor_call` with the class name as the callee
+        key. The instance is an opaque handle of the class's own type (the
+        class's spelling carries the defining module, issue #628).
+        """
+        marshalled, npos, nkw = self._island_args(node, span)
+        call_expr: dict[str, Any] = _island_call_node(
+            "island",
+            name,
+            marshalled,
+            island_class_type(f"{module}.{name}"),
+            INVOKE_SYMBOL,
+            span,
+            {"island_fn": {"name": name, "module": module}, "island_npos": npos, "island_nkw": nkw},
+        )
+        if expect is not None and not expect.get("island"):
+            self._island_validate_expect(node, expect)
+            call_expr["type"] = expect
+            call_expr["island_fn"]["want"] = expect
+        return call_expr
+
     def _island_fn_call(
         self, node: ast.Call, span: dict[str, Any], name: str, expect: dict[str, Any] | None = None
     ) -> dict[str, Any]:
@@ -981,17 +777,21 @@ class StdlibDispatchMixin:
         # An island class instantiation returns the class's one handle type,
         # so the destination annotation proves the same type (issue #628).
         result_type = island_class_type(name) if name in self.island_classes else _island_handle(f"{name}()")
-        call_expr: dict[str, Any] = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "island", "name": name},
-            "args": marshalled,
-            "type": result_type,
-            "symbol": INVOKE_SYMBOL,
-            "island_fn": {"name": name},
-            "island_npos": npos,
-            "island_nkw": nkw,
-            "span": span,
-        }
+        island_fn: dict[str, Any] = {"name": name}
+        # The per-module plane split: the single island namespace does not
+        # exist (every module's floor is its own namespace), so the call
+        # names the owning module and rides the namespaced trampoline.
+        if self._boxed_plane_split and self.module_name:
+            island_fn["module"] = self.module_name
+        call_expr: dict[str, Any] = _island_call_node(
+            "island",
+            name,
+            marshalled,
+            result_type,
+            INVOKE_SYMBOL,
+            span,
+            {"island_fn": island_fn, "island_npos": npos, "island_nkw": nkw},
+        )
         if expect is not None and not expect.get("island"):
             self._island_validate_expect(node, expect)
             call_expr["type"] = expect
@@ -1016,9 +816,16 @@ class StdlibDispatchMixin:
             local = self._temp("icls").replace(".", "_")
             typ = island_class_type(name)
             self.locals[local] = typ
-            call = self._abi_call("island", name, [], typ, DEF_HANDLE_SYMBOL, span)
-            call["island"] = {"name": name}
-            call["island_def"] = {"name": name}
+            if self._boxed_plane_split and self.module_name:
+                # The per-module plane split: the class object lives in this
+                # module's own island namespace, so the handle is fetched
+                # through the namespaced trampoline.
+                call = self._abi_call(self.module_name, name, [], typ, MOD_DEF_HANDLE_SYMBOL, span)
+                call["island_mod_def"] = {"module": self.module_name, "name": name}
+            else:
+                call = self._abi_call("island", name, [], typ, DEF_HANDLE_SYMBOL, span)
+                call["island"] = {"name": name}
+                call["island_def"] = {"name": name}
             self.prelude.append(_assign(local, call, span))
             self._own_handle(local, typ)
             self.island_class_handles[name] = local
@@ -1032,17 +839,15 @@ class StdlibDispatchMixin:
         """`requests.get(...)`: a trampoline call on the imported module handle."""
         marshalled, npos, nkw = self._island_args(node, span)
         args = [self._island_module_handle(module, span), *marshalled]
-        call_expr: dict[str, Any] = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": module, "name": attr},
-            "args": args,
-            "type": _island_handle(f"{module}.{attr}()"),
-            "symbol": "ps_island_call",
-            "island": {"name": attr},
-            "island_npos": npos,
-            "island_nkw": nkw,
-            "span": span,
-        }
+        call_expr: dict[str, Any] = _island_call_node(
+            module,
+            attr,
+            args,
+            _island_handle(f"{module}.{attr}()"),
+            "ps_island_call",
+            span,
+            {"island": {"name": attr}, "island_npos": npos, "island_nkw": nkw},
+        )
         if expect is not None and not expect.get("island"):
             self._island_validate_expect(node, expect)
             call_expr["type"] = expect
@@ -1057,17 +862,15 @@ class StdlibDispatchMixin:
         attr = node.func.attr
         marshalled, npos, nkw = self._island_args(node, span)
         args = [receiver, *marshalled]
-        call_expr: dict[str, Any] = {
-            "kind": "call",
-            "callee": {"kind": "module", "module": receiver["type"].get("name", "island"), "name": attr},
-            "args": args,
-            "type": _island_handle(f"{receiver['type'].get('name', 'island')}.{attr}()"),
-            "symbol": "ps_island_call",
-            "island": {"name": attr},
-            "island_npos": npos,
-            "island_nkw": nkw,
-            "span": span,
-        }
+        call_expr: dict[str, Any] = _island_call_node(
+            receiver["type"].get("name", "island"),
+            attr,
+            args,
+            _island_handle(f"{receiver['type'].get('name', 'island')}.{attr}()"),
+            "ps_island_call",
+            span,
+            {"island": {"name": attr}, "island_npos": npos, "island_nkw": nkw},
+        )
         if expect is not None and not expect.get("island"):
             self._island_validate_expect(node, expect)
             call_expr["type"] = expect
@@ -1079,15 +882,15 @@ class StdlibDispatchMixin:
     ) -> dict[str, Any]:
         """Unmarshal an island handle into a typed local value."""
         self._island_validate_expect(node, expect)
-        return {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "island", "name": "unmarshal"},
-            "args": [obj],
-            "type": expect,
-            "symbol": "ps_island_unmarshal",
-            "island": {"name": "unmarshal", "want": expect},
-            "span": span,
-        }
+        return _island_call_node(
+            "island",
+            "unmarshal",
+            [obj],
+            expect,
+            "ps_island_unmarshal",
+            span,
+            {"island": {"name": "unmarshal", "want": expect}},
+        )
 
     def _island_getattr(
         self, obj: dict[str, Any], name: str, span: dict[str, Any], node: ast.AST, expect: dict[str, Any] | None
@@ -1136,15 +939,15 @@ class StdlibDispatchMixin:
         key = index["value"] if index["kind"] == "const" else None
         if key is None:
             self.fail(node, "PS2002", "an island subscript key is a string literal")
-        return {
-            "kind": "call",
-            "callee": {"kind": "module", "module": "island", "name": "getitem"},
-            "args": [obj, {"kind": "const", "value": key, "type": {"kind": "str"}, "span": span}],
-            "type": expect,
-            "symbol": "ps_island_getitem",
-            "island": {"key": key, "want": expect},
-            "span": span,
-        }
+        return _island_call_node(
+            "island",
+            "getitem",
+            [obj, _const_str_node(key, span)],
+            expect,
+            "ps_island_getitem",
+            span,
+            {"island": {"key": key, "want": expect}},
+        )
 
     # boxed:end
 
@@ -1178,10 +981,9 @@ class StdlibDispatchMixin:
             return dotted, binding.module, member, "erased"
         if binding.kind == "pkg":
             module = binding.module
-            package = self.package or {}
             for attr in attrs[:-1]:
                 child = f"{module}.{attr}"
-                if child not in package:
+                if self._export_lookup(child, None) is None:
                     return dotted, module, ".".join(attrs), "missing"
                 module = child
             if not attrs:
@@ -1319,6 +1121,14 @@ class StdlibDispatchMixin:
                         self._expect(stmt, folded["type"], typ, stmt.target.id)
                         self._store_constant(stmt.target.id, folded, stmt)
                         return
+                if isinstance(stmt.value, ast.Name) and (const := self._module_const_container(stmt.value)) is not None:
+                    name, typ2 = const
+                    self.fail(
+                        stmt,
+                        "PS2002",
+                        f"{stmt.target.id} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                        f"is not representable — {_one_identity_note(name, typ2)}",
+                    )
                 value = self._module_fold(stmt.value)
                 if value is None:
                     # An optional target keeps its raw constant: each read
@@ -1359,6 +1169,19 @@ class StdlibDispatchMixin:
                 if tv_call is not None:
                     self._declare_typevar(target, tv_call, stmt)
                     return
+                if isinstance(stmt.value, ast.Name) and (const := self._module_const_container(stmt.value)) is not None:
+                    # `ys = xs` freezes a copy of the constant's literal at
+                    # bind time: CPython would alias the one container, and a
+                    # copy-on-alias is not representable (issue #525). In a
+                    # script the fence retracts and the statement re-fences
+                    # from the entry; in a definition-only module it stays.
+                    name, typ = const
+                    self.fail(
+                        stmt,
+                        "PS2002",
+                        f"{target} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                        f"is not representable — {_one_identity_note(name, typ)}",
+                    )
                 if (
                     not self._deferring
                     and self._script_line is None
@@ -1434,6 +1257,17 @@ class StdlibDispatchMixin:
             if isinstance(stmt, ast.Assign) and len(stmt.targets) > 1:
                 names = [target.id for target in stmt.targets if isinstance(target, ast.Name)]
                 if len(names) == len(stmt.targets):
+                    if (
+                        isinstance(stmt.value, ast.Name)
+                        and (const := self._module_const_container(stmt.value)) is not None
+                    ):
+                        name, typ = const
+                        self.fail(
+                            stmt,
+                            "PS2002",
+                            f"{names[0]} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                            f"is not representable — {_one_identity_note(name, typ)}",
+                        )
                     value = self._module_fold(stmt.value)
                     if value is None:
                         value = self._expr(stmt.value)
@@ -1452,6 +1286,14 @@ class StdlibDispatchMixin:
                 names = [elt.id for elt in elts if isinstance(elt, ast.Name)]
                 if len(stmt.value.elts) == len(elts) and len(names) == len(elts):
                     for name, part in zip(names, stmt.value.elts, strict=True):
+                        if isinstance(part, ast.Name) and (const := self._module_const_container(part)) is not None:
+                            cname, ctyp = const
+                            self.fail(
+                                stmt,
+                                "PS2002",
+                                f"{name} = {cname} copies the module-scope constant {cname}: a copy-on-alias "
+                                f"is not representable — {_one_identity_note(cname, ctyp)}",
+                            )
                         value = self._module_fold(part)
                         if value is None:
                             value = self._expr(part)
@@ -1499,6 +1341,10 @@ class StdlibDispatchMixin:
                     val, _ = constant
                     span = span_of(node, self.filename)
                     return _make_const(val, span)
+            class_name = self.class_aliases.get(node.value.id, node.value.id)
+            const = self._class_const(class_name, node.attr)
+            if const is not None:
+                return {**const, "span": span_of(node, self.filename)}
             return None
         if isinstance(node, ast.IfExp):
             truthy = _const_truthy(self._module_const(node.test))
@@ -1697,5 +1543,4 @@ class StdlibDispatchMixin:
             seen.append(value["value"])
             elems.append(value)
         span = span_of(node, self.filename)
-        typ = {"kind": "list", "elem": {"kind": kinds[0]}, "set": True}
-        return {"kind": "list", "elems": elems, "type": typ, "span": span}
+        return _set_list_literal(elems, kinds[0], span)

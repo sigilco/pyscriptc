@@ -346,10 +346,10 @@ def test_fences_stay_closed(tmp_path: Path) -> None:
         ("pickle.py", "import pickle\n\ndef f() -> int:\n    return 1\n", "PS2002", "pickle"),
         ("gcd.py", "from math import gcd\n\ndef f() -> int:\n    return gcd(6, 9)\n", "PS2001", "math.gcd"),
         (
-            "bools.py",
-            "def f() -> int:\n    xs: list[bool] = [True]\n    return 1\n",
+            "dictbools.py",
+            "def f() -> int:\n    xs: dict[str, bool] = {}\n    return 1\n",
             "PS2002",
-            "list[bool]",
+            "dict values of bool",
         ),
         # Star imports stay fenced: a lowered star table would need a
         # snapshot of every exported name per module, and `from x import *`

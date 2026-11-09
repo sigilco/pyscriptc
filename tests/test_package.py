@@ -2,10 +2,15 @@
 
 from __future__ import annotations
 
+import ast
+import json
 from pathlib import Path
 
 import pytest
 from tests.test_gates import compile_run, run_cli
+
+_SRC = Path(__file__).resolve().parents[1] / "src" / "pyscriptc"
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
@@ -139,6 +144,29 @@ def test_directory_exports_a_class_and_an_exception(tmp_path: Path) -> None:
     assert caught.stdout == "7\n"
 
 
+def test_a_pkg_module_class_call_lowers(tmp_path: Path) -> None:
+    # `pkg.mod.Class(...)` resolves through `_pkg_item` to a class export,
+    # but no from-import ever installed it: `_construct` crashed with
+    # KeyError on `self.classes[name]`. The call site installs the export
+    # the way `_bind_one_export` does for the named form.
+    from pyscriptc.package import lower_directory
+
+    root = tmp_path / "tree"
+    (root / "pkg").mkdir(parents=True)
+    (root / "__main__.py").write_text(
+        "import pkg.mod\n\nw = pkg.mod.Widget(1)\nprint(w.n)\n",
+        encoding="utf-8",
+    )
+    (root / "pkg" / "__init__.py").write_text("", encoding="utf-8")
+    (root / "pkg" / "mod.py").write_text(
+        "class Widget:\n    def __init__(self, n: int) -> None:\n        self.n = n\n",
+        encoding="utf-8",
+    )
+    module, _source = lower_directory(root)
+    assert module["fences"] == []
+    assert "Widget" in {cls["name"] for cls in module["classes"]}
+
+
 def test_differing_classes_with_one_name_still_fence(tmp_path: Path) -> None:
     root = tmp_path / "clash"
     root.mkdir()
@@ -255,9 +283,97 @@ def test_a_non_identifier_module_file_is_skipped_not_refused(tmp_path: Path) -> 
     assert "skipped pkg/__pyinstaller/hook-yt_dlp.py" in got.stderr
 
 
+def test_non_identifier_dotted_names_are_skipped_not_units(tmp_path: Path) -> None:
+    """Issue #764: no unit may carry a dotted name that is not identifiers."""
+    from pyscriptc.package import _discover
+
+    root = tmp_path / "pkg"
+    (root / "__pyinstaller").mkdir(parents=True)
+    (root / "sub-dir").mkdir()
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "mod.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "__pyinstaller" / "hook-pk.py").write_text("hook = 1\n", encoding="utf-8")
+    (root / "sub-dir" / "__init__.py").write_text("y = 1\n", encoding="utf-8")
+    (root / "sub-dir" / "mod.py").write_text("z = 1\n", encoding="utf-8")
+    units, skipped = _discover(root)
+    names = {name for name, _path, _is_package in units}
+    assert names == {"pkg", "pkg.mod"}
+    assert sorted(skipped) == [
+        "__pyinstaller/hook-pk.py",
+        "sub-dir/__init__.py",
+        "sub-dir/mod.py",
+    ]
+
+
+def test_compile_skips_non_identifier_package_dirs(tmp_path: Path) -> None:
+    root = tmp_path / "pkg"
+    (root / "sub-dir").mkdir(parents=True)
+    (root / "__init__.py").write_text("def add(n: int) -> int:\n    return n\n", encoding="utf-8")
+    (root / "sub-dir" / "__init__.py").write_text("x = 1\n", encoding="utf-8")
+    (root / "sub-dir" / "mod.py").write_text("y = 2\n", encoding="utf-8")
+    out = tmp_path / "pkg.ir.json"
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(out))
+    assert got.returncode == 0, got.stderr
+    assert "skipped pkg/sub-dir/__init__.py; not an importable module name" in got.stderr
+    assert "skipped pkg/sub-dir/mod.py; not an importable module name" in got.stderr
+    module = json.loads(out.read_text(encoding="utf-8"))
+    names = [fn["name"] for fn in module["functions"]]
+    assert not any("sub-dir" in name for name in names)
+
+
+def test_entry_mode_tree_skips_non_identifier_names(tmp_path: Path) -> None:
+    """Project mode (`pyscriptc build`) walks the same `_discover` units."""
+    from pyscriptc.package import lower_directory
+
+    root = tmp_path / "pkg"
+    (root / "__pyinstaller").mkdir(parents=True)
+    (root / "__init__.py").write_text("", encoding="utf-8")
+    (root / "hello.py").write_text("def main() -> int:\n    return 0\n", encoding="utf-8")
+    (root / "__pyinstaller" / "hook-pk.py").write_text("hook = 1\n", encoding="utf-8")
+    merged, _source = lower_directory(root, program_mode=True, entry="pkg.hello", prefix="pkg")
+    notes = merged.get("_notes", [])
+    assert "note: skipped pkg/__pyinstaller/hook-pk.py; not an importable module name" in notes
+
+
 def test_a_single_file_still_refuses_a_relative_import(tmp_path: Path) -> None:
     path = tmp_path / "alone.py"
     path.write_text("from .util import add\n\ndef show() -> int:\n    return add(1, 1)\n", encoding="utf-8")
     got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "alone.ll"))
     assert got.returncode == 3
     assert "relative import" in got.stderr
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_package_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "package.py") == 0
+
+
+def test_directory_ir_keeps_the_on_disk_module_shape(tmp_path: Path) -> None:
+    root = tmp_path / "pkg"
+    root.mkdir()
+    (root / "__init__.py").write_text("def add(n: int) -> int:\n    return n\n", encoding="utf-8")
+    out = tmp_path / "pkg.ir.json"
+    got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(out))
+    assert got.returncode == 0, got.stderr
+    module = json.loads(out.read_text(encoding="utf-8"))
+    for key in ("irVersion", "functions", "classes", "fences", "entry", "sourceFile"):
+        assert key in module, key
+    names = [fn["name"] for fn in module["functions"]]
+    assert any(name.endswith(".add") for name in names)
