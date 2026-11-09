@@ -1016,6 +1016,30 @@ class Lowerer(
         init = self._global_set(name, value, span_of(node, self.filename))
         self.global_inits.append(init["expr"])
 
+    def _bind_call_slot(self, name: str, value: dict[str, Any], node: ast.AST) -> None:
+        """A definition-only module call result binds one slot (#502).
+
+        `_bind_threading_global` runs at walk time, before the signature
+        pass signs the callee, so a call assign routed there cannot type
+        its slot and the body read fails name resolution. The slot
+        registers early (`_scan_module_call_assigns`), and the deferred
+        pass after sigs fills it: the slot holds one lowered call result
+        that every read reuses, instead of a stored constant re-running
+        the call at each read.
+        """
+        typ = value["type"]
+        slot = self.global_slots.get(name)
+        if slot is None:
+            slot = self.global_slots[name] = {"type": typ, "active": False}
+        else:
+            existing = slot.get("type")
+            if existing is not None and not types_equal(existing, typ):
+                self.fail(node, "PS2002", f"global {name} is already bound")
+            slot["type"] = typ
+        self._activate_slot(name, node)
+        init = self._global_set(name, value, span_of(node, self.filename))
+        self.global_inits.append(init["expr"])
+
     def _activate_slot(self, name: str, node: ast.AST) -> None:
         slot = self.global_slots[name]
         if slot.get("conflict") or slot.get("type") is None:
@@ -1095,6 +1119,8 @@ class Lowerer(
         # boxed:end
         if _type_kind(typ) in {"list", "dict"}:
             return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_ptr", span)
+        if _type_kind(typ) == "float":
+            return self._abi_call("builtins", "global_get", [key], typ, "ps_global_get_f64", span)
         self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
         raise AssertionError("unreachable")
 
@@ -1132,6 +1158,8 @@ class Lowerer(
         # boxed:end
         elif _type_kind(typ) in {"list", "dict"}:
             symbol = "ps_global_set_ptr"
+        elif _type_kind(typ) == "float":
+            symbol = "ps_global_set_f64"
         else:
             self.fail(ast.Pass(), "PS2002", f"global {name} of {_show(typ)} is not lowered")
         return _expr_node(
@@ -1228,6 +1256,12 @@ class Lowerer(
                     self._expect(stmt, value["type"], expect, target)
                 else:
                     value = self._expr(stmt.value)
+                if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call) and not self.prelude:
+                    # A definition-only module call result keeps one object
+                    # for the process through the slot (#502): a stored
+                    # constant would re-run the call at every read.
+                    self._bind_call_slot(target, value, stmt)
+                    return
                 if _node_type_kind(value) != "func" and not self.prelude and module_needs_slot(value):
                     # A container or parser at plain-assign scope keeps its
                     # identity through the slot (#512), so it does not fall
@@ -1344,6 +1378,33 @@ class Lowerer(
             cached = frozenset(_declared_globals(list(body)))
             self._globals_cache[key] = cached
         return cached
+
+    def _scan_module_call_assigns(self, statements: list[ast.stmt]) -> None:
+        """Pre-register the slot of every hoisted module call assign (#502).
+
+        The definition-only binding path raises the module-constant fence
+        before any function body lowers, so a body read would fail name
+        resolution even when the slot lands later in the deferred pass.
+        Naming the slot here lets a function body read it through
+        `ps_global_get_*`; the slot itself binds in the deferred pass.
+        """
+        script_line = self._script_line
+        for stmt in statements:
+            if not isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                continue
+            target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
+            if not isinstance(target, ast.Name) or not isinstance(stmt.value, ast.Call):
+                continue
+            if script_line is not None and stmt.lineno >= script_line:
+                # The assignment lowers inside the entry like any script
+                # statement at or after the first one; no module slot exists.
+                continue
+            name = target.id
+            slot = self.global_slots.get(name)
+            if slot is None:
+                self.global_slots[name] = {"type": None, "active": False}
+            elif not slot.get("type"):
+                slot["call"] = True
 
     def _scan_global_slots(self, statements: list[ast.stmt]) -> dict[str, dict[str, Any]]:
         slots: dict[str, dict[str, Any]] = {}

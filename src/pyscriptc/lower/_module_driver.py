@@ -96,6 +96,7 @@ class ModuleDriverMixin:
         imported_slots = {k: v for k, v in self.global_slots.items() if v.get("foreign_key")}
         self.global_slots = self._scan_global_slots(live)
         self.global_slots.update(imported_slots)
+        self._scan_module_call_assigns(live)
         entry_stmts = self._split_entry(live, functions, class_nodes, fences)
         # boxed:end
         entry_fn = self._entry_function(entry_stmts, functions)

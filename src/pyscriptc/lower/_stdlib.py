@@ -1115,11 +1115,13 @@ class StdlibDispatchMixin(StdlibBindMixin):
                     self._annotation(stmt.annotation)  # a bare declaration binds nothing
                     return
                 typ = self._annotation(stmt.annotation)
-                if typ["kind"] == "func" and not self._deferring and self._script_line is None:
+                hoists = self._script_line is None or stmt.lineno < self._script_line
+                if (typ["kind"] == "func" or (isinstance(stmt.value, ast.Call) and hoists)) and not self._deferring:
                     # A Callable-annotated module name may bind a function
-                    # value: signatures do not exist yet, so binding waits
-                    # for the deferred pass after sigs. A scriptish module
-                    # leaves it: the assignment lowers inside the entry.
+                    # value, and a call result takes a global slot (#502):
+                    # signatures do not exist yet, so binding waits for the
+                    # deferred pass after sigs. A scriptish module leaves it:
+                    # the assignment lowers inside the entry.
                     self.deferred_module.append(stmt)
                     return
                 if isinstance(stmt.value, ast.Set):
@@ -1189,9 +1191,10 @@ class StdlibDispatchMixin(StdlibBindMixin):
                         f"{target} = {name} copies the module-scope constant {name}: a copy-on-alias "
                         f"is not representable — {_one_identity_note(name, typ)}",
                     )
+                hoists = self._script_line is None or stmt.lineno < self._script_line
                 if (
                     not self._deferring
-                    and self._script_line is None
+                    and hoists
                     and isinstance(
                         stmt.value,
                         (ast.Name, ast.Lambda, ast.Call, ast.Attribute, ast.Subscript, ast.IfExp),
@@ -1199,8 +1202,10 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 ):
                     # `h = f` / `p = functools.partial(...)` may hold a
                     # callable: signatures do not exist yet, so binding waits
-                    # for the deferred pass after sigs. A scriptish module
-                    # leaves it: the assignment lowers inside the entry.
+                    # for the deferred pass after sigs. A call result takes a
+                    # global slot (#502) and must precede the first script
+                    # statement to hoist; anything else keeps the scriptish
+                    # rule: the assignment lowers inside the entry.
                     self.deferred_module.append(stmt)
                     return
                 if target in self.global_slots and _is_none_expr(stmt.value):
