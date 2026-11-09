@@ -324,6 +324,21 @@ def test_builder_reads_the_ladder_document(tmp_path: Path) -> None:
                 {"lane": "extern", "imports": 2, "share": 0.2},
             ],
         },
+        "r0": {
+            "rung": "R0",
+            "label": "Vendored real script",
+            "corpus": "benchmarks/real_scripts/scripts",
+            "total": 39,
+            "passed": 2,
+            "rate": 0.0513,
+            "fences": 294,
+            "date": "2026-11-09",
+            "blockers": [
+                {"family": "module-assign", "rootCause": "statements", "scriptsBlocked": 2, "scriptsAlone": 1}
+            ],
+            "rootCauses": [{"cause": "inference", "scriptsReleased": 3}],
+            "history": [{"date": "2026-11-08", "passed": 1, "total": 39, "rate": 0.0256}],
+        },
     }
     path = tmp_path / "ladder.json"
     path.write_text(json.dumps(ladder), encoding="utf-8")
@@ -333,11 +348,63 @@ def test_builder_reads_the_ladder_document(tmp_path: Path) -> None:
     assert ladder_row["rungs"][0]["passed"] == 2
     assert ladder_row["selfContainedShare"] == 0.5
     assert [lane["lane"] for lane in ladder_row["lanes"]] == ["native", "extern"]
+    assert ladder_row["r0"]["passed"] == 2
+    assert ladder_row["r0"]["rate"] == 0.0513
+    assert ladder_row["r0"]["total"] == 39
+    assert ladder_row["r0"]["blockers"][0]["family"] == "module-assign"
+    assert ladder_row["r0"]["rootCauses"][0]["cause"] == "inference"
+    assert ladder_row["r0"]["history"] == [{"date": "2026-11-08", "passed": 1, "total": 39, "rate": 0.0256}]
 
 
 def test_builder_without_a_ladder_document_renders_an_empty_section(tmp_path: Path) -> None:
     document = build(previous_path=None, ladder_path=tmp_path / "absent.json")
-    assert document["ladder"] == {"corpus": "", "rungs": [], "lanes": []}
+    assert document["ladder"] == {"corpus": "", "rungs": [], "lanes": [], "r0": {}}
+
+
+def test_r0_lane_merges_the_point_and_the_trend(tmp_path: Path) -> None:
+    from benchmarks.real_scripts.lane import HISTORY_LIMIT, merge_history
+    from benchmarks.real_scripts.lane import build as r0_build
+
+    measure = tmp_path / "r0.json"
+    measure.write_text(
+        json.dumps(
+            {
+                "generated": "2026-11-09",
+                "scripts": [{"compilePass": True, "fences": 0}, {"compilePass": False, "fences": 3}],
+            }
+        ),
+        encoding="utf-8",
+    )
+    section = r0_build(measure, {"r0": {"history": [{"date": "2026-11-08", "passed": 0, "total": 2, "rate": 0.0}]}})
+    assert section["passed"] == 1
+    assert section["total"] == 2
+    assert section["rate"] == 0.5
+    assert [row["date"] for row in section["history"]] == ["2026-11-08", "2026-11-09"]
+
+    # A point whose date already sits in the trend replaces that point.
+    replaced = merge_history(section["history"], {**section, "date": "2026-11-08"})
+    assert len(replaced) == 2
+    assert replaced[0]["date"] == "2026-11-08"
+    assert replaced[0]["passed"] == section["passed"]
+
+    # The window is capped.
+    flood = merge_history(
+        [{"date": f"2026-01-{day:02d}", "passed": 0, "total": 2, "rate": 0.0} for day in range(1, 41)],
+        {**section, "date": "2026-02-01"},
+    )
+    assert len(flood) == HISTORY_LIMIT
+
+
+def test_r0_rate_matches_the_committed_report() -> None:
+    """The acceptance check: the published r0 rate equals the report for the same tree."""
+    report = (ROOT / "benchmarks" / "real_scripts" / "REPORT.md").read_text(encoding="utf-8")
+    ladder = json.loads((ROOT / "data" / "compat" / "ladder.json").read_text(encoding="utf-8"))
+    r0 = ladder.get("r0", {})
+    line = next(row for row in report.splitlines() if row.startswith("Rung R0:"))
+    words = line.split()
+    passed, total = int(words[2]), int(words[4])
+    assert r0.get("passed") == passed
+    assert r0.get("total") == total
 
 
 def test_validate_catches_a_bad_ladder_lane() -> None:

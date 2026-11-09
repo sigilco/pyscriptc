@@ -24,6 +24,7 @@
 #   bench:baseline  perf regression gate against benchmarks/baseline/reference*.json
 #   compat:json     rebuild data/compat/compat.json (add --check to compare)
 #   compat:ladder   rebuild data/compat/ladder.json
+#   compat:r0       add the R0 real-scripts point to data/compat/ladder.json
 #   compat:census   compat2 census over the visible corpus (--top N)
 #   support:table   regenerate the supported-API tables under .agents/docs/support
 #   docs:cli        regenerate docs/reference/cli.md from the argparse parser
@@ -156,6 +157,10 @@ run = "uv run python scripts/build_compat_json.py"
 [tasks."compat:ladder"]
 description = "Rebuild data/compat/ladder.json"
 run = "uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json"
+
+[tasks."compat:r0"]
+description = "Add the R0 real-scripts point to data/compat/ladder.json"
+run = "uv run python scripts/r0_lane.py --json data/compat/ladder.json"
 
 [tasks."support:table"]
 description = "Regenerate data/compat/support.json from compiler and probe data (add --check to compare)"

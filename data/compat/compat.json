@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "ad85f58a1410d4fabbc92e6c8d4e77748982828b",
+  "commit": "7ef796db91ad8b2113c135fc7bbee54322689128",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages_full": 2,
     "packages_partial": 8,
     "packages_none": 8,
-    "weighted_pass": 954.1,
+    "weighted_pass": 957.1,
     "fences": 2614
   },
   "builtins": [
@@ -1067,7 +1067,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "insort, bisect, key=, list[str]"
+        "key=, lo=, hi="
       ],
       "fences": [
         "PS2001"
@@ -2073,15 +2073,15 @@
       "outcomes": {
         "build-error": 1,
         "excluded": 1395,
-        "fence": 10318,
-        "pass": 1135
+        "fence": 10315,
+        "pass": 1138
       },
-      "weighted_pass": 398.8,
+      "weighted_pass": 401.8,
       "fence_codes": {
         "PS2002": 6489,
         "PS1106": 2720,
-        "PS2001": 971,
-        "PS2003": 54,
+        "PS2001": 967,
+        "PS2003": 55,
         "PS1001": 37,
         "PS1003": 33,
         "PS1104": 12,
@@ -2094,12 +2094,13 @@
       "probes": 86,
       "outcomes": {
         "build-error": 5,
-        "fence": 79,
-        "pass": 2
+        "fence": 78,
+        "pass": 2,
+        "timeout": 1
       },
       "weighted_pass": 10.0,
       "fence_codes": {
-        "PS2002": 63,
+        "PS2002": 62,
         "PS1001": 8,
         "PS1106": 2,
         "PS1201": 2,
@@ -2160,7 +2161,105 @@
       }
     ],
     "selfContainedShare": 0.2222,
-    "trees": 18
+    "trees": 18,
+    "r0": {
+      "rung": "R0",
+      "label": "Vendored real script",
+      "corpus": "benchmarks/real_scripts/scripts",
+      "total": 39,
+      "passed": 2,
+      "rate": 0.0513,
+      "fences": 294,
+      "date": "2026-11-09",
+      "blockers": [
+        {
+          "family": "keyword-args",
+          "rootCause": "call-table",
+          "scriptsBlocked": 2,
+          "scriptsAlone": 2
+        },
+        {
+          "family": "module-assign",
+          "rootCause": "statements",
+          "scriptsBlocked": 2,
+          "scriptsAlone": 1
+        },
+        {
+          "family": "dynamic-annotation",
+          "rootCause": "inference",
+          "scriptsBlocked": 1,
+          "scriptsAlone": 1
+        },
+        {
+          "family": "stdlib:os",
+          "rootCause": "stdlib-surface",
+          "scriptsBlocked": 2,
+          "scriptsAlone": 1
+        },
+        {
+          "family": "construct-other",
+          "rootCause": "statements",
+          "scriptsBlocked": 9,
+          "scriptsAlone": 2
+        },
+        {
+          "family": "annotation-other",
+          "rootCause": "inference",
+          "scriptsBlocked": 3,
+          "scriptsAlone": 0
+        },
+        {
+          "family": "call-arity",
+          "rootCause": "call-table",
+          "scriptsBlocked": 19,
+          "scriptsAlone": 0
+        },
+        {
+          "family": "field-lookup",
+          "rootCause": "classes",
+          "scriptsBlocked": 6,
+          "scriptsAlone": 0
+        },
+        {
+          "family": "forward-reference",
+          "rootCause": "inference",
+          "scriptsBlocked": 1,
+          "scriptsAlone": 0
+        },
+        {
+          "family": "generic-alias",
+          "rootCause": "inference",
+          "scriptsBlocked": 1,
+          "scriptsAlone": 0
+        }
+      ],
+      "rootCauses": [
+        {
+          "cause": "statements",
+          "scriptsReleased": 3
+        },
+        {
+          "cause": "call-table",
+          "scriptsReleased": 2
+        },
+        {
+          "cause": "inference",
+          "scriptsReleased": 2
+        },
+        {
+          "cause": "stdlib-surface",
+          "scriptsReleased": 1
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-11-09",
+          "passed": 2,
+          "total": 39,
+          "rate": 0.0513
+        }
+      ]
+    }
   },
   "fences": [
     {
@@ -2356,8 +2455,8 @@
     },
     {
       "date": "2026-11-09",
-      "commit": "ad85f58a1410d4fabbc92e6c8d4e77748982828b",
-      "weighted_pass": 954.1,
+      "commit": "7ef796db91ad8b2113c135fc7bbee54322689128",
+      "weighted_pass": 957.1,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
