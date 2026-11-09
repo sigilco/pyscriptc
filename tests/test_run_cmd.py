@@ -115,7 +115,10 @@ def test_key_depends_on_flags_and_content(tmp_path: Path) -> None:
 
 
 def test_fenced_source_does_not_cache(tmp_path: Path, cache_home: Path) -> None:
-    src = _script(tmp_path, "def main() -> int:\n    print([1])\n    return 0\n\nmain()\n")
+    src = _script(
+        tmp_path,
+        "def main() -> int:\n    x = lambda a: a\n    print(x(1))\n    return 0\n\nmain()\n",
+    )
     code = cli.main(["run", str(src), "--skip-check"])
     assert code != 0
     assert not list((cache_home / "bin").glob("*/*")) if (cache_home / "bin").exists() else True

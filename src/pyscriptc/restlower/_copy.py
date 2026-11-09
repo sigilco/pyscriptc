@@ -5,17 +5,19 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.restlower._shared import _node_type, _type_kind, _type_value
+
 _COPY_SCALARS = {"int", "float", "bool", "str", "bytes"}
 
 
 def _copyable(typ: dict[str, Any]) -> bool:
-    kind = typ["kind"]
+    kind: str = _type_kind(typ)
     if kind in {"int", "float", "str", "bytes"}:
         return True
     if kind == "list":
         return _copyable(typ["elem"])
     if kind == "dict":
-        return _copyable(typ["value"])
+        return _copyable(_type_value(typ))
     return False
 
 
@@ -27,8 +29,8 @@ def _copy_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict
     if len(node.args) != 1:
         lo.fail(node, "PS2003", f"copy.{attr} expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    typ = arg["type"]
-    kind = typ["kind"]
+    typ = _node_type(arg)
+    kind = _type_kind(typ)
     if kind in _COPY_SCALARS:
         return arg
     if attr == "copy":

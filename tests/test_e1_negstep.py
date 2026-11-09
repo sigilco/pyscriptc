@@ -15,24 +15,35 @@ from pathlib import Path
 from tests.test_gates import oracle, run_cli, write_case
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node
 
 
 def _entry(mod: dict) -> dict | None:
     return next((fn for fn in mod["functions"] if fn["name"] == mod["entry"]), None)
 
 
-def _slices(stmts: list[dict]) -> list[dict]:
-    found: list[dict] = []
+def _slices(stmts: list[object]) -> list[object]:
+    found: list[object] = []
 
-    def walk(body: list[dict]) -> None:
+    def walk(body: list[object]) -> None:
         for stmt in body:
-            expr = stmt.get("expr") or stmt.get("value")
-            callee = expr.get("callee") if isinstance(expr, dict) else None
-            if callee == {"kind": "module", "module": "builtins", "name": "slice"}:
+            node = dict_to_node(stmt)
+            expr = node.expr if node.expr is not None else node.value
+            expr = dict_to_node(expr) if expr is not None else None
+            callee_src = None
+            if expr is not None:
+                callee_src = expr["callee"] if isinstance(expr, dict) else expr.callee
+            callee = dict_to_node(callee_src) if callee_src is not None else None
+            if (
+                callee is not None
+                and getattr(callee, "kind", None) == "module"
+                and callee.module == "builtins"
+                and callee.name == "slice"
+            ):
                 found.append(expr)
-            for key in ("body", "then", "else"):
-                if isinstance(stmt.get(key), list):
-                    walk(stmt[key])
+            for child in (node.body, node.then, node.else_):
+                if isinstance(child, list):
+                    walk(child)
 
     walk(stmts)
     return found
@@ -50,18 +61,18 @@ def probe(xs: list[int]) -> list[int]:
     assert entry is not None
     slices = _slices(entry["body"])
     assert len(slices) == 1
-    call = slices[0]
-    assert call["symbol"] == "ps_seq_slice"
-    value, start, stop, has_start, has_stop, step = call["args"]
-    assert value["type"]["kind"] == "list"
-    assert has_start["kind"] == "const" and has_start["value"] == "0"
-    assert has_stop["kind"] == "const" and has_stop["value"] == "0"
+    call = dict_to_node(slices[0])
+    assert call.symbol == "ps_seq_slice"
+    value, start, stop, has_start, has_stop, step = call.args
+    assert value.type.kind == "list"
+    assert has_start.kind == "const" and has_start.svalue == "0"
+    assert has_stop.kind == "const" and has_stop.svalue == "0"
     # The unary -1 is not a const or name, so it pins into a temp.
-    assert step["kind"] == "name" and step["type"] == {"kind": "int"}
-    prelude = entry["body"][0]
-    assert prelude["kind"] == "assign" and prelude["target"] == step["id"]
-    assert prelude["value"]["kind"] == "unary" and prelude["value"]["op"] == "-"
-    assert prelude["value"]["operand"]["value"] == "1"
+    assert step.kind == "name" and step.type.kind == "int"
+    prelude = dict_to_node(entry["body"][0])
+    assert prelude.kind == "assign" and prelude.target == step.id
+    assert prelude.value.kind == "unary" and prelude.value.op == "-"
+    assert prelude.value.operand.svalue == "1"
 
 
 def test_str_reverse_uses_str_slice() -> None:
@@ -76,11 +87,11 @@ def probe(s: str) -> str:
     assert entry is not None
     slices = _slices(entry["body"])
     assert len(slices) == 1
-    call = slices[0]
-    assert call["symbol"] == "ps_str_slice"
-    assert call["type"] == {"kind": "str"}
-    step = call["args"][-1]
-    assert step["kind"] == "name" and step["type"] == {"kind": "int"}
+    call = dict_to_node(slices[0])
+    assert call.symbol == "ps_str_slice"
+    assert call.type.kind == "str"
+    step = call.args[-1]
+    assert step.kind == "name" and step.type.kind == "int"
 
 
 def test_variable_negative_step_lowers_once() -> None:
@@ -96,9 +107,9 @@ def probe(xs: list[int], k: int) -> list[int]:
     assert entry is not None
     slices = _slices(entry["body"])
     assert len(slices) == 1
-    step = slices[0]["args"][-1]
-    assert step["kind"] == "name"
-    assert step["type"] == {"kind": "int"}
+    step = dict_to_node(slices[0]).args[-1]
+    assert step.kind == "name"
+    assert step.type.kind == "int"
 
 
 def test_str_non_step_operands_keep_fence_wordings() -> None:

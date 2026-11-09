@@ -15,7 +15,9 @@ from pathlib import Path
 
 from tests.test_gates import oracle, run_cli, write_case
 
+from pyscriptc._irnode import F_TOPT
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_type
 
 
 def _entry(mod: dict) -> dict | None:
@@ -148,8 +150,9 @@ def probe(d: dict[str, int], w: str) -> int | None:
     )
     assert mod["fences"] == []
     probe = next(fn for fn in mod["functions"] if fn["name"] == "probe")
-    assert probe["returnType"]["optional"] is True
-    assert probe["returnType"]["elem"] == {"kind": "int"}
+    ret = dict_to_type(probe["returnType"])
+    assert ret.flags & F_TOPT
+    assert ret.elem.kind == "int"
 
 
 def test_sorted_key_values_match_cpython(tmp_path: Path) -> None:

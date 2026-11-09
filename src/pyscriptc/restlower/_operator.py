@@ -5,7 +5,15 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _BIN, _CMP
+from pyscriptc.restlower._shared import (
+    _BIN,
+    _CMP,
+    _binary,
+    _node_type,
+    _node_type_kind,
+    _t_leaf,
+    _type_kind,
+)
 
 
 def _bisect(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
@@ -14,12 +22,12 @@ def _bisect(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[st
         lo.fail(node, "PS2003", f"bisect.{attr} expects 2 argument(s)")
     seq = lo._expr(node.args[0])
     key = lo._expr(node.args[1])
-    if seq["type"]["kind"] != "list" or seq["type"]["elem"]["kind"] != "int":
+    if _node_type_kind(seq) != "list" or _type_kind(_node_type(seq)["elem"]) != "int":
         lo.fail(node, "PS1003", f"bisect.{attr} takes a list[int]")
-    if key["type"]["kind"] != "int":
+    if _node_type_kind(key) != "int":
         lo.fail(node, "PS1003", f"bisect.{attr} key is int")
     symbol = "ps_bisect_left" if attr == "bisect_left" else "ps_bisect_right"
-    return lo._abi_call("bisect", attr, [seq, key], {"kind": "int"}, symbol, span)
+    return lo._abi_call("bisect", attr, [seq, key], _t_leaf("int"), symbol, span)
 
 
 def _join(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -28,10 +36,10 @@ def _join(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     args = []
     for arg_node in node.args:
         arg = lo._expr(arg_node)
-        if arg["type"]["kind"] != "str":
+        if _node_type_kind(arg) != "str":
             lo.fail(node, "PS1003", "posixpath.join arguments are str")
         args.append(arg)
-    return lo._abi_call("posixpath", "join", args, {"kind": "str"}, "ps_path_join", span)
+    return lo._abi_call("posixpath", "join", args, _t_leaf("str"), "ps_path_join", span)
 
 
 def _operator(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
@@ -58,15 +66,9 @@ def _operator(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[
             lo.fail(node, "PS2003", "operator.concat expects 2 argument(s)")
         left = lo._expr(node.args[0])
         right = lo._expr(node.args[1])
-        if left["type"]["kind"] == right["type"]["kind"] and left["type"]["kind"] in {"str", "bytes"}:
-            return {
-                "kind": "binary",
-                "op": "+",
-                "left": left,
-                "right": right,
-                "type": left["type"],
-                "span": span,
-            }
+        left_kind = _node_type_kind(left)
+        if left_kind == _node_type_kind(right) and left_kind in {"str", "bytes"}:
+            return _binary("+", left, right, _node_type(left), span)
         lo.fail(node, "PS2004", "operator.concat takes str or bytes")
     lo.fail(node, "PS2001", f"operator.{attr} is not in the lowered subset of operator")
     raise AssertionError("unreachable")

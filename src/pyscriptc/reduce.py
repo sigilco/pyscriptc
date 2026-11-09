@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
+from pyscriptc.emit._ir import _items, _opt_str
 from pyscriptc.errors import IRError, SpikeError
 from pyscriptc.lower import lower_source
 
@@ -140,8 +141,8 @@ class FencePredicate(Predicate):
             return Verdict(False, "syntax error")
         except Exception as exc:  # a lowering bug is a crash, not a fence
             return Verdict(False, type(exc).__name__)
-        for fence in module.get("fences", []):
-            if fence.get("code") == self.code:
+        for fence in _items(module, "fences"):
+            if _opt_str(fence, "code") == self.code:
                 return Verdict(True)
         return Verdict(False, f"no fence {self.code}")
 
