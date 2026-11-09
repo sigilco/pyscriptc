@@ -146,14 +146,25 @@ def _r4_metrics() -> dict[str, Any]:
     }
 
 
-def build(exec_stage: bool = True) -> dict[str, Any]:
-    """The ladder document: the R1, R2 and R4 numbers."""
+def build(exec_stage: bool = True, previous: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The ladder document: the R1, R2 and R4 numbers.
 
-    return {
+    The R0 section (the vendored real scripts) is carried over from
+    `previous` when there is one, so rebuilding the ladder for R1, R2 and R4
+    does not drop the R0 trend. The nightly writes the fresh R0 point after
+    this step, through `scripts/r0_lane.py`.
+    """
+
+    document = {
         "schema": 1,
         "rungs": [_r1_metrics(exec_stage), _r2_metrics(exec_stage)],
         "r4": _r4_metrics(),
     }
+    if previous:
+        r0 = previous.get("r0")
+        if isinstance(r0, dict):
+            document["r0"] = r0
+    return document
 
 
 def render_table(document: dict[str, Any]) -> str:
@@ -182,7 +193,15 @@ def main(argv: list[str] | None = None) -> int:
         help="report the compile rate only, without building and running the binaries",
     )
     args = parser.parse_args(argv)
-    document = build(exec_stage=not args.no_exec)
+    previous: dict[str, Any] | None = None
+    if args.json and args.json.exists():
+        try:
+            loaded = json.loads(args.json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            loaded = None
+        if isinstance(loaded, dict):
+            previous = loaded
+    document = build(exec_stage=not args.no_exec, previous=previous)
     print(render_table(document))
     if args.json:
         args.json.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")

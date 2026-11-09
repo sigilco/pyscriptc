@@ -11,7 +11,7 @@
 # The score and ledger steps run the raw commands, not `mise run <task>`, for
 # the same reason as ci.yml: the mise uv pin (`latest`) would drop the
 # `>= 0.13.4` uv floor this workflow holds. The commands are the ones the
-# `compat:json`, `compat:ladder` and `boxed:cost` tasks wrap.
+# `compat:json`, `compat:ladder`, `compat:r0` and `boxed:cost` tasks wrap.
 
 name: nightly
 
@@ -101,6 +101,11 @@ jobs:
         run: |
           set -euo pipefail
           uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json
+          # The R0 rung (the vendored real scripts) rides in the same ladder
+          # document, with its 30-value trend. Design: benchmarks/real_scripts/.
+          mkdir -p nightly
+          uv run python -m benchmarks.real_scripts.measure --quiet --json nightly/r0.json
+          uv run python scripts/r0_lane.py --json data/compat/ladder.json --measure nightly/r0.json
           uv run python scripts/build_compat_json.py \
             --out data/compat/compat.json \
             --score nightly/visible-score.json \
@@ -290,6 +295,115 @@ jobs:
         if: always()
         with:
           name: nightly-ledger-${{ github.run_id }}
+          path: nightly/
+          retention-days: 90
+          if-no-files-found: warn
+
+  # The R0 lane (issue #506): the real-script corpus, measured nightly.
+  # The measurement is the same one `benchmarks/real_scripts/measure.py`
+  # runs, and the published point (pass rate, corpus size, blocker ranking,
+  # root-cause ranking) rides in `data/compat/ladder.json` under the `r0`
+  # key, which the visible-score job writes into the compat snapshot.
+  #
+  # This job is the report-only half: it measures the same corpus, prints
+  # the rate and the rankings into the job summary, and fails when the
+  # measurement itself fails or when the rate drops below the value the
+  # committed ladder document carries. A failure opens the same
+  # `nightly-failure` issue the other lanes open. It never blocks master.
+  r0-lane:
+    name: R0 real-scripts lane
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      failed: ${{ steps.result.outputs.failed }}
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: Measure the R0 corpus
+        id: measure
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p nightly
+          uv run python -m benchmarks.real_scripts.measure --quiet --json nightly/r0.json \
+            | tee nightly/r0.log
+
+      # A drop is a rate below the committed one. The comparison reads the
+      # committed ladder document, so it is the last published value the
+      # site showed, not the value of the previous nightly run.
+      - name: Compare against the published rate
+        id: drop
+        if: steps.measure.outcome == 'success'
+        run: |
+          set -euo pipefail
+          uv run python - <<'PY' > "$GITHUB_OUTPUT"
+          import json
+          from pathlib import Path
+
+          measured = json.loads(Path("nightly/r0.json").read_text(encoding="utf-8"))
+          scripts = measured.get("scripts", [])
+          total = len(scripts)
+          passed = sum(1 for script in scripts if script.get("compilePass"))
+          rate = round(passed / total, 4) if total else 0.0
+
+          published = {}
+          path = Path("data/compat/ladder.json")
+          if path.exists():
+              document = json.loads(path.read_text(encoding="utf-8"))
+              r0 = document.get("r0")
+              if isinstance(r0, dict):
+                  published = r0
+          previous = published.get("rate")
+          print(f"rate={rate}")
+          print(f"passed={passed}")
+          print(f"total={total}")
+          if previous is None:
+              print("dropped=false")
+          else:
+              print(f"dropped={'true' if rate < previous else 'false'}")
+          print(f"previous={previous}")
+          PY
+
+      - name: Record outcome
+        id: result
+        if: always()
+        env:
+          MEASURE_OUTCOME: ${{ steps.measure.outcome }}
+          DROPPED: ${{ steps.drop.outputs.dropped }}
+          RATE: ${{ steps.drop.outputs.rate }}
+          PASSED: ${{ steps.drop.outputs.passed }}
+          TOTAL: ${{ steps.drop.outputs.total }}
+          PREVIOUS: ${{ steps.drop.outputs.previous }}
+        run: |
+          set -euo pipefail
+          if [ "$MEASURE_OUTCOME" != "success" ]; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            echo "### R0 lane: the measurement failed" >> "$GITHUB_STEP_SUMMARY"
+          elif [ "$DROPPED" = "true" ]; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            echo "### R0 lane: the rate dropped" >> "$GITHUB_STEP_SUMMARY"
+            printf 'R0 rate %s (%s of %s), previously %s.\n' \
+              "$RATE" "$PASSED" "$TOTAL" "$PREVIOUS" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+            echo "### R0 lane: the rate held" >> "$GITHUB_STEP_SUMMARY"
+            printf 'R0 rate %s (%s of %s), previously %s.\n' \
+              "$RATE" "$PASSED" "$TOTAL" "${PREVIOUS:-none}" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-r0-${{ github.run_id }}
           path: nightly/
           retention-days: 90
           if-no-files-found: warn
@@ -498,8 +612,8 @@ jobs:
   # Failure reporting. One open issue per label; repeat failures add a comment.
   report-failure:
     name: open or update nightly-failure issue
-    needs: [visible-score, boxed-ledger, embed-acceptance]
-    if: ${{ always() && (needs.visible-score.outputs.failed == 'true' || needs.boxed-ledger.outputs.failed == 'true' || needs.embed-acceptance.outputs.failed == 'true') }}
+    needs: [visible-score, boxed-ledger, embed-acceptance, r0-lane]
+    if: ${{ always() && (needs.visible-score.outputs.failed == 'true' || needs.boxed-ledger.outputs.failed == 'true' || needs.embed-acceptance.outputs.failed == 'true' || needs.r0-lane.outputs.failed == 'true') }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -515,11 +629,12 @@ jobs:
           gh label create nightly-failure --repo "$REPO" --color B60205 \
             --description "Nightly workflow failure" 2>/dev/null || true
           body="$(mktemp)"
-          printf 'Nightly run failed on %s.\n\nRun: %s\n\nVisible score: %s\nBoxed ledger: %s\nEmbed acceptance: %s\n' \
+          printf 'Nightly run failed on %s.\n\nRun: %s\n\nVisible score: %s\nBoxed ledger: %s\nEmbed acceptance: %s\nR0 lane: %s\n' \
             "$(date -u +%Y-%m-%d)" "$RUN_URL" \
             "${{ needs.visible-score.outputs.failed == 'true' && 'failed' || 'ok' }}" \
             "${{ needs.boxed-ledger.outputs.failed == 'true' && 'failed' || 'ok' }}" \
-            "${{ needs.embed-acceptance.outputs.failed == 'true' && 'failed' || 'ok' }}" > "$body"
+            "${{ needs.embed-acceptance.outputs.failed == 'true' && 'failed' || 'ok' }}" \
+            "${{ needs.r0-lane.outputs.failed == 'true' && 'failed' || 'ok' }}" > "$body"
           existing="$(gh issue list --repo "$REPO" --label nightly-failure --state open \
             --json number --jq '.[0].number // empty')"
           if [ -n "$existing" ]; then

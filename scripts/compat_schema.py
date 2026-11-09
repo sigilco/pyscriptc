@@ -219,8 +219,66 @@ def _check_ladder_lane(row: Any, where: str, problems: list[str]) -> None:
         problems.append(f"{where}: share is not a number")
 
 
+def _check_ladder_r0_history(row: Any, where: str, problems: list[str]) -> None:
+    """One R0 trend point."""
+    if not _is_dict(row):
+        problems.append(f"{where}: expected an object")
+        return
+    for key in ("date", "passed", "total", "rate"):
+        if key not in row:
+            problems.append(f"{where}: missing key {key!r}")
+    if not _is_str(row.get("date")):
+        problems.append(f"{where}: date is not a string")
+    for key in ("passed", "total"):
+        if not _is_int(row.get(key)):
+            problems.append(f"{where}: {key} is not an integer")
+    if not _is_number(row.get("rate")):
+        problems.append(f"{where}: rate is not a number")
+
+
+def _check_ladder_r0(r0: Any, where: str, problems: list[str]) -> None:
+    """The R0 section: the real-script rate, its rankings and its trend."""
+    if not _is_dict(r0):
+        problems.append(f"{where} is not an object")
+        return
+    for key in ("rung", "label", "corpus", "date"):
+        if key not in r0:
+            problems.append(f"{where}: missing key {key!r}")
+        elif not _is_str(r0.get(key)):
+            problems.append(f"{where}: {key} is not a string")
+    for key in ("total", "passed", "fences"):
+        if not _is_int(r0.get(key)):
+            problems.append(f"{where}: {key} is not an integer")
+    if not _is_number(r0.get("rate")):
+        problems.append(f"{where}: rate is not a number")
+    blockers = r0.get("blockers")
+    if not _is_list(blockers):
+        problems.append(f"{where}.blockers is not a list")
+    else:
+        for index, row in enumerate(blockers):
+            if not _is_dict(row) or not _is_str(row.get("family")):
+                problems.append(f"{where}.blockers[{index}] is not a family row")
+            elif not _is_int(row.get("scriptsBlocked")) or not _is_int(row.get("scriptsAlone")):
+                problems.append(f"{where}.blockers[{index}] counts are not integers")
+    causes = r0.get("rootCauses")
+    if not _is_list(causes):
+        problems.append(f"{where}.rootCauses is not a list")
+    else:
+        for index, row in enumerate(causes):
+            if not _is_dict(row) or not _is_str(row.get("cause")):
+                problems.append(f"{where}.rootCauses[{index}] is not a cause row")
+            elif not _is_int(row.get("scriptsReleased")):
+                problems.append(f"{where}.rootCauses[{index}] scriptsReleased is not an integer")
+    history = r0.get("history")
+    if not _is_list(history):
+        problems.append(f"{where}.history is not a list")
+    else:
+        for index, row in enumerate(history):
+            _check_ladder_r0_history(row, f"{where}.history[{index}]", problems)
+
+
 def _check_ladder(ladder: Any, where: str, problems: list[str]) -> None:
-    """The ladder section: the R1, R2 and R4 rows."""
+    """The ladder section: the R1, R2 and R4 rows, plus the R0 section."""
     if not _is_dict(ladder):
         problems.append(f"{where} is not an object")
         return
@@ -238,6 +296,9 @@ def _check_ladder(ladder: Any, where: str, problems: list[str]) -> None:
             _check_ladder_lane(row, f"{where}.lanes[{index}]", problems)
     if not _is_str(ladder.get("corpus")):
         problems.append(f"{where}.corpus is not a string")
+    r0 = ladder.get("r0")
+    if r0 is not None:
+        _check_ladder_r0(r0, f"{where}.r0", problems)
 
 
 def validate(document: Any) -> list[str]:
