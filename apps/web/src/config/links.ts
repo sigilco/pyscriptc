@@ -8,6 +8,9 @@ export const siteLinks = {
   privacy:
     import.meta.env.PUBLIC_PRIVACY_URL ||
     "https://github.com/sigilco/pyscriptc/blob/master/PRIVACY.md",
+  sponsor:
+    import.meta.env.PUBLIC_SPONSOR_URL ||
+    "https://buy.polar.sh/polar_cl_Mv1gdlG7bw3I70EC9IHtfeSHJj4PEKvA7JAUz23CFhj",
   license: import.meta.env.PUBLIC_LICENSE_URL || "https://github.com/sigilco/pyscriptc/blob/master/LICENSE",
 };
 

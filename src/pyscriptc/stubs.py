@@ -53,7 +53,10 @@ TYPESHED_STDLIB = Path(__file__).with_name("_typeshed") / "stdlib"
 # Partial scope: the stdlib modules the closed import table lowers, plus the
 # package roots their dotted names need. Re-export targets outside the
 # allowlist (`_hashlib`, `json.decoder`) are still followed, never served.
-STDLIB_SUBSET: frozenset[str] = frozenset(QUEUE) | {name.split(".")[0] for name in QUEUE}
+STDLIB_SUBSET: set[str] = set()
+for _queue_name in QUEUE:
+    STDLIB_SUBSET.add(_queue_name)
+    STDLIB_SUBSET.add(_queue_name.split(".")[0])
 
 ROOT_KINDS = ("explicit", "beside", "stubs-dir", "typeshed")
 
@@ -66,7 +69,7 @@ class StubRoot:
 
     kind: str
     path: Path
-    allow: frozenset[str] | None = None
+    allow: set[str] | None = None
 
     def find(self, module: str, version: Version) -> Path | None:
         if self.allow is not None and module not in self.allow:
@@ -80,10 +83,10 @@ def _find_pyi(base: Path, module: str) -> Path | None:
     parts = module.split(".")
     if not all(part.isidentifier() for part in parts):
         return None
-    package = base.joinpath(*parts) / "__init__.pyi"
+    package = base.joinpath("/".join(parts)) / "__init__.pyi"
     if package.is_file():
         return package
-    single = base.joinpath(*parts[:-1], parts[-1] + ".pyi")
+    single = base.joinpath("/".join(parts[:-1])) / (parts[-1] + ".pyi")
     if single.is_file():
         return single
     return None
@@ -148,7 +151,7 @@ def discover_roots(
         if stubs_dir.is_dir():
             roots.append(StubRoot("stubs-dir", stubs_dir))
     if typeshed is not None and typeshed.is_dir():
-        allow = frozenset(stdlib_allow) if stdlib_allow is not None else None
+        allow = set(stdlib_allow) if stdlib_allow is not None else None
         roots.append(StubRoot("typeshed", typeshed, allow))
     return tuple(roots)
 
@@ -269,17 +272,15 @@ def _flatten(body: list[ast.stmt], version: Version, platform: str) -> list[ast.
     return out
 
 
-_COMPARE = {
-    ast.Lt: lambda a, b: a < b,
-    ast.LtE: lambda a, b: a <= b,
-    ast.Gt: lambda a, b: a > b,
-    ast.GtE: lambda a, b: a >= b,
-    ast.Eq: lambda a, b: a == b,
-    ast.NotEq: lambda a, b: a != b,
-}
-
-
 def _eval_test(test: ast.expr, version: Version, platform: str) -> bool | None:
+    compare = {
+        ast.Lt: lambda a, b: a < b,
+        ast.LtE: lambda a, b: a <= b,
+        ast.Gt: lambda a, b: a > b,
+        ast.GtE: lambda a, b: a >= b,
+        ast.Eq: lambda a, b: a == b,
+        ast.NotEq: lambda a, b: a != b,
+    }
     if isinstance(test, ast.BoolOp):
         values = [_eval_test(value, version, platform) for value in test.values]
         decisive = isinstance(test.op, ast.Or)  # the value that settles the whole expression
@@ -293,14 +294,14 @@ def _eval_test(test: ast.expr, version: Version, platform: str) -> bool | None:
         return None if inner is None else not inner
     if isinstance(test, ast.Compare) and len(test.ops) == 1:
         left, op, right = ast.unparse(test.left), type(test.ops[0]), test.comparators[0]
-        if left == "sys.version_info" and isinstance(right, ast.Tuple) and op in _COMPARE:
+        if left == "sys.version_info" and isinstance(right, ast.Tuple) and op in compare:
             try:
                 bound = tuple(ast.literal_eval(right))
             except ValueError:
                 return None
-            return _COMPARE[op](version[: len(bound)], bound)
+            return compare[op](version[: len(bound)], bound)
         if left == "sys.platform" and isinstance(right, ast.Constant) and op in (ast.Eq, ast.NotEq):
-            return _COMPARE[op](platform, right.value)
+            return compare[op](platform, right.value)
     if isinstance(test, ast.Call) and ast.unparse(test.func) == "sys.platform.startswith" and test.args:
         arg = test.args[0]
         if isinstance(arg, ast.Constant) and isinstance(arg.value, str):

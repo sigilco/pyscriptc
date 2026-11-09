@@ -19,6 +19,7 @@ from tests.test_gates import run_cli, write_case
 from tests.test_spike import ROOT
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node
 
 
 def _entry(mod: dict) -> dict | None:
@@ -34,24 +35,26 @@ def probe(p: bytes) -> int:
     )
     assert mod["fences"] == []
     probe = next(fn for fn in mod["functions"] if fn["name"] == "probe")
-    ret = probe["body"][0]
-    assert ret["kind"] == "return"
-    calls: list[dict] = []
+    ret = dict_to_node(probe["body"][0])
+    assert ret.kind == "return"
+    calls: list[object] = []
 
-    def walk(expr: dict) -> None:
-        if expr.get("symbol") == "ps_int_from_bytes":
-            calls.append(expr)
+    def walk(expr: object) -> None:
+        node = dict_to_node(expr)
+        if getattr(node, "symbol", "") == "ps_int_from_bytes":
+            calls.append(node)
             return
-        for key in ("left", "right", "value"):
-            if isinstance(expr.get(key), dict):
-                walk(expr[key])
+        for child in (node.left, node.right, node.value):
+            if child is not None:
+                walk(child)
 
-    walk(ret["value"])
+    walk(ret.value)
     assert len(calls) == 3
     for call in calls:
-        assert call["callee"] == {"kind": "module", "module": "builtins", "name": "int"}
-        assert call["type"] == {"kind": "int"}
-        assert call["args"][0]["type"] == {"kind": "bytes"}
+        callee = dict_to_node(call.callee)
+        assert callee.kind == "module" and callee.module == "builtins" and callee.name == "int"
+        assert call.type.kind == "int"
+        assert call.args[0].type.kind == "bytes"
 
 
 def test_int_bytes_value_and_entry_matches_cpython(tmp_path: Path) -> None:
@@ -107,11 +110,47 @@ def test_int_bytes_whitespace_and_sign_matches_cpython(tmp_path: Path) -> None:
 
 
 def test_int_bytes_invalid_literal_raises_value_error(tmp_path: Path) -> None:
-    for literal in ("b'1x'", "b''", "b'  '", "b'- 1'", "b'1_0'"):
+    # 'b'1_0'' is not here: CPython's digit separator parses it (see
+    # test_int_bytes_underscore_separator_matches_cpython).
+    for literal in ("b'1x'", "b''", "b'  '", "b'- 1'", "b'_1'", "b'1_'", "b'1__0'"):
         path = write_case(tmp_path, "bad.py", f"print(int({literal}))\n")
         got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "bad"))
         assert got.returncode != 0, literal
         assert "ValueError" in got.stderr, literal
+
+
+def test_int_bytes_invalid_literal_message_carries_the_repr(tmp_path: Path) -> None:
+    # CPython 3.14 appends the repr'd literal: ": 'x'". The message is the
+    # runtime's own repr, quotes and escapes included.
+    path = write_case(
+        tmp_path,
+        "msg.py",
+        "\n".join(["def probe(p: bytes) -> int:", "    return int(p)", "", "", "print(int(b'1x'))", ""]),
+    )
+    got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "msg"))
+    assert got.returncode != 0, got.stdout
+    assert "ValueError: invalid literal for int() with base 10: '1x'" in got.stderr, got.stderr
+
+
+def test_int_bytes_unicode_whitespace_matches_cpython(tmp_path: Path) -> None:
+    # CPython strips Unicode spaces (U+00A0, U+2000..U+200A, U+3000, ...)
+    # around the literal but keeps the file separators U+001C..U+001F as
+    # literal bytes; both sides here carry their own file's bytes so the
+    # oracle diff stays byte-true.
+    sources = [
+        "print(int('\u00a0-3\u00a0'))",
+        "print(int('\u2003-3\u200a'))",
+        "print(int('\u3000-3'))",
+        "print(int('\u2028-3'))",
+        "print(int(' -3 '))",
+    ]
+    for index, body in enumerate(sources):
+        path = write_case(tmp_path, f"uni{index}.py", f"{body}\n")
+        got = run_cli(
+            "compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / f"uni{index}")
+        )
+        assert got.returncode == 0, got.stderr
+        assert got.stdout == _oracle(path), body
 
 
 def test_int_bytes_out_of_i64_range_stays_a_runtime_error(tmp_path: Path) -> None:
@@ -121,6 +160,31 @@ def test_int_bytes_out_of_i64_range_stays_a_runtime_error(tmp_path: Path) -> Non
     got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "big"))
     assert got.returncode != 0
     assert "ValueError" in got.stderr
+
+
+def test_int_bytes_underscore_separator_matches_cpython(tmp_path: Path) -> None:
+    # CPython's digit separator: '1_0' parses, '_1', '1_', '1__0' and '1_x'
+    # raise; the base-10 form has the same rule the base form has.
+    sources = [
+        "print(int('1_0'))",
+        "print(int('1_0_1'))",
+        "print(int('12_34'))",
+        "print(int(b'1_0'))",
+        "print(int('-1_0'))",
+        "print(int(' 1_0 ', 10))",
+    ]
+    for index, body in enumerate(sources):
+        path = write_case(tmp_path, f"us{index}.py", f"{body}\n")
+        got = run_cli(
+            "compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / f"us{index}")
+        )
+        assert got.returncode == 0, got.stderr
+        assert got.stdout == _oracle(path), body
+    for bad in ("'_1'", "'1_'", "'1__0'", "'1_x'", "b'_1'", "b'1_'"):
+        path = write_case(tmp_path, "badus.py", f"print(int({bad}))\n")
+        got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "badus"))
+        assert got.returncode != 0, bad
+        assert "ValueError" in got.stderr, bad
 
 
 def test_int_other_overloads_keep_fencing() -> None:

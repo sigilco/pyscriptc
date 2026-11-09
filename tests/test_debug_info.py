@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import os
 import re
 import shutil
@@ -203,3 +204,29 @@ def _dwarfdump(binary: Path) -> str | None:
             if proc.returncode == 0 and proc.stdout.strip():
                 return proc.stdout
     return None
+
+
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
+_SRC = ROOT / "src" / "pyscriptc"
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_dwarf_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "dwarf.py") == 0

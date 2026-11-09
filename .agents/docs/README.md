@@ -8,6 +8,8 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 
 - [Invariants](invariants.md) — rules a change has to keep
 - [Debug mode](debug.md) — `compile --debug`, `PYSC_DEBUG`, `--debug-dir` artifacts
+- [PYSC_MIR escape hatch](mir-escape-hatch-lane.md): switching the opt-in MIR lane, per-function behavior, comparing lanes
+- [Compiler progress trend](compiler-progress.md) — reading the `--markdown` trend table and what moves it
 - [Audit logging](pyscriptc-debug.md) — the JSONL audit log and its directives
 - [Map](map.md) — which file owns a fence, a runtime call, or a test
 - [Toolchain](toolchain.md) — C compiler driver resolution, Zig preference, and `ziglang`
@@ -29,6 +31,7 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 
 - [Checker bridge](design/checker-bridge.md)
 - [Coroutine lowering](design/coroutine-lowering.md)
+- [MIR adapter fallback telemetry](design/mir-adapter-telemetry.md)
 
 ## FFI
 
@@ -39,6 +42,7 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 
 - [Compile-rate essence method](benchmarks/compile-rate-essence-method.md)
 - [Self-host baseline](benchmarks/self-host-baseline.md)
+- [Stage-2 fixed-point lane](benchmarks/fixpoint-lane.md)
 
 ## Release
 

@@ -75,7 +75,7 @@ def test_every_statement_fence_is_reported(tmp_path: Path) -> None:
             [
                 "def main() -> int:",
                 "    break",
-                "    xs: list[bool] = [True]",
+                "    xs: dict[str, bool] = {}",
                 "    return 1",
                 "",
             ]
@@ -84,7 +84,7 @@ def test_every_statement_fence_is_reported(tmp_path: Path) -> None:
     got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "both.ll"))
     assert got.returncode == 3
     assert "break outside a loop" in got.stderr
-    assert "list[bool]" in got.stderr
+    assert "dict values of bool" in got.stderr
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh

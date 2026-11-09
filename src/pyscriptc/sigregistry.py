@@ -84,7 +84,9 @@ class LoweringSignature:
             return None
         row: dict[str, Any] = {"params": list(self.params), "return": self.returns}
         if self.defaults:
-            row.update(min=self.min_args, defaults=list(self.defaults), names=list(self.names))
+            row["min"] = self.min_args
+            row["defaults"] = list(self.defaults)
+            row["names"] = list(self.names)
         return row
 
 

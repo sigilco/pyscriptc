@@ -49,6 +49,17 @@ Checks by class:
 - Minor and major: user-visible `feat` count, days since the previous minor, 0 open issues in the milestone titled `vX.Y.Z` (a title like `v0.5.0` or `v0.4.1 alpha` matches; no milestone is a failure), and a rehearsal. The measured receipt is a manual line.
 - Prerelease, rc: rc number at most `MAX_PRE`, and a rehearsal. Use an rc for packaging changes and before any minor.
 - Prerelease, beta: beta number at most `MAX_PRE`, at least `MINOR_MIN_FEATURES` user-visible `feat` commits since the last stable tag, a rehearsal, and the manual triage line: every open issue on the milestone is either in the beta or moved to `Future`. The minor-only gates (0 open issues, 5-day gap, measured receipt) do not apply to a beta; they apply again when the beta is promoted to the stable minor.
+- Checkpoint (a beta tag, `vX.Y.Z-beta.N`): the same bar as a beta, plus the line that says the tag never reaches PyPI. The class name is what the publish job refuses, not the bar.
+
+## Checkpoints
+
+A beta tag carries the release class `checkpoint`: an internal mark between releases. It gets the release matrix, the draft GitHub Release and the benchmark artifact (`bench-vX.Y.Z-beta.N.json`, written by the `bench` workflow), and nothing reaches PyPI. The `publish` job in `release.yml` is skipped for that class and, if it runs anyway, the first step refuses the class by name. An rc tag keeps the `prerelease` class and stays publishable behind the approval gate.
+
+`release_bar.py` owns the mapping: `release_class` and `tag_class` name the class, `refuses_publish` names the classes the publish job refuses, and the `class` subcommand prints the class of a tag and exits non-zero for a class that never publishes.
+
+```sh
+uv run python .github/scripts/release_bar.py class v0.8.0-beta.1
+```
 
 ## Guards
 

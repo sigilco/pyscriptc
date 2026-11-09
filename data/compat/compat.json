@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-10-28",
-  "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
+  "generated": "2026-11-08",
+  "commit": "31e5ee7ec652ee1d743264ecd1b2e89011515a8f",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -9,17 +9,17 @@
     "score": ""
   },
   "summary": {
-    "builtins_full": 2,
-    "builtins_partial": 15,
+    "builtins_full": 3,
+    "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
     "stdlib_partial": 59,
     "stdlib_none": 0,
     "packages_full": 2,
-    "packages_partial": 7,
-    "packages_none": 9,
+    "packages_partial": 8,
+    "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2719
+    "fences": 2614
   },
   "builtins": [
     {
@@ -202,14 +202,10 @@
       "names": [
         "zip"
       ],
-      "status": "partial",
+      "status": "full",
       "count": 1,
-      "unsupported": [
-        "more than 2 lists"
-      ],
-      "fences": [
-        "PS2003"
-      ],
+      "unsupported": [],
+      "fences": [],
       "note": ""
     },
     {
@@ -738,7 +734,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid, keyword arguments (makedirs exist_ok)"
+        "scandir, system, urandom, cpu_count, kill, rmdir, getuid, keyword arguments (makedirs exist_ok)"
       ],
       "fences": [
         "PS2001",
@@ -1224,7 +1220,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "field(), asdict, frozen=, order= and other options"
+        "field(), asdict, order= and other options"
       ],
       "fences": [
         "PS1201",
@@ -1430,14 +1426,10 @@
       "import_name": "colorama",
       "version": "0.4.6",
       "status": "none",
-      "fences": 133,
+      "fences": 84,
       "definitions": 77,
-      "fenced_definitions": 48,
+      "fenced_definitions": 43,
       "top_families": [
-        {
-          "family": "class-body",
-          "count": 51
-        },
         {
           "family": "param-inference",
           "count": 29
@@ -1445,13 +1437,13 @@
         {
           "family": "construct-other",
           "count": 13
+        },
+        {
+          "family": "name-resolution",
+          "count": 8
         }
       ],
       "codes": [
-        {
-          "code": "PS1204",
-          "count": 51
-        },
         {
           "code": "PS2002",
           "count": 42
@@ -1459,6 +1451,10 @@
         {
           "code": "PS1001",
           "count": 36
+        },
+        {
+          "code": "PS2003",
+          "count": 3
         }
       ],
       "pypi": "https://pypi.org/project/colorama/"
@@ -1488,11 +1484,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 85
+          "count": 79
         },
         {
           "code": "PS1106",
-          "count": 10
+          "count": 16
         },
         {
           "code": "PS1001",
@@ -1506,35 +1502,35 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 684,
+      "fences": 670,
       "definitions": 641,
-      "fenced_definitions": 238,
+      "fenced_definitions": 233,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 147
+          "count": 149
         },
         {
           "family": "construct-other",
-          "count": 101
+          "count": 90
         },
         {
           "family": "generic-alias",
-          "count": 52
+          "count": 55
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 411
+          "count": 400
         },
         {
           "code": "PS2001",
-          "count": 78
+          "count": 76
         },
         {
           "code": "PS1103",
-          "count": 52
+          "count": 55
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1544,7 +1540,7 @@
       "import_name": "h11",
       "version": "0.16.0",
       "status": "none",
-      "fences": 192,
+      "fences": 190,
       "definitions": 133,
       "fenced_definitions": 74,
       "top_families": [
@@ -1582,17 +1578,17 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
-      "fences": 94,
+      "fences": 106,
       "definitions": 56,
       "fenced_definitions": 37,
       "top_families": [
         {
           "family": "keyword-args",
-          "count": 16
+          "count": 22
         },
         {
-          "family": "construct-other",
-          "count": 9
+          "family": "name-resolution",
+          "count": 13
         },
         {
           "family": "unlowered-call",
@@ -1602,11 +1598,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 46
+          "count": 48
         },
         {
           "code": "PS2003",
-          "count": 23
+          "count": 29
         },
         {
           "code": "PS1101",
@@ -1658,9 +1654,9 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "fences": 125,
+      "fences": 122,
       "definitions": 200,
-      "fenced_definitions": 107,
+      "fenced_definitions": 106,
       "top_families": [
         {
           "family": "param-inference",
@@ -1671,8 +1667,8 @@
           "count": 15
         },
         {
-          "family": "class-body",
-          "count": 9
+          "family": "decorators",
+          "count": 7
         }
       ],
       "codes": [
@@ -1682,11 +1678,11 @@
         },
         {
           "code": "PS2002",
-          "count": 14
+          "count": 13
         },
         {
-          "code": "PS1204",
-          "count": 9
+          "code": "PS1201",
+          "count": 7
         }
       ],
       "pypi": "https://pypi.org/project/jmespath/"
@@ -1696,21 +1692,21 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "fences": 122,
+      "fences": 107,
       "definitions": 171,
-      "fenced_definitions": 65,
+      "fenced_definitions": 52,
       "top_families": [
-        {
-          "family": "dynamic-annotation",
-          "count": 20
-        },
         {
           "family": "name-resolution",
           "count": 19
         },
         {
           "family": "union-types",
-          "count": 13
+          "count": 14
+        },
+        {
+          "family": "unlowered-type-name",
+          "count": 11
         }
       ],
       "codes": [
@@ -1719,12 +1715,12 @@
           "count": 55
         },
         {
-          "code": "PS1104",
-          "count": 20
+          "code": "PS1101",
+          "count": 14
         },
         {
-          "code": "PS2001",
-          "count": 15
+          "code": "PS1106",
+          "count": 11
         }
       ],
       "pypi": "https://pypi.org/project/pyjwt/"
@@ -1733,28 +1729,28 @@
       "name": "mdurl",
       "import_name": "mdurl",
       "version": "0.1.2",
-      "status": "none",
-      "fences": 22,
+      "status": "partial",
+      "fences": 21,
       "definitions": 12,
-      "fenced_definitions": 7,
+      "fenced_definitions": 6,
       "top_families": [
         {
           "family": "name-resolution",
           "count": 5
         },
         {
-          "family": "construct-other",
+          "family": "unlowered-call",
           "count": 3
         },
         {
-          "family": "unlowered-call",
-          "count": 3
+          "family": "construct-other",
+          "count": 2
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 15
+          "count": 14
         },
         {
           "code": "PS2003",
@@ -1772,9 +1768,9 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "partial",
-      "fences": 556,
+      "fences": 546,
       "definitions": 558,
-      "fenced_definitions": 279,
+      "fenced_definitions": 275,
       "top_families": [
         {
           "family": "unlowered-type-name",
@@ -1782,17 +1778,17 @@
         },
         {
           "family": "name-resolution",
-          "count": 78
+          "count": 77
         },
         {
           "family": "class-body",
-          "count": 52
+          "count": 49
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 214
+          "count": 212
         },
         {
           "code": "PS1106",
@@ -1800,7 +1796,7 @@
         },
         {
           "code": "PS1204",
-          "count": 52
+          "count": 49
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1810,35 +1806,35 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 220,
+      "fences": 198,
       "definitions": 132,
-      "fenced_definitions": 92,
+      "fenced_definitions": 84,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 30
+          "count": 27
         },
         {
           "family": "unlowered-type-name",
-          "count": 21
+          "count": 19
         },
         {
-          "family": "decorators",
-          "count": 21
+          "family": "type-mismatch",
+          "count": 17
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 108
+          "count": 100
         },
         {
           "code": "PS1106",
-          "count": 21
+          "count": 19
         },
         {
-          "code": "PS1201",
-          "count": 20
+          "code": "PS1003",
+          "count": 17
         }
       ],
       "pypi": "https://pypi.org/project/pathspec/"
@@ -1996,7 +1992,7 @@
       "import_name": "zipp",
       "version": "4.1.1",
       "status": "none",
-      "fences": 72,
+      "fences": 71,
       "definitions": 75,
       "fenced_definitions": 57,
       "top_families": [
@@ -2087,7 +2083,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1306,
+      "count": 1279,
       "packages": 16
     },
     {
@@ -2097,64 +2093,64 @@
       "packages": 13
     },
     {
-      "code": "PS2001",
-      "title": "stdlib name not supported",
-      "count": 209,
-      "packages": 15
-    },
-    {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 197,
+      "count": 207,
       "packages": 9
     },
     {
-      "code": "PS1204",
-      "title": "class body statement",
-      "count": 125,
-      "packages": 7
+      "code": "PS2001",
+      "title": "stdlib name not supported",
+      "count": 187,
+      "packages": 14
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 121,
-      "packages": 8
+      "count": 126,
+      "packages": 9
     },
     {
       "code": "PS1101",
       "title": "union annotation",
-      "count": 92,
+      "count": 93,
       "packages": 9
     },
     {
       "code": "PS2003",
       "title": "call arguments not supported",
-      "count": 79,
+      "count": 87,
       "packages": 10
+    },
+    {
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 71,
+      "packages": 7
     },
     {
       "code": "PS1201",
       "title": "decorator",
-      "count": 72,
+      "count": 57,
+      "packages": 8
+    },
+    {
+      "code": "PS1003",
+      "title": "type mismatch",
+      "count": 52,
       "packages": 8
     },
     {
       "code": "PS1104",
       "title": "dynamic or structural annotation",
-      "count": 67,
+      "count": 51,
       "packages": 6
-    },
-    {
-      "code": "PS1003",
-      "title": "type mismatch",
-      "count": 50,
-      "packages": 8
     },
     {
       "code": "PS1102",
       "title": "Optional annotation",
-      "count": 42,
-      "packages": 5
+      "count": 44,
+      "packages": 6
     },
     {
       "code": "PS1203",
@@ -2171,7 +2167,7 @@
     {
       "code": "PS2004",
       "title": "operator or operand not supported",
-      "count": 11,
+      "count": 12,
       "packages": 5
     },
     {
@@ -2223,12 +2219,57 @@
     },
     {
       "date": "2026-10-28",
-      "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
+      "commit": "0b108e1a50baec9381cf1b32152467178d934348",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 7,
       "packages_none": 9,
-      "fences": 2719
+      "fences": 2718
+    },
+    {
+      "date": "2026-11-03",
+      "commit": "c8c5742095e063277b3744ceae34bbef80e917d7",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2714
+    },
+    {
+      "date": "2026-11-04",
+      "commit": "eec9f7033db400b1c05f116bd1905aa99fe4bca3",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2704
+    },
+    {
+      "date": "2026-11-06",
+      "commit": "c99c0113efa109c365db93d953ba150c03a6590d",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2676
+    },
+    {
+      "date": "2026-11-07",
+      "commit": "5c2c5e2fbcc09e4781c88b4df26d8cf12ff8cfb8",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2670
+    },
+    {
+      "date": "2026-11-08",
+      "commit": "31e5ee7ec652ee1d743264ecd1b2e89011515a8f",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2614
     }
   ]
 }

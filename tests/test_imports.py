@@ -81,63 +81,63 @@ def test_curated_packs_cover_the_planned_candidates() -> None:
 
 def test_stdlib_import_is_classified_as_stdlib() -> None:
     verdict = classify("json")
-    assert verdict["kind"] == KIND_STDLIB
-    assert verdict["lane"] == LANE_NATIVE
+    assert verdict.kind == KIND_STDLIB
+    assert verdict.lane == LANE_NATIVE
 
 
 def test_lowered_stdlib_is_ready_to_compile() -> None:
     verdict = classify("math")
-    assert verdict["kind"] == KIND_STDLIB
-    assert verdict["lane"] == LANE_NATIVE
-    assert "lowered" in verdict["reason"]
+    assert verdict.kind == KIND_STDLIB
+    assert verdict.lane == LANE_NATIVE
+    assert "lowered" in verdict.reason
 
 
 def test_stdlib_outside_the_table_points_at_extern() -> None:
     verdict = classify("smtplib")
-    assert verdict["kind"] == KIND_STDLIB
-    assert verdict["lane"] == LANE_EXTERN
-    assert "closed import table" in verdict["reason"]
+    assert verdict.kind == KIND_STDLIB
+    assert verdict.lane == LANE_EXTERN
+    assert "closed import table" in verdict.reason
 
 
 def test_typing_is_an_annotation_only_module() -> None:
     verdict = classify("typing")
-    assert verdict["kind"] == KIND_STDLIB
-    assert verdict["lane"] == LANE_NATIVE
-    assert "annotation-only" in verdict["reason"]
+    assert verdict.kind == KIND_STDLIB
+    assert verdict.lane == LANE_NATIVE
+    assert "annotation-only" in verdict.reason
 
 
 def test_native_backed_import_is_not_compiled_from_source() -> None:
     verdict = classify("numpy")
-    assert verdict["kind"] == KIND_NATIVE
-    assert verdict["lane"] == LANE_EXTERN
-    assert verdict["distribution"] == "numpy"
-    assert verdict["pack"] == ""
+    assert verdict.kind == KIND_NATIVE
+    assert verdict.lane == LANE_EXTERN
+    assert verdict.distribution == "numpy"
+    assert verdict.pack == ""
 
 
 def test_curated_import_points_at_its_pack() -> None:
     verdict = classify("orjson")
-    assert verdict["kind"] == KIND_CURATED
-    assert verdict["lane"] == LANE_PACK
-    assert verdict["pack"] == "pyscriptc-orjson"
+    assert verdict.kind == KIND_CURATED
+    assert verdict.lane == LANE_PACK
+    assert verdict.pack == "pyscriptc-orjson"
 
 
 def test_curated_import_matches_a_submodule() -> None:
     verdict = classify("cryptography.fernet")
-    assert verdict["kind"] == KIND_CURATED
-    assert verdict["lane"] == LANE_PACK
-    assert verdict["pack"] == "pyscriptc-cryptography"
+    assert verdict.kind == KIND_CURATED
+    assert verdict.lane == LANE_PACK
+    assert verdict.pack == "pyscriptc-cryptography"
 
 
 def test_unknown_third_party_import_is_pure_python() -> None:
     verdict = classify("requests")
-    assert verdict["kind"] == KIND_PURE
-    assert verdict["lane"] == LANE_NATIVE
-    assert verdict["source"] == "heuristic"
+    assert verdict.kind == KIND_PURE
+    assert verdict.lane == LANE_NATIVE
+    assert verdict.source == "heuristic"
 
 
 def test_every_stdlib_queue_entry_classifies_as_stdlib() -> None:
     for name in QUEUE:
-        assert classify(name)["kind"] == KIND_STDLIB
+        assert classify(name).kind == KIND_STDLIB
 
 
 # --------------------------------------------------------------------------
@@ -429,22 +429,59 @@ def test_distribution_is_native_is_unknown_when_not_installed() -> None:
     from pyscriptc.imports import distribution_is_native
 
     native, reason = distribution_is_native("a-package-that-is-not-installed")
-    assert native is None
+    assert native is False
     assert "not installed" in reason
+
+
+def test_a_versioned_dist_info_does_not_mark_another_distribution_native(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`pydantic_core-2.50.1.dist-info` must not mark `pydantic` native.
+
+    The version is the last hyphen-separated segment of the distribution
+    name, so `pydantic_core-2.50.1` strips to `pydantic-core`. Stripping on
+    the first hyphen made the two distributions share a key, and one
+    distribution's compiled wheel then marked the other native, which
+    refused the whole bundle for an app whose own package is pure Python.
+    """
+    from pyscriptc import imports
+
+    site = tmp_path / "site-packages"
+    site.mkdir()
+    pure_info = site / "pydantic-2.14.1.dist-info"
+    pure_info.mkdir()
+    (pure_info / "METADATA").write_text("Name: pydantic\n", encoding="utf-8")
+    (pure_info / "RECORD").write_text("pydantic/__init__.py,,\n", encoding="utf-8")
+    native_info = site / "pydantic_core-2.50.1.dist-info"
+    native_info.mkdir()
+    (native_info / "METADATA").write_text("Name: pydantic_core\n", encoding="utf-8")
+    (native_info / "RECORD").write_text(
+        "pydantic_core/_pydantic_core.cpython-314-x86_64-linux-gnu.so,,\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(imports, "_site_packages", lambda: [site])
+    imports._installed_distributions.cache_clear()
+    try:
+        native, _ = imports.distribution_is_native("pydantic")
+        assert native is False, "the pure distribution must not inherit the native verdict"
+        native, _ = imports.distribution_is_native("pydantic-core")
+        assert native is True, "the distribution with the compiled wheel is native"
+    finally:
+        imports._installed_distributions.cache_clear()
 
 
 @pytest.mark.parametrize("dist", ["numpy", "pyyaml", "psutil"])
 def test_a_known_native_distribution_reads_as_native(dist: str) -> None:
     verdict = classify("x", dist)
-    assert verdict["kind"] == KIND_NATIVE
-    assert verdict["lane"] == LANE_EXTERN
-    assert verdict["source"] == "native-packages"
+    assert verdict.kind == KIND_NATIVE
+    assert verdict.lane == LANE_EXTERN
+    assert verdict.source == "native-packages"
 
 
 def test_a_distribution_hint_without_a_table_entry_uses_the_metadata() -> None:
     verdict = classify("x", "a-package-that-is-not-installed")
-    assert verdict["kind"] == KIND_PURE
-    assert verdict["lane"] == LANE_NATIVE
+    assert verdict.kind == KIND_PURE
+    assert verdict.lane == LANE_NATIVE
 
 
 # --------------------------------------------------------------------------

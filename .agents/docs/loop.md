@@ -214,16 +214,16 @@ Definitions unblocked are the baseline `fencedDefinitions` entries missing from 
 Run the verdict inside the heavy container. It shells out to `python -m benchmarks.baseline.run --check` for the perf gate. Leave `--skip-perf` off. Default compile budget is 1.25 (candidate `compile_s` may be at most 1.25 times the baseline). E0 passes `--compile-budget 1.0` so any rise in `compile_s` fails.
 
 ```bash
-HEAVY=1 docker/run.sh sh -c 'uv run python -m benchmarks.compat2.verdict --baseline .agents/scratch-iter-baseline.json --candidate .agents/scratch-iter-candidate.json --census-before .agents/scratch-census-before.json --census-after .agents/scratch-census-after.json --compile-budget 1.25 > .agents/scratch-verdict.json; status=$?; chmod a+rw .agents/scratch-verdict.json; exit $status'
+HEAVY=1 docker/run.sh sh -c 'uv run python -m benchmarks.compat2.verdict --baseline .agents/scratch-iter-baseline.json --candidate .agents/scratch-iter-candidate.json --census-before .agents/scratch-census-before.json --census-after .agents/scratch-census-after.json --wrong-tracker .agents/scratch-wrong-tracker.json --compile-budget 1.25 > .agents/scratch-verdict.json; status=$?; chmod a+rw .agents/scratch-verdict.json; exit $status'
 ```
 
 For E0, change `--compile-budget 1.25` in that command to `--compile-budget 1.0`.
 
-Exit 0 and `"verdict": "PASS"` means keep is allowed, subject to the epic rules below. Exit 1 means FAIL. E0 is the exception in its section: a lone `progress` finding is not a drop there. The JSON has `verdict`, `primary_delta`, `census_delta`, and `findings` (`severity`, `area`, `expected`, `observed`, `fix`).
+Exit 0 and `"verdict": "PASS"` means keep is allowed, subject to the epic rules below. Exit 1 means FAIL. E0 is the exception in its section: a lone `progress` finding is not a drop there. The JSON has `verdict`, `primary_delta`, `census_delta`, and `findings` (`severity`, `area`, `expected`, `observed`, `fix`). Findings with severity `info` are report only: they never fail the verdict and never enter the oscillation ledger.
 
 The verdict applies these in order. The first four are hard gates: any finding fails the verdict before primary or census can save it. Perf is only a gate. It never adds score.
 
-1. Soundness ratchet. A row whose outcome becomes `wrong-output` or `crash`, and whose baseline outcome was neither, is a failure (`soundness:<id>`).
+1. Soundness ratchet. A row whose outcome becomes `wrong-output` or `crash`, and whose baseline outcome was neither, is a failure (`soundness:<id>`). Its second arm is the known-wrong ratchet: a row that is `wrong-output` in both the baseline and the candidate is a known divergence, not a new break, so the new-failure arm cannot see it. With `--wrong-tracker` the verdict ages the row in the tracker file, and past `--wrong-age` runs it is a P2 finding (`known-wrong:<id>`) until a tracking issue is recorded under its row, after which it is an `info` finding carrying the link. A `wrong-output` row that flips to `pass` is a `fixed:<id>` info finding that closes its issue and drops the row from the tracker.
 2. Pass ratchet. An id that was `pass` and is no longer `pass` is a failure (`pass-ratchet:<id>`), even when another id starts passing.
 3. Perf gate. `benchmarks.baseline.run --check` must pass. Time growth against the reference past 2.0, or RSS growth past 1.25, fails the gate (`benchmarks/baseline/compare.py`).
 4. Compile-time budget. `compile_s` within `--compile-budget` times the baseline (default 1.25).

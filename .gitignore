@@ -40,3 +40,9 @@ benchmarks/real/.scratch/
 
 # session plans stay on the owner disk; planning lives in GitHub milestones
 .agents/plans/
+
+# social media renders (generated, never committed)
+scripts/social/out/
+scripts/social/demo/demo
+scripts/social/demo/demo.report.json
+!tests/census_pins/*.json

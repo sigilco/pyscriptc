@@ -1,7 +1,7 @@
 # Embed CI jobs (#662): the empty-environment acceptance slice for the
 # bundled CPython runtime (issues #657 to #665, epic #428; maintenance doc:
 # .agents/docs/release/embed-runtime.md). Matrix: Linux x86_64 on
-# ubuntu-24.04 (glibc 2.39) and macOS arm64 on macos-14. A Linux aarch64 cell
+# ubuntu-24.04 (glibc 2.39) and macOS arm64 on macos-26. A Linux aarch64 cell
 # is a stretch, not in this matrix yet.
 #
 # Pull requests run the jobs path-filtered on the files the embedding work
@@ -122,7 +122,7 @@ jobs:
         include:
           - os: ubuntu-24.04
             platform: linux-x86_64
-          - os: macos-14
+          - os: macos-26
             platform: macos-arm64
     runs-on: ${{ matrix.os }}
     timeout-minutes: 6
@@ -147,7 +147,7 @@ jobs:
           case "$EVENT" in
             push|schedule) echo "run=true" >> "$GITHUB_OUTPUT"; exit 0 ;;
           esac
-          if [ "$PR_SKIP_MACOS" = "true" ] && [ "${{ matrix.os }}" = "macos-14" ]; then
+          if [ "$PR_SKIP_MACOS" = "true" ] && [ "${{ matrix.os }}" = "macos-26" ]; then
             echo "macOS PR cell disabled by EMBED_PR_SKIP_MACOS" >&2
             echo "run=false" >> "$GITHUB_OUTPUT"
             exit 0
@@ -267,7 +267,7 @@ jobs:
 
           # Loader assertions: the relative rpath is present and no absolute
           # path into the build tree or the pack survives in the image.
-          if [ "${{ matrix.os }}" = "macos-14" ]; then
+          if [ "${{ matrix.os }}" = "macos-26" ]; then
             otool -L "$WORK/fresh/stdlib/bin/prog" | tail -n +2 > "$WORK/otool.txt"
             otool -l "$WORK/fresh/stdlib/bin/prog" | tail -n +2 > "$WORK/otool-l.txt"
             grep -q '@executable_path/../lib' "$WORK/otool-l.txt" \
@@ -287,7 +287,7 @@ jobs:
           # Size gates: macOS at most 40 MB, Linux at most 60 MB uncompressed,
           # measured on the largest of the three bundles.
           kb="$(du -sk "$WORK/fresh"/* | awk '{print $1}' | sort -n | tail -1)"
-          limit_mb=$([ "${{ matrix.os }}" = "macos-14" ] && echo 40 || echo 60)
+          limit_mb=$([ "${{ matrix.os }}" = "macos-26" ] && echo 40 || echo 60)
           echo "bundle size: $kb KB (limit ${limit_mb} MB)"
           [ "$kb" -le $((limit_mb * 1024)) ] || { echo "::error::the bundle exceeds its size gate" >&2; status=1; }
 
@@ -303,3 +303,63 @@ jobs:
         run: |
           set -euo pipefail
           echo "embed acceptance (${{ matrix.os }}): skipped=${{ steps.fetch.outputs.skip }}" >> "$GITHUB_STEP_SUMMARY"
+
+  # A red embed acceptance must be visible (issue #885). The acceptance runs
+  # in its own workflow, so neither the ci-ok aggregate nor the nightly
+  # summary saw it: the only red signal was inside this workflow's own run.
+  # This job reports a failed acceptance into the same `nightly-failure`
+  # channel the nightly workflow uses, so one red channel carries every
+  # red nightly lane.
+  report:
+    name: report the embed acceptance result
+    needs: [changes, acceptance]
+    # Always, so a green run says so too; the body only names a failure.
+    if: ${{ always() && needs.changes.outputs.run == 'true' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      issues: write
+    steps:
+      - name: Record the acceptance outcome
+        id: result
+        env:
+          # A matrix job aggregates: `result` is failure when any cell
+          # failed (fail-fast is off, so every cell still ran).
+          RESULT: ${{ needs.acceptance.result }}
+        run: |
+          set -euo pipefail
+          if [ "$RESULT" != "success" ] && [ "$RESULT" != "skipped" ]; then
+            echo "failed=true" >> "$GITHUB_OUTPUT"
+            echo "### Embed acceptance: FAILED" >> "$GITHUB_STEP_SUMMARY"
+            echo "Result: $RESULT. See the failed matrix cells in this run." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "failed=false" >> "$GITHUB_OUTPUT"
+            echo "### Embed acceptance: green" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Open or update the nightly-failure issue
+        # Only outside a pull request: a red PR run must not open an issue
+        # on every push of a branch. The step summary above already shows
+        # the red result on the run itself.
+        if: steps.result.outputs.failed == 'true' && github.event_name != 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          RESULT: ${{ needs.acceptance.result }}
+        run: |
+          set -euo pipefail
+          gh label create nightly-failure --repo "$REPO" --color B60205 \
+            --description "Nightly workflow failure" 2>/dev/null || true
+          body="$(mktemp)"
+          printf 'Embed acceptance failed on %s.\n\nRun: %s\n\nAcceptance result: %s\n' \
+            "$(date -u +%Y-%m-%d)" "$RUN_URL" "$RESULT" > "$body"
+          existing="$(gh issue list --repo "$REPO" --label nightly-failure --state open \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --repo "$REPO" --body-file "$body"
+          else
+            gh issue create --repo "$REPO" --label nightly-failure \
+              --title "embed acceptance failed: $(date -u +%Y-%m-%d)" --body-file "$body"
+          fi
