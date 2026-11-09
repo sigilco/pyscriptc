@@ -1,4 +1,4 @@
-"""The adoption ladder metrics: R1, R2 and the R4 lane shares.
+"""The adoption ladder metrics: R0, R1, R2 and the R4 lane shares.
 
 The ladder is the public story of the compat site: one rate per rung, never a
 single "Python compat percent". This module produces the numbers the site
@@ -6,9 +6,14 @@ publishes, from the sources the plan names:
 
 | rung | metric | source |
 | --- | --- | --- |
+| R0 | pass rate over the vendored third-party real scripts | `benchmarks/real_scripts/scripts/` |
 | R1 | whole-file pass rate over single-file CLI scripts | `benchmarks/scripts_corpus/scripts/` |
 | R2 | pass rate over multi-module trees | `benchmarks/scripts_corpus/trees/` |
 | R4 | lane share over the locked dependencies | `benchmarks/compat/top100/src/` |
+
+R0 is measured by `benchmarks.real_scripts.measure` and merged into the same
+ladder document by `scripts/r0_lane.py` (see `benchmarks/real_scripts/lane.py`),
+which this module preserves when it rewrites the file. |
 
 The runner never writes to `benchmarks/compat2/`, never reads the closed
 scorer evaluation set, and never touches a frozen gate file.
@@ -146,14 +151,25 @@ def _r4_metrics() -> dict[str, Any]:
     }
 
 
-def build(exec_stage: bool = True) -> dict[str, Any]:
-    """The ladder document: the R1, R2 and R4 numbers."""
+def build(exec_stage: bool = True, previous: dict[str, Any] | None = None) -> dict[str, Any]:
+    """The ladder document: the R1, R2 and R4 numbers.
 
-    return {
+    The R0 section (the vendored real scripts) is carried over from
+    `previous` when there is one, so rebuilding the ladder for R1, R2 and R4
+    does not drop the R0 trend. The nightly writes the fresh R0 point after
+    this step, through `scripts/r0_lane.py`.
+    """
+
+    document = {
         "schema": 1,
         "rungs": [_r1_metrics(exec_stage), _r2_metrics(exec_stage)],
         "r4": _r4_metrics(),
     }
+    if previous:
+        r0 = previous.get("r0")
+        if isinstance(r0, dict):
+            document["r0"] = r0
+    return document
 
 
 def render_table(document: dict[str, Any]) -> str:
@@ -182,7 +198,15 @@ def main(argv: list[str] | None = None) -> int:
         help="report the compile rate only, without building and running the binaries",
     )
     args = parser.parse_args(argv)
-    document = build(exec_stage=not args.no_exec)
+    previous: dict[str, Any] | None = None
+    if args.json and args.json.exists():
+        try:
+            loaded = json.loads(args.json.read_text(encoding="utf-8"))
+        except json.JSONDecodeError:
+            loaded = None
+        if isinstance(loaded, dict):
+            previous = loaded
+    document = build(exec_stage=not args.no_exec, previous=previous)
     print(render_table(document))
     if args.json:
         args.json.write_text(json.dumps(document, indent=2) + "\n", encoding="utf-8")

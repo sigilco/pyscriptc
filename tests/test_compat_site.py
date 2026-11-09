@@ -72,6 +72,28 @@ def test_nightly_never_pushes_to_master() -> None:
     assert "git push origin master" not in workflow
 
 
+def test_nightly_carries_the_r0_lane() -> None:
+    """The R0 lane measures the real scripts and publishes the point."""
+    workflow = (ROOT / ".github" / "workflows" / "nightly.yml").read_text(encoding="utf-8")
+    assert "benchmarks.real_scripts.measure" in workflow
+    assert "scripts/r0_lane.py" in workflow
+    assert "r0-lane:" in workflow
+    # The lane reports through the same issue the other lanes open.
+    assert "needs.r0-lane.outputs.failed" in workflow
+    assert "nightly-failure" in workflow
+
+
+def test_r0_ladder_section_is_published(document: dict) -> None:
+    """The compat data carries the R0 rate with its denominator."""
+    r0 = document.get("ladder", {}).get("r0")
+    assert r0, "the ladder section carries no r0 point"
+    assert r0["rung"] == "R0"
+    assert r0["total"] > 0
+    assert 0 <= r0["passed"] <= r0["total"]
+    assert r0["blockers"] and r0["rootCauses"]
+    assert len(r0["history"]) <= 30
+
+
 def test_docs_link_to_the_compat_placeholder() -> None:
     """The docs must link through the placeholder, never a hard-coded host."""
     hits = 0

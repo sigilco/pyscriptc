@@ -942,6 +942,51 @@ if __name__ == "__main__":
     assert "main" not in plane_map["demotedBy"]
 
 
+def test_fallback_assess_plane_map_matches_compile_for_untyped_import(tmp_path: Path) -> None:
+    """Issue #678: an import outside the closed table island-binds under the
+    fallback tier, so the compile keeps a definition-only module native; the
+    assess plane map must not infer the top level island from the coverage
+    pass's import-table fence."""
+    from pyscriptc import assess
+
+    source_text = """import wave
+
+
+def add(x: int, y: int) -> int:
+    return x + y
+
+
+def mul(x: int, y: int) -> int:
+    return x * y
+"""
+    src = tmp_path / "untyped_import_defs.py"
+    src.write_text(source_text, encoding="utf-8")
+
+    report = assess.assess(src)
+    plane_map = report["planeMap"]
+    assert plane_map["moduleTopLevel"] == "native"
+    assert plane_map["functions"] == {"add": "native", "mul": "native"}
+    assert plane_map["demotedBy"] == {}
+
+    dbg = tmp_path / "dbg"
+    comp = _run_cli(
+        "compile",
+        str(src),
+        *FALLBACK_FLAGS,
+        "--emit",
+        "bin",
+        "--debug-dir",
+        str(dbg),
+        "-o",
+        str(tmp_path / "ub"),
+        cwd=tmp_path,
+    )
+    assert comp.returncode == 0, comp.stderr
+    compiled = json.loads((dbg / "summary.json").read_text(encoding="utf-8"))["fallback"]
+    assert compiled["moduleTopLevel"] == plane_map["moduleTopLevel"]
+    assert compiled["functions"] == plane_map["functions"]
+
+
 def test_fallback_module_import_fence_ps2002_relative_runs_island(tmp_path: Path) -> None:
     """Module-level relative import (PS2002) runs module top level on island (issue #627)."""
     from pyscriptc import assess

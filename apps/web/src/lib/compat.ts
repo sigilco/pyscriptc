@@ -74,12 +74,46 @@ export interface LadderLane {
   share: number;
 }
 
+export interface LadderBlocker {
+  family: string;
+  rootCause: string;
+  scriptsBlocked: number;
+  scriptsAlone: number;
+}
+
+export interface LadderRootCause {
+  cause: string;
+  scriptsReleased: number;
+}
+
+export interface LadderR0Point {
+  date: string;
+  passed: number;
+  total: number;
+  rate: number;
+}
+
+export interface LadderR0 {
+  rung: string;
+  label: string;
+  corpus: string;
+  total: number;
+  passed: number;
+  rate: number;
+  fences: number;
+  date: string;
+  blockers: LadderBlocker[];
+  rootCauses: LadderRootCause[];
+  history: LadderR0Point[];
+}
+
 export interface Ladder {
   corpus: string;
   rungs: LadderRung[];
   lanes: LadderLane[];
   selfContainedShare: number;
   trees: number;
+  r0?: LadderR0;
 }
 
 export interface FenceCensusRow {

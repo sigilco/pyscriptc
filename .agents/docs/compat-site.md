@@ -36,7 +36,7 @@ One JSON file is the contract between measurement and presentation. The site nev
 | `language` | array | language-feature rows from the compat2 scorer. |
 | `fences` | array | fence-code counters. |
 | `history` | array | dated history points, one per measurement date. |
-| `ladder` | object | the adoption ladder: R1 and R2 rung rows and the R4 lane shares. Absent rungs render as "not measured"; an absent `ladder` key means the page shows no ladder section. |
+| `ladder` | object | the adoption ladder: R1 and R2 rung rows, the R4 lane shares and the R0 real-script point. Absent rungs render as "not measured"; an absent `ladder` key means the page shows no ladder section. |
 
 ### Status vocabulary
 
@@ -147,6 +147,9 @@ The JSON is committed because Cloudflare Pages builds from the repository, and b
 | `fences` | the same package measurement, aggregated per code | same builder command |
 | `history` | the previous `compat.json` plus the current measurement | append in the builder |
 | `ladder` | `benchmarks.scripts_corpus.ladder`, written to `data/compat/ladder.json` | `mise run compat:ladder` (wraps `uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json`) |
+| `ladder.r0` | `benchmarks.real_scripts.measure`, merged into `data/compat/ladder.json` under the `r0` key | `mise run compat:r0` (wraps `uv run python scripts/r0_lane.py --json data/compat/ladder.json`) |
+
+The R0 point carries the pass rate with its denominator (the corpus size), the blocker ranking, the root-cause ranking and the last 30 nightly values as its trend.
 
 The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `library_rows`) rather than re-implementing them, so there is one definition of "supported".
 
@@ -156,7 +159,7 @@ The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `librar
 
 | step | what it does |
 | --- | --- |
-| build | `uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json` then `uv run python scripts/build_compat_json.py --out data/compat/compat.json --score nightly/visible-score.json --ladder data/compat/ladder.json` |
+| build | `uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json`, then `uv run python -m benchmarks.real_scripts.measure --quiet --json nightly/r0.json` and `uv run python scripts/r0_lane.py --json data/compat/ladder.json --measure nightly/r0.json`, then `uv run python scripts/build_compat_json.py --out data/compat/compat.json --score nightly/visible-score.json --ladder data/compat/ladder.json` |
 | commit | if the file changed, open (or update) a bot PR with just that change via `gh`, and auto-merge if the ruleset allows |
 | deploy | the merge to master triggers the site workflow build and deploy |
 
