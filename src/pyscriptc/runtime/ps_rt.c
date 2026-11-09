@@ -1207,7 +1207,8 @@ PsMap *ps_map_new(int32_t key_kind, int64_t key_size, int64_t val_size, int64_t 
         m->vals = calloc((size_t)cap, (size_t)val_size);
         m->hashes = calloc((size_t)cap, sizeof(int64_t));
         m->order = calloc((size_t)cap, sizeof(int32_t));
-        if (m->keys == NULL || m->vals == NULL || m->hashes == NULL || m->order == NULL) {
+        m->orderpos = calloc((size_t)cap, sizeof(int32_t));
+        if (m->keys == NULL || m->vals == NULL || m->hashes == NULL || m->order == NULL || m->orderpos == NULL) {
             abort();
         }
         ps_index_build(m);
@@ -1267,13 +1268,15 @@ static void ps_map_grow(PsMap *m) {
     void *vals = realloc(m->vals, (size_t)cap * (size_t)m->val_size);
     int64_t *hashes = realloc(m->hashes, (size_t)cap * sizeof(int64_t));
     int32_t *order = realloc(m->order, (size_t)cap * sizeof(int32_t));
-    if (keys == NULL || vals == NULL || hashes == NULL || order == NULL) {
+    int32_t *orderpos = realloc(m->orderpos, (size_t)cap * sizeof(int32_t));
+    if (keys == NULL || vals == NULL || hashes == NULL || order == NULL || orderpos == NULL) {
         abort();
     }
     m->keys = keys;
     m->vals = vals;
     m->hashes = hashes;
     m->order = order;
+    m->orderpos = orderpos;
     m->cap = cap;
     ps_index_build(m);
 }
@@ -1318,6 +1321,7 @@ void ps_map_put(PsMap *m, void *key, void *val) {
        next iteration rebuilds it from the dense rows. */
     if (!m->order_dirty && m->order_len < m->cap) {
         m->order[m->order_len] = (int32_t)i;
+        m->orderpos[i] = (int32_t)m->order_len;
         m->order_len += 1;
     } else {
         m->order_dirty = 1;
@@ -1375,7 +1379,23 @@ int64_t ps_map_delete(PsMap *m, void *key) {
     }
     m->hashes[at] = PS_DEAD_HASH;
     m->len -= 1;
-    m->order_dirty = 1;
+    /* The order cache holds the live rows in insertion order. A delete
+       leaves a hole at the dead row's position; while the cache is in sync
+       that hole is closed in place (the survivors keep their order), so a
+       pop-heavy LRU workload does not force a full rebuild on the next
+       iteration. A stale cache is left to the on-demand rebuild. */
+    if (!m->order_dirty && m->order != NULL) {
+        int64_t p = m->orderpos[at];
+        if (0 <= p && p < m->order_len) {
+            for (int64_t i = p; i < m->order_len - 1; i++) {
+                m->order[i] = m->order[i + 1];
+                m->orderpos[m->order[i]] = (int32_t)i;
+            }
+            m->order_len -= 1;
+        }
+    } else {
+        m->order_dirty = 1;
+    }
     return at;
 }
 
@@ -1407,6 +1427,7 @@ static int64_t ps_map_row_at(PsMap *m, int64_t p) {
         for (int64_t r = 0; r < m->rows && live < m->len; r++) {
             if (m->hashes[r] != PS_DEAD_HASH) {
                 m->order[live] = (int32_t)r;
+                m->orderpos[r] = (int32_t)live;
                 live += 1;
             }
         }
