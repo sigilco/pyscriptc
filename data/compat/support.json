@@ -1,7 +1,11 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
+<<<<<<< HEAD
   "commit": "f7338f6047ff38e765ad3194abfe17b157064248",
+=======
+  "commit": "e9b42aa0390296734802d021775cd23f1c869b48",
+>>>>>>> origin/master
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -561,7 +565,7 @@
       "label": "`bisect`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "insort, bisect, key=, list[str]",
+      "missing": "key=, lo=, hi=",
       "codes": [
         "PS2001"
       ]

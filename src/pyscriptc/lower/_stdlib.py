@@ -485,6 +485,10 @@ class StdlibDispatchMixin(StdlibBindMixin):
             if attr == "gcd":
                 return self._math_gcd(node, span)
             return self._math_call(node, span, attr)
+        if module == "bisect":
+            from pyscriptc.restlower._bisect import _bisect
+
+            return _bisect(self, node, span, attr)
         if module in REST_MODULES:
             return rest_call(self, node, span, module, attr, expect)
         if module == "json" and attr == "loads":
