@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "f7338f6047ff38e765ad3194abfe17b157064248",
+  "commit": "7ef796db91ad8b2113c135fc7bbee54322689128",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages_full": 2,
     "packages_partial": 8,
     "packages_none": 8,
-    "weighted_pass": 954.1,
+    "weighted_pass": 957.1,
     "fences": 2614
   },
   "builtins": [
@@ -1067,7 +1067,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "insort, bisect, key=, list[str]"
+        "key=, lo=, hi="
       ],
       "fences": [
         "PS2001"
@@ -2073,15 +2073,15 @@
       "outcomes": {
         "build-error": 1,
         "excluded": 1395,
-        "fence": 10318,
-        "pass": 1135
+        "fence": 10315,
+        "pass": 1138
       },
-      "weighted_pass": 398.8,
+      "weighted_pass": 401.8,
       "fence_codes": {
         "PS2002": 6489,
         "PS1106": 2720,
-        "PS2001": 971,
-        "PS2003": 54,
+        "PS2001": 967,
+        "PS2003": 55,
         "PS1001": 37,
         "PS1003": 33,
         "PS1104": 12,
@@ -2455,8 +2455,8 @@
     },
     {
       "date": "2026-11-09",
-      "commit": "f7338f6047ff38e765ad3194abfe17b157064248",
-      "weighted_pass": 954.1,
+      "commit": "7ef796db91ad8b2113c135fc7bbee54322689128",
+      "weighted_pass": 957.1,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
