@@ -455,13 +455,13 @@ def _dropwhile(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 2:
         lo.fail(node, "PS2003", "itertools.dropwhile takes a predicate and an iterable")
     source = lo._expr(node.args[1])
-    typ = source["type"]
-    int_t = {"kind": "int"}
+    typ = _node_type(source)
+    int_t = _t_leaf("int")
     itn = None
-    if typ["kind"] == "class" and lo.classes.get(typ["name"], {}).get("iterator"):
+    if _type_kind(typ) == "class" and lo.classes.get(_type_name(typ), {}).get("iterator"):
         itn = _pin(lo, source, span, "dw")
         elem = typ["elem"]
-        list_t = {"kind": "list", "elem": elem}
+        list_t = _t_list(elem)
         seq_r = _field(itn, "seq", list_t, span)
         pool = _tname(lo, "dwp")
         lo.locals[pool] = list_t
@@ -488,10 +488,10 @@ def _dropwhile(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         )
     else:
         pool_nm = _pool(lo, node, source, span, "dwp")
-        pool = pool_nm["id"]
-        elem = pool_nm["type"]["elem"]
+        pool = _node_id(pool_nm)
+        elem = _node_type(pool_nm)["elem"]
     out, i, n, v, skip = (_tname(lo, h) for h in ("dwo", "dwi", "dwn", "dwv", "dws"))
-    lo.locals[out] = {"kind": "list", "elem": elem}
+    lo.locals[out] = _t_list(elem)
     lo.locals[i] = int_t
     lo.locals[n] = int_t
     lo.locals[v] = elem
@@ -524,7 +524,7 @@ def _dropwhile(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     )
     _fn_restore(lo, saves)
     if itn is not None:
-        seq_full = _field(itn, "seq", {"kind": "list", "elem": elem}, span)
+        seq_full = _field(itn, "seq", _t_list(elem), span)
         lo.prelude.append(_set_field(itn, "idx", _len_of(seq_full, span), span))
     return _mk_iter(lo, _nm(out, lo.locals[out], span), node, span)
 
@@ -537,7 +537,7 @@ def _pairwise(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo.fail(node, "PS2003", "itertools.pairwise takes one iterable")
     pool = _pool(lo, node, lo._expr(node.args[0]), span, "pw")
     n = _tname(lo, "pwn")
-    lo.locals[n] = {"kind": "int"}
+    lo.locals[n] = _t_leaf("int")
     lo.prelude.append(_asg(n, _len_of(pool, span), span))
     i = lo._temp("pwi")
     stop = ast.BinOp(left=ast.Name(id=n, ctx=ast.Load()), op=ast.Sub(), right=ast.Constant(value=1))
@@ -545,12 +545,12 @@ def _pairwise(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         elt=ast.Tuple(
             elts=[
                 ast.Subscript(
-                    value=ast.Name(id=pool["id"], ctx=ast.Load()),
+                    value=ast.Name(id=_node_id(pool), ctx=ast.Load()),
                     slice=ast.Name(id=i, ctx=ast.Load()),
                     ctx=ast.Load(),
                 ),
                 ast.Subscript(
-                    value=ast.Name(id=pool["id"], ctx=ast.Load()),
+                    value=ast.Name(id=_node_id(pool), ctx=ast.Load()),
                     slice=ast.BinOp(left=ast.Name(id=i, ctx=ast.Load()), op=ast.Add(), right=ast.Constant(value=1)),
                     ctx=ast.Load(),
                 ),
@@ -583,13 +583,13 @@ def _batched(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo.fail(count, "PS2003", "itertools.batched count is a literal positive int")
     size = count.value
     pool = _pool(lo, node, lo._expr(node.args[0]), span, "bt")
-    elem = pool["type"]["elem"]
-    batch_t = {"kind": "list", "elem": elem}
+    elem = _node_type(pool)["elem"]
+    batch_t = _t_list(elem)
     out, i, n, j, b, v = (_tname(lo, h) for h in ("bto", "bti", "btn", "btj", "btb", "btv"))
-    lo.locals[out] = {"kind": "list", "elem": batch_t}
-    lo.locals[i] = {"kind": "int"}
-    lo.locals[n] = {"kind": "int"}
-    lo.locals[j] = {"kind": "int"}
+    lo.locals[out] = _t_list(batch_t)
+    lo.locals[i] = _t_leaf("int")
+    lo.locals[n] = _t_leaf("int")
+    lo.locals[j] = _t_leaf("int")
     lo.locals[b] = batch_t
     lo.locals[v] = elem
     _emit(
@@ -597,14 +597,14 @@ def _batched(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         node,
         [
             f"{out} = []",
-            f"{n} = len({pool['id']})",
+            f"{n} = len({_node_id(pool)})",
             f"{i} = 0",
             f"while {i} < {n}:",
             f"    {b} = []",
             f"    {j} = 0",
             f"    while {j} < {size}:",
             f"        if {i} < {n}:",
-            f"            {v} = {pool['id']}[{i}]",
+            f"            {v} = {_node_id(pool)}[{i}]",
             f"            {b}.append({v})",
             f"            {i} = {i} + 1",
             f"            {j} = {j} + 1",
@@ -625,30 +625,30 @@ def _compress(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo.fail(node, "PS2003", "itertools.compress takes data and selectors")
     data = _pool(lo, node, lo._expr(node.args[0]), span, "cd")
     selectors = _pool(lo, node, lo._expr(node.args[1]), span, "cs")
-    elem = data["type"]["elem"]
-    sel_t = selectors["type"]["elem"]["kind"]
+    elem = _node_type(data)["elem"]
+    sel_t = _type_kind(_node_type(selectors)["elem"])
     if sel_t not in {"int", "bool"}:
         lo.fail(node, "PS1003", "itertools.compress selectors are list[int] or list[bool]")
     out, i, n, m, v, s = (_tname(lo, h) for h in ("cso", "csi", "csn", "csm", "csv", "css"))
-    lo.locals[out] = {"kind": "list", "elem": elem}
-    lo.locals[i] = {"kind": "int"}
-    lo.locals[n] = {"kind": "int"}
-    lo.locals[m] = {"kind": "int"}
+    lo.locals[out] = _t_list(elem)
+    lo.locals[i] = _t_leaf("int")
+    lo.locals[n] = _t_leaf("int")
+    lo.locals[m] = _t_leaf("int")
     lo.locals[v] = elem
-    lo.locals[s] = selectors["type"]["elem"]
+    lo.locals[s] = _node_type(selectors)["elem"]
     _emit(
         lo,
         node,
         [
             f"{out} = []",
-            f"{n} = len({data['id']})",
-            f"{m} = len({selectors['id']})",
+            f"{n} = len({_node_id(data)})",
+            f"{m} = len({_node_id(selectors)})",
             f"{i} = 0",
             f"while {i} < {n}:",
             f"    if {i} < {m}:",
-            f"        {s} = {selectors['id']}[{i}]",
+            f"        {s} = {_node_id(selectors)}[{i}]",
             f"        if {s}:",
-            f"            {v} = {data['id']}[{i}]",
+            f"            {v} = {_node_id(data)}[{i}]",
             f"            {out}.append({v})",
             f"        {i} = {i} + 1",
             "    else:",
@@ -672,13 +672,13 @@ def _tee(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     elif len(node.args) != 1:
         lo.fail(node, "PS2003", "itertools.tee takes an iterable and optional n=2")
     pool = _pool(lo, node, lo._expr(node.args[0]), span, "te")
-    elem = pool["type"]["elem"]
-    list_t = {"kind": "list", "elem": elem}
+    elem = _node_type(pool)["elem"]
+    list_t = _t_list(elem)
     left, right, i, bound, v = (_tname(lo, h) for h in ("tel", "ter", "tei", "ten", "tev"))
     lo.locals[left] = list_t
     lo.locals[right] = list_t
-    lo.locals[i] = {"kind": "int"}
-    lo.locals[bound] = {"kind": "int"}
+    lo.locals[i] = _t_leaf("int")
+    lo.locals[bound] = _t_leaf("int")
     lo.locals[v] = elem
     _emit(
         lo,
@@ -686,10 +686,10 @@ def _tee(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         [
             f"{left} = []",
             f"{right} = []",
-            f"{bound} = len({pool['id']})",
+            f"{bound} = len({_node_id(pool)})",
             f"{i} = 0",
             f"while {i} < {bound}:",
-            f"    {v} = {pool['id']}[{i}]",
+            f"    {v} = {_node_id(pool)}[{i}]",
             f"    {left}.append({v})",
             f"    {right}.append({v})",
             f"    {i} = {i} + 1",
@@ -712,7 +712,7 @@ def _permutations(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, An
     r = count.value
     pool = _pool(lo, node, lo._expr(node.args[0]), span, "pm")
     n = _tname(lo, "pmn")
-    lo.locals[n] = {"kind": "int"}
+    lo.locals[n] = _t_leaf("int")
     lo.prelude.append(_asg(n, _len_of(pool, span), span))
     idxs = [lo._temp("pi") for _ in range(r)]
     gens = []
@@ -744,7 +744,9 @@ def _permutations(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, An
         elt=ast.Tuple(
             elts=[
                 ast.Subscript(
-                    value=ast.Name(id=pool["id"], ctx=ast.Load()), slice=ast.Name(id=i, ctx=ast.Load()), ctx=ast.Load()
+                    value=ast.Name(id=_node_id(pool), ctx=ast.Load()),
+                    slice=ast.Name(id=i, ctx=ast.Load()),
+                    ctx=ast.Load(),
                 )
                 for i in idxs
             ],
