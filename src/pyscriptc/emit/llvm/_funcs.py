@@ -6,153 +6,239 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _elem_size, _fn_symbol, _ir_const_value, _llvm_type, _memory_type, _prepare_arg, _safe
+from pyscriptc import _irnode as _ir
+from pyscriptc.emit._ir import (
+    _const_bool,
+    _const_text,
+    _elem_size,
+    _entry_span,
+    _flag_of,
+    _fn_symbol,
+    _has,
+    _ir_const_value,
+    _items,
+    _llvm_type,
+    _memory_type,
+    _name_list,
+    _node_kind,
+    _node_value_node,
+    _none_type,
+    _opt_default,
+    _opt_int,
+    _opt_record,
+    _opt_span,
+    _opt_str,
+    _opt_str_or_none,
+    _prepare_arg,
+    _return_type,
+    _safe,
+    _span_of,
+    _str_map,
+    _type_of,
+)
+from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
+from pyscriptc.tirserde import dict_to_type
 
 
-class FuncsMixin:
+class FuncsMixin(EmitterBase):
     def emit_function(self, fn: dict[str, Any]) -> None:
-        ret = _llvm_type(fn["returnType"])
+        return_type: dict[str, Any] = _return_type(fn)
+        ret_kind: str = dict_to_type(return_type).kind
+        ret: str = _llvm_type(return_type)
         # Env-first functions (nested defs and lambdas) take the caller's env
         # cell array as a leading `ptr %env` and bind those slots by pointer.
-        plist = [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"]]
-        if "env" in fn:
+        params: list[dict[str, Any]] = _items(fn, "params")
+        plist: list[str] = []
+        for p in params:
+            ptype: dict[str, Any] = _type_of(p)
+            pname: str = _opt_str(p, "name")
+            plist.append(f"{_llvm_type(ptype)} %{_safe(pname)}")
+        if _has(fn, "env"):
             plist.insert(0, "ptr %env")
-        symbol = _fn_symbol(fn["name"])
+        fn_name: str = _opt_str(fn, "name")
+        symbol: str = _fn_symbol(fn_name)
         # In library mode only pyscriptc_main is exported; every other
         # definition is hidden, so an app link does not inherit the whole
         # module namespace. In binding mode, definition symbols remain visible.
-        visibility = "hidden " if (self.library and not self.binding) else ""
-        define = f"define {visibility}{ret} @{symbol}({', '.join(plist)})"
-        if self.dwarf is not None:
-            self.dwarf.enter_function(fn["name"], symbol, fn["span"], fn["params"], fn["returnType"], env="env" in fn)
-            define += f" !dbg !{self.dwarf.current_subprogram}"
+        visibility: str = "hidden " if (self.library and not self.binding) else ""
+        define: str = f"define {visibility}{ret} @{symbol}({', '.join(plist)})"
+        dwarf = self.dwarf
+        if dwarf is not None:
+            fn_span: dict[str, Any] = _span_of(fn)
+            dwarf.enter_function(fn_name, symbol, fn_span, params, return_type, env=_has(fn, "env"))
+            define += f" !dbg !{dwarf.current_subprogram}"
         self.out.append(f"{define} {{")
         self._reset_function()
         self.block("entry")
         self._declare_params(fn)
         self.slot_order = []
         self.slot_types = {}
-        boxed = set(fn.get("boxed") or [])
-        for local in fn["locals"]:
-            if local["type"]["kind"] == "none":
+        boxed: set[str] = set(_name_list(fn, "boxed"))
+        for local in _items(fn, "locals"):
+            local_name: str = _opt_str(local, "name")
+            local_type: dict[str, Any] = _type_of(local)
+            if dict_to_type(local_type).kind == "none":
                 # None is not a runtime value. The local is the singleton, so it has no slot.
-                self.slots[local["name"]] = ("", local["type"])
+                self.slots[local_name] = ("", local_type)
                 continue
-            if local["name"] in boxed:
+            if local_name in boxed:
                 # Captured by a nested callable: the env stores a pointer to
                 # this storage, so it must outlive the frame.
                 self.needed.add("alloc")
-                ptr = self._call_ret("ptr", "ps_alloc", [f"i64 {_elem_size(local['type'])}"])
+                ptr: str = self._call_ret("ptr", "ps_alloc", [f"i64 {_elem_size(local_type)}"])
             else:
                 ptr = self.tmp()
-                self.line(f"{ptr} = alloca {_memory_type(local['type'])}")
+                self.line(f"{ptr} = alloca {_memory_type(local_type)}")
                 # boxed:begin
-                if local["type"].get("island") or local["type"].get("handle"):
+                if dict_to_type(local_type).flags & (_ir.F_TMARK_ISLAND | _ir.F_TMARK_HANDLE):
                     self.line(f"store ptr null, ptr {ptr}")
                 # boxed:end
-            self.slots[local["name"]] = (ptr, local["type"])
-            self.slot_order.append(local["name"])
-            self.slot_types[local["name"]] = local["type"]
-        for index, item in enumerate(fn.get("env", [])):
+            self.slots[local_name] = (ptr, local_type)
+            self.slot_order.append(local_name)
+            self.slot_types[local_name] = local_type
+        env_items: list[dict[str, Any]] = _items(fn, "env")
+        for index in range(len(env_items)):
+            item: dict[str, Any] = env_items[index]
             ptr = self._load_env_ptr("%env", index)
-            self.slots[item["name"]] = (ptr, item["type"])
-            self.slot_order.append(item["name"])
-            self.slot_types[item["name"]] = item["type"]
-        self.ret_llvm = None if fn["returnType"]["kind"] == "none" else _llvm_type(fn["returnType"])
+            item_name: str = _opt_str(item, "name")
+            item_type: dict[str, Any] = _type_of(item)
+            self.slots[item_name] = (ptr, item_type)
+            self.slot_order.append(item_name)
+            self.slot_types[item_name] = item_type
+        self.ret_llvm = None if ret_kind == "none" else _llvm_type(return_type)
         self.ret_ptr = None if self.ret_llvm is None else self._alloca(self.ret_llvm)
         self.flow_ptr = self._alloca("i32")
-        for param in fn["params"]:
-            self.store(param["name"], f"%{_safe(param['name'])}")
-        self.emit_body(fn["body"])
+        for param in params:
+            param_name: str = _opt_str(param, "name")
+            self.store(param_name, f"%{_safe(param_name)}")
+        self.emit_body(_items(fn, "body"))
         if not self.terminated:
-            if fn["returnType"]["kind"] == "none":
+            if ret_kind == "none":
                 self.line("ret void")
             else:
                 self.line("unreachable")
         self._flush_allocas()
         self.out.append("}")
         self.out.append("")
-        if self.dwarf is not None:
-            self.dwarf.exit_function()
+        if dwarf is not None:
+            dwarf.exit_function()
 
     def emit_main(self, name: str, args: list[Any], library: bool = False) -> None:
-        fn = self.functions.get(name)
+        fn: dict[str, Any] | None = _opt_record(self.functions, name)
         if fn is None:
             raise IRError(f"no function {name} to call")
-        params = fn["params"]
+        params: list[dict[str, Any]] = _items(fn, "params")
         if len(args) > len(params):
             raise FitError(f"{name} expects {len(params)} argument(s), got {len(args)}")
         filled: list[Any] = list(args)
         for param in params[len(args) :]:
-            default = param.get("default")
-            if not isinstance(default, dict) or default.get("kind") != "const":
+            default: dict[str, Any] | None = _opt_default(param)
+            if default is None or _node_kind(default) != "const":
                 raise FitError(f"{name} expects {len(params)} argument(s), got {len(args)}")
-            filled.append(_ir_const_value(param["type"], default["value"]))
-        prepared = [_prepare_arg(param, value) for param, value in zip(params, filled, strict=True)]
+            default_type: dict[str, Any] = _type_of(default)
+            if dict_to_type(default_type).kind == "bool":
+                filled.append(_ir_const_value(_type_of(param), _const_bool(default)))
+            else:
+                filled.append(_ir_const_value(_type_of(param), _const_text(default)))
+        prepared: list[Any] = []
+        for index in range(len(params)):
+            param: dict[str, Any] = params[index]
+            value: Any = filled[index]
+            prepared.append(_prepare_arg(param, value))
+        dwarf = self.dwarf
+        module: dict[str, Any] = self.module
         if library:
             # The library entry: no argv, an explicit runtime init call, the
             # exception table, the module globals, then the entry function.
             # The return value is not printed: a library has no console.
-            define = "define i32 @pyscriptc_main()"
-            if self.dwarf is not None:
-                entry_span = {"file": self.module["sourceFile"], "line": 1}
-                self.dwarf.enter_function("pyscriptc_main", "pyscriptc_main", entry_span, [], {"kind": "none"})
-                define += f" !dbg !{self.dwarf.current_subprogram}"
+            define: str = "define i32 @pyscriptc_main()"
+            if dwarf is not None:
+                entry_span: dict[str, Any] = _entry_span(module)
+                dwarf.enter_function("pyscriptc_main", "pyscriptc_main", entry_span, [], _none_type())
+                define += f" !dbg !{dwarf.current_subprogram}"
             self.out.append(f"{define} {{")
             self._reset_function()
             self.block("entry")
-            self.span = fn.get("span") if self.dwarf is not None else None
+            fn_span: dict[str, Any] | None = _opt_span(fn)
+            self.span = fn_span if dwarf is not None else None
             self._abi_decl("pyscriptc_init", "i32", [])
             self._call_void("pyscriptc_init", [])
             self._emit_exc_registrations()
             # boxed:begin
             self._emit_island_seed_global()
             # boxed:end
-            for init in self.module.get("globals", []):
+            for init in _items(module, "globals"):
                 self.emit_expr(init)
-            values = [self.materialize_arg(param["type"], value) for param, value in zip(params, prepared, strict=True)]
+            self._emit_module_inits()
+            values: list[str] = []
+            for index in range(len(params)):
+                param = params[index]
+                value = prepared[index]
+                values.append(self.materialize_arg(_type_of(param), value))
             self.call_function(fn, values)
             self.line("ret i32 0")
             self.out.append("}")
             self.out.append("")
             self.span = None
-            if self.dwarf is not None:
-                self.dwarf.exit_function()
+            if dwarf is not None:
+                dwarf.exit_function()
             return
         define = f"define i32 @{self.entry_symbol}(i32 %argc, ptr %argv)"
-        if self.dwarf is not None:
+        if dwarf is not None:
             # The process entry point is not a Python function, so it gets a
             # synthetic subprogram named `main` at the source file's line 1.
-            entry_span = {"file": self.module["sourceFile"], "line": 1}
-            self.dwarf.enter_function("main", "main", entry_span, [], {"kind": "none"})
-            define += f" !dbg !{self.dwarf.current_subprogram}"
+            entry_span = _entry_span(module)
+            dwarf.enter_function("main", "main", entry_span, [], _none_type())
+            define += f" !dbg !{dwarf.current_subprogram}"
         self.out.append(f"{define} {{")
         self._reset_function()
         self.block("entry")
         # The entry point's own instructions point at the entry function's
         # definition, so a frame in `main` names the Python line that started
         # the program rather than nothing at all.
-        self.span = fn.get("span") if self.dwarf is not None else None
+        fn_span = _opt_span(fn)
+        self.span = fn_span if dwarf is not None else None
         self._abi_decl("ps_argv_init", "void", ["i32", "ptr"])
         self._call_void("ps_argv_init", ["i32 %argc", "ptr %argv"])
         self._emit_exc_registrations()
         # boxed:begin
         self._emit_island_seed_global()
         # boxed:end
-        for init in self.module.get("globals", []):
+        for init in _items(module, "globals"):
             self.emit_expr(init)
-        values = [self.materialize_arg(param["type"], value) for param, value in zip(params, prepared, strict=True)]
-        result = self.call_function(fn, values)
-        if fn["returnType"]["kind"] != "none":
-            self.print_value(fn["returnType"], result)
+        self._emit_module_inits()
+        values = []
+        for index in range(len(params)):
+            param = params[index]
+            value = prepared[index]
+            values.append(self.materialize_arg(_type_of(param), value))
+        result: str = self.call_function(fn, values)
+        return_type: dict[str, Any] = _return_type(fn)
+        if dict_to_type(return_type).kind != "none":
+            self.print_value(return_type, result)
         self.line("ret i32 0")
         self._flush_allocas()
         self.out.append("}")
         self.out.append("")
         self.span = None
-        if self.dwarf is not None:
-            self.dwarf.exit_function()
+        if dwarf is not None:
+            dwarf.exit_function()
+
+    def _emit_module_inits(self) -> None:
+        """The module init calls a `--call` entry skips.
+
+        The program entry carries its own injected init calls at the import
+        sites. A called function bypasses the entry, so the module bodies
+        that bind global slots run here first, in the import order the
+        merge recorded.
+        """
+
+        for name in _name_list(self.module, "moduleInits"):
+            fn: dict[str, Any] | None = _opt_record(self.functions, name)
+            if fn is None:
+                continue
+            self.call_function(fn, [])
 
     def emit_noop_library_main(self) -> None:
         """The `pyscriptc_main` of a definition-only module.
@@ -162,23 +248,25 @@ class FuncsMixin:
         means the ABI does not depend on the script having a body.
         """
         define = "define i32 @pyscriptc_main()"
-        if self.dwarf is not None:
-            entry_span = {"file": self.module["sourceFile"], "line": 1}
-            self.dwarf.enter_function("pyscriptc_main", "pyscriptc_main", entry_span, [], {"kind": "none"})
-            define += f" !dbg !{self.dwarf.current_subprogram}"
+        dwarf = self.dwarf
+        module: dict[str, Any] = self.module
+        if dwarf is not None:
+            entry_span: dict[str, Any] = _entry_span(module)
+            dwarf.enter_function("pyscriptc_main", "pyscriptc_main", entry_span, [], _none_type())
+            define += f" !dbg !{dwarf.current_subprogram}"
         self.out.append(f"{define} {{")
         self._reset_function()
         self.block("entry")
         self._abi_decl("pyscriptc_init", "i32", [])
         self._call_void("pyscriptc_init", [])
         self._emit_exc_registrations()
-        for init in self.module.get("globals", []):
+        for init in _items(module, "globals"):
             self.emit_expr(init)
         self.line("ret i32 0")
         self.out.append("}")
         self.out.append("")
-        if self.dwarf is not None:
-            self.dwarf.exit_function()
+        if dwarf is not None:
+            dwarf.exit_function()
 
     # boxed:begin
     def emit_top_island(self) -> str:
@@ -193,9 +281,11 @@ class FuncsMixin:
         program directory joins `sys.path` before the seed, which
         `ps_island_init` already does from `ps_argv_get`.
         """
-        if self.dwarf is not None:
-            entry_span = {"file": self.module["sourceFile"], "line": 1}
-            self.dwarf.enter_function("main", "main", entry_span, [], {"kind": "none"})
+        dwarf = self.dwarf
+        module: dict[str, Any] = self.module
+        if dwarf is not None:
+            entry_span: dict[str, Any] = _entry_span(module)
+            dwarf.enter_function("main", "main", entry_span, [], _none_type())
         self.out.append(f"define i32 @{self.entry_symbol}(i32 %argc, ptr %argv) {{")
         self._reset_function()
         self.block("entry")
@@ -223,32 +313,76 @@ class FuncsMixin:
 
         Issue #665: the bootstrap rebases the origins and the entry
         `__file__` onto the staged data tree at run time.
+
+        Issue #712: a program-wide island carries its module bodies as
+        marshalled bytecode in two blobs beside the bootstrap. The runtime
+        hands them to the bootstrap as the `__pyscriptc_seed__` module, and
+        the bootstrap's finder inflates one module body per import.
         """
 
-        source = self.module.get("islandSource") or ""
+        source: str = _opt_str(self.module, "islandSource")
         if not source:
             raise IRError("an island top level carries no islandSource")
-        data = source.encode("utf-8")
-        size = len(data)
-        symbol = self.format_global("island.seed", data)
-        path = self.module.get("sourceFile") or ""
-        path_data = path.encode("utf-8")
-        path_symbol = self.format_global("island.seed.path", path_data) if path_data else None
+        # Issue #782: the precompiled code cache registers before the seed,
+        # so the bootstrap's loader unmarshals instead of compiling. A blob
+        # the running interpreter refuses (a different magic) is dropped by
+        # the loader and the seed compiles source - slower, never wrong.
+        cache_hex: str = _opt_str(self.module, "islandCodeCache")
+        if cache_hex:
+            cache_data: bytes = bytes.fromhex(cache_hex)
+            cache_symbol: str = self.format_global("island.codecache", cache_data)
+            self._abi_decl("ps_island_codecache", "void", ["i64", "ptr"])
+            self._call_void("ps_island_codecache", [f"i64 {len(cache_data)}", f"ptr {cache_symbol}"])
+        data: bytes = source.encode("utf-8")
+        size: int = len(data)
+        symbol: str = self.format_global("island.seed", data)
+        path: str = _opt_str(self.module, "sourceFile")
+        path_data: bytes = path.encode("utf-8")
+        path_symbol: str | None = self.format_global("island.seed.path", path_data) if path_data else None
         # The `python -m pkg` shape (issue #765): the runtime keeps the
         # mirrored argv[0] (the binary path) instead of overriding it with
         # the source path, because the program bootstrap's exec'd entry
         # already sets `__file__` to the entry file path - the value CPython
         # records for `-m`. The override exists for the single-file script
         # shape, where CPython's argv[0] is the script path itself.
-        program_mode = bool(self.module.get("islandProgram"))
-        self._abi_decl("ps_island_top_seed", "void", ["i64", "ptr", "i64", "ptr", "i32"])
+        program_mode: bool = _flag_of(self.module, "islandProgram")
+        index_b64: str | None = _opt_str_or_none(self.module, "islandSeedIndex")
+        body_b64: str | None = _opt_str_or_none(self.module, "islandSeedBody")
+        if index_b64 is None or body_b64 is None:
+            self._abi_decl("ps_island_top_seed", "void", ["i64", "ptr", "i64", "ptr", "i32"])
+            self._call_void(
+                "ps_island_top_seed",
+                [
+                    f"i64 {size}",
+                    f"ptr {symbol}",
+                    f"i64 {len(path_data)}",
+                    f"ptr {path_symbol}" if path_symbol else "ptr null",
+                    f"i32 {'1' if program_mode else '0'}",
+                ],
+            )
+            return
+        from base64 import b64decode
+
+        index_blob: bytes = b64decode(index_b64)
+        body_blob: bytes = b64decode(body_b64)
+        index_symbol: str = self.format_global("island.seed.index", index_blob)
+        body_symbol: str = self.format_global("island.seed.body", body_blob)
+        self._abi_decl(
+            "ps_island_top_seed_payload",
+            "void",
+            ["i64", "ptr", "i64", "ptr", "i64", "ptr", "i64", "ptr", "i32"],
+        )
         self._call_void(
-            "ps_island_top_seed",
+            "ps_island_top_seed_payload",
             [
                 f"i64 {size}",
                 f"ptr {symbol}",
                 f"i64 {len(path_data)}",
                 f"ptr {path_symbol}" if path_symbol else "ptr null",
+                f"i64 {len(index_blob)}",
+                f"ptr {index_symbol}",
+                f"i64 {len(body_blob)}",
+                f"ptr {body_symbol}",
                 f"i32 {'1' if program_mode else '0'}",
             ],
         )
@@ -256,14 +390,14 @@ class FuncsMixin:
     def _emit_island_top_globals(self) -> None:
         """One unbox call per annotated scalar global, in IR order."""
 
-        globals_map = self.module.get("islandGlobals") or {}
+        globals_map: dict[str, str] = _str_map(self.module, "islandGlobals")
         if not globals_map:
             return
         self._ensure_arg_type()
         for name, spec in globals_map.items():
             want, _, pad = str(spec).partition(":")
-            data = name.encode("utf-8")
-            symbol = self.format_global(f"island.global.{name}", data)
+            data: bytes = name.encode("utf-8")
+            symbol: str = self.format_global(f"island.global.{name}", data)
             self._abi_decl("ps_island_top_global", "void", ["i64", "ptr", "i32", "i32"])
             self._call_void(
                 "ps_island_top_global",
@@ -280,17 +414,24 @@ class FuncsMixin:
         builtin does. One call per class, before any user code runs.
         """
 
-        classes = [cls for cls in self.module.get("classes", []) if cls.get("exception")]
+        classes: list[dict[str, Any]] = []
+        for cls in _items(self.module, "classes"):
+            if _flag_of(cls, "exception"):
+                classes.append(cls)
         if not classes:
             return
         self.needed.add("exc")
         self._abi_decl("ps_exc_register", "void", ["i32", "i32", "ptr"])
         for cls in classes:
-            value = self.string_value(cls["name"])
+            value: str = self.string_value(_opt_str(cls, "name"))
             _, ptr = self._buf_parts(value)
             self._call_void(
                 "ps_exc_register",
-                [f"i32 {cls['exc_code']}", f"i32 {cls.get('exc_parent', 0)}", f"ptr {ptr}"],
+                [
+                    f"i32 {_opt_int(cls, 'exc_code', 0)}",
+                    f"i32 {_opt_int(cls, 'exc_parent', 0)}",
+                    f"ptr {ptr}",
+                ],
             )
 
     def _declare_params(self, fn: dict[str, Any]) -> None:
@@ -303,50 +444,61 @@ class FuncsMixin:
         if self.dwarf is None:
             return
         self.needed.add("dbg")
-        for index, param in enumerate(fn["params"], start=1):
-            if param["type"]["kind"] == "none":
+        dwarf = self.dwarf
+        fn_span: dict[str, Any] = _span_of(fn)
+        params: list[dict[str, Any]] = _items(fn, "params")
+        for index in range(len(params)):
+            param: dict[str, Any] = params[index]
+            param_type: dict[str, Any] = _type_of(param)
+            param_kind: str = dict_to_type(param_type).kind
+            if param_kind == "none":
                 continue
-            var = self.dwarf.variable(param["name"], fn["span"], param["type"]["kind"], index)
-            loc = self.dwarf.location(fn["span"])
-            value = f"{_llvm_type(param['type'])} %{_safe(param['name'])}"
+            param_name: str = _opt_str(param, "name")
+            var: int = dwarf.variable(param_name, fn_span, param_kind, index + 1)
+            loc: int = dwarf.location(fn_span)
+            value: str = f"{_llvm_type(param_type)} %{_safe(param_name)}"
             self.out.append(
                 f"  call void @llvm.dbg.value(metadata {value}, metadata !{var}, metadata !DIExpression()), !dbg !{loc}"
             )
 
     def emit_body(self, body: list[dict[str, Any]]) -> None:
+        dwarf = self.dwarf
         for stmt in body:
             if self.terminated:
                 break
-            saved = self.span
-            self.span = stmt.get("span") if self.dwarf is not None else None
+            saved: dict[str, Any] | None = self.span
+            stmt_span: dict[str, Any] | None = _opt_span(stmt)
+            self.span = stmt_span if dwarf is not None else None
             self.emit_stmt(stmt)
             self.span = saved
 
     def _emit_return(self, stmt: dict[str, Any]) -> None:
-        kind = stmt["value"]["type"]["kind"]
+        expr: dict[str, Any] = _node_value_node(stmt)
+        expr_type: dict[str, Any] = _type_of(expr)
+        kind: str = dict_to_type(expr_type).kind
         if self.outline_depth:
             if kind != "none":
-                value = self.emit_expr(stmt["value"])
+                value: str = self.emit_expr(expr)
                 if self.ret_ptr is None or self.ret_llvm is None:
                     raise IRError("return inside try has no slot")
                 self.line(f"store {self.ret_llvm} {value}, ptr {self.ret_ptr}")
-            elif stmt["value"]["kind"] != "const":
-                self.emit_expr(stmt["value"])
+            elif _node_kind(expr) != "const":
+                self.emit_expr(expr)
             if self.terminated:
                 return
             # Flow 1 is a return out of the try body; flow 2 is a suspension
             # (a yield inside the try). The try callsite tells them apart: a
             # suspension skips the finally, a return runs it.
-            self.line(f"ret i32 {2 if stmt.get('suspend') else 1}")
+            self.line(f"ret i32 {2 if _flag_of(stmt, 'suspend') else 1}")
         elif kind == "none":
-            if stmt["value"]["kind"] != "const":
-                self.emit_expr(stmt["value"])
+            if _node_kind(expr) != "const":
+                self.emit_expr(expr)
             if self.terminated:
                 return
             self.line("ret void")
         else:
-            value = self.emit_expr(stmt["value"])
-            self.line(f"ret {_llvm_type(stmt['value']['type'])} {value}")
+            value = self.emit_expr(expr)
+            self.line(f"ret {_llvm_type(expr_type)} {value}")
         self.terminated = True
 
     def _emit_propagated_return(self) -> None:

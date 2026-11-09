@@ -18,7 +18,7 @@ pyscriptc compile SOURCE [options]
 | Flag | Value | Effect |
 | ---- | ----- | ------ |
 | `--program` |  | treat the directory as a program (`python -m pkg` parity): `__main__.py` is the entry point even when the directory has an `__init__.py`, and its modules are namespaced under the directory name |
-| `--emit EMIT` | `ir\|llvm\|asm\|obj\|bin\|lib\|binding` | output artifact: ir (JSON IR), llvm (textual LLVM), asm, obj, bin, lib or binding; default llvm (default `llvm`) |
+| `--emit EMIT` | `ir\|mir\|llvm\|asm\|obj\|bin\|lib\|binding` | output artifact: ir (JSON IR), mir (textual MIR of the leaf slice), llvm (textual LLVM), asm, obj, bin, lib or binding; default llvm (default `llvm`) |
 | `--out-dir DIR` | `DIR` | write artifacts to DIR/<source name> instead of beside the source (useful for directory compiles) |
 | `-o PATH` | `PATH` | output path; defaults to the source stem |
 | `--ffi MANIFEST` | `MANIFEST` | bind a typed extern manifest (TOML) and link its C sources; repeatable. Also read from the `ffi` key of pyscriptc.toml / PEP 723 metadata |
@@ -26,6 +26,8 @@ pyscriptc compile SOURCE [options]
 | `--island` |  | alias of --fallback=cpython: route every import outside the closed table and every function pyscriptc cannot compile to embedded CPython (fallback mode) |
 | `--embed-python MODE` | `host\|bundle\|auto` | libpython embedded CPython links: host (the compiler interpreter), bundle (the pinned runtime pack, relocatable output) or auto (host when this interpreter has a shared libpython, bundle otherwise; the default). Also read from the `embed` key of [tool.pyscriptc.island] |
 | `--embed-stdlib TRIM` | `safe\|minimal` | stdlib trim of a bundle: safe (the default; everything except test, idlelib, tkinter, turtledemo, ensurepip, pydoc_data, __phello__) or minimal (an opt-in frozen closure plus allowlist). Also read from the `stdlib` key of [tool.pyscriptc.island] |
+| `--bundle-exclude ROOT` | `ROOT` | import root a bundle does not carry: the host must provide it (an optional or native-backed dependency); repeatable |
+| `--embed-headers` |  | stage the runtime pack's CPython headers into a bundle: a bundle that is itself a compiler (the self-compiled pyscriptc) needs Python.h to compile island programs at run time |
 | `--call FUNC` | `FUNC` | function the generated main calls |
 | `--args ARGS` | `ARGS` | Python literal list of arguments for --call, parsed with ast.literal_eval (default `[]`) |
 | `--run` |  | compile a binary and run it; arguments after `--` go to the binary |
@@ -38,6 +40,7 @@ pyscriptc compile SOURCE [options]
 | `--skip-check` |  | skip the type-checker preflight |
 | `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight; mypy and pyright are deprecated (default `pyrefly`) |
 | `--bridge BRIDGE` | `mypy\|pyrefly` | feed the checker's inferred-type map to the compiler so unannotated code compiles; needs mypy installed, or pyrefly for --bridge pyrefly |
+| `--infer` |  | apply the package-wide pins `pyscriptc infer` proves: every call site of a parameter that agrees on its type pins the parameter, so an unannotated parameter lowers without the source being annotated |
 | `--debug[=WHAT]` | `WHAT` | print a compact stage table to stderr; WHAT is a comma list of stages,fences,cc,paths,all (also via PYSC_DEBUG) |
 | `--debug-dir DIR` | `DIR` | write debug artifacts (ir.json, out.ll, cc.sh, summary.json) to DIR |
 | `--timings` |  | print per-stage wall times (parse, check, lower, emit, cc/link) to stderr |
@@ -119,6 +122,17 @@ pyscriptc coverage SOURCE [options]
 | ---- | ----- | ------ |
 | `--json` |  | print the report as JSON |
 | `--fail-on FAIL_ON` | `blockers\|any` | exit 1 when root refusals (blockers) or any refusal (any) exist; default always exits 0 |
+
+### `infer`
+
+```sh
+pyscriptc infer SOURCE [options]
+```
+| Flag | Value | Effect |
+| ---- | ----- | ------ |
+| `--json` |  | print the report as JSON |
+| `--overlay FILE` | `FILE` | write the inferred annotations to FILE as a sidecar the user can apply |
+| `--bridge BRIDGE` | `pyrefly` | checker to run (default: pyrefly) (default `pyrefly`) |
 
 ### `config`
 

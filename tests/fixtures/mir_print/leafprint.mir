@@ -1,0 +1,85 @@
+; module leafprint.py entry=__entry__
+
+fn twice(v0:w) -> w {
+  c0 = w 2
+b0 entry():
+  v1:w = copy v0
+  v2:w = mulw v0, c0
+  ret v2
+}
+
+fn positive(v0:w) -> b {
+  c0 = w 0
+b0 entry():
+  v1:w = copy v0
+  v2:b = cgtw v0, c0
+  ret v2
+}
+
+fn main() -> void {
+  c0 = w 1
+  c1 = d 2.5 (0x4004000000000000)
+  c2 = b 1
+  c3 = b 0
+  c4 = w 3
+  c5 = d 0.5 (0x3fe0000000000000)
+  c6 = w 4
+  c7 = w 2
+  c8 = w 7
+  c9 = s 'txt'
+  c10 = s 'lit'
+  c11 = w 0
+  c12 = d 1.5 (0x3ff8000000000000)
+b0 entry():
+  v-1:void = call @print()
+  v-1:void = call @print(c0)
+  v-1:void = call @print(c1)
+  v-1:void = call @print(c2)
+  v-1:void = call @print(c3)
+  v0:w = copy c4
+  v1:d = copy c5
+  v6:b = cgtw c4, c0
+  v2:b = copy v6
+  v-1:void = call @print(c4, c5, v6)
+  v8:w = call @twice(c6)
+  v10:b = call @positive(c7)
+  v-1:void = call @print(v8, v10, c8)
+  v11:w = negw c4
+  v12:b = notb c3
+  v-1:void = call @print(v11, v12)
+  v13:s = copy c9
+  v3:s = copy v13
+  v-1:void = call @print(v13)
+  v14:s = copy c10
+  v15:w = call @twice(c0)
+  v-1:void = call @print(v14, v13, v15)
+  v4:w = copy c11
+  jmp b1
+b1 while.cond():
+  v16:w = copy v4
+  v17:b = cltw v16, c7
+  br v17, b2(), b3()
+b2 while.body():
+  v18:w = copy v4
+  v-1:void = call @print(c12, v18)
+  v19:w = addw v18, c0
+  v4:w = copy v19
+  jmp b1
+b3 while.end():
+  v20:b = copy v2
+  br v20, b4(), b5()
+b4 then():
+  v-1:void = call @print(c3)
+  jmp b6
+b5 else():
+  v-1:void = call @print(c11)
+  jmp b6
+b6 merge():
+  ret
+}
+
+fn __entry__() -> void {
+b0 entry():
+  v-1:void = call @main()
+  ret
+}

@@ -20,6 +20,7 @@ from pyscriptc.coro import AWAIT_MARKER, RESULT, SLEEP_MARKER, STATE, TASK
 from pyscriptc.ir import validate_module
 from pyscriptc.lower import lower_source
 from pyscriptc.package import lower_directory
+from pyscriptc.tirserde import dict_to_type
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
@@ -547,9 +548,9 @@ def test_package_coroutine_ir_carries_foreign_plan(monkeypatch: pytest.MonkeyPat
     # as the exporting module's frame class, and the result local carries the
     # exported result type.
     resume = next(meth for meth in frames["coro.run"]["methods"] if meth["name"] == "resume")
-    locals_ = {local["name"]: local["type"] for local in resume["locals"]}
-    assert locals_[".ps_aw_1"] == {"kind": "class", "name": "coro.value"}
-    assert locals_[".ps_awv_1"] == {"kind": "int"}
+    locals_ = {local["name"]: dict_to_type(local["type"]) for local in resume["locals"]}
+    assert locals_[".ps_aw_1"].kind == "class" and locals_[".ps_aw_1"].name == "coro.value"
+    assert locals_[".ps_awv_1"].kind == "int"
 
 
 def _lower_stageb():

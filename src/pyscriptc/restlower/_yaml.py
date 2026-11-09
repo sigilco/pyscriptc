@@ -7,6 +7,7 @@ from typing import Any
 
 from pyscriptc.lower._core import _show
 from pyscriptc.lower._stdlib_shared import _mod_call
+from pyscriptc.restlower._shared import _node_type, _node_type_kind, _t_leaf
 
 
 def _yaml_call(
@@ -25,8 +26,8 @@ def _yaml_call(
         lo.fail(node, "PS1001", "yaml.safe_load needs the result annotation")
     lo._json_type(node, expect, "yaml.safe_load")
     text = lo._expr(node.args[0])
-    if text["type"]["kind"] != "str":
-        lo.fail(node, "PS1003", "yaml.safe_load argument is " + _show(text["type"]) + ", expected str")
-    doc = _mod_call("yaml", "safe_load", [text], {"kind": "str"}, span)
-    doc["symbol"] = "ps_yaml_to_json"
+    if _node_type_kind(text) != "str":
+        lo.fail(node, "PS1003", "yaml.safe_load argument is " + _show(_node_type(text)) + ", expected str")
+    doc = _mod_call("yaml", "safe_load", [text], _t_leaf("str"), span)
+    doc.update({"symbol": "ps_yaml_to_json"})
     return _mod_call("json", "loads", [doc], expect, span)

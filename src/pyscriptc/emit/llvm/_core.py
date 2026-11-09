@@ -7,12 +7,28 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.dwarf import DwarfEmitter
-from pyscriptc.emit._ir import _fn_symbol, _llvm_field_type, _llvm_type, _safe, standalone_entry
+from pyscriptc.emit._ir import (
+    _field_index,
+    _field_name,
+    _field_type,
+    _fn_symbol,
+    _items,
+    _llvm_field_type,
+    _llvm_type,
+    _opt_str,
+    _record,
+    _return_type,
+    _safe,
+    _type_of,
+    standalone_entry,
+)
+from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.emit.llvm._runtime import _declarations, _helpers
 from pyscriptc.errors import IRError
+from pyscriptc.tirserde import dict_to_type
 
 
-class CoreMixin:
+class CoreMixin(EmitterBase):
     def __init__(self, module: dict[str, Any], dwarf: DwarfEmitter | None = None, wasm: bool = False) -> None:
         self.module = module
         # wasm32 targets: wasm-ld only resolves a C-style `main` through the
@@ -23,7 +39,7 @@ class CoreMixin:
         # Off by default: without `--debug-info` the emitted text is byte-identical
         # to the historical output, so the frozen gates and IR hashes do not move.
         self.dwarf = dwarf
-        self.functions = {fn["name"]: fn for fn in module["functions"]}
+        self.functions: dict[str, dict[str, Any]] = {_opt_str(fn, "name"): fn for fn in _items(module, "functions")}
         self.out: list[str] = []
         self.globals: list[str] = []
         self.needed: set[str] = set()
@@ -84,20 +100,23 @@ class CoreMixin:
         library: bool = False,
         binding: bool = False,
     ) -> str:
-        self.class_index = {cls["name"]: cls for cls in self.module.get("classes", [])}
+        self.class_index = {_opt_str(cls, "name"): cls for cls in _items(self.module, "classes")}
         self.library = library
         self.binding = binding
-        for cls in self.module.get("classes", []):
-            body = "i8" if not cls["fields"] else ", ".join(_llvm_field_type(field["type"]) for field in cls["fields"])
-            self.globals.append(f"%cls.{cls['name']} = type {{ {body} }}")
-            for method in cls["methods"]:
-                symbol = f"cls.{cls['name']}.{method['name']}"
+        for cls in _items(self.module, "classes"):
+            cls_name: str = _opt_str(cls, "name")
+            fields: list[dict[str, Any]] = _items(cls, "fields")
+            body = "i8" if not fields else ", ".join(_llvm_field_type(_field_type(field)) for field in fields)
+            self.globals.append(f"%cls.{cls_name} = type {{ {body} }}")
+            for method in _items(cls, "methods"):
+                symbol = f"cls.{cls_name}.{_opt_str(method, 'name')}"
                 self.functions[symbol] = {**method, "name": symbol}
-        for fn in self.module["functions"]:
+        for fn in _items(self.module, "functions"):
             self.emit_function(fn)
-        for cls in self.module.get("classes", []):
-            for method in cls["methods"]:
-                self.emit_function(self.functions[f"cls.{cls['name']}.{method['name']}"])
+        for cls in _items(self.module, "classes"):
+            cls_name = _opt_str(cls, "name")
+            for method in _items(cls, "methods"):
+                self.emit_function(_record(self.functions, f"cls.{cls_name}.{_opt_str(method, 'name')}"))
         if call is not None:
             self.emit_main(call, args, library=library or binding)
         elif standalone:
@@ -105,7 +124,7 @@ class CoreMixin:
             # in source order. A definition-only module keeps the no-op main.
             entry_fn = standalone_entry(self.module)
             if entry_fn is not None:
-                self.emit_main(entry_fn["name"], [])
+                self.emit_main(_opt_str(entry_fn, "name"), [])
             else:
                 self.out.append(f"define i32 @{self.entry_symbol}(i32 %argc, ptr %argv) {{")
                 self._reset_function()
@@ -121,13 +140,13 @@ class CoreMixin:
             # script having a body.
             entry_fn = standalone_entry(self.module)
             if entry_fn is not None:
-                self.emit_main(entry_fn["name"], [], library=True)
+                self.emit_main(_opt_str(entry_fn, "name"), [], library=True)
             else:
                 self.emit_noop_library_main()
         # Shims go last: a closure inside a module global initializer (emitted
         # in @main) can still register one.
         for name in sorted(self.clo_wrappers):
-            self._emit_clo_wrapper(self.functions[name])
+            self._emit_clo_wrapper(_record(self.functions, name))
         for symbol in sorted(self.partials):
             self._emit_partial_stub(symbol, self.partials[symbol])
         for symbol in sorted(self.threads):
@@ -193,14 +212,14 @@ class CoreMixin:
     # boxed:end
 
     def _field(self, class_name: str, name: str) -> dict[str, Any]:
-        for index, field in enumerate(self.class_index[class_name]["fields"]):
-            if field["name"] == name:
+        for index, field in enumerate(_items(_record(self.class_index, class_name), "fields")):
+            if _field_name(field) == name:
                 return {**field, "index": index}
         raise IRError(f"{class_name}.{name} is not a field")
 
     def _field_ptr(self, class_name: str, obj: str, field: dict[str, Any]) -> str:
         reg = self.tmp()
-        self.line(f"{reg} = getelementptr %cls.{class_name}, ptr {obj}, i32 0, i32 {field['index']}")
+        self.line(f"{reg} = getelementptr %cls.{class_name}, ptr {obj}, i32 0, i32 {_field_index(field)}")
         return reg
 
     def _stash(self, typ: dict[str, Any], value: str) -> str:
@@ -213,7 +232,7 @@ class CoreMixin:
         parts array): a str narrows to the 16-byte %ps.buf prefix the
         runtime reads, everything else stores as is."""
 
-        if typ["kind"] not in {"str", "bytes"}:
+        if dict_to_type(typ).kind not in {"str", "bytes"}:
             return self._stash(typ, value)
         slot = self._alloca("%ps.buf")
         length = self.tmp()
@@ -228,16 +247,44 @@ class CoreMixin:
         self.line(f"store ptr {ptr}, ptr {data_ptr}")
         return slot
 
-    def _widen_cell(self, typ: dict[str, Any], slot: str) -> str:
+    def _widen_cell(self, typ: dict[str, Any], slot: str, proven: dict[str, Any] | None = None) -> str:
         """Load a value out of a runtime-visible cell: a str widens from the
         16-byte %ps.buf prefix, and `ps_str_counts` refills the count and
         flag from the bytes (the cell stores only the prefix). None has no
         runtime value: the field slot is a placeholder byte and the read
         folds to the singleton."""
 
-        if typ["kind"] == "none":
+        typ_kind: str = dict_to_type(typ).kind
+        if typ_kind == "any":
+            # Issue #781: the read proved a concrete type, but the cell holds
+            # the unresolved shape the write stored; the proven type decides
+            # the load. A str (or bytes) value was stashed whole as the
+            # %ps.str aggregate, so the reload is a plain %ps.str load
+            # followed by the same count refill the str cells run.
+            if proven is None:
+                raise IRError("an unresolved read needs the proven type")
+            proven_kind: str = dict_to_type(proven).kind
+            if proven_kind in {"str", "bytes"}:
+                reg = self._load("%ps.str", slot)
+                if proven_kind == "str":
+                    length = self.tmp()
+                    ptr = self.tmp()
+                    self.line(f"{length} = extractvalue %ps.str {reg}, 0")
+                    self.line(f"{ptr} = extractvalue %ps.str {reg}, 1")
+                    slot_ptr2 = self._alloca("%ps.str")
+                    count_ptr = self.tmp()
+                    flags_ptr = self.tmp()
+                    self.line(f"store %ps.str {reg}, ptr {slot_ptr2}")
+                    self.line(f"{count_ptr} = getelementptr %ps.str, ptr {slot_ptr2}, i32 0, i32 2")
+                    self.line(f"{flags_ptr} = getelementptr %ps.str, ptr {slot_ptr2}, i32 0, i32 3")
+                    self._abi_decl("ps_str_counts", "void", ["i64", "ptr", "ptr", "ptr"])
+                    self.line(f"call void @ps_str_counts(i64 {length}, ptr {ptr}, ptr {count_ptr}, ptr {flags_ptr})")
+                    reg = self._load("%ps.str", slot_ptr2)
+                return reg
+            return self._load(_llvm_type(proven), slot)
+        if typ_kind == "none":
             return "0"
-        if typ["kind"] not in {"str", "bytes"}:
+        if typ_kind not in {"str", "bytes"}:
             return self._load(_llvm_type(typ), slot)
         length = self.tmp()
         ptr = self.tmp()
@@ -253,7 +300,7 @@ class CoreMixin:
         self.line(f"{third} = insertvalue %ps.str {second}, i64 0, 2")
         reg = self.tmp()
         self.line(f"{reg} = insertvalue %ps.str {third}, i32 0, 3")
-        if typ["kind"] == "str":
+        if typ_kind == "str":
             # Bytes keep the zero count (their count is their byte length);
             # str recomputes so len() and the case family read true values.
             slot_ptr = self._alloca("%ps.str")
@@ -361,10 +408,11 @@ class CoreMixin:
     def _emit_clo_wrapper(self, fn: dict[str, Any]) -> None:
         """`name.clo(env, params...) -> name(params...)`: env-first shim for a
         plain function referenced as a value."""
-        ret = _llvm_type(fn["returnType"])
-        symbol = _fn_symbol(fn["name"])
-        plist = ["ptr %env"] + [f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"]]
-        args = ", ".join(f"{_llvm_type(p['type'])} %{_safe(p['name'])}" for p in fn["params"])
+        ret = _llvm_type(_return_type(fn))
+        symbol = _fn_symbol(_opt_str(fn, "name"))
+        params: list[dict[str, Any]] = _items(fn, "params")
+        plist = ["ptr %env"] + [f"{_llvm_type(_type_of(p))} %{_safe(_opt_str(p, 'name'))}" for p in params]
+        args = ", ".join(f"{_llvm_type(_type_of(p))} %{_safe(_opt_str(p, 'name'))}" for p in params)
         self.out.append(f"define internal {ret} @{symbol}.clo({', '.join(plist)}) {{")
         self.out.append("entry:")
         if ret == "void":
@@ -378,11 +426,12 @@ class CoreMixin:
 
     def store(self, name: str, value: str) -> None:
         ptr, typ = self.slots[name]
-        if typ["kind"] == "none":
+        store_kind: str = dict_to_type(typ).kind
+        if store_kind == "none":
             # None is not a runtime value (see the local setup): the store is
             # a no-op, the singleton is the only value the type holds.
             return
-        if typ["kind"] in {"str", "bytes"}:
+        if store_kind in {"str", "bytes"}:
             length = self.tmp()
             ptr_val = self.tmp()
             self.line(f"{length} = extractvalue %ps.str {value}, 0")
@@ -398,10 +447,11 @@ class CoreMixin:
 
     def load(self, name: str) -> str:
         ptr, typ = self.slots[name]
-        if typ["kind"] == "none":
+        load_kind: str = dict_to_type(typ).kind
+        if load_kind == "none":
             # The local is the singleton: a read has nothing to load.
             return "null"
-        if typ["kind"] in {"str", "bytes"}:
+        if load_kind in {"str", "bytes"}:
             return self._widen_cell(typ, ptr)
         reg = self.tmp()
         self.line(f"{reg} = load {_llvm_type(typ)}, ptr {ptr}")

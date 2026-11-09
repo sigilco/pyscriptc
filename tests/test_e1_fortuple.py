@@ -13,14 +13,15 @@ from pathlib import Path
 from tests.test_gates import oracle, run_cli, write_case
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node
 
 
 def _entry(mod: dict) -> dict | None:
     return next((fn for fn in mod["functions"] if fn["name"] == mod["entry"]), None)
 
 
-def _while_loops(stmts: list[dict]) -> list[dict]:
-    return [stmt for stmt in stmts if stmt.get("kind") == "while"]
+def _while_loops(stmts: list[object]) -> list[object]:
+    return [stmt for stmt in stmts if dict_to_node(stmt).kind == "while"]
 
 
 def test_tuple_literal_iterable_lowers_as_indexed_list_loop() -> None:
@@ -40,12 +41,14 @@ def probe() -> int:
     assert len(loops) == 1
     # The iterable is pinned into a seq temp typed list[int] before the loop.
     seq_assigns = [
-        stmt for stmt in entry["body"] if stmt.get("kind") == "assign" and stmt.get("value", {}).get("kind") == "list"
+        stmt
+        for stmt in entry["body"]
+        if dict_to_node(stmt).kind == "assign" and dict_to_node(stmt).value.kind == "list"
     ]
     assert len(seq_assigns) == 1
-    value = seq_assigns[0]["value"]
-    assert value["type"] == {"kind": "list", "elem": {"kind": "int"}}
-    assert [elt["value"] for elt in value["elems"]] == ["10", "20", "27"]
+    value = dict_to_node(seq_assigns[0]).value
+    assert value.type.kind == "list" and value.type.elem.kind == "int"
+    assert [elt.svalue for elt in value.elems] == ["10", "20", "27"]
 
 
 def test_empty_tuple_iterable_emits_no_loop() -> None:

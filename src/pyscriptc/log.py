@@ -20,6 +20,7 @@ import os
 import platform
 import sys
 from pathlib import Path
+from typing import Any
 
 from pyscriptc import __version__
 
@@ -40,7 +41,8 @@ def log_dir() -> Path:
 
 
 def log_path(now: datetime.date | None = None) -> Path:
-    day = (now or datetime.date.today()).strftime("%Y%m%d")
+    date_val = now if now is not None else datetime.date.today()
+    day: str = date_val.strftime("%Y%m%d")
     return log_dir() / f"{day}.jsonl"
 
 
@@ -54,11 +56,11 @@ def _cap(path: Path) -> None:
     try:
         if path.stat().st_size <= _MAX_BYTES:
             return
-        lines = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
+        content_lines: list[str] = path.read_text(encoding="utf-8", errors="replace").splitlines(keepends=True)
         keep: list[str] = []
-        size = 0
-        target = _MAX_BYTES * 4 // 5
-        for line in reversed(lines):
+        size: int = 0
+        target: int = _MAX_BYTES * 4 // 5
+        for line in reversed(content_lines):
             size += len(line.encode("utf-8", errors="replace"))
             if size > target:
                 break
@@ -68,10 +70,10 @@ def _cap(path: Path) -> None:
         pass
 
 
-def _emit(level: str, event: str, kv: dict[str, object]) -> None:
+def _emit(level: str, event: str, kv: dict[str, Any]) -> None:
     if _LEVELS[level] < _min_level():
         return
-    record = {
+    record: dict[str, Any] = {
         "ts": datetime.datetime.now(datetime.UTC).isoformat(timespec="milliseconds"),
         "level": level,
         "event": event,
@@ -104,6 +106,16 @@ class Logger:
 
     def error(self, event: str, **kv: object) -> None:
         _emit("error", event, kv)
+
+
+def emit_event(level: str, event: str, fields: dict[str, Any]) -> None:
+    """Positional-field emit for callers outside the `**kwargs` subset.
+
+    `Logger.info("event", key=value)` spells fields as keywords, which the
+    self-host lowerer does not take; this is the same record through a
+    plain dict argument. Levels are the `_LEVELS` names.
+    """
+    _emit(level, event, fields)
 
 
 def get_logger() -> Logger:

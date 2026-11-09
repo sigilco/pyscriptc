@@ -1,0 +1,43 @@
+; module leafhelperret.py entry=__entry__
+
+fn q(v0:w) -> w {
+b0 entry():
+  v1:w = copy v0
+  v2:w = call floordiv v0, v0
+  ret v2
+}
+
+fn r(v0:w) -> w {
+b0 entry():
+  v1:w = copy v0
+  v2:w = call imod v0, v0
+  ret v2
+}
+
+fn mul(v0:w, v1:w) -> w {
+b0 entry():
+  v2:w = copy v0
+  v3:w = copy v1
+  v5:w = mulw v0, v0
+  v4:w = copy v5
+  v6:w = mulw v0, v1
+  ret v6
+}
+
+fn main() -> void {
+  c0 = w 6
+  c1 = w 2
+  c2 = w 3
+b0 entry():
+  v1:w = call @q(c0)
+  v3:w = call @r(c0)
+  v5:w = call @mul(c1, c2)
+  v-1:void = call @print(v1, v3, v5)
+  ret
+}
+
+fn __entry__() -> void {
+b0 entry():
+  v-1:void = call @main()
+  ret
+}

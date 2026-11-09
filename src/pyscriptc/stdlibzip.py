@@ -25,22 +25,28 @@ Two trims, both shipped as zips:
   still fails closed at compile time, so the failure is a build error, not a
   runtime `ModuleNotFoundError`.
 
-The zip stores `.pyc` bodies with their magic-number header; a stored
-(uncompressed) zip keeps the pages cache-friendly and the pack reproducible
-byte-for-byte from the same pack directory.
+The zip stores `.pyc` bodies with their magic-number header; the archive is
+deflated, because the zip is data (not an executable) and the saved bytes
+cost one decompression of a few milliseconds at first import. A stored
+(uncompressed) zip keeps the pages cache-friendly, and the pack reproducible
+byte-for-byte from the same pack directory either way.
 """
 
 from __future__ import annotations
 
 import ast
+import importlib.machinery
+import importlib.util
 import os
+import platform
 import py_compile
+import shutil
 import sys
 import tempfile
 import zipfile
 from pathlib import Path
 
-STDLIB_MODES = ("safe", "minimal")
+STDLIB_MODES = ["safe", "minimal"]
 DEFAULT_MODE = "safe"
 
 # The documented safe-trim deny list: top-level stdlib trees and modules no
@@ -48,7 +54,7 @@ DEFAULT_MODE = "safe"
 # `install_only_stripped` archives, but a pack built from another asset may
 # carry it. This list is the whole contract of the safe trim; grow it only with
 # a documented reason, never to chase a smaller zip at correctness' expense.
-SAFE_TRIM = (
+SAFE_TRIM = [
     "__phello__",
     "idlelib",
     "ensurepip",
@@ -56,11 +62,11 @@ SAFE_TRIM = (
     "test",
     "tkinter",
     "turtledemo",
-)
+]
 
 # The frozen closure seed of the minimal trim: what an island bootstrap needs
 # before the first program import (the frozen importlib pulls these).
-MINIMAL_SEED = (
+MINIMAL_SEED = [
     "_collections_abc",
     "_compat_pickle",
     "_compression",
@@ -95,12 +101,12 @@ MINIMAL_SEED = (
     "warnings",
     "weakref",
     "zipfile",
-)
+]
 
 # Modules the minimal trim keeps unconditionally even though the seed closure
 # does not reach them: the island bootstrap (`importlib.abc`, `importlib.util`,
 # `json` in tests, `pathlib` in everyday code) and `site`'s dependencies.
-MINIMAL_EXTRA = (
+MINIMAL_EXTRA = [
     "_blake2",
     "_bootstrap_lite",
     "collections.abc",
@@ -154,6 +160,27 @@ MINIMAL_EXTRA = (
     "getopt",
     "getpass",
     "gzip",
+    "email",
+    "_markupbase",
+    "importlib.resources",
+    "importlib.resources._common",
+    "importlib.resources._adapters",
+    "importlib.resources._functional",
+    "importlib.resources._itertools",
+    "importlib.resources._legacy",
+    "importlib.metadata",
+    "importlib.metadata._adapters",
+    "importlib.metadata._collections",
+    "importlib.metadata._functools",
+    "importlib.metadata._itertools",
+    "importlib.metadata._text",
+    "importlib.abc",
+    "importlib.readers",
+    "encodings.idna",
+    "fileinput",
+    "optparse",
+    "pty",
+    "secrets",
     "html",
     "http",
     "ipaddress",
@@ -169,8 +196,10 @@ MINIMAL_EXTRA = (
     "unittest.mock",
     "uuid",
     "xml",
+    "xml.etree",
+    "xml.etree.ElementTree",
     "zlib",
-)
+]
 
 
 class StdlibError(Exception):
@@ -182,7 +211,9 @@ def safe_trim_modules(stdlib_dir: Path) -> list[Path]:
 
     The deny list matches top-level names only: `tkinter` drops the package
     (and with it `turtledemo`'s only consumer), not a same-named submodule of
-    an unrelated package.
+    an unrelated package. The pack's `site-packages/` is out too: it holds
+    the pack interpreter's own tooling (pip), never a program dependency
+    (issue #885); program dependencies travel through `sitedeps`.
     """
     if not stdlib_dir.is_dir():
         raise StdlibError(f"the runtime pack has no stdlib tree at {stdlib_dir}")
@@ -190,6 +221,8 @@ def safe_trim_modules(stdlib_dir: Path) -> list[Path]:
     for path in sorted(stdlib_dir.rglob("*.py")):
         relative = path.relative_to(stdlib_dir)
         if relative.parts[0] in SAFE_TRIM:
+            continue
+        if relative.parts[0] == "site-packages":
             continue
         kept.append(path)
     return kept
@@ -211,9 +244,38 @@ def _import_names(source: str) -> set[str]:
     return found
 
 
+def _import_names_relative(source: str, package: str) -> set[str]:
+    """The import names of a module source, relatives resolved to absolute.
+
+    A `from . import sibling` inside a package resolves against the package,
+    and the frozen closure must follow it or a kept submodule loses a peer
+    (`xml.etree.ElementTree` pulls `ElementPath` that way).
+    """
+
+    found = _import_names(source)
+    try:
+        tree = ast.parse(source)
+    except SyntaxError:
+        return found
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.ImportFrom) or node.level == 0:
+            continue
+        parts = package.split(".") if package else []
+        if node.level > 1:
+            parts = parts[: len(parts) - (node.level - 1)]
+        base = ".".join(parts)
+        if node.module:
+            found.add(f"{base}.{node.module}" if base else node.module)
+        for alias in node.names:
+            if alias.name != "*":
+                found.add(f"{base}.{alias.name}" if base else alias.name)
+    return found
+
+
 def _stdlib_available() -> Path:
     """A stdlib tree to read sources from: the running interpreter's."""
-    candidate = Path(sys.base_prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    version_parts = platform.python_version().split(".")
+    candidate: Path = Path(sys.base_prefix) / "lib" / f"python{version_parts[0]}.{version_parts[1]}"
     if candidate.is_dir():
         return candidate
     for entry in sys.path:
@@ -232,21 +294,25 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
     breadth-first over the stdlib tree of the running interpreter (the compiler
     host and the pack share the 3.14 stdlib layout), one pass per module, and
     then maps the kept names back to the pack's own files. Frozen means the
-    answer depends on these two tuples and the 3.14 sources only, so two
+    answer depends on these two lists and the 3.14 sources only, so two
     compilers agree without executing anything.
     """
-    source_tree = stdlib_dir if stdlib_dir is not None and (stdlib_dir / "os.py").is_file() else _stdlib_available()
+    source_tree: Path = (
+        stdlib_dir if stdlib_dir is not None and (stdlib_dir / "os.py").is_file() else _stdlib_available()
+    )
     # A seed package travels whole (`encodings` pulls its codec and alias
     # modules through dynamic imports no static walk sees); a seed module
     # travels alone and only grows through the closure below.
-    keep = set()
+    keep: set[str] = set()
     queue: list[str] = []
-    for name in (*MINIMAL_SEED, *MINIMAL_EXTRA):
+    for name in MINIMAL_SEED + MINIMAL_EXTRA:
         parts = name.split("/")
-        package = source_tree.joinpath(*parts)
+        package: Path = source_tree
+        for part in parts:
+            package = package / part
         if package.is_dir() and (package / "__init__.py").is_file():
             keep.add(name)
-            for child in sorted(package.glob("*.py")):
+            for child in package.glob("*.py"):
                 keep.add(f"{name}.{child.stem}")
         queue.append(name)
     seen: set[str] = set()
@@ -265,7 +331,8 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
         if not path.is_file():
             continue
         keep.add(name)
-        for found in _import_names(path.read_text(encoding="utf-8", errors="replace")):
+        package_name: str = name if path.name == "__init__.py" else name.rpartition(".")[0]
+        for found in _import_names_relative(path.read_text(encoding="utf-8", errors="replace"), package_name):
             if found in seen:
                 continue
             parts = found.split(".")
@@ -283,10 +350,11 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
     files: list[Path] = []
     for name in sorted(keep):
         rel = name.replace(".", "/")
-        for candidate in (tree / f"{rel}.py", tree / rel / "__init__.py"):
-            if candidate.is_file():
-                files.append(candidate)
-                break
+        candidate: Path = tree / f"{rel}.py"
+        if not candidate.is_file():
+            candidate = tree / rel / "__init__.py"
+        if candidate.is_file():
+            files.append(candidate)
     return files
 
 
@@ -302,10 +370,12 @@ def kept_module_names(sources: list[Path], stdlib_dir: Path | None = None) -> se
     if base is None and sources:
         # Every source sits under the same stdlib root; recover it from the
         # first path (`.../lib/python3.14/os.py`).
-        parts = sources[0].parts
+        parts: list[str] = sources[0].parts
         for cut in range(len(parts) - 1, -1, -1):
             if parts[cut].startswith("python") and parts[cut][6:].replace(".", "").isdigit():
-                base = Path(*parts[: cut + 1])
+                base = Path(parts[0])
+                for segment in parts[1 : cut + 1]:
+                    base = base / segment
                 break
     if base is None:
         return set()
@@ -328,25 +398,19 @@ def _pyc_bytes(source: Path, module_name: str) -> bytes:
 
     with tempfile.TemporaryDirectory(prefix="pyscriptc-pyc-") as tmp:
         target = Path(tmp) / "module.pyc"
-        py_compile.compile(
-            str(source),
-            cfile=str(target),
-            dfile=f"{module_name}.py",
-            doraise=True,
-            optimize=-1,
-        )
+        py_compile.compile(str(source), str(target), f"{module_name}.py", True, -1)
         return target.read_bytes()
 
 
 def write_zip(sources: list[Path], stdlib_dir: Path, zip_path: Path) -> Path:
-    """Write a stored zip of `.pyc` bodies for the kept modules.
+    """Write a deflated zip of `.pyc` bodies for the kept modules.
 
     Archive names are the module paths relative to the stdlib root, so
     `python314.zip` answers `import encodings` exactly as the unpacked tree
     did. `.py` files are kept out on purpose: startup must not compile.
     """
     zip_path.parent.mkdir(parents=True, exist_ok=True)
-    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_STORED) as archive:
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
         for source in sorted(sources):
             relative = source.relative_to(stdlib_dir)
             module_name = str(relative.with_suffix("")).replace(os.sep, ".")
@@ -369,6 +433,35 @@ def stdlib_zip_name(version: str) -> str:
     return f"python{version.replace('.', '')}.zip"
 
 
+def pack_stdlib_zip(pack_directory: Path, version: str) -> Path | None:
+    """The stdlib zip a pack carries, when its stdlib tree is already zipped.
+
+    A bundle that is itself a compiler (the self-compiled pyscriptc) carries
+    the runtime as a zip, not as an unpacked tree: the tree it hands to a
+    user program is the zip it already has.
+    """
+
+    candidate = pack_directory / "lib" / stdlib_zip_name(version)
+    return candidate if candidate.is_file() else None
+
+
+def carried_modules(pack_directory: Path, version: str, mode: str = DEFAULT_MODE) -> set[str]:
+    """The stdlib module names a pack carries, from its tree or its zip.
+
+    The manifest check (PS4301) asks what the trim keeps. A pack with an
+    unpacked tree answers from the trim; a pack that carries the zipped
+    stdlib answers from the zip.
+    """
+
+    tree = pack_directory / "lib" / f"python{version}"
+    if tree.is_dir() and any(True for _entry in tree.glob("*.py")):
+        return kept_module_names(stdlib_sources(tree, mode))
+    zip_path = pack_stdlib_zip(pack_directory, version)
+    if zip_path is not None:
+        return zip_modules(zip_path)
+    return set()
+
+
 def stage_stdlib(lib_dir: Path, pack_directory: Path, version: str, mode: str = DEFAULT_MODE) -> Path:
     """Replace the unpacked stdlib tree of a staged bundle with its zip.
 
@@ -382,13 +475,23 @@ def stage_stdlib(lib_dir: Path, pack_directory: Path, version: str, mode: str = 
     pack_stdlib = pack_directory / "lib" / f"python{version}"
     if not stdlib_dir.is_dir() and not pack_stdlib.is_dir():
         raise StdlibError(f"the runtime pack has no stdlib tree at {pack_stdlib}")
-    sources = stdlib_sources(pack_stdlib if pack_stdlib.is_dir() else stdlib_dir, mode)
     zip_path = lib_dir / stdlib_zip_name(version)
+    if pack_stdlib.is_dir() and not any(True for _entry in pack_stdlib.glob("*.py")):
+        # A pack that carries the zipped stdlib (the self-compiled compiler's
+        # own runtime) has no sources to re-trim: the zip travels as is.
+        carried = pack_stdlib_zip(pack_directory, version)
+        if carried is not None:
+            shutil.copy2(str(carried), str(zip_path))
+            if stdlib_dir.is_dir():
+                shutil.rmtree(str(stdlib_dir))
+            dynload = stdlib_dir / "lib-dynload"
+            dynload.mkdir(parents=True, exist_ok=True)
+            return zip_path
+    sources = stdlib_sources(pack_stdlib if pack_stdlib.is_dir() else stdlib_dir, mode)
     write_zip(sources, pack_stdlib if pack_stdlib.is_dir() else stdlib_dir, zip_path)
-    import shutil
 
     if stdlib_dir.is_dir():
-        shutil.rmtree(stdlib_dir)
+        shutil.rmtree(str(stdlib_dir))
     dynload = stdlib_dir / "lib-dynload"
     dynload.mkdir(parents=True, exist_ok=True)
     return zip_path
@@ -418,7 +521,105 @@ def _names_of_entry(name: str) -> set[str]:
     return {".".join(parts[: cut + 1]) for cut in range(len(parts))}
 
 
-def manifest_check(carried: set[str], imported: list[str], mode: str = DEFAULT_MODE) -> None:
+def _tree_module_names(stdlib_dir: Path) -> set[str]:
+    """The dotted module names a stdlib tree has a `.py` source for."""
+
+    names: set[str] = set()
+    if not stdlib_dir.is_dir():
+        return names
+    for path in stdlib_dir.rglob("*.py"):
+        relative = path.relative_to(stdlib_dir)
+        parts = list(relative.with_suffix("").parts)
+        if parts and parts[-1] == "__init__":
+            parts.pop()
+        for cut in range(1, len(parts) + 1):
+            names.add(".".join(parts[:cut]))
+    return names
+
+
+def _extension_stems(dynload: Path) -> set[str]:
+    """The module names the extension modules of a `lib-dynload/` directory carry."""
+
+    stems: set[str] = set()
+    if not dynload.is_dir():
+        return stems
+    for entry in dynload.iterdir():
+        # `_dbm.cpython-314-x86_64-linux-gnu.so` -> `_dbm`
+        stem = entry.name.split(".")[0]
+        if stem:
+            stems.add(stem)
+    return stems
+
+
+def interpreter_modules(pack_directory: Path, version: str) -> set[str]:
+    """The stdlib names the bundle's runtime serves without a zip entry.
+
+    A builtin lives inside the runtime binary (`math`, `binascii`, `zlib`,
+    `errno`, `fcntl`) and a frozen module inside it (`zipimport`, the
+    importlib bootstrap); neither has a `.py` file in the pack's stdlib tree,
+    so the trim keeps no source and the zip carries no entry, yet the bundle
+    still imports the module from the runtime. Builds disagree on where they
+    drew the builtin/extension line, so the set is read off the pack tree
+    the bundle actually links instead of the compiler host's own build.
+
+    The pack's extension modules are the exception: they live in
+    `lib-dynload/` as `.so` files, and the staged bundle ships an empty
+    `lib-dynload/`, so the bundle cannot import them. They stay out of this
+    set, and a program that imports one fails the compile (PS4301) instead
+    of the run.
+
+    A stdlib name no build of this platform provides (`msvcrt`, `winreg` on
+    POSIX) has no tree entry either; `_stdlib_imports` drops such a name
+    before the check, and it stays out of the demand here.
+
+    A pack that carries its stdlib already zipped (the self-compiled
+    compiler's own runtime) has no tree to read; the zip names the modules
+    it carries, and what the runtime serves beyond the zip is the same set
+    the runtime binary holds.
+    """
+    stdlib_dir = pack_directory / "lib" / f"python{version}"
+    with_source = _tree_module_names(stdlib_dir)
+    if not with_source:
+        zipped = pack_stdlib_zip(pack_directory, version)
+        if zipped is not None:
+            with_source = zip_modules(zipped)
+    extensions = _extension_stems(stdlib_dir / "lib-dynload")
+    return (set(sys.stdlib_module_names) - with_source) - extensions
+
+
+def host_modules() -> set[str]:
+    """The stdlib names the running interpreter serves without a `.py` file.
+
+    The host link keeps the whole interpreter, so every module the host can
+    import counts as carried: a builtin (`math`), a frozen one (`zipimport`)
+    and an extension module of the host's `lib-dynload/` alike. The answer
+    comes from the host's own module table, not from the way this host was
+    built, so it does not change from one machine to the next.
+    """
+
+    names: set[str] = set(sys.builtin_module_names)
+    for name in sys.stdlib_module_names:
+        try:
+            spec = importlib.util.find_spec(name)
+        except Exception:
+            # A name this host cannot even look up (a broken meta path) is
+            # not a module it serves; leave it out.
+            continue
+        if spec is None:
+            continue
+        if spec.origin in ("built-in", "frozen"):
+            names.add(name)
+        elif isinstance(spec.loader, importlib.machinery.ExtensionFileLoader):
+            names.add(name)
+    return names
+
+
+def manifest_check(
+    carried: set[str],
+    imported: list[str],
+    mode: str = DEFAULT_MODE,
+    interpreter: set[str] | None = None,
+) -> None:
     """Fail closed (PS4301) when an imported stdlib module is not carried.
 
     `carried` is what the trim keeps (`zip_modules` of the zip, or the kept
@@ -427,11 +628,23 @@ def manifest_check(carried: set[str], imported: list[str], mode: str = DEFAULT_M
     importable when the zip carries it or a parent of it; the caller passes
     stdlib names only, so relative and third-party imports are not this
     check's business.
+
+    A module the runtime serves without a zip entry (a builtin like `math`
+    or `binascii`, a frozen one like `zipimport`) needs no `.py` source in
+    the zip, so it counts as carried: the trim drops the source of such a
+    module, and the bundle still imports it.
+
+    `interpreter` is that source-free set (see `interpreter_modules`); it
+    defaults to the running interpreter's own (see `host_modules`), which is
+    the right answer for a host link and for the unit tests, and a bundle
+    compile passes the pack's set so the verdict follows the runtime it
+    links.
     """
 
+    served: set[str] = host_modules() if interpreter is None else interpreter
     missing: list[str] = []
     for name in imported:
-        if not name or name in carried:
+        if not name or name in carried or name in served:
             continue
         parts = name.split(".")
         if not any(".".join(parts[: cut + 1]) in carried for cut in range(len(parts))):

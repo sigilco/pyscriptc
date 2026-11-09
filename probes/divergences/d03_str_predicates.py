@@ -1,0 +1,2 @@
+print(" ".isspace())
+print("́".isalpha())
