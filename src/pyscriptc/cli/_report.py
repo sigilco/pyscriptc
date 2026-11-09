@@ -46,6 +46,41 @@ def coverage_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def _family_fences(by_family: dict[str, dict[str, int]]) -> dict[str, int]:
+    """The fence count of every family row in a coverage summary."""
+
+    return {family: row["fences"] for family, row in by_family.items()}
+
+
+def _fence_deltas(base: dict[str, int], inferred: dict[str, int]) -> dict[str, dict[str, int]]:
+    """Per-key fence counts, baseline against inferred, with the delta.
+
+    The coverage report keys its fences two ways: `byFamily` (a family row
+    with a `fences` count) and `byCode` (a bare count). Both are keyed the
+    same way here, so a run answers "how much does inference help
+    `param-inference` fences specifically" without a second pass. A key
+    missing from one side counts as zero, so a family that disappears
+    under inference reads as a negative delta rather than vanishing.
+    """
+
+    deltas: dict[str, dict[str, int]] = {}
+    keys: list[str] = []
+    for key in base:
+        keys.append(key)
+    for key in inferred:
+        if key not in base:
+            keys.append(key)
+    for key in sorted(keys):
+        base_count = base.get(key, 0)
+        inferred_count = inferred.get(key, 0)
+        deltas[key] = {
+            "baseline": base_count,
+            "inferred": inferred_count,
+            "delta": inferred_count - base_count,
+        }
+    return deltas
+
+
 def infer_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc infer`: what the checker proves for a package, and what lowering gains.
 
@@ -132,6 +167,10 @@ def infer_cmd(args: argparse.Namespace) -> int:
         "fences_baseline": base_summary["fences"],
         "fences_inferred": inferred_summary["fences"],
         "fences_delta": inferred_summary["fences"] - base_summary["fences"],
+        "fences_by_family": _fence_deltas(
+            _family_fences(base_summary["byFamily"]), _family_fences(inferred_summary["byFamily"])
+        ),
+        "fences_by_code": _fence_deltas(base_summary["byCode"], inferred_summary["byCode"]),
         "definitions": base_summary["definitions"],
         "pinned_params": sorted({f"{callee}.{param}" for callee, param in pins}),
         "records": len(records),
