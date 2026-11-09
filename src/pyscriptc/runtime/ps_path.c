@@ -884,6 +884,65 @@ void ps_os_chmod(int64_t n, const char *s, int64_t mode) {
     }
 }
 
+void ps_os_symlink(int64_t an, const char *a, int64_t bn, const char *b) {
+    char *target = ps_cstr(an, a);
+    char *linkpath = ps_cstr(bn, b);
+    int rc = ps_symlink(target, linkpath);
+    int err = errno;
+    free(target);
+    free(linkpath);
+    if (rc != 0) {
+        if (err == EEXIST) {
+            ps_raise_cstr(PS_FILEEXISTSERROR, "File exists");
+        } else if (err == ENOENT) {
+            ps_raise_cstr(PS_FILENOTFOUNDERROR, "No such file or directory");
+        } else if (err == EACCES || err == EPERM) {
+            ps_raise_cstr(PS_PERMISSIONERROR, "Permission denied");
+        } else {
+            ps_os_fail("symlink failed");
+        }
+    }
+}
+
+void ps_os_readlink(int64_t n, const char *s, PsBuf *out) {
+    char *path = ps_cstr(n, s);
+    int64_t cap = 256;
+    char *buf = malloc((size_t)cap);
+    if (buf == NULL) {
+        free(path);
+        abort();
+    }
+    for (;;) {
+        int64_t rc = ps_readlink(path, buf, cap);
+        int err = errno;
+        if (rc < 0) {
+            free(buf);
+            free(path);
+            if (err == ENOENT) {
+                ps_raise_cstr(PS_FILENOTFOUNDERROR, "No such file or directory");
+            } else {
+                ps_os_fail("readlink failed");
+            }
+        }
+        if (rc < cap) {
+            ps_buf_copy(out, buf, rc);
+            break;
+        }
+        {
+            char *grown = realloc(buf, (size_t)cap * 2);
+            if (grown == NULL) {
+                free(buf);
+                free(path);
+                abort();
+            }
+            buf = grown;
+            cap *= 2;
+        }
+    }
+    free(buf);
+    free(path);
+}
+
 void ps_os_mkdir(int64_t n, const char *s) {
     char *text = ps_cstr(n, s);
     int rc = ps_mkdir(text, 0755);

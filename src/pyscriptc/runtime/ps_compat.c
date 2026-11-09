@@ -63,6 +63,23 @@ int ps_mkstemp(char *template_path) {
     return -1;
 }
 
+int ps_win_symlink(const char *target, const char *linkpath) {
+    /* SYMBOLIC_LINK_FLAG_DIRECTORY is 0x1; the runtime carries no flag, so
+       every link is a file link. A directory target fails the way CPython's
+       default (target_is_directory=False) does. */
+    return CreateSymbolicLinkA(linkpath, target, 0) ? 0 : -1;
+}
+
+int64_t ps_win_readlink(const char *path, char *buf, int64_t cap) {
+    /* Reading a reparse point takes DeviceIoControl FSCTL_GET_REPARSE_POINT
+       and the substitute-name parse; out of scope for the os surface. */
+    (void)path;
+    (void)buf;
+    (void)cap;
+    errno = ENOSYS;
+    return -1;
+}
+
 #else /* __wasi__ */
 
 #include <fcntl.h>
@@ -94,6 +111,24 @@ int ps_mkstemp(char *template_path) {
             return -1;
         }
     }
+    return -1;
+}
+
+int ps_wasi_symlink(const char *target, const char *linkpath) {
+    /* The driver refuses os.symlink/os.readlink for wasm targets at link
+       time; these stubs only keep the symbols defined if that check is
+       ever bypassed. */
+    (void)target;
+    (void)linkpath;
+    errno = ENOSYS;
+    return -1;
+}
+
+int64_t ps_wasi_readlink(const char *path, char *buf, int64_t cap) {
+    (void)path;
+    (void)buf;
+    (void)cap;
+    errno = ENOSYS;
     return -1;
 }
 

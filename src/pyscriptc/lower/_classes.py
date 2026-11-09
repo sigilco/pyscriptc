@@ -401,13 +401,33 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
         methods: list[tuple[ast.FunctionDef, str]] = []
         seen: set[str] = set()
         seen_default = False
+        # Class-level constants: `name = <fold>` and `name: T = <fold>` keep
+        # a compile-time value readable as `C.name` and `obj.name`, never an
+        # instance field. Ancestor constants merge in MRO order so the
+        # nearest definer wins, the same rule instance attribute lookup
+        # follows.
+        class_constants: dict[str, dict[str, Any]] = {}
+        for ancestor in reversed(mro[1:]):
+            ancestor_constants = self.classes.get(ancestor, {}).get("constants")
+            if ancestor_constants:
+                class_constants.update(ancestor_constants)
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
             try:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     if stmt.value is not None and deco != "dataclass":
-                        self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
+                        const = self._module_fold(stmt.value)
+                        if const is None or const.get("kind") != "const":
+                            self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
+                        typ = self._annotation(stmt.annotation)
+                        if typ.get("optional"):
+                            if _type_kind(const["type"]) != "none" and not types_equal(const["type"], typ["elem"]):
+                                self.fail(stmt, "PS1003", f"{stmt.target.id} default is not {_show(typ)}")
+                        else:
+                            self._expect(stmt, const["type"], typ, stmt.target.id)
+                        class_constants[stmt.target.id] = const
+                        continue
                     if stmt.target.id in seen or stmt.target.id in inherited_types:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                     typ = self._annotation(stmt.annotation)
@@ -476,6 +496,11 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
                         self.fail(stmt, "PS1201", "decorators are not lowered")
                     methods.append((stmt, kind))  # type: ignore[arg-type]
                     continue
+                if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                    const = self._module_fold(stmt.value)
+                    if const is not None and const.get("kind") == "const":
+                        class_constants[stmt.targets[0].id] = const
+                        continue
                 self.fail(stmt, "PS1204", f"{type(stmt).__name__} in a class body is not lowered")
             except Fence as exc:
                 self.caught.append(exc)
@@ -585,10 +610,18 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
             # the secondary base's.
         elif parent is not None and fields and not wrote_init:
             self.fail(node, "PS1001", f"{node.name} needs __init__")
+        if deco == "dataclass":
+            # A field default is also the class attribute CPython leaves
+            # behind, so `C.x` reads it like any other class constant.
+            for field in fields:
+                default = field.get("default")
+                if default is not None and default.get("kind") == "const":
+                    class_constants[field["name"]] = default
         exception = bool(base and (_base_kind(base) == "exception" or (parent and parent.get("exception"))))
         info: dict[str, Any] = {
             "fields": [*inherited, *fields],
             "own_fields": fields,
+            "constants": class_constants,
             "methods": method_sigs,
             "method_kind": kinds,
             "method_owner": owners,
@@ -1295,6 +1328,11 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
             # `x.f` on a `T | None` cell reads through `_val` once the tag
             # is proven set; an unset tag raises AttributeError.
             return self._lookup_attr(self._opt_payload(obj, name, span), name, span, node, expect)
+        # A class-level constant reads through the instance when no instance
+        # field shadows it.
+        const = self._class_const(class_name, name)
+        if const is not None:
+            return {**const, "span": span}
         if info.get("method_kind", {}).get(name) == "property":
             sig = info["methods"][name]
             owner = self._emit_owner(class_name, name)
@@ -1313,6 +1351,21 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
             self.fail(node, "PS2001", note)
         self.fail(node, "PS2001", f"{class_name}.{name} is not a field")
         raise AssertionError("unreachable")
+
+    def _class_const(self, class_name: str, attr: str) -> dict[str, Any] | None:
+        """The class-level constant `attr` of `class_name`, or None.
+
+        A method defined on the class itself wins over a same-named
+        constant, matching the class dictionary's own-name precedence;
+        ancestors' methods do not shadow it.
+        """
+        info = self.classes.get(class_name)
+        if info is None:
+            return None
+        const = (info.get("constants") or {}).get(attr)
+        if const is None or info.get("method_owner", {}).get(attr) == class_name:
+            return None
+        return const
 
     def _getattr_hook(self, class_name: str) -> tuple[str, dict[str, Any]] | None:
         """The first `__getattr__` definer in the MRO, as (owner, signature).

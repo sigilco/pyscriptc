@@ -325,8 +325,8 @@ no = [["closing, redirect_stdout, ExitStack, contextmanager", 'with contextlib.c
 
 [[stdlib]]
 names = ["os"]
-ok = ['y: str = os.getcwd()', 'y: list[str] = os.listdir(s)', 'y: str = os.environ["A"]', 'y: str = os.path.join(s, s)', 'y: int = os.getpid()', 'y: str = os.sep', "for r, ds, fs in os.walk(s): pass"]
-no = [["scandir, system, urandom, cpu_count, kill, symlink, rmdir, getuid", 'os.scandir(s)', "PS2001"], ["keyword arguments (makedirs exist_ok)", 'os.makedirs(s, exist_ok=True)', "PS2003"]]
+ok = ['y: str = os.getcwd()', 'y: list[str] = os.listdir(s)', 'y: str = os.environ["A"]', 'y: str = os.path.join(s, s)', 'y: int = os.getpid()', 'y: str = os.sep', 'os.symlink(s, s)', 'y: str = os.readlink(s)', "for r, ds, fs in os.walk(s): pass"]
+no = [["scandir, system, urandom, cpu_count, kill, rmdir, getuid", 'os.scandir(s)', "PS2001"], ["keyword arguments (makedirs exist_ok)", 'os.makedirs(s, exist_ok=True)', "PS2003"]]
 
 [[stdlib]]
 names = ["posixpath"]

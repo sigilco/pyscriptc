@@ -32,7 +32,7 @@ from pyscriptc.coro import enabled
 
 # boxed:end
 from pyscriptc.errors import span_of
-from pyscriptc.ffi_manifest import is_handle_type, type_ir
+from pyscriptc.ffi_manifest import FfiManifest, is_handle_type, type_ir
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _MISSING,
@@ -237,7 +237,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
         self.bindings[bound or name] = Binding("module", name, "", False)
         return True
 
-    def _ffi_module(self, name: str) -> Any:
+    def _ffi_module(self, name: str) -> FfiManifest | None:
         return ffi_manifests().get(name)
 
     def _ffi_call(self, node: ast.Call, span: dict[str, Any], module: str, attr: str) -> dict[str, Any]:
@@ -431,7 +431,22 @@ class StdlibDispatchMixin(StdlibBindMixin):
         if not fn.decorator_list:
             return None
         if len(fn.decorator_list) != 1:
-            return "stacked decorators are not lowered"
+            # A stack of user decorators defers to the same wrap pass a
+            # single one does (`_bind_callable_global` applies them
+            # bottom-up). Under the fallback tier the island seed owns the
+            # decorated source, so the stack keeps its fence there. A
+            # builtin spelling anywhere in the stack keeps the stacked
+            # fence: `staticmethod` is not a lowered callable.
+            if self.fallback_definitions:
+                return "stacked decorators are not lowered"
+            for dec in fn.decorator_list:
+                if (isinstance(dec, ast.Name) and dec.id in {"staticmethod", "property", "classmethod"}) or (
+                    isinstance(dec, ast.Call)
+                    and isinstance(dec.func, ast.Name)
+                    and dec.func.id in {"staticmethod", "property", "classmethod"}
+                ):
+                    return "stacked decorators are not lowered"
+            return None
         dec = fn.decorator_list[0]
         if isinstance(dec, ast.Name):
             if dec.id == "staticmethod":
@@ -1222,6 +1237,17 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 value = self._module_fold(stmt.value)
                 if value is None:
                     value = self._expr(stmt.value)
+                # boxed:begin
+                if value["type"].get("island") and self.fallback_definitions:
+                    # An island value at module scope (issue #webfw): the seed
+                    # already built the object (an app, a client, a parser);
+                    # re-running the call native would create a second
+                    # instance and the two halves of the program would see
+                    # different objects. The slot reads the island's own
+                    # object through the def-handle trampoline.
+                    self._bind_island_global(target, value, stmt)
+                    return
+                # boxed:end
                 if module_needs_slot(value) and self._script_line is None:
                     # A definition-only module binds a container or parser the
                     # threading way: the slot keeps one pointer for the
@@ -1326,6 +1352,10 @@ class StdlibDispatchMixin(StdlibBindMixin):
                     val, _ = constant
                     span = span_of(node, self.filename)
                     return _make_const(val, span)
+            class_name = self.class_aliases.get(node.value.id, node.value.id)
+            const = self._class_const(class_name, node.attr)
+            if const is not None:
+                return {**const, "span": span_of(node, self.filename)}
             return None
         if isinstance(node, ast.IfExp):
             truthy = _const_truthy(self._module_const(node.test))

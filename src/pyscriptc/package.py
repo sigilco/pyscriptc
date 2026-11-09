@@ -607,7 +607,7 @@ def _program_island(
         selfpack_dir=selfpack_dir,
         package_mode=package_mode,
     )
-    module = _boxed.program_island_module(source, root, seed, code_cache)
+    module: dict[str, Any] = _boxed.program_island_module(source, root, seed, code_cache)
     # The `python -m pkg` shape (issue #765): the bootstrap's `__file__` is
     # the entry file path, the value CPython records for `-m`, so the
     # runtime keeps the mirrored argv[0] (the emitted binary's path)
@@ -768,7 +768,7 @@ def _reachable_modules(
     stdlib, a pack or a refused name and never a unit.
     """
 
-    trees: dict[str, ast.Module] = {}
+    trees: dict[str, Any] = {}
     package_names: set[str] = set()
     for name, path, is_package in units:
         trees[name] = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
@@ -798,7 +798,7 @@ def _reachable_modules(
         return found
 
     def edges_of(name: str) -> list[str]:
-        found = _program_imports(trees[name], exports, name, name in package_names)
+        found: list[str] = _program_imports(trees[name], exports, name, name in package_names)
         edges: list[str] = []
         for target in found:
             if target not in exports:
@@ -929,7 +929,7 @@ def _program_plan(
     namespace that has no `__init__` to call.
     """
 
-    trees: dict[str, ast.Module] = {}
+    trees: dict[str, Any] = {}
     files: dict[str, Path] = {}
     package_names: set[str] = set()
     for name, path, is_package in units:
@@ -941,7 +941,7 @@ def _program_plan(
     for name in trees:
         edges[name] = _program_imports(trees[name], exports, name, name in package_names)
     # The statement that imports a module, so a cycle fence points at it.
-    sites: dict[tuple[str, str], ast.stmt] = {}
+    sites: dict[tuple[str, str], Any] = {}
     for name, tree in trees.items():
         for stmt in tree.body:
             for module, _local in _statement_imports(stmt, exports):
@@ -1945,6 +1945,12 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
         for mname in raw_owner:
             method_owner[mname] = raw_owner[mname]
     exported["method_owner"] = method_owner
+    constants: dict[str, dict[str, Any]] = {}
+    if "constants" in info:
+        raw_constants: dict[str, dict[str, Any]] = info["constants"]
+        for cname in raw_constants:
+            constants[cname] = raw_constants[cname]
+    exported["constants"] = constants
     base: str = ""
     if "base" in info:
         base = info["base"]
@@ -2077,7 +2083,7 @@ def _discover_dep_package(package_dir: Path, name: str) -> list[tuple[str, Path,
             # package body the way CPython runs it, so the unit exists even
             # when nothing else inside it is reached.
             parts = relative.parts[:-1]
-            if parts:
+            if parts and all(part.isidentifier() for part in parts):
                 units.append((".".join((name, *parts)), path, True))
             continue
         stem = relative.with_suffix("")
@@ -2154,6 +2160,13 @@ def _discover(
             # The program entry. It lowers as the `__main__` module.
             found.append(("__main__", path, False))
             continue
+        stem = relative.with_suffix("")
+        if not all(part.isidentifier() for part in stem.parts):
+            # CPython cannot import it either (a dash in a name, a data file
+            # mislabeled .py, a directory that is not an identifier): skip
+            # with a note instead of refusing the tree.
+            skipped.append(relative.as_posix())
+            continue
         if path.name == "__main__.py":
             skipped.append(relative.as_posix())
             continue
@@ -2167,12 +2180,6 @@ def _discover(
             name = ".".join((package, *parts)) if parts else package
             found.append((name, path, True))
             continue
-        stem = relative.with_suffix("")
-        if not all(part.isidentifier() for part in stem.parts):
-            # CPython cannot import it either (a dash in a name, a data file
-            # mislabeled .py): skip with a note instead of refusing the tree.
-            skipped.append(relative.as_posix())
-            continue
         if program and not namespaced:
             # A program sibling is imported by its plain name.
             found.append((".".join(stem.parts), path, False))
@@ -2183,10 +2190,16 @@ def _discover(
     return found, skipped
 
 
-def _skip_note(root: Path, relative: str) -> str:
+def _skip_reason(relative: str) -> str:
+    """The reason ``_discover`` skipped a file, without the note prefix."""
+
     if relative == "__main__.py" or relative.endswith("/__main__.py"):
-        return f"note: skipped {root.name}/{relative}; __main__.py is the python -m script, not an importable module"
-    return f"note: skipped {root.name}/{relative}; not an importable module name"
+        return "__main__.py is the python -m script, not an importable module"
+    return "not an importable module name"
+
+
+def _skip_note(root: Path, relative: str) -> str:
+    return f"note: skipped {root.name}/{relative}; {_skip_reason(relative)}"
 
 
 _NOT_EXPORTED = " is not exported by this package"

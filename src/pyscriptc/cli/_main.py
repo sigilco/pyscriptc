@@ -830,7 +830,7 @@ def embed_cmd(args: argparse.Namespace) -> int:
     if args.embed_cmd != "fetch":
         raise IRError(f"unknown embed command {args.embed_cmd!r} (known: fetch)")
     pack = embed.lock_pack(getattr(args, "platform", None))
-    directory = embed.pack_dir(pack)
+    directory: Path = embed.pack_dir(pack)
     if embed.pack_is_ready(pack) and not args.force:
         print(f"runtime pack already present: {directory}")
         return 0
@@ -876,6 +876,7 @@ def run_cmd(args: argparse.Namespace) -> int:
     source: Path = Path(args.source)
     if not source.exists():
         raise IRError(f"source not found: {source}")
+    run_argv: list[str] = getattr(args, "run_argv")  # noqa: B009 - lowered getattr reads the Namespace slot
     run_env = _run_environment(source)
     use_cache: bool = runcache.enabled() and not args.no_cache
     key = _run_key(args)
@@ -883,7 +884,7 @@ def run_cmd(args: argparse.Namespace) -> int:
     binary: Path = runcache.binary_path(key, name)
     if use_cache and binary.is_file():
         log.info("run.cache_hit", key=key, binary=str(binary))
-        code: int = _exec_binary(binary, args.run_argv, env=run_env)
+        code: int = _exec_binary(binary, run_argv, env=run_env)
         _track_run(
             args,
             code,
@@ -912,7 +913,7 @@ def run_cmd(args: argparse.Namespace) -> int:
                 if not binary.is_file():
                     raise
             else:
-                code: int = _exec_binary(binary, args.run_argv, env=run_env)
+                code: int = _exec_binary(binary, run_argv, env=run_env)
                 _track_run(
                     args,
                     code,
@@ -925,7 +926,7 @@ def run_cmd(args: argparse.Namespace) -> int:
                     _handle_run_report(args.report, binary, source)
                 # boxed:end
                 return code
-        code: int = _exec_binary(build / name, args.run_argv, env=run_env)
+        code: int = _exec_binary(build / name, run_argv, env=run_env)
         _track_run(
             args,
             code,
@@ -997,7 +998,11 @@ def _run_key(args: argparse.Namespace) -> str:
     source = Path(args.source)
     name: str = (source.resolve().name if source.is_dir() else source.stem) or "app"
     ffi_paths: list[str] = [str(p) for p in getattr(args, "ffi", None) or []]
-    ffi_paths.extend(str(p) for p in load_config(source).ffi_manifests)
+    manifest_paths: list[Path] = load_config(source).ffi_manifests
+    path_index: int = 0
+    while path_index < len(manifest_paths):
+        ffi_paths.append(str(manifest_paths[path_index]))
+        path_index += 1
     return runcache.key_for(
         source,
         load_config(source).origin,
@@ -1090,7 +1095,7 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
     try:
         from pyscriptc import cli as _cli_pkg
 
-        code = _cli_pkg.compile_cmd(compile_args)
+        code: int = _cli_pkg.compile_cmd(compile_args)
         # boxed:begin
         # A bundle-resolved compile writes a relocatable directory at the
         # output path, not the single file the run cache and verify exec.
@@ -1143,7 +1148,7 @@ def verify_cmd(args: argparse.Namespace) -> int:
         raise IRError(f"--input file not found: {args.input}")
     stdin: bytes = Path(args.input).read_bytes() if args.input is not None else b""
     oracle = verify.find_oracle()
-    call_args = _parse_args(args.args) if args.call else []
+    call_args: list[Any] = _parse_args(args.args) if args.call else []
     name: str = source.stem or "app"
     key = _run_key(args)
     with tempfile.TemporaryDirectory(prefix="pyscriptc-verify-") as scratch_name:
@@ -1197,8 +1202,8 @@ def assess_cmd(args: argparse.Namespace) -> int:
     source = Path(args.source)
     if not source.exists():
         raise IRError(f"source not found: {source}")
-    call_args = _parse_args(args.args) if args.call else []
-    report = assess.assess(
+    call_args: list[Any] = _parse_args(args.args) if args.call else []
+    report: dict[str, Any] = assess.assess(
         source,
         bench=args.bench,
         verify_diff=args.verify,
@@ -1248,7 +1253,7 @@ def _verify_binary(args: argparse.Namespace, name: str, key: str, scratch: Path)
         return build / name, False, 0, output.getvalue()
     try:
         cached.parent.mkdir(parents=True, exist_ok=True)
-        os.replace(build, cached.parent)
+        os.replace(str(build), str(cached.parent))
     except OSError:
         # another store owns the entry (or left a partial one); a fresh build
         # in the scratch directory is still a valid binary to verify
@@ -1268,16 +1273,16 @@ def build_cmd(args: argparse.Namespace) -> int:
     _apply_env_defaults(args)
     if args.target is not None and args.driver != "zig":
         raise IRError("--target requires --driver zig (bundled sysroot per target)")
-    directory = Path(args.directory)
-    pyproject = project.discover_pyproject(directory)
-    scripts = entry_points(pyproject)
+    directory: Path = Path(args.directory)
+    pyproject: Path = project.discover_pyproject(directory)
+    scripts: dict[str, str] = entry_points(pyproject)
     if not scripts:
         print(f"{pyproject}: no [project.scripts] table, nothing to build", file=sys.stderr)
         return 1
-    names: list[str] = sorted(scripts) if args.script is None else [args.script]
+    names: list[str] = sorted([key for key in scripts]) if args.script is None else [args.script]
     for name in names:
         if name not in scripts:
-            known = ", ".join(sorted(scripts))
+            known = ", ".join(sorted([key for key in scripts]))
             print(f"{pyproject}: no console script {name!r} (known: {known})", file=sys.stderr)
             return 2
     state: dict[str, Any] = {"outcome": None, "stage": "lower", "fence_count": 0, "fence_families": {}}
@@ -1286,18 +1291,22 @@ def build_cmd(args: argparse.Namespace) -> int:
         out_dir.mkdir(parents=True, exist_ok=True)
         built: list[Path] = []
         for name in names:
-            module_ir, _ = project.lower_script(pyproject, name)
-            if module_ir["fences"]:
-                state["fence_count"] = len(module_ir["fences"])
-                state["fence_families"] = _fence_families(module_ir["fences"])
-                print(render_fences(module_ir, module_ir["sourceFile"]), file=sys.stderr)
+            lowered_ir: tuple[dict[str, Any], str] = project.lower_script(pyproject, name)
+            module_ir: dict[str, Any] = lowered_ir[0]
+            ir_fences: list[dict[str, str]] = module_ir["fences"]
+            ir_source: str = module_ir["sourceFile"]
+            if ir_fences:
+                state["fence_count"] = len(ir_fences)
+                state["fence_families"] = _fence_families(ir_fences)
+                print(render_fences(module_ir, ir_source), file=sys.stderr)
                 state["outcome"] = "fences"
                 return 3
             state["stage"] = "check"
             if not args.skip_check:
-                run_checker(Path(module_ir["sourceFile"]), args.checker)
+                run_checker(Path(ir_source), args.checker)
             state["stage"] = "emit"
-            llvm_text = emit_llvm(module_ir, None, [], standalone=True)
+            no_ir_args: list[Any] = []
+            llvm_text = emit_llvm(module_ir, None, no_ir_args, standalone=True)
             with tempfile.TemporaryDirectory(prefix="pyscriptc-build-") as scratch:
                 ll_path = Path(scratch) / f"{name}.ll"
                 ll_path.write_text(llvm_text, encoding="utf-8")
@@ -1325,7 +1334,8 @@ def build_cmd(args: argparse.Namespace) -> int:
         )
         return 0
     except BaseException as exc:
-        if state["outcome"] is None:
+        outcome: str | None = state["outcome"]
+        if outcome is None:
             state["outcome"] = _compile_outcome(exc, state["stage"])
         raise
 
@@ -1334,18 +1344,20 @@ def compile_cmd(args: argparse.Namespace) -> int:
     _load_compiler()
     started = time.monotonic()
     _compile_env_defaults(args)
-    state: dict[str, Any] = {
-        "outcome": None,
-        "stage": "lower",
-        "fence_count": 0,
-        "fence_families": {},
-        "fence_codes": {},
-        "binary_bytes": None,
-    }
+    fence_families: dict[str, Any] = {}
+    fence_codes: dict[str, Any] = {}
+    state: dict[str, Any] = {}
+    state["outcome"] = None
+    state["stage"] = "lower"
+    state["fence_count"] = 0
+    state["binary_bytes"] = None
+    state["fence_families"] = fence_families
+    state["fence_codes"] = fence_codes
     try:
         return _compile_cmd(args, state)
     except BaseException as exc:
-        if state["outcome"] is None:
+        outcome: str | None = state["outcome"]
+        if outcome is None:
             state["outcome"] = _compile_outcome(exc, state["stage"])
         raise
     finally:
@@ -1548,11 +1560,11 @@ def _load_ffi(args: argparse.Namespace, config: Config) -> list[FfiManifest]:
     declares a `[[source]]` unit that is not on disk is refused here too:
     the compiler must not start a build that cannot finish.
     """
-    paths = [Path(item) for item in getattr(args, "ffi", None) or []]
+    paths: list[Path] = [Path(item) for item in getattr(args, "ffi", None) or []]
     paths.extend(config.ffi_manifests)
     if not paths:
         return []
-    manifests = load_manifests(paths)
+    manifests: list[FfiManifest] = load_manifests(paths)
     for manifest in manifests:
         _require_manifest_units(manifest)
     return manifests
@@ -1587,7 +1599,7 @@ def _manifest_stub_roots(manifests: list[FfiManifest]) -> list[Path]:
     for manifest in manifests:
         # Absolute: the checker runs with its own working directory, so a
         # relative root would resolve against the wrong place.
-        base = manifest.path.parent.resolve()
+        base: Path = manifest.path.parent.resolve()
         roots.append(base)
         module = manifest.module.replace(".", "/")
         for candidate in (base / f"{module}.pyi", base / module / "__init__.pyi"):
@@ -1649,9 +1661,10 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         emit/link error exactly as the serial order does.
         """
         nonlocal join_check
-        if join_check is None:
+        join: Callable[[], None] | None = join_check
+        join_check = None
+        if join is None:
             return
-        join, join_check = join_check, None
         join()
         dbg.end("check", module)
 
@@ -1660,7 +1673,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
 
             dbg.begin("bridge")
-            provider_name = getattr(args, "bridge", None) or "pyrefly"
+            provider_name: str = getattr(args, "bridge", None) or "pyrefly"
             pins = None
             if getattr(args, "infer", False):
                 # The pins are a package-wide fact (`pyscriptc infer`): the
@@ -1693,7 +1706,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.end("bridge")
         dbg.begin("lower")
         # boxed:begin
-        island_names = set(config.island_imports())
+        island_names = config.island_imports()
         fallback: bool = (
             getattr(args, "fallback", None) == "cpython"
             or bool(getattr(args, "island", False))
@@ -1739,7 +1752,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             with island_ctx, boxed_definitions(fallback):
                 # boxed:end
                 if source_path.is_dir():
-                    module, source = lower_directory(
+                    lowered_dir: tuple[dict[str, Any], str] = lower_directory(
                         source_path,
                         program_mode=args.program,
                         bridge=bridge,
@@ -1751,8 +1764,10 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                         config=config,
                         staged_data=staged_data,
                     )
+                    module: dict[str, Any] | None = lowered_dir[0]
+                    source: str = lowered_dir[1]
                 elif source_path.is_file():
-                    module, source = lower_file(
+                    lowered_file: tuple[dict[str, Any], str] = lower_file(
                         str(source_path),
                         bridge=bridge,
                         timings=dbg.timings_map,
@@ -1763,19 +1778,24 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                         resource_root=str(data_root) if data_root else "",
                         config=config,
                     )
+                    module: dict[str, Any] | None = lowered_file[0]
+                    source: str = lowered_file[1]
                 else:
                     raise IRError(f"source not found: {source_path}")
         # boxed:begin
         finally:
             _package._STAGED_DATA_TARGET = None
         # boxed:end
+        if module is None:
+            raise IRError("internal: lowering produced no module")
         if bridge is not None and hasattr(bridge, "close"):
             bridge.close()
         dbg.end("lower", module)
         dbg.exclude("lower", "parse")
         if args.run:
             args.emit = "bin"
-        for note in module.pop("_notes", []):
+        no_notes: list[Any] = []
+        for note in module.pop("_notes", no_notes):
             print(note, file=sys.stderr)
         # boxed:begin
         fallback_map = module.get("fallback")
@@ -1798,7 +1818,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             # serial order would print after it. The boxed island lane keeps
             # the serial call (its diagnostics filter through `plane_map`), and
             # `PYSC_NO_CHECK_OVERLAP=1` opts out entirely.
-            overlap = args.checker == "pyrefly" and args.emit == "bin" and not _check_overlap_disabled()
+            overlap: bool = args.checker == "pyrefly" and args.emit == "bin" and not _check_overlap_disabled()
             # boxed:begin
             overlap = overlap and not fallback
             # boxed:end
@@ -1832,18 +1852,19 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         ir_path = _output_path(args, source_path, ".ir.json")
         if args.emit == "ir" or module["fences"] or dbg.debug_dir is not None:
             ir_path.parent.mkdir(parents=True, exist_ok=True)
-            ir_path.write_text(json.dumps(module, indent=2) + "\n", encoding="utf-8")
+            _write_text(ir_path, json.dumps(module, indent=2) + "\n")
             outputs["ir"] = str(ir_path)
             log.info("emit.ir", output=str(ir_path))
         if module["fences"]:
             await_check()
-            state["fence_count"] = len(module["fences"])
-            state["fence_families"] = _fence_families(module["fences"])
-            state["fence_codes"] = _histogram(module["fences"], "code")
+            module_fences: list[dict[str, str]] = module["fences"]
+            state["fence_count"] = len(module_fences)
+            state["fence_families"] = _fence_families(module_fences)
+            state["fence_codes"] = _histogram(module_fences, "code")
             log.info(
                 "check.fences",
-                count=len(module["fences"]),
-                codes=[fence["code"] for fence in module["fences"]],
+                count=len(module_fences),
+                codes=[fence["code"] for fence in module_fences],
             )
             print(render_fences(module, source), file=sys.stderr)
             status = "fences"
@@ -1858,7 +1879,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
 
             mir_path = _output_path(args, source_path, ".mir")
             mir_path.parent.mkdir(parents=True, exist_ok=True)
-            mir_path.write_text(print_module(lower_module(module)), encoding="utf-8")
+            _write_text(mir_path, print_module(lower_module(module)))
             outputs["mir"] = str(mir_path)
             print(mir_path)
             return 0
@@ -1870,7 +1891,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             or (fallback_map and fallback_map.get("moduleTopLevel") == _boxed.ISLAND)
             or config.island_imports()
         )
-        report_data = {
+        report_data: dict[str, Any] = {
             "target": str(source_path),
             "planeMap": fallback_map,
             "fallback": fallback_map,
@@ -1879,13 +1900,13 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         }
         report_path = _output_path(args, source_path, ".report.json")
         report_path.parent.mkdir(parents=True, exist_ok=True)
-        report_path.write_text(json.dumps(report_data, indent=2) + "\n", encoding="utf-8")
+        _write_text(report_path, json.dumps(report_data, indent=2) + "\n")
         # boxed:end
-        call_args = _parse_args(args.args) if args.call else None
+        call_args: list[Any] | None = _parse_args(args.args) if args.call else None
         # The nothing-to-run note prints after the checker's join so a pending
         # preflight failure still surfaces without it (the serial order prints
         # the diagnostics alone).
-        nothing_to_run = args.run and not args.call and standalone_entry(module) is None
+        nothing_to_run: bool = args.run and not args.call and standalone_entry(module) is None
         state["stage"] = "emit"
         dbg.begin("emit_llvm")
         emit_fn = emit_llvm
@@ -1934,7 +1955,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         else:
             ll_path = _output_path(args, source_path, ".ll")
         ll_path.parent.mkdir(parents=True, exist_ok=True)
-        ll_path.write_text(llvm_text, encoding="utf-8")
+        if llvm_text is None:
+            raise IRError("internal: emit produced no LLVM text")
+        _write_text(ll_path, llvm_text)
         outputs["ll"] = str(ll_path)
         log.info("emit.llvm", output=str(ll_path))
         if dbg.wants("verify"):
@@ -1949,7 +1972,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             state["stage"] = "archive"
             dbg.begin("archive")
             mobile = require_mobile_target(args.target, "--emit lib")
-            artifacts = build_library(
+            artifacts: dict[str, Path] = build_library(
                 ll_path,
                 _library_dir(args, source_path),
                 target=mobile,
@@ -1964,7 +1987,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             outputs["header"] = str(artifacts["header"])
             outputs["modulemap"] = str(artifacts["modulemap"])
             log.info("archive.library", output=str(artifacts["archive"]), target=args.target)
-            print(artifacts["archive"])
+            print(str(artifacts["archive"]))
             if mobile.family == "android":
                 # The archive has no program headers; the 16 KB alignment is
                 # the consumer's link-time decision, so say it where the
@@ -1982,7 +2005,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             dbg.begin("binding")
             base: Path = Path(args.output) if args.output else _artifact_base(args, source_path)
             stem = base.stem.removesuffix("_binding")
-            shlib_name = binding.shared_library_name(stem, target=args.target)
+            shlib_name: str = binding.shared_library_name(stem, target=args.target)
             shlib_path: Path = base.parent / shlib_name
             binding_path: Path = base.parent / f"{stem}_binding.py"
 
@@ -1991,11 +2014,13 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             # on the far side, so an unguarded call would report and exit the
             # host process. The shim is a C unit of the same link, generated
             # from the same function list the loader module is built from.
-            emitted, skipped = binding.analyze_binding(module)
+            binding_parts: tuple[list[dict[str, Any]], list[tuple[str, str]]] = binding.analyze_binding(module)
+            emitted: list[dict[str, Any]] = binding_parts[0]
+            skipped: list[tuple[str, str]] = binding_parts[1]
             dbg.set_binding(emitted, skipped)
             shim_path: Path = base.parent / f"{stem}_binding_shim.c"
             shim_path.parent.mkdir(parents=True, exist_ok=True)
-            shim_path.write_text(binding.render_binding_shim(stem, emitted), encoding="utf-8")
+            _write_text(shim_path, binding.render_binding_shim(stem, emitted))
 
             link_binary(
                 ll_path,
@@ -2017,9 +2042,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 shared=True,
             )
 
-            binding_code = binding.render_binding_module(stem, shlib_name, emitted, skipped)
+            binding_code: str = binding.render_binding_module(stem, shlib_name, emitted, skipped)
             binding_path.parent.mkdir(parents=True, exist_ok=True)
-            binding_path.write_text(binding_code, encoding="utf-8")
+            _write_text(binding_path, binding_code)
 
             outputs["shared"] = str(shlib_path)
             outputs["binding"] = str(binding_path)
@@ -2084,8 +2109,8 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # and the compile first manifest-checks every stdlib import of the
         # program against the zip the trim would produce, so a trimmed module
         # fails the build (PS4301), never the run.
-        requested_embed = getattr(args, "embed_python", None)
-        resolved_embed = requested_embed
+        requested_embed: str | None = getattr(args, "embed_python", None)
+        resolved_embed: str | None = requested_embed
         if resolved_embed != "host" and embed.resolve_mode(resolved_embed) == "bundle":
             resolved_embed = "bundle"
         # link_binary embeds libpython only when the module references the
@@ -2139,7 +2164,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         log.info("run.start", binary=str(binary))
         dbg.begin("run")
         run_env = _run_environment(source_path)
-        completed = subprocess.run([str(binary.absolute()), *args.run_argv], env=run_env)
+        completed: subprocess.CompletedProcess = subprocess.run([str(binary.absolute()), *args.run_argv], env=run_env)
         dbg.end("run")
         code: int = 128 + (-completed.returncode) if completed.returncode < 0 else completed.returncode
         log.info("run.exit", binary=str(binary), code=code)
@@ -2173,7 +2198,7 @@ def _stdlib_imports(source_path: Path) -> list[str]:
     for site in collect_imports(source_path):
         if site["level"] > 0 or not site["name"]:
             continue
-        root = site["name"].split(".")[0]
+        root: str = site["name"].split(".")[0]
         if root not in sys.stdlib_module_names:
             continue
         # A stdlib name the running platform cannot import (msvcrt on POSIX,
@@ -2182,7 +2207,7 @@ def _stdlib_imports(source_path: Path) -> list[str]:
         if root not in sys.modules and importlib.util.find_spec(root) is None:
             continue
         names.add(site["name"])
-    return sorted(names)
+    return [name for name in sorted(names)]
 
 
 def _dependency_roots(
@@ -2212,7 +2237,10 @@ def _dependency_roots(
     """
 
     if not config.dependencies:
-        return [], [], {}
+        no_roots: list[Path] = []
+        no_checker_roots: list[Path] = []
+        no_lanes: dict[str, dict[str, str]] = {}
+        return no_roots, no_checker_roots, no_lanes
     report = deps.run_deps(source_path)
     roots: list[Path] = []
     checker_roots: list[Path] = []
@@ -2343,18 +2371,18 @@ def _dependency_lane(distribution: str, config: Config, island_default: bool = F
         return "island"
     # boxed:end
     star = config.imports.get("*")
-    if star not in (None, "compile"):
+    if star is not None and star != "compile":
         return star
     return "compile"
 
 
-def _compile_outcome(exc: BaseException, stage: str) -> str:
+def _compile_outcome(error: BaseException, stage: str) -> str:
     """Map a compile failure onto the telemetry outcome vocabulary."""
-    if isinstance(exc, CheckFailed):
+    if isinstance(error, CheckFailed):
         return "check-failed"
     if stage == "link":
         return "build-error"
-    if isinstance(exc, SpikeError) or stage in ("lower", "validate", "emit"):
+    if isinstance(error, SpikeError) or stage in ("lower", "validate", "emit"):
         return "lower-error"
     return "build-error"
 
@@ -2377,16 +2405,24 @@ def _verify_llvm(ll_path: Path, dbg: Debug, driver: str, target: str | None) -> 
     """Verify the emitted LLVM module and record (or raise) its verdict."""
 
     result = verify_module_text(ll_path, driver=driver, target=target)
-    dbg.llvm_verification = result.as_dict()
-    if not result.ok and not result.skipped:
-        raise LLVMVerifyError(f"the emitted LLVM module did not verify: {result.message}")
+    info: dict[str, Any] = result.as_dict()
+    dbg.llvm_verification = info
+    ok: bool = info["ok"]
+    skipped: bool = info["skipped"]
+    if not ok and not skipped:
+        message: str = info["message"]
+        raise LLVMVerifyError(f"the emitted LLVM module did not verify: {message}")
 
 
 def _histogram(fences: list[dict[str, str]], key: str) -> dict[str, int]:
     counts: dict[str, int] = {}
     for fence in fences:
-        counts[fence.get(key, "")] = counts.get(fence.get(key, ""), 0) + 1
-    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+        name = fence.get(key, "")
+        counts[name] = counts.get(name, 0) + 1
+    result: dict[str, int] = {}
+    for name in sorted([item for item in counts], key=lambda item: (-counts[item], item)):
+        result[name] = counts[name]
+    return result
 
 
 def _fence_families(fences: list[dict[str, str]]) -> dict[str, int]:
@@ -2397,7 +2433,10 @@ def _fence_families(fences: list[dict[str, str]]) -> dict[str, int]:
         if family.startswith("stdlib:"):
             family = "stdlib"
         counts[family] = counts.get(family, 0) + 1
-    return dict(sorted(counts.items(), key=lambda item: (-item[1], item[0])))
+    result: dict[str, int] = {}
+    for family in sorted([item for item in counts], key=lambda item: (-counts[item], item)):
+        result[family] = counts[family]
+    return result
 
 
 def _parse_args(text: str) -> list[Any]:
@@ -2429,7 +2468,7 @@ def _output_path(args: argparse.Namespace, source: Path, suffix: str) -> Path:
     if args.output and args.emit == "obj" and suffix == ".o":
         return Path(args.output)
     if args.output and args.emit == "binding":
-        base = Path(args.output)
+        base: Path = Path(args.output)
         stem = base.stem.removesuffix("_binding")
         return base.parent / f"{stem}{suffix}"
     if args.output:
@@ -2437,3 +2476,15 @@ def _output_path(args: argparse.Namespace, source: Path, suffix: str) -> Path:
     if args.out_dir:
         return Path(args.out_dir) / f"{source.stem}{suffix}"
     return source.with_suffix(suffix)
+
+
+def _write_text(path: Path, text: str) -> None:
+    """`path.write_text(text, encoding="utf-8")`.
+
+    The lowered `Path.write_text` takes no keywords, and the lowered
+    `open` writes bytes as they come, so the utf-8 encoding is the
+    `open(..., encoding="utf-8")` the host `write_text` performs.
+    """
+
+    with open(str(path), "w", encoding="utf-8") as handle:
+        handle.write(text)

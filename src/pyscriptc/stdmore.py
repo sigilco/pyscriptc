@@ -1515,6 +1515,8 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
         "getpid": sig([], _I, "ps_os_getpid"),
         "chdir": sig([_S], _N, "ps_os_chdir"),
         "chmod": sig([_S, _I], _N, "ps_os_chmod"),
+        "symlink": sig([_S, _S], _N, "ps_os_symlink"),
+        "readlink": sig([_S], _S, "ps_os_readlink"),
         "mkdir": sig([_S], _N, "ps_os_mkdir"),
         "replace": sig([_S, _S], _N, "ps_os_replace"),
         "unlink": sig([_S], _N, "ps_os_remove"),

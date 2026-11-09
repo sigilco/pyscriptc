@@ -178,7 +178,7 @@ def test_coverage_walks_a_program_graph(tmp_path: Path) -> None:
 
 
 def test_coverage_survives_a_real_package_tree(tmp_path: Path) -> None:
-    """Issue #730: unnameable and unparsable files are listed, not fatal."""
+    """Issue #730: unparsable files are listed, not fatal; issue #764: unnameable ones are skipped."""
     pkg = tmp_path / "pkg"
     (pkg / "migrations").mkdir(parents=True)
     (pkg / "nspkg").mkdir()
@@ -193,13 +193,38 @@ def test_coverage_survives_a_real_package_tree(tmp_path: Path) -> None:
     assert got.returncode == 0, got.stderr
     report = json.loads(got.stdout)
     assert report["summary"]["files"] == 5
-    assert report["summary"]["filesFailed"] == 2
+    assert report["summary"]["filesFailed"] == 1
+    assert report["summary"]["filesSkipped"] == 1
     failed = {item["file"].rsplit("/", 1)[-1]: item["reason"] for item in report["failedFiles"]}
-    assert "not a module name" in failed["0001_initial.py"]
     assert "invalid syntax" in failed["broken.py"]
+    skipped = {item["file"].rsplit("/", 1)[-1]: item["reason"] for item in report["skippedFiles"]}
+    assert skipped["0001_initial.py"] == "not an importable module name"
     analysed = {item["file"].rsplit("/", 1)[-1] for item in report["capabilities"]["byFile"]}
     assert "mod.py" in analysed
     assert "0001_initial.py" not in analysed
+
+
+def test_coverage_skips_a_pyinstaller_hook_file(tmp_path: Path) -> None:
+    """Issue #764: `__pyinstaller/hook-pk.py` is skipped with a note, not a failure."""
+    pkg = tmp_path / "pk"
+    (pkg / "__pyinstaller").mkdir(parents=True)
+    (pkg / "__init__.py").write_text("def f() -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "__pyinstaller" / "hook-pk.py").write_text("hook = 'pk'\n", encoding="utf-8")
+    got = run_cli("coverage", str(pkg), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["failedFiles"] == []
+    assert report["summary"]["filesSkipped"] == 1
+    skipped = report["skippedFiles"]
+    assert len(skipped) == 1
+    assert skipped[0]["file"].endswith("__pyinstaller/hook-pk.py")
+    assert skipped[0]["reason"] == "not an importable module name"
+    assert "note: skipped pk/__pyinstaller/hook-pk.py" in skipped[0]["note"]
+
+    text = run_cli("coverage", str(pkg))
+    assert text.returncode == 0, text.stderr
+    assert "could not analyse" not in text.stdout
+    assert "note: skipped pk/__pyinstaller/hook-pk.py; not an importable module name" in text.stdout
 
 
 def test_coverage_text_lists_unanalysed_files(tmp_path: Path) -> None:

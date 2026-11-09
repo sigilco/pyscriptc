@@ -121,7 +121,6 @@ def _call_node(
     span: dict[str, Any],
     *,
     format_style: str = "",
-    format_kwnames: int = -1,
 ) -> dict[str, Any]:
     """The call node one dict-IR call spells."""
     return node_to_dict(
@@ -132,7 +131,7 @@ def _call_node(
             _mk_span(span),
             "",
             format_style,
-            format_kwnames,
+            -1,
         )
     )
 
@@ -838,6 +837,9 @@ class ExprMixin(ExprCompareMixin):
                 if member is None:
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
                 return _const_of(str(member), "int", span)
+            const = self._class_const(class_name, node.attr)
+            if const is not None:
+                return {**const, "span": span}
         value = self._expr(node.value)
         read = path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
         if isinstance(node.value, ast.Name):

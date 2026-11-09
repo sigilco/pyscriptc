@@ -227,9 +227,9 @@ class ArgparseState:
         self.prog: str = ""
         self.description: str = ""
 
-    def add(self, dest: str, kind: int, field_type: dict[str, Any], arg_meta: dict[str, Any]) -> None:
+    def add(self, dest: str, field: dict[str, Any], kind: int, arg_meta: dict[str, Any]) -> None:
         self.dests[dest] = len(self.fields)
-        self.fields.append({"name": dest, "type": field_type})
+        self.fields.append(field)
         self.kinds.append(kind)
         self.registered_args.append(arg_meta)
 
@@ -478,7 +478,7 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
         "required": required,
         "help": help_text,
     }
-    state.add(dest, kind, field_type, arg_meta)
+    state.add(dest, {"name": dest, "type": field_type}, kind, arg_meta)
     if type_name == "Path":
         state.path_dests.add(dest)
     lo.classes["Namespace"]["fields"] = list(state.fields)

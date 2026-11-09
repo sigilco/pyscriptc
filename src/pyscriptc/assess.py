@@ -30,6 +30,7 @@ DEFAULT_TOP_N = 3
 STATUS_FULLY = "fully"
 STATUS_PARTLY = "partly"
 STATUS_REFUSED = "refused"
+STATUS_SKIPPED = "skipped"
 
 ROOT_REFLECTION = "reflection"
 ROOT_UNTYPED_IMPORT = "untyped-import"
@@ -324,6 +325,12 @@ def assess(
     failed_by_file = {
         str(Path(item["file"]).resolve()): str(item["reason"]) for item in cov_report.get("failedFiles", [])
     }
+    # Files the tree walk skips by design (issue #764): a dunder `__main__`
+    # or a name CPython cannot import. They are not refused; the report
+    # names them skipped, the way the compile path notes them.
+    skipped_by_file = {
+        str(Path(item["file"]).resolve()): str(item.get("reason", "")) for item in cov_report.get("skippedFiles", [])
+    }
 
     file_results: list[dict[str, Any]] = []
     untyped_imports_needed: dict[str, dict[str, Any]] = {}
@@ -341,7 +348,8 @@ def assess(
         island_defs = cap.get("island", 0)
         fence_count = len(local_fences)
 
-        if not cap and fence_count == 0:
+        skipped_reason = skipped_by_file.get(fpath_resolved)
+        if not cap and fence_count == 0 and skipped_reason is None:
             try:
                 tree = ast.parse(Path(fpath_resolved).read_text(encoding="utf-8"), filename=fpath_resolved)
                 defs = coverage._definitions(tree)
@@ -352,7 +360,9 @@ def assess(
 
         has_error = bool(cov_report.get("error"))
         failed_reason = failed_by_file.get(fpath_resolved)
-        if has_error or failed_reason is not None:
+        if skipped_reason is not None:
+            status = STATUS_SKIPPED
+        elif has_error or failed_reason is not None:
             status = STATUS_REFUSED
             local_fences = [
                 {
@@ -472,6 +482,7 @@ def assess(
                 "file": rel_path,
                 "absolutePath": fpath,
                 "status": status,
+                "skipReason": skipped_reason or "",
                 "definitions": total_defs,
                 "native": native_defs,
                 "fenced": fenced_defs,
@@ -508,6 +519,7 @@ def assess(
     files_fully = sum(1 for f in file_results if f["status"] == STATUS_FULLY)
     files_partly = sum(1 for f in file_results if f["status"] == STATUS_PARTLY)
     files_refused = sum(1 for f in file_results if f["status"] == STATUS_REFUSED)
+    files_skipped = sum(1 for f in file_results if f["status"] == STATUS_SKIPPED)
 
     if tot_defs > 0:
         share_nat = round(nat_defs / tot_defs, 4)
@@ -749,6 +761,7 @@ def assess(
             "fully": files_fully,
             "partly": files_partly,
             "refused": files_refused,
+            "skipped": files_skipped,
         },
         "definitions": {
             "total": tot_defs,
@@ -842,8 +855,11 @@ def render_text(
     files_fully: int = files_sum["fully"]
     files_partly: int = files_sum["partly"]
     files_refused: int = files_sum["refused"]
+    files_skipped: int = files_sum.get("skipped", 0)
+    skipped_note = f", {files_skipped} skipped" if files_skipped else ""
     lines.append(
-        f"  Files:    {files_total2} ({files_fully} lowers fully, {files_partly} partly, {files_refused} refused)"
+        f"  Files:    {files_total2} ({files_fully} lowers fully, {files_partly} partly, "
+        f"{files_refused} refused{skipped_note})"
     )
     imps_total3: int = imps_sum["total"]
     imps_native: int = imps_sum["native"]
@@ -863,13 +879,18 @@ def render_text(
 
     for f in display_files:
         f_status: str = f["status"]
+        f_file: str = f["file"]
+        if f_status == STATUS_SKIPPED:
+            skip_reason: str = f["skipReason"]
+            suffix = f" ({skip_reason})" if skip_reason else ""
+            lines.append(f"  {f_file}: skipped{suffix}")
+            continue
         status_label: str = f"lowers {f_status}" if f_status in [STATUS_FULLY, STATUS_PARTLY] else STATUS_REFUSED
         f_native: int = f["native"]
         f_fenced: int = f["fenced"]
         f_island: int = f["island"]
         f_definitions: int = f["definitions"]
         f_fences: int = f["fences"]
-        f_file: str = f["file"]
         detail = (
             f"({f_native} native, {f_fenced} fenced, {f_island} island "
             f"of {f_definitions} definitions, {f_fences} fences)"
@@ -943,7 +964,8 @@ def render_text(
         module_top: str = plane_map.get("moduleTopLevel", "native")
         lines.append(f"  module top level: {module_top}")
         demoted_by: dict[str, str] = plane_map.get("demotedBy", {})
-        for fn_name, plane in sorted(functions_map.items()):
+        for fn_name in sorted([name for name in functions_map]):
+            plane: str = functions_map[fn_name]
             demoted_reason: str = demoted_by.get(fn_name, "")
             if demoted_reason:
                 lines.append(f"  {fn_name}: {plane} (demoted by {demoted_reason})")

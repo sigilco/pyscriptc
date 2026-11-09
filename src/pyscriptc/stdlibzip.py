@@ -38,6 +38,7 @@ import ast
 import importlib.machinery
 import importlib.util
 import os
+import platform
 import py_compile
 import shutil
 import sys
@@ -45,7 +46,7 @@ import tempfile
 import zipfile
 from pathlib import Path
 
-STDLIB_MODES = ("safe", "minimal")
+STDLIB_MODES = ["safe", "minimal"]
 DEFAULT_MODE = "safe"
 
 # The documented safe-trim deny list: top-level stdlib trees and modules no
@@ -53,7 +54,7 @@ DEFAULT_MODE = "safe"
 # `install_only_stripped` archives, but a pack built from another asset may
 # carry it. This list is the whole contract of the safe trim; grow it only with
 # a documented reason, never to chase a smaller zip at correctness' expense.
-SAFE_TRIM = (
+SAFE_TRIM = [
     "__phello__",
     "idlelib",
     "ensurepip",
@@ -61,11 +62,11 @@ SAFE_TRIM = (
     "test",
     "tkinter",
     "turtledemo",
-)
+]
 
 # The frozen closure seed of the minimal trim: what an island bootstrap needs
 # before the first program import (the frozen importlib pulls these).
-MINIMAL_SEED = (
+MINIMAL_SEED = [
     "_collections_abc",
     "_compat_pickle",
     "_compression",
@@ -100,12 +101,12 @@ MINIMAL_SEED = (
     "warnings",
     "weakref",
     "zipfile",
-)
+]
 
 # Modules the minimal trim keeps unconditionally even though the seed closure
 # does not reach them: the island bootstrap (`importlib.abc`, `importlib.util`,
 # `json` in tests, `pathlib` in everyday code) and `site`'s dependencies.
-MINIMAL_EXTRA = (
+MINIMAL_EXTRA = [
     "_blake2",
     "_bootstrap_lite",
     "collections.abc",
@@ -198,7 +199,7 @@ MINIMAL_EXTRA = (
     "xml.etree",
     "xml.etree.ElementTree",
     "zlib",
-)
+]
 
 
 class StdlibError(Exception):
@@ -273,7 +274,8 @@ def _import_names_relative(source: str, package: str) -> set[str]:
 
 def _stdlib_available() -> Path:
     """A stdlib tree to read sources from: the running interpreter's."""
-    candidate = Path(sys.base_prefix) / "lib" / f"python{sys.version_info.major}.{sys.version_info.minor}"
+    version_parts = platform.python_version().split(".")
+    candidate: Path = Path(sys.base_prefix) / "lib" / f"python{version_parts[0]}.{version_parts[1]}"
     if candidate.is_dir():
         return candidate
     for entry in sys.path:
@@ -292,21 +294,25 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
     breadth-first over the stdlib tree of the running interpreter (the compiler
     host and the pack share the 3.14 stdlib layout), one pass per module, and
     then maps the kept names back to the pack's own files. Frozen means the
-    answer depends on these two tuples and the 3.14 sources only, so two
+    answer depends on these two lists and the 3.14 sources only, so two
     compilers agree without executing anything.
     """
-    source_tree = stdlib_dir if stdlib_dir is not None and (stdlib_dir / "os.py").is_file() else _stdlib_available()
+    source_tree: Path = (
+        stdlib_dir if stdlib_dir is not None and (stdlib_dir / "os.py").is_file() else _stdlib_available()
+    )
     # A seed package travels whole (`encodings` pulls its codec and alias
     # modules through dynamic imports no static walk sees); a seed module
     # travels alone and only grows through the closure below.
-    keep = set()
+    keep: set[str] = set()
     queue: list[str] = []
-    for name in (*MINIMAL_SEED, *MINIMAL_EXTRA):
+    for name in MINIMAL_SEED + MINIMAL_EXTRA:
         parts = name.split("/")
-        package = source_tree.joinpath(*parts)
+        package: Path = source_tree
+        for part in parts:
+            package = package / part
         if package.is_dir() and (package / "__init__.py").is_file():
             keep.add(name)
-            for child in sorted(package.glob("*.py")):
+            for child in package.glob("*.py"):
                 keep.add(f"{name}.{child.stem}")
         queue.append(name)
     seen: set[str] = set()
@@ -325,8 +331,8 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
         if not path.is_file():
             continue
         keep.add(name)
-        package = name if path.name == "__init__.py" else name.rpartition(".")[0]
-        for found in _import_names_relative(path.read_text(encoding="utf-8", errors="replace"), package):
+        package_name: str = name if path.name == "__init__.py" else name.rpartition(".")[0]
+        for found in _import_names_relative(path.read_text(encoding="utf-8", errors="replace"), package_name):
             if found in seen:
                 continue
             parts = found.split(".")
@@ -344,10 +350,11 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
     files: list[Path] = []
     for name in sorted(keep):
         rel = name.replace(".", "/")
-        for candidate in (tree / f"{rel}.py", tree / rel / "__init__.py"):
-            if candidate.is_file():
-                files.append(candidate)
-                break
+        candidate: Path = tree / f"{rel}.py"
+        if not candidate.is_file():
+            candidate = tree / rel / "__init__.py"
+        if candidate.is_file():
+            files.append(candidate)
     return files
 
 
@@ -363,10 +370,12 @@ def kept_module_names(sources: list[Path], stdlib_dir: Path | None = None) -> se
     if base is None and sources:
         # Every source sits under the same stdlib root; recover it from the
         # first path (`.../lib/python3.14/os.py`).
-        parts = sources[0].parts
+        parts: list[str] = sources[0].parts
         for cut in range(len(parts) - 1, -1, -1):
             if parts[cut].startswith("python") and parts[cut][6:].replace(".", "").isdigit():
-                base = Path(*parts[: cut + 1])
+                base = Path(parts[0])
+                for segment in parts[1 : cut + 1]:
+                    base = base / segment
                 break
     if base is None:
         return set()
@@ -389,13 +398,7 @@ def _pyc_bytes(source: Path, module_name: str) -> bytes:
 
     with tempfile.TemporaryDirectory(prefix="pyscriptc-pyc-") as tmp:
         target = Path(tmp) / "module.pyc"
-        py_compile.compile(
-            str(source),
-            cfile=str(target),
-            dfile=f"{module_name}.py",
-            doraise=True,
-            optimize=-1,
-        )
+        py_compile.compile(str(source), str(target), f"{module_name}.py", True, -1)
         return target.read_bytes()
 
 
@@ -451,7 +454,7 @@ def carried_modules(pack_directory: Path, version: str, mode: str = DEFAULT_MODE
     """
 
     tree = pack_directory / "lib" / f"python{version}"
-    if tree.is_dir() and any(tree.glob("*.py")):
+    if tree.is_dir() and any(True for _entry in tree.glob("*.py")):
         return kept_module_names(stdlib_sources(tree, mode))
     zip_path = pack_stdlib_zip(pack_directory, version)
     if zip_path is not None:
@@ -473,14 +476,14 @@ def stage_stdlib(lib_dir: Path, pack_directory: Path, version: str, mode: str = 
     if not stdlib_dir.is_dir() and not pack_stdlib.is_dir():
         raise StdlibError(f"the runtime pack has no stdlib tree at {pack_stdlib}")
     zip_path = lib_dir / stdlib_zip_name(version)
-    if pack_stdlib.is_dir() and not any(pack_stdlib.glob("*.py")):
+    if pack_stdlib.is_dir() and not any(True for _entry in pack_stdlib.glob("*.py")):
         # A pack that carries the zipped stdlib (the self-compiled compiler's
         # own runtime) has no sources to re-trim: the zip travels as is.
         carried = pack_stdlib_zip(pack_directory, version)
         if carried is not None:
-            shutil.copy2(carried, zip_path)
+            shutil.copy2(str(carried), str(zip_path))
             if stdlib_dir.is_dir():
-                shutil.rmtree(stdlib_dir)
+                shutil.rmtree(str(stdlib_dir))
             dynload = stdlib_dir / "lib-dynload"
             dynload.mkdir(parents=True, exist_ok=True)
             return zip_path
@@ -488,7 +491,7 @@ def stage_stdlib(lib_dir: Path, pack_directory: Path, version: str, mode: str = 
     write_zip(sources, pack_stdlib if pack_stdlib.is_dir() else stdlib_dir, zip_path)
 
     if stdlib_dir.is_dir():
-        shutil.rmtree(stdlib_dir)
+        shutil.rmtree(str(stdlib_dir))
     dynload = stdlib_dir / "lib-dynload"
     dynload.mkdir(parents=True, exist_ok=True)
     return zip_path
@@ -594,7 +597,7 @@ def host_modules() -> set[str]:
     built, so it does not change from one machine to the next.
     """
 
-    names = set(sys.builtin_module_names)
+    names: set[str] = set(sys.builtin_module_names)
     for name in sys.stdlib_module_names:
         try:
             spec = importlib.util.find_spec(name)
@@ -638,11 +641,10 @@ def manifest_check(
     links.
     """
 
-    if interpreter is None:
-        interpreter = host_modules()
+    served: set[str] = host_modules() if interpreter is None else interpreter
     missing: list[str] = []
     for name in imported:
-        if not name or name in carried or name in interpreter:
+        if not name or name in carried or name in served:
             continue
         parts = name.split(".")
         if not any(".".join(parts[: cut + 1]) in carried for cut in range(len(parts))):

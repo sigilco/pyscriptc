@@ -698,7 +698,7 @@ def _const_bytes(value: bytes, span: dict[str, Any]) -> dict[str, Any]:
     return {"kind": "const", "value": value.decode("latin1"), "type": {"kind": "bytes"}, "span": span}
 
 
-_MISSING: Any = object()
+_MISSING: dict[str, Any] = {}
 
 
 def _raw_const(value: dict[str, Any] | None) -> Any:

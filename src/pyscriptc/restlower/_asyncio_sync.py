@@ -47,23 +47,9 @@ from pyscriptc.restlower._shared import (
 )
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
-# The primitive records. Each one is a runtime pointer.
-_ASYNC_LOCK = _class("AsyncLock")
-_ASYNC_EVENT = _class("AsyncEvent")
-_ASYNC_SEM = _class("AsyncSemaphore")
-_ASYNC_QUEUE = _class("AsyncQueue")
-
-_INT = _t_leaf("int")
-_BOOL = _t_leaf("bool")
-_NONE = _t_leaf("none")
-
-# The primitive constructors and the class each one lowers to.
-_PRIMS: dict[str, tuple[dict[str, str], str]] = {
-    "Lock": (_ASYNC_LOCK, "ps_alock_new"),
-    "Event": (_ASYNC_EVENT, "ps_aevent_new"),
-    "Semaphore": (_ASYNC_SEM, "ps_asem_new"),
-    "Queue": (_ASYNC_QUEUE, "ps_aqueue_new"),
-}
+# The primitive constructors and the class each one lowers to, spelled at
+# the call site: a module-level record would be a call, and a module
+# assignment must be a constant.
 
 
 def _const_number(lo: Any, value: ast.expr, what: str) -> int:
@@ -86,7 +72,13 @@ def _prim_call(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
     `queue.Queue(maxsize)` do. The queue's element type comes from the
     annotation, the way a queue annotation carries it.
     """
-    spec = _PRIMS.get(attr)
+    prims: dict[str, tuple[dict[str, Any], str]] = {
+        "Lock": (_class("AsyncLock"), "ps_alock_new"),
+        "Event": (_class("AsyncEvent"), "ps_aevent_new"),
+        "Semaphore": (_class("AsyncSemaphore"), "ps_asem_new"),
+        "Queue": (_class("AsyncQueue"), "ps_aqueue_new"),
+    }
+    spec = prims.get(attr)
     if spec is None:
         lo.fail(node, "PS2001", f"asyncio.{attr} is not in the lowered subset of asyncio")
         raise AssertionError("unreachable")
@@ -148,7 +140,7 @@ def _prim_marker(lo: Any, span: dict[str, Any], prim: dict[str, Any], op: str) -
     prim_t = _node_type(prim)
     lo.locals[slot] = prim_t
     lo.prelude.append(_asg(slot, prim, span))
-    marker = _call_builtin(PRIM_MARKER, [_nm(slot, prim_t, span)], _NONE, span)
+    marker = _call_builtin(PRIM_MARKER, [_nm(slot, prim_t, span)], _t_leaf("none"), span)
     marker["prim_op"] = op
     return marker, slot
 
@@ -190,7 +182,7 @@ def _await_queue_get(lo: Any, node: ast.Call, span: dict[str, Any], receiver: di
     slot = lo._temp("prq")
     lo.locals[slot] = typ
     lo.prelude.append(_asg(slot, receiver, span))
-    marker = _call_builtin(PRIM_MARKER, [_nm(slot, typ, span)], _NONE, span)
+    marker = _call_builtin(PRIM_MARKER, [_nm(slot, typ, span)], _t_leaf("none"), span)
     marker["prim_op"] = "queue_get"
     marker["prim_elem"] = elem
     lo.prelude.append(_expr_stmt(marker, span))
@@ -223,12 +215,12 @@ def _prim_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Lock.release expects 0 argument(s)")
-            return call(_NONE, "ps_alock_release", [], "Lock.release")
+            return call(_t_leaf("none"), "ps_alock_release", [], "Lock.release")
         if attr == "locked":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Lock.locked expects 0 argument(s)")
-            return call(_BOOL, "ps_alock_locked", [], "Lock.locked")
+            return call(_t_leaf("bool"), "ps_alock_locked", [], "Lock.locked")
     if cls == "AsyncEvent":
         if attr == "wait":
             lo._reject_keywords(node)
@@ -239,17 +231,17 @@ def _prim_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Event.set expects 0 argument(s)")
-            return call(_NONE, "ps_aevent_set", [], "Event.set")
+            return call(_t_leaf("none"), "ps_aevent_set", [], "Event.set")
         if attr == "clear":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Event.clear expects 0 argument(s)")
-            return call(_NONE, "ps_aevent_clear", [], "Event.clear")
+            return call(_t_leaf("none"), "ps_aevent_clear", [], "Event.clear")
         if attr == "is_set":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Event.is_set expects 0 argument(s)")
-            return call(_BOOL, "ps_aevent_is_set", [], "Event.is_set")
+            return call(_t_leaf("bool"), "ps_aevent_is_set", [], "Event.is_set")
     if cls == "AsyncSemaphore":
         if attr == "acquire":
             lo._reject_keywords(node)
@@ -260,12 +252,12 @@ def _prim_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Semaphore.release expects 0 argument(s)")
-            return call(_NONE, "ps_asem_release", [], "Semaphore.release")
+            return call(_t_leaf("none"), "ps_asem_release", [], "Semaphore.release")
         if attr == "_value":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Semaphore._value expects 0 argument(s)")
-            return call(_INT, "ps_asem_value", [], "Semaphore._value")
+            return call(_t_leaf("int"), "ps_asem_value", [], "Semaphore._value")
     if cls == "AsyncQueue":
         if attr == "get":
             lo._reject_keywords(node)
@@ -282,17 +274,17 @@ def _prim_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Queue.qsize expects 0 argument(s)")
-            return call(_INT, "ps_aqueue_qsize", [], "Queue.qsize")
+            return call(_t_leaf("int"), "ps_aqueue_qsize", [], "Queue.qsize")
         if attr == "empty":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Queue.empty expects 0 argument(s)")
-            return call(_BOOL, "ps_aqueue_empty", [], "Queue.empty")
+            return call(_t_leaf("bool"), "ps_aqueue_empty", [], "Queue.empty")
         if attr == "full":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Queue.full expects 0 argument(s)")
-            return call(_BOOL, "ps_aqueue_full", [], "Queue.full")
+            return call(_t_leaf("bool"), "ps_aqueue_full", [], "Queue.full")
     lo.fail(node, "PS2001", f"{cls}.{attr} is not lowered")
     raise AssertionError("unreachable")
 
@@ -306,7 +298,7 @@ def _queue_put(
         lo.fail(node, "PS2001", "coroutines are not lowered")
     if lo._coro_current() is None:
         lo.fail(node, "PS2002", "a queue put is only lowered inside a coroutine")
-    call = _call_module("asyncio", "queue_put", "ps_aqueue_put", [receiver, item], _NONE, span)
+    call = _call_module("asyncio", "queue_put", "ps_aqueue_put", [receiver, item], _t_leaf("none"), span)
     call["prim_op"] = "queue_put"
     return call
 
@@ -383,12 +375,12 @@ def _to_thread(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
         "to_thread_start",
         "ps_to_thread_start",
         [_nm(slot, _node_type(made), span), pair],
-        _NONE,
+        _t_leaf("none"),
         span,
     )
     start["thread"] = {"result": ret, "size": _elem_size(ret)}
     lo.prelude.append(_expr_stmt(start, span))
-    marker = _call_builtin(THREAD_MARKER, [_nm(slot, _node_type(made), span)], _NONE, span)
+    marker = _call_builtin(THREAD_MARKER, [_nm(slot, _node_type(made), span)], _t_leaf("none"), span)
     marker["thread_elem"] = ret
     lo.prelude.append(_expr_stmt(marker, span))
     result = _await_result_name(slot)
