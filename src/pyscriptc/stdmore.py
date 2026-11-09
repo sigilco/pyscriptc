@@ -1889,7 +1889,13 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "io" and member in {"StringIO", "BytesIO"}:
         return True
-    if module == "bisect" and member in {"bisect_left", "bisect_right"}:
+    if module == "bisect" and member in {
+        "bisect_left",
+        "bisect_right",
+        "insort",
+        "insort_left",
+        "insort_right",
+    }:
         return True
     if module == "heapq" and member in {"heapify", "heappush", "heappop", "nlargest", "nsmallest"}:
         return True

@@ -115,6 +115,21 @@ test("nightly opens a PR and never pushes to master", () => {
   assert.ok(dataPaths, "nightly stages the canonical data/compat path");
 });
 
+test("the nightly carries the R0 lane", () => {
+  const workflow = readFileSync(join(repoRoot, ".github", "workflows", "nightly.yml"), "utf8");
+  assert.ok(workflow.includes("benchmarks.real_scripts.measure"));
+  assert.ok(workflow.includes("scripts/r0_lane.py"));
+  assert.ok(workflow.includes("r0-lane:"));
+  assert.ok(workflow.includes("nightly-failure"));
+});
+
+test("the compat page shows the R0 rate with its denominator", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "compat", "index.astro"), "utf8");
+  assert.ok(page.includes("data.ladder.r0"), "the page reads the r0 section");
+  assert.ok(page.includes("r0.total"), "the page shows the corpus size");
+  assert.ok(page.includes("r0.history"), "the page shows the trend");
+});
+
 // -- scripts keep working (the check that caught theme.css) --
 
 test("assemble refuses to ship a tree without every part", () => {

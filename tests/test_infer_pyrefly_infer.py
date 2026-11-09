@@ -15,10 +15,13 @@ the chained definition keeps its PS1001 fences.
 
 from __future__ import annotations
 
+import json
 import subprocess
 from pathlib import Path
 
 from tests.test_gates import run_cli, write_case
+
+from pyscriptc.diagnostics import DIAGNOSTICS
 
 _HELPERS = "def add_one(x):\n    return x + 1\n\n\ndef call_it(v):\n    return add_one(v)\n"
 _MAIN = (
@@ -94,6 +97,47 @@ def test_the_chained_parameter_and_returns_lower_natively(tmp_path: Path) -> Non
     assert "helpers.call_it" in names
     fences = [fence for fence in module["fences"] if fence["code"] == "PS1001"]
     assert not [fence for fence in fences if "needs an annotation" in fence["message"]]
+
+
+def test_the_infer_report_breaks_the_fence_delta_down_by_family_and_code(tmp_path: Path) -> None:
+    """`infer --json` says which fence family inference helped (issue #1171).
+
+    The totals alone cannot answer "how much does inference help
+    `param-inference` fences specifically": the delta is a single number
+    over every family at once. The report carries the per-family and
+    per-code rows so one run answers it.
+    """
+
+    root = tmp_path / "inferred"
+    _tree(root)
+
+    proc = run_cli("infer", str(root), "--json")
+    assert proc.returncode == 0, proc.stderr
+    report = json.loads(proc.stdout)
+
+    by_family = report["fences_by_family"]
+    by_code = report["fences_by_code"]
+
+    # The baseline fences the unannotated parameters, so the report has a
+    # `param-inference` row to move.
+    assert by_family["param-inference"]["baseline"] > 0
+    assert by_family["param-inference"]["inferred"] == 0
+    assert by_family["param-inference"]["delta"] == -by_family["param-inference"]["baseline"]
+
+    # Every row is baseline, inferred and the delta between them, and the
+    # rows add up to the totals the report already carried.
+    for rows in (by_family, by_code):
+        for row in rows.values():
+            assert row["delta"] == row["inferred"] - row["baseline"]
+        assert sum(row["baseline"] for row in rows.values()) == report["fences_baseline"]
+        assert sum(row["inferred"] for row in rows.values()) == report["fences_inferred"]
+        assert sum(row["delta"] for row in rows.values()) == report["fences_delta"]
+
+    # The rows are the report's own vocabulary: coverage families and
+    # diagnostic codes.
+    assert "PS1001" in by_code
+    assert all(code in DIAGNOSTICS for code in by_code)
+    assert all(isinstance(family, str) and family for family in by_family)
 
 
 def test_the_inferred_chain_runs_native_and_matches_cpython(tmp_path: Path) -> None:
