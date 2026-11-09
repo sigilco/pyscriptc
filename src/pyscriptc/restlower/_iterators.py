@@ -120,10 +120,60 @@ def _iter(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         key_t = src_t["key"]
         if _type_kind(key_t) not in {"int", "str"}:
             lo.fail(node.args[0], "PS2002", "dict keys are int or str")
+        # `iter(d)` is O(n) either way, so the materialized key list is the
+        # right shape; only `next(iter(d))` without a drain takes the head
+        # fast path below.
         seq = lo._abi_call("builtins", "dict.keys", [source], _t_list(key_t), "ps_dict_keys", span)
     else:
         seq = _elem_list(lo, node, source, span, "ivs")
     return _mk_iter(lo, seq, node, span)
+
+
+def _dict_first_key(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any] | None:
+    """`next(iter(d))` with no drain: the first key only. A plain
+    `iter(d)` materializes all keys; peeking position 0 is O(1) in the
+    map (one order rebuild at most) and skips the list entirely.
+    Returns None for every other shape."""
+    if not (
+        isinstance(node.args[0], ast.Call)
+        and isinstance(node.args[0].func, ast.Name)
+        and node.args[0].func.id == "iter"
+    ):
+        return None
+    inner = node.args[0]
+    if len(inner.args) != 1:
+        return None
+    src = lo._expr(inner.args[0])
+    src_t = _node_type(src)
+    if _type_kind(src_t) != "dict":
+        return None
+    key_t = src_t["key"]
+    if _type_kind(key_t) not in {"int", "str"}:
+        return None
+    opt_t = lo._opt_type(key_t, node)
+    call = lo._abi_call("builtins", "dict.first_key", [src], opt_t, "ps_dict_first_key", span)
+    box = lo._temp("dhead")
+    lo.locals[box] = opt_t
+    lo.prelude.append(_asg(box, call, span))
+    opt = _nm(box, opt_t, span)
+    # Empty map: StopIteration exactly like the drained cursor; the tag
+    # test catches it without a try block.
+    tag = _field(opt, "_tag", {"kind": "bool"}, span)
+    val = _field(opt, "_val", key_t, span)
+    out = lo._temp("nx")
+    lo.locals[out] = key_t
+    lo.prelude.extend(
+        [
+            _if_stmt(
+                _cmp("==", tag, _const_bool(False, span), span),
+                [_raise_stmt("StopIteration", None, span)],
+                [],
+                span,
+            ),
+            _asg(out, val, span),
+        ]
+    )
+    return _nm(out, key_t, span)
 
 
 def _next(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -133,6 +183,10 @@ def _next(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     lo._reject_keywords(node)
     if not 1 <= len(node.args) <= 2:
         lo.fail(node, "PS2003", "next takes an iterator and an optional default")
+    if len(node.args) == 1:
+        fast = _dict_first_key(lo, node, span)
+        if fast is not None:
+            return fast
     source = lo._expr(node.args[0])
     src_t = _node_type(source)
     if _type_kind(src_t) == "class" and not lo.classes.get(_type_name(src_t), {}).get("iterator"):

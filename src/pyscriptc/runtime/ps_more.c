@@ -251,6 +251,23 @@ void ps_map_del(PsMap *m, void *key) {
     }
 }
 
+void ps_dict_first_key(PsMap *m, void *out) {
+    /* The first key only: a full ps_dict_keys materialization is O(n) per
+       call and `next(iter(d))` LRU-style eviction patterns pay it every
+       step. ps_map_key_at(0) reuses the insertion-order walk (one order
+       rebuild at most, then O(1) reads); the empty map clears the present
+       flag so the lowering raises StopIteration. Layout: the optional
+       record is {i1 tag, key} and an int or str key (the only key kinds
+       the subset lowers) is 8-aligned, so the value sits at byte 8. */
+    unsigned char *cells = (unsigned char *)out;
+    if (m->len == 0) {
+        memset(cells, 0, 9);
+        return;
+    }
+    cells[0] = 1;
+    ps_map_key_at(m, 0, cells + 8);
+}
+
 void ps_map_clear(PsMap *m) { ps_map_reset(m); }
 
 void ps_map_update(PsMap *dst, PsMap *src) {
