@@ -1305,7 +1305,8 @@ def build_cmd(args: argparse.Namespace) -> int:
             if not args.skip_check:
                 run_checker(Path(ir_source), args.checker)
             state["stage"] = "emit"
-            llvm_text = emit_llvm(module_ir, None, [], standalone=True)
+            no_ir_args: list[Any] = []
+            llvm_text = emit_llvm(module_ir, None, no_ir_args, standalone=True)
             with tempfile.TemporaryDirectory(prefix="pyscriptc-build-") as scratch:
                 ll_path = Path(scratch) / f"{name}.ll"
                 ll_path.write_text(llvm_text, encoding="utf-8")
@@ -1333,7 +1334,8 @@ def build_cmd(args: argparse.Namespace) -> int:
         )
         return 0
     except BaseException as exc:
-        if state["outcome"] is None:
+        outcome: str | None = state["outcome"]
+        if outcome is None:
             state["outcome"] = _compile_outcome(exc, state["stage"])
         raise
 
@@ -1659,9 +1661,10 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         emit/link error exactly as the serial order does.
         """
         nonlocal join_check
-        if join_check is None:
+        join: Callable[[], None] | None = join_check
+        join_check = None
+        if join is None:
             return
-        join, join_check = join_check, None
         join()
         dbg.end("check", module)
 
@@ -2373,13 +2376,13 @@ def _dependency_lane(distribution: str, config: Config, island_default: bool = F
     return "compile"
 
 
-def _compile_outcome(exc: BaseException, stage: str) -> str:
+def _compile_outcome(error: BaseException, stage: str) -> str:
     """Map a compile failure onto the telemetry outcome vocabulary."""
-    if isinstance(exc, CheckFailed):
+    if isinstance(error, CheckFailed):
         return "check-failed"
     if stage == "link":
         return "build-error"
-    if isinstance(exc, SpikeError) or stage in ("lower", "validate", "emit"):
+    if isinstance(error, SpikeError) or stage in ("lower", "validate", "emit"):
         return "lower-error"
     return "build-error"
 
