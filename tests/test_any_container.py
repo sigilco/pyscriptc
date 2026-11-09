@@ -210,3 +210,191 @@ def test_dict_any_parameter_unproven_read_fences(tmp_path: Path) -> None:
     path = write_case(tmp_path, "any_dict_param_unproven.py", source)
     got = compile_run(tmp_path, path, "main")
     assert "PS1107" in got.stderr
+
+
+# Issue #483: the bare container names `list`, `dict` and `set` annotate as the
+# container shape with `any` element slots — the same `any` kind the
+# `dict[K, Any]`/`list[Any]` spellings carry. A local's slots pin from the
+# body's mutations through the accumulated-type inference an unannotated
+# `x = []` gets; a read nothing proves keeps its PS1107 fence. `tuple`
+# keeps its PS1106 fence: its shape is its arity.
+
+
+def test_bare_list_accumulates(tmp_path: Path) -> None:
+    out = _case(
+        tmp_path,
+        "bare_list_acc.py",
+        [
+            "out: list = []",
+            "out.append(1)",
+            "out.append(2)",
+            "total = 0",
+            "for x in out:",
+            "    total = total + x",
+            "print(total)",
+        ],
+    )
+    assert out == "3\n0\n"
+
+
+def test_bare_list_bare_decl(tmp_path: Path) -> None:
+    # `xs: list` zero-binds like every bare `x: T` decl in the subset
+    # (CPython leaves the name unbound instead), so there is no CPython
+    # oracle to diff against: assert the compiled run.
+    source = "\n".join(
+        [
+            "def main() -> int:",
+            "    xs: list",
+            "    xs.append(3)",
+            "    xs.append(4)",
+            "    print(xs[0] + xs[1])",
+            "    return 0",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "bare_list_decl.py", source)
+    got = compile_run(tmp_path, path, "main")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == "7\n0\n"
+
+
+def test_bare_list_concrete_init(tmp_path: Path) -> None:
+    out = _case(
+        tmp_path,
+        "bare_list_init.py",
+        [
+            "xs: list = [1, 2]",
+            "print(xs[1])",
+        ],
+    )
+    assert out == "2\n0\n"
+
+
+def test_bare_dict_counter(tmp_path: Path) -> None:
+    out = _case(
+        tmp_path,
+        "bare_dict_counter.py",
+        [
+            "words = ['a', 'b', 'a']",
+            "seen: dict = {}",
+            "for w in words:",
+            "    seen[w] = seen.get(w, 0) + 1",
+            "v: int = seen['a']",
+            "print(v)",
+        ],
+    )
+    assert out == "2\n0\n"
+
+
+def test_bare_dict_int_key(tmp_path: Path) -> None:
+    out = _case(
+        tmp_path,
+        "bare_dict_intkey.py",
+        [
+            "d: dict = {}",
+            "d[7] = 'x'",
+            "v: str = d[7]",
+            "print(v)",
+        ],
+    )
+    assert out == "x\n0\n"
+
+
+def test_bare_set_add(tmp_path: Path) -> None:
+    out = _case(
+        tmp_path,
+        "bare_set_add.py",
+        [
+            "s: set = set()",
+            "s.add(1)",
+            "s.add(2)",
+            "print(len(s))",
+        ],
+    )
+    assert out == "2\n0\n"
+
+
+def test_bare_list_return_lowers(tmp_path: Path) -> None:
+    source = "\n".join(
+        [
+            "def load(path: str) -> list:",
+            "    out: list = []",
+            "    out.append(path)",
+            "    return out",
+            "",
+            "def main() -> int:",
+            "    v: str = load('a')[0]",
+            "    print(v)",
+            "    return 0",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "bare_list_ret.py", source)
+    got = compile_run(tmp_path, path, "main")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "main")
+
+
+def test_bare_list_parameter_append(tmp_path: Path) -> None:
+    source = "\n".join(
+        [
+            "def grow(xs: list) -> int:",
+            "    xs.append(9)",
+            "    return len(xs)",
+            "",
+            "def main() -> int:",
+            "    return grow([1])",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "bare_list_param.py", source)
+    got = compile_run(tmp_path, path, "main")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "main")
+
+
+def test_bare_list_unproven_read_fences(tmp_path: Path) -> None:
+    """No mutation pins the element: the read keeps its named PS1107 fence."""
+    source = "\n".join(
+        [
+            "def main() -> int:",
+            "    out: list = []",
+            "    print(out[0])",
+            "    return 0",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "bare_list_unproven.py", source)
+    got = compile_run(tmp_path, path, "main")
+    assert "PS1107" in got.stderr
+
+
+def test_bare_list_parameter_unproven_read_fences(tmp_path: Path) -> None:
+    source = "\n".join(
+        [
+            "def first(xs: list) -> int:",
+            "    return xs[0] + xs[1]",
+            "",
+            "def main() -> int:",
+            "    return first([1])",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "bare_list_param_read.py", source)
+    got = compile_run(tmp_path, path, "main")
+    assert "PS1107" in got.stderr
+
+
+def test_bare_tuple_still_fences_ps1106(tmp_path: Path) -> None:
+    """A bare `tuple` carries no arity, so its shape is not known."""
+    source = "\n".join(
+        [
+            "def main() -> int:",
+            "    t: tuple = ()",
+            "    return 0",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "bare_tuple.py", source)
+    got = compile_run(tmp_path, path, "main")
+    assert "PS1106" in got.stderr

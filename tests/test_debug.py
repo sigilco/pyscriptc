@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -72,7 +73,8 @@ def test_debug_does_not_flip_ir(tmp_path: Path) -> None:
     src = EXAMPLES / "sum_squares.py"
     proc_plain = run_cli("compile", str(src), "--emit", "llvm", "-o", str(out), env=env)
     ll_plain = out.read_text()
-    ir_plain = Path(str(out) + ".ir.json").read_text()
+    ir_ref = tmp_path / "ref.ir.json"
+    proc_ir = run_cli("compile", str(src), "--emit", "ir", "-o", str(ir_ref), env=env)
     proc_debug = run_cli(
         "compile",
         str(src),
@@ -85,9 +87,9 @@ def test_debug_does_not_flip_ir(tmp_path: Path) -> None:
         str(tmp_path / "d"),
         env=env,
     )
-    assert proc_plain.returncode == proc_debug.returncode == 0
+    assert proc_plain.returncode == proc_ir.returncode == proc_debug.returncode == 0
     assert ll_plain == out.read_text()
-    assert ir_plain == Path(str(out) + ".ir.json").read_text()
+    assert ir_ref.read_text() == (tmp_path / "d" / "ir.json").read_text()
     # No debug noise on stdout either way.
     assert proc_debug.stdout == proc_plain.stdout
 
@@ -203,3 +205,33 @@ def test_stage_stats_absent_without_debug(tmp_path: Path) -> None:
     proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out))
     assert proc.returncode == 0, proc.stderr
     assert "[debug]" not in proc.stderr
+
+
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
+_SRC = ROOT / "src" / "pyscriptc"
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_debug_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "debug.py") == 0
+
+
+def test_report_cli_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "cli" / "_report.py") == 0

@@ -253,6 +253,21 @@ class ClassesMoreMixin:
             return _enum_base(enum)
         if isinstance(node, ast.Name) and node.id in EXCEPTIONS:
             return _exception_base(node.id)
+        # boxed:begin
+        # An island class of another module has no native class record, so a
+        # native subclass cannot extend it: the class definition fences and
+        # rides the island instead (issue #628, one module down). The fence
+        # names the defining module so the refusal reads the way the
+        # single-module refusal does.
+        if isinstance(node, ast.Name) and node.id in self.island_floor_classes:
+            module, name = self.island_floor_classes[node.id]
+            self.fail(
+                node,
+                "PS2002",
+                f"class {node.id} runs on the island floor of {module} and cannot be a native base class: "
+                "the subclass joins the island",
+            )
+        # boxed:end
         if isinstance(node, ast.Name) and node.id in self.classes:
             info = self.classes[node.id]
             if info.get("synthetic"):
@@ -373,8 +388,13 @@ class ClassesMoreMixin:
         raise AssertionError("unreachable")
 
     def _isinstance_holds(self, got: dict[str, Any], want: dict[str, Any]) -> bool:
-        if want.get("bare") and _type_kind(got) == _type_kind(want):
-            return True
+        if want.get("bare"):
+            if _type_kind(got) == _type_kind(want):
+                return True
+            # A bare list/dict target the kind check missed is a definite
+            # False: no lowered operand kind is a subclass of the bare
+            # container, and `type_key` cannot spell the bare dict anyway.
+            return False
         if _type_kind(want) == "int" and _type_kind(got) == "bool":
             return True
         if _type_kind(want) == "class" and _type_kind(got) == "class":
@@ -431,7 +451,20 @@ class ClassesMoreMixin:
         code = info.get("exc_code") if info is not None else None
         return code if isinstance(code, int) else None
 
-    def _exception_codes(self, name: str) -> list[int]:
+    def _exception_codes(self, name: str, node: ast.AST | None = None) -> list[int]:
+        # boxed:begin
+        # Another module's island exception class has no native exc code:
+        # the native lane cannot match it, so the handler that names it is
+        # not lowered and the definition joins the island, where CPython's
+        # own matching applies.
+        if name in self.island_floor_classes:
+            module, cls = self.island_floor_classes[name]
+            self.fail(
+                node if node is not None else ast.Pass(),
+                "PS2002",
+                f"class {name} runs on the island floor of {module}: except {name} does not lower natively",
+            )
+        # boxed:end
         found: list[int] = []
         if name in EXCEPTIONS:
             found.append(EXCEPTIONS[name])

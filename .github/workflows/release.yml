@@ -1,7 +1,7 @@
 # Native release binaries (Nuitka onefile). One OS and arch per runner. No cross compile.
 #
 # macOS x86_64 uses macos-15-intel, a native Intel runner. macos-13 is retired.
-# Do not build that target on macos-14 with a cross arch flag.
+# Do not build that target on macos-26 with a cross arch flag.
 # Linux stays on ubuntu-24.04 (glibc 2.39). Do not switch runners for an older glibc.
 # Windows x86_64 is experimental. The build step must pass. Only the Windows
 # smoke step sets continue-on-error. There is no Windows arm64 target.
@@ -51,15 +51,36 @@ env:
   TAG: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
 
 jobs:
+  # Cheap gate (about a minute): the release-only steps (version stamp, runtime
+  # pack builder) run against synthetic inputs before the 20 minute matrix
+  # starts, so a break in one of them fails here instead of after the builds.
+  preflight:
+    name: preflight (release steps)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv run pytest tests/test_release_aux_scripts.py -q -p no:cacheprovider
+
   build:
     name: build (${{ matrix.target }}${{ matrix.experimental && ', experimental' || '' }})
+    needs: [preflight]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 120
     strategy:
       fail-fast: false
       matrix:
         include:
-          - runner: macos-14
+          - runner: macos-26
             target: macos-arm64
             artifact: pyscriptc-macos-arm64
             platform: unix
@@ -126,14 +147,19 @@ jobs:
         run: printf 'TOKEN = "%s"\n' "$POSTHOG_PROJECT_TOKEN" > src/pyscriptc/_posthog_token.py
 
       - name: Stamp release version
+        shell: bash
         env:
-          PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.ref }}
+          PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
-          version="$(python3 -c 'import re, sys; m = re.match(r"v?(\d.*)", sys.argv[1]); sys.exit(1) if not m else None; print(m.group(1))' "$PYSC_RELEASE_VERSION")"
+          # A tag names the version; a rehearsal dispatch (ref is a SHA or branch) reads pyproject.toml.
+          version="$(python3 -c 'import re, sys, tomllib; v = sys.argv[1] or "v" + tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]; m = re.match(r"v?(\d.*)", v); sys.exit(1) if not m else None; print(m.group(1))' "$PYSC_RELEASE_VERSION")"
           printf 'VERSION = "%s"\n' "$version" > src/pyscriptc/_release.py
 
       - name: Build
         shell: bash
+        env:
+          # Nuitka stamps the OS it was built on; the runner is macOS 26, the floor stays macOS 14.
+          MACOSX_DEPLOYMENT_TARGET: "14.0"
         run: |
           uv sync --group packaging
           packaging/build.sh
@@ -180,7 +206,7 @@ jobs:
       matrix:
         include:
           - platform: macos-arm64
-            runner: macos-14
+            runner: macos-26
           - platform: linux-x86_64
             runner: ubuntu-24.04
     steps:
@@ -236,12 +262,19 @@ jobs:
           pattern: "*"
           merge-multiple: true
 
+      # The notes script uses PEP 758 syntax (3.14), the runner's python3 is older.
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          python-version: "3.14"
+          enable-cache: false
+
       - name: Release notes from CHANGELOG.md
         if: github.ref_type == 'tag'
         env:
           GITHUB_REPOSITORY: ${{ github.repository }}
           GH_TOKEN: ${{ github.token }}
-        run: python3 .github/scripts/release_notes.py "$TAG" CHANGELOG.md .github/release-footer.md "$GITHUB_REPOSITORY" > release-notes.md
+        run: uv run --no-project python .github/scripts/release_notes.py "$TAG" CHANGELOG.md .github/release-footer.md "$GITHUB_REPOSITORY" > release-notes.md
 
       - name: sha256sums.txt
         run: |
@@ -291,6 +324,7 @@ jobs:
   # and on a prior successful rehearsal of the release commit.
   verify:
     name: verify dists
+    needs: [preflight]
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -315,10 +349,12 @@ jobs:
         run: printf 'TOKEN = "%s"\n' "$POSTHOG_PROJECT_TOKEN" > src/pyscriptc/_posthog_token.py
 
       - name: Stamp release version
+        shell: bash
         env:
-          PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || inputs.ref }}
+          PYSC_RELEASE_VERSION: ${{ github.ref_type == 'tag' && github.ref_name || '' }}
         run: |
-          version="$(python3 -c 'import re, sys; m = re.match(r"v?(\d.*)", sys.argv[1]); sys.exit(1) if not m else None; print(m.group(1))' "$PYSC_RELEASE_VERSION")"
+          # A tag names the version; a rehearsal dispatch (ref is a SHA or branch) reads pyproject.toml.
+          version="$(python3 -c 'import re, sys, tomllib; v = sys.argv[1] or "v" + tomllib.load(open("pyproject.toml", "rb"))["project"]["version"]; m = re.match(r"v?(\d.*)", v); sys.exit(1) if not m else None; print(m.group(1))' "$PYSC_RELEASE_VERSION")"
           printf 'VERSION = "%s"\n' "$version" > src/pyscriptc/_release.py
 
       - name: Build sdist and wheel

@@ -42,3 +42,4 @@ benchmarks/real/.scratch/
 scripts/social/out/
 scripts/social/demo/demo
 scripts/social/demo/demo.report.json
+!tests/census_pins/*.json

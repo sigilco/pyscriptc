@@ -18,10 +18,12 @@ from pathlib import Path
 
 import pytest
 
+from pyscriptc._irnode import F_TMARK_HANDLE
 from pyscriptc.emit.llvm import emit_llvm, link_binary
 from pyscriptc.ffi_manifest import load_manifest
 from pyscriptc.lower import lower_source
 from pyscriptc.stdlib_queue import ffi_modules
+from pyscriptc.tirserde import dict_to_node, dict_to_type
 
 ROOT = Path(__file__).resolve().parents[1]
 FIXTURE = ROOT / "tests" / "fixtures" / "ffi"
@@ -92,7 +94,8 @@ def test_handle_annotation_binds_from_a_manifest_import() -> None:
     module, _ = _lower(source)
     assert module["fences"] == []
     local = module["functions"][0]["locals"][0]
-    assert local["type"] == {"kind": "class", "name": "Resource", "handle": True}
+    typ = dict_to_type(local["type"])
+    assert typ.kind == "class" and typ.name == "Resource" and typ.flags & F_TMARK_HANDLE
 
 
 def test_qualified_handle_annotation_binds_too() -> None:
@@ -100,7 +103,8 @@ def test_qualified_handle_annotation_binds_too() -> None:
     module, _ = _lower(source)
     assert module["fences"] == []
     local = module["functions"][0]["locals"][0]
-    assert local["type"] == {"kind": "class", "name": "Resource", "handle": True}
+    typ = dict_to_type(local["type"])
+    assert typ.kind == "class" and typ.name == "Resource" and typ.flags & F_TMARK_HANDLE
 
 
 def test_handle_return_is_a_ptr_not_a_class_record() -> None:
@@ -162,9 +166,13 @@ def test_scope_exit_frees_an_owned_handle() -> None:
     module, _ = _lower(source)
     assert module["fences"] == []
     body = module["functions"][0]["body"]
-    assert body[0]["kind"] == "try"
-    assert body[0]["handlers"] == []
-    assert body[0]["finalbody"][0]["expr"]["symbol"] == "ps_ffi_ffx_close"
+    head = dict_to_node(body[0])
+    assert head.kind == "try"
+    assert head.handlers == []
+    close = dict_to_node(head.finalbody[0])
+    expr = close.expr
+    symbol = expr["symbol"] if isinstance(expr, dict) else expr.symbol
+    assert symbol == "ps_ffi_ffx_close"
 
 
 def test_a_consumed_handle_is_not_freed_again_at_scope_exit() -> None:

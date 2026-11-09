@@ -627,17 +627,17 @@ class ExprCompareMixin:
 _NUMERIC = {"int", "float"}
 
 
-def _mk_span(span: dict[str, Any]) -> Any:
+def _mk_span(span: dict[str, Any]) -> _ir.Span:
     """The Span record the dict-IR span spells."""
     return dict_to_span_local(span)
 
 
-def _mk_type(typ: dict[str, Any]) -> Any:
+def _mk_type(typ: dict[str, Any]) -> _ir.T:
     """The T record the dict-IR type spells."""
     return dict_to_type(typ)
 
 
-def dict_to_span_local(span: dict[str, Any]) -> Any:
+def dict_to_span_local(span: dict[str, Any]) -> _ir.Span:
     """The typed span one dict-IR span spells."""
     return _ir.Span(span["file"], span["line"], span["col"], span["endLine"], span["endCol"])
 

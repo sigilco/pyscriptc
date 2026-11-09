@@ -1515,6 +1515,8 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
         "getpid": sig([], _I, "ps_os_getpid"),
         "chdir": sig([_S], _N, "ps_os_chdir"),
         "chmod": sig([_S, _I], _N, "ps_os_chmod"),
+        "symlink": sig([_S, _S], _N, "ps_os_symlink"),
+        "readlink": sig([_S], _S, "ps_os_readlink"),
         "mkdir": sig([_S], _N, "ps_os_mkdir"),
         "replace": sig([_S, _S], _N, "ps_os_replace"),
         "unlink": sig([_S], _N, "ps_os_remove"),
@@ -1592,6 +1594,10 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
     "shutil": {
         "copyfile": sig([_S, _S], _S, "ps_shutil_copyfile"),
         "rmtree": sig([_S], _N, "ps_shutil_rmtree"),
+        # `which` keeps its row for the call-table inventory (the probe
+        # census counts it), but the _EARLY handler in restlower takes the
+        # call first: the return is the tagged `str | None`, not the fixed
+        # str this row would hand the fixed-call path.
         "which": sig([_S], _S, "ps_shutil_which"),
         "copy": sig([_S, _S], _S, "ps_shutil_copy"),
         "copy2": sig([_S, _S], _S, "ps_shutil_copy2"),
@@ -1834,7 +1840,7 @@ def type_alias(module: str, member: str) -> str | None:
 
 
 def slot_size(typ: dict[str, Any]) -> int:
-    kind = typ["kind"]
+    kind: str = typ["kind"]
     if kind in {"int", "float", "list", "dict", "class"}:
         return 8
     if kind in {"str", "bytes"}:

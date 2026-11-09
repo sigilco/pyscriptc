@@ -9,13 +9,15 @@ optional self-host census pins and the state of the epic's task issues.
         [--markdown FILE] [--baseline FILE] [--snapshot FILE]
 
 `--summary FILE` appends a markdown table (per-seam totals and the ten modules
-holding the most self-host fences, read from `tests/census_pins.json`) to FILE,
+holding the most self-host fences, read from `tests/census_pins/`) to FILE,
 for `$GITHUB_STEP_SUMMARY` in CI.
 
 `--markdown FILE` appends a trend table: per-metric current value and delta
 against a baseline snapshot (`--baseline FILE`). Without `--baseline` the
 snapshot is taken from `git origin/master~20`, and `--snapshot FILE` writes
-the current snapshot JSON for the next run's baseline.
+the current snapshot JSON for the next run's baseline. The table includes
+MIR leaf-slice coverage over the visible corpus scripts
+(`scripts/mir_coverage.py`) and its top out-of-slice reasons.
 """
 
 from __future__ import annotations
@@ -63,7 +65,23 @@ def census_pins(path: Path | None) -> dict[str, object]:
     return {"modules": len(mods) if hasattr(mods, "__len__") else None, "fences": data.get("fences")}
 
 
-def summary_markdown(totals: dict[str, dict[str, int]], pins_path: Path) -> str:
+def pins_path(root: Path) -> Path:
+    """The census pins location: the per-module shard dir, or the legacy single file."""
+    shards = root / "tests" / "census_pins"
+    return shards if shards.is_dir() else root / "tests" / "census_pins.json"
+
+
+def load_pins(path: Path) -> dict[str, int]:
+    """Aggregate census pins from a shard directory or the legacy single JSON file."""
+    if path.is_dir():
+        pins: dict[str, int] = {}
+        for shard in sorted(path.glob("*.json")):
+            pins.update(json.loads(shard.read_text(encoding="utf-8")))
+        return pins
+    return json.loads(path.read_text(encoding="utf-8"))
+
+
+def summary_markdown(totals: dict[str, dict[str, int]], pins: Path) -> str:
     lines = [
         "### Re-architecture progress by seam",
         "",
@@ -72,12 +90,12 @@ def summary_markdown(totals: dict[str, dict[str, int]], pins_path: Path) -> str:
     ]
     for seam, t in totals.items():
         lines.append(f"| {seam} | {t['lines']} | {t['dict_build']} | {t['dict_read']} | {t['typed_use']} |")
-    if pins_path.is_file():
-        pins: dict[str, int] = json.loads(pins_path.read_text(encoding="utf-8"))
-        top = sorted(pins.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
+    if pins.exists():
+        pins_map: dict[str, int] = load_pins(pins)
+        top = sorted(pins_map.items(), key=lambda kv: (-kv[1], kv[0]))[:10]
         lines += [
             "",
-            f"### Self-host fences: {sum(pins.values())} across {len(pins)} modules",
+            f"### Self-host fences: {sum(pins_map.values())} across {len(pins_map)} modules",
             "",
             "| module | fences |",
             "|---|---:|",
@@ -89,23 +107,57 @@ def summary_markdown(totals: dict[str, dict[str, int]], pins_path: Path) -> str:
 TREND_SEAMS = ("lower", "emit", "mir", "cli", "other")
 
 
-def fence_seams(pins_path: Path) -> dict[str, int]:
+def fence_seams(pins: Path) -> dict[str, int]:
     """Split self-host fence pins into per-seam buckets (lower, emit, mir, cli, other)."""
-    if not pins_path.is_file():
+    if not pins.exists():
         return {}
-    pins: dict[str, int] = json.loads(pins_path.read_text(encoding="utf-8"))
+    pins_map: dict[str, int] = load_pins(pins)
     out = dict.fromkeys(TREND_SEAMS, 0)
     seam_re = re.compile(r"\w+\.(lower|emit|mir|cli)\b")
-    for name, count in pins.items():
+    for name, count in pins_map.items():
         match = seam_re.match(name)
         seam = match.group(1) if match else "other"
         out[seam] += count
     return out
 
 
-def snapshot(totals: dict[str, dict[str, int]], pins_path: Path) -> dict[str, object]:
+def _load_mir_coverage():
+    """Load scripts/mir_coverage.py without making `scripts` a package."""
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("mir_coverage", ROOT / "scripts" / "mir_coverage.py")
+    if spec is None or spec.loader is None:
+        raise ImportError("scripts/mir_coverage.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def mir_coverage_summary() -> dict[str, int]:
+    """Current MIR slice coverage counters (visible corpus scripts only)."""
+    return _load_mir_coverage().coverage_summary()
+
+
+def mir_coverage_and_reasons() -> tuple[dict[str, int], dict[str, int]]:
+    """Coverage counters and the top out-of-slice reasons from one corpus walk."""
+    mod = _load_mir_coverage()
+    report = mod.measure_corpus()
+    return mod.coverage_summary(report=report), mod.top_reasons(report)
+
+
+def snapshot(
+    totals: dict[str, dict[str, int]],
+    pins_path: Path,
+    mir_coverage: dict[str, int] | None = None,
+    mir_reasons: dict[str, int] | None = None,
+) -> dict[str, object]:
     """A JSON-serializable baseline snapshot: per-seam totals plus per-seam fences."""
-    return {"totals": totals, "fences": fence_seams(pins_path)}
+    snap: dict[str, object] = {"totals": totals, "fences": fence_seams(pins_path)}
+    if mir_coverage is not None:
+        snap["mir_coverage"] = mir_coverage
+    if mir_reasons is not None:
+        snap["mir_reasons"] = mir_reasons
+    return snap
 
 
 def git_baseline_snapshot() -> dict[str, object] | None:
@@ -139,12 +191,11 @@ def git_baseline_snapshot() -> dict[str, object] | None:
                 t["dict_build"] += len(DICT_BUILD.findall(text))
                 t["dict_read"] += len(DICT_READ.findall(text))
                 t["typed_use"] += len(TYPED_USE.findall(text))
-        pins_path = base / "tests" / "census_pins.json"
+        pins = pins_path(base)
         fences: dict[str, int] = {}
-        if pins_path.is_file():
-            pins: dict[str, int] = json.loads(pins_path.read_text(encoding="utf-8"))
+        if pins.exists():
             seam_re = re.compile(r"\w+\.(lower|emit|mir|cli)\b")
-            for name, count in pins.items():
+            for name, count in load_pins(pins).items():
                 match = seam_re.match(name)
                 seam = match.group(1) if match else "other"
                 fences[seam] = fences.get(seam, 0) + count
@@ -195,6 +246,40 @@ def markdown_trend(current: dict[str, object], baseline: dict[str, object] | Non
     for seam in TREND_SEAMS:
         c, b = cur_f.get(seam, 0), base_f.get(seam, 0)
         lines.append(f"| {seam} | {c} | {b} | {c - b:+d} |")
+    raw_cur_m = current.get("mir_coverage")
+    raw_base_m = (baseline or {}).get("mir_coverage")
+    cur_m = raw_cur_m if isinstance(raw_cur_m, dict) else {}
+    base_m = raw_base_m if isinstance(raw_base_m, dict) else {}
+    lines += [
+        "",
+        "### MIR slice coverage",
+        "",
+        "In-slice over non-fenced IR functions on the visible corpus scripts",
+        "(`benchmarks/compat2/corpus/scripts`, `scripts/mir_coverage.py`).",
+        "",
+        "| metric | current | baseline | delta |",
+        "|---|---:|---:|---:|",
+    ]
+    for key in ("percent", "in_slice", "functions", "script_count", "out_of_slice", "reason_kinds"):
+        c, b = int(cur_m.get(key, 0)), int(base_m.get(key, 0))
+        lines.append(f"| mir.{key} | {c} | {b} | {c - b:+d} |")
+    raw_cur_r = current.get("mir_reasons")
+    raw_base_r = (baseline or {}).get("mir_reasons")
+    cur_r = raw_cur_r if isinstance(raw_cur_r, dict) else {}
+    base_r = raw_base_r if isinstance(raw_base_r, dict) else {}
+    if cur_r:
+        lines += [
+            "",
+            "### MIR out-of-slice reasons (top 10)",
+            "",
+            "Innermost node the slice predicates reject, per non-fenced out-of-slice function.",
+            "",
+            "| reason | current | baseline | delta |",
+            "|---|---:|---:|---:|",
+        ]
+        for reason, count in cur_r.items():
+            c, b = int(count), int(base_r.get(reason, 0))
+            lines.append(f"| `{reason}` | {c} | {b} | {c - b:+d} |")
     return "\n".join(lines) + "\n"
 
 
@@ -247,10 +332,14 @@ def main() -> int:
         report["issues"] = issue_states()
     if args.summary is not None:
         with args.summary.open("a", encoding="utf-8") as handle:
-            handle.write(summary_markdown(totals, ROOT / "tests" / "census_pins.json"))
+            handle.write(summary_markdown(totals, pins_path(ROOT)))
+    coverage: dict[str, int] | None = None
+    reasons: dict[str, int] | None = None
+    if args.snapshot is not None or args.markdown is not None:
+        coverage, reasons = mir_coverage_and_reasons()
     if args.snapshot is not None:
         args.snapshot.write_text(
-            json.dumps(snapshot(totals, ROOT / "tests" / "census_pins.json"), indent=2) + "\n",
+            json.dumps(snapshot(totals, pins_path(ROOT), coverage, reasons), indent=2) + "\n",
             encoding="utf-8",
         )
     if args.markdown is not None:
@@ -262,7 +351,13 @@ def main() -> int:
         else:
             baseline = git_baseline_snapshot()
         with args.markdown.open("a", encoding="utf-8") as handle:
-            handle.write(markdown_trend(snapshot(totals, ROOT / "tests" / "census_pins.json"), baseline, label))
+            handle.write(
+                markdown_trend(
+                    snapshot(totals, pins_path(ROOT), coverage, reasons),
+                    baseline,
+                    label,
+                )
+            )
     if args.json:
         json.dump(report, sys.stdout, indent=2)
         print()

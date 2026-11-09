@@ -44,7 +44,7 @@ from typing import Any, Dict
 
 from pyscriptc.config import ConfigError, read_pep723
 from pyscriptc.errors import SpikeError
-from pyscriptc.log import get_logger
+from pyscriptc.log import emit_event
 
 DEPS_CODE = "PS3101"
 LOCK_TOOL_KEY = "pyscriptc"
@@ -53,8 +53,6 @@ SKIPPED_ANYWHERE = "tests"
 UNKNOWN_IMPORT_NAMES = "unknown"
 UNPACK_SCHEMA_VERSION = 2
 SDIST = 1
-
-log = get_logger()
 
 NAME_RE = re.compile(r"^\s*([A-Za-z0-9](?:[A-Za-z0-9._-]*[A-Za-z0-9])?)")
 
@@ -896,6 +894,23 @@ def _wheel_import_names(data: bytes) -> list[str]:
     return []
 
 
+def _materialise_event(name: str | None, sha256: str, dest: Path, skipped: list[str], top_level: list[str]) -> None:
+    """Emit the `deps.materialise` record through the positional-fields seam."""
+    skipped_fields: dict[str, Any] = {}
+    skipped_fields["count"] = len(skipped)
+    skipped_fields["paths"] = skipped
+    name_fields: dict[str, Any] = {}
+    name_fields["count"] = len(top_level)
+    name_fields["names"] = top_level
+    fields: dict[str, Any] = {}
+    fields["name"] = name or ""
+    fields["sha256"] = sha256
+    fields["source_root"] = str(dest)
+    fields["skipped"] = skipped_fields
+    fields["importNames"] = name_fields
+    emit_event("info", "deps.materialise", fields)
+
+
 def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = None) -> Path:
     """Unpack a verified pure wheel into `src/<sha256>/` once; returns the import root."""
     dest = cache / "src" / sha256
@@ -907,14 +922,8 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
         if top_level:
             _write_text(dest / ".imports", "\n".join(top_level) + "\n")
         _write_text(marker, f"{sha256}\n{UNPACK_SCHEMA_VERSION}\n")
-        log.info(
-            "deps.materialise",
-            name=name or "",
-            sha256=sha256,
-            source_root=str(dest),
-            skipped={"count": 0, "paths": []},
-            importNames={"count": len(top_level), "names": top_level},
-        )
+        empty_skips: list[str] = []
+        _materialise_event(name, sha256, dest, empty_skips, top_level)
         return dest
     dest.parent.mkdir(parents=True, exist_ok=True)
     tmp = _make_temp_dir(dest.parent)
@@ -943,14 +952,7 @@ def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = Non
         if dest.exists():
             shutil.rmtree(str(dest))
         os.replace(str(tmp), str(dest))
-        log.info(
-            "deps.materialise",
-            name=name or "",
-            sha256=sha256,
-            source_root=str(dest),
-            skipped={"count": len(skipped), "paths": skipped},
-            importNames={"count": len(top_level), "names": top_level},
-        )
+        _materialise_event(name, sha256, dest, skipped, top_level)
     finally:
         if tmp.exists():
             _rmtree_quietly(tmp)
@@ -1238,7 +1240,7 @@ def source_roots(source: Path, *, cache_dir: Path | None = None) -> list[Path]:
     lane hint the way it always has.
     """
 
-    report = run_deps(source, download=True, cache_dir=cache_dir)
+    report: dict[str, Any] = run_deps(source, download=True, cache_dir=cache_dir)
     roots: list[str] = report["sourceRoots"]
     found: list[Path] = []
     for root in roots:
@@ -1317,7 +1319,7 @@ def deps_cmd(args: argparse.Namespace) -> int:
     cache_dir: Path | None = None
     if args.cache_dir:
         cache_dir = Path(args.cache_dir)
-    report = run_deps(
+    report: dict[str, Any] = run_deps(
         Path(args.source),
         frozen=args.frozen,
         upgrade=args.upgrade,
@@ -1326,7 +1328,14 @@ def deps_cmd(args: argparse.Namespace) -> int:
         cache_dir=cache_dir,
     )
     print(json.dumps(report, indent=2) if args.json else render_text(report))
-    return 0 if all(p["lane"] == "pure" for p in report["packages"]) else 3
+    packages: list[dict[str, Any]] = report["packages"]
+    all_pure: bool = True
+    for p in packages:
+        lane: str = p["lane"]
+        if lane != "pure":
+            all_pure = False
+            break
+    return 0 if all_pure else 3
 
 
 # ---------------------------------------------------------------- staging (issue #410)
@@ -1367,7 +1376,11 @@ def stage_data_files(
         if root.exists():
             shutil.rmtree(str(root))
         os.replace(str(tmp), str(root))
-        log.info("deps.stage_data", binary=str(binary), root=str(root), files=len(members))
+        fields: dict[str, Any] = {}
+        fields["binary"] = str(binary)
+        fields["root"] = str(root)
+        fields["files"] = len(members)
+        emit_event("info", "deps.stage_data", fields)
     finally:
         if tmp.exists():
             _rmtree_quietly(tmp)

@@ -219,7 +219,7 @@ class Config:
         requires_python: str | None = None,
         dependencies: tuple[str, ...] | None = None,
     ) -> None:
-        empty_src: tuple[str, ...] = ("", "")[0:0]
+        empty_src: tuple[str, ...] = _as_tuple([])
         self.origin = origin
         self.source = source
         self.entry = entry
@@ -255,10 +255,6 @@ class Config:
                 if tier == "cpython":
                     enabled = True
             return enabled
-        if isinstance(self.fallback, str):
-            return self.fallback == "definitions" or self.fallback == "cpython"
-        if isinstance(self.fallback, bool):
-            return self.fallback
         return False
 
     def island_embed(self) -> str | None:
@@ -267,12 +263,9 @@ class Config:
         if isinstance(self.island, dict):
             if "embed" in self.island:
                 value: str = self.island["embed"]
-                from pyscriptc.embed import MODES
-
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
-                if value not in MODES:
-                    modes_str: str = "|".join(MODES)
-                    raise ConfigError(f"{table}.embed must be one of {modes_str}, got {value!r}")
+                if value != "host" and value != "bundle" and value != "auto":
+                    raise ConfigError(f"{table}.embed must be one of host|bundle|auto, got {value!r}")
                 return str(value)
         return None
 
@@ -282,12 +275,9 @@ class Config:
         if isinstance(self.island, dict):
             if "stdlib" in self.island:
                 value: str = self.island["stdlib"]
-                from pyscriptc.stdlibzip import STDLIB_MODES
-
                 table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
-                if value not in STDLIB_MODES:
-                    stdlib_modes_str: str = "|".join(STDLIB_MODES)
-                    raise ConfigError(f"{table}.stdlib must be one of {stdlib_modes_str}, got {value!r}")
+                if value != "safe" and value != "minimal":
+                    raise ConfigError(f"{table}.stdlib must be one of safe|minimal, got {value!r}")
                 return str(value)
         return None
 
@@ -318,15 +308,18 @@ class Config:
         """Lane of each PEP 723 dependency, keyed by requirement string."""
         return dependency_lanes(self.dependencies, self.imports)
 
-    def island_imports(self) -> tuple[str, ...]:
+    def island_imports(self) -> list[str]:
         """Import names the policy table routes to the island, sorted."""
         names: set[str] = set()
         for name, lane in self.imports.items():
             if lane == "island" and name != "*":
                 names.add(name)
                 names.add(name.replace("-", "_"))
-        out: list[str] = sorted(names)
-        return tuple(out)
+        names_list: list[str] = []
+        for n in names:
+            names_list.append(n)
+        out: list[str] = sorted(names_list)
+        return out
 
     def wildcard_island(self) -> bool:
         """True when `* = "island"` makes every unlisted import island-bound."""
@@ -476,9 +469,9 @@ def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
         for name, lane in imports.items():
             if not isinstance(name, str) or not re.fullmatch(r"[A-Za-z0-9_][A-Za-z0-9_.-]*|\*", name):
                 raise ConfigError(f"{_where(table, 'imports')}: invalid module name {name!r}")
-            lane_str: str = lane
-            if not isinstance(lane, str) or lane_str not in LANES:
+            if not isinstance(lane, str) or lane not in LANES:
                 lane_want = "|".join(LANES)
+                lane_str = str(lane)
                 raise ConfigError(f"{_where(table, 'imports')}.{name} must be one of {lane_want}, got {lane_str!r}")
     return data
 
@@ -579,10 +572,14 @@ def _deps_of(meta: Dict[str, Any]) -> tuple[str | None, tuple[str, ...]]:
 
 
 def _read_script_meta(script: Path) -> dict[str, Any]:
+    parsed: dict[str, Any] | None = None
     try:
-        return read_pep723(script.read_text(encoding="utf-8")) or {}
+        parsed = read_pep723(script.read_text(encoding="utf-8"))
     except OSError:
         return {}
+    if parsed is None:
+        return {}
+    return parsed
 
 
 def load_config(source: Path) -> Config:
@@ -590,21 +587,28 @@ def load_config(source: Path) -> Config:
     start = source.resolve()
     start_dir = start if start.is_dir() else start.parent
     project: Config | None = None
-    for directory in (start_dir, *start_dir.parents):
+    directory = start_dir
+    while True:
         candidate = directory / "pyscriptc.toml"
         if candidate.is_file():
             data = _toml(candidate)
-            table = data.get("pyscriptc", data)
+            if "pyscriptc" in data:
+                table: dict[str, Any] = data["pyscriptc"]
+            else:
+                table = data
             if not isinstance(table, dict):
                 raise ConfigError(f"{candidate}: [pyscriptc] must be a table")
             project = _from_table(table, candidate, "pyscriptc.toml")
             break
         candidate = directory / "pyproject.toml"
         if candidate.is_file():
-            table = _project_table(_toml(candidate), candidate)
-            if table is not None:
-                project = _from_table(table, candidate, "pyproject.toml")
+            ptable = _project_table(_toml(candidate), candidate)
+            if ptable is not None:
+                project = _from_table(ptable, candidate, "pyproject.toml")
                 break
+        if directory.parent == directory:
+            break
+        directory = directory.parent
     meta: dict[str, Any] = {}
     meta_source = "default"
     meta_project: Config | None = None
@@ -617,7 +621,7 @@ def load_config(source: Path) -> Config:
                 meta_project = _from_table(meta_table, start, "pep723")
     if project is None and not meta:
         return Config(origin=None, source="default")
-    requires, deps = _deps_of(meta) if meta else (None, ())
+    requires, deps = _deps_of(meta)
     if project is None and meta_project is not None:
         return Config(
             origin=meta_project.origin,
@@ -637,19 +641,24 @@ def load_config(source: Path) -> Config:
     if project is None:
         return Config(origin=start, source=meta_source, requires_python=requires, dependencies=deps)
     if meta:
-        merged_imports = dict(meta_project.imports if meta_project else {})
-        merged_imports.update(project.imports)
+        merged_imports: dict[str, str] = {}
+        if meta_project is not None:
+            for k, v in meta_project.imports.items():
+                merged_imports[k] = v
+        for k, v in project.imports.items():
+            merged_imports[k] = v
+        empty_paths: tuple[str, ...] = _as_tuple([])
         return Config(
             origin=project.origin,
             source=project.source,
             entry=project.entry or (meta_project.entry if meta_project else None),
-            src=project.src or (meta_project.src if meta_project else ()),
+            src=project.src or (meta_project.src if meta_project else empty_paths),
             checker=project.checker or (meta_project.checker if meta_project else None),
             driver=project.driver or (meta_project.driver if meta_project else None),
             target=project.target or (meta_project.target if meta_project else None),
             fail_on=project.fail_on or (meta_project.fail_on if meta_project else None),
-            stub_path=project.stub_path or (meta_project.stub_path if meta_project else ()),
-            ffi=project.ffi or (meta_project.ffi if meta_project else ()),
+            stub_path=project.stub_path or (meta_project.stub_path if meta_project else empty_paths),
+            ffi=project.ffi or (meta_project.ffi if meta_project else empty_paths),
             imports=merged_imports,
             requires_python=requires,
             dependencies=deps,

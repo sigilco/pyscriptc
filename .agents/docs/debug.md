@@ -28,7 +28,9 @@ saw, what it decided, and how long each stage took.
   `summary.json` carries the same rows as `stageStats` (name, ms, rssKb,
   nodes, functions). Collecting the metrics costs one `getrusage` call and
   one module walk per stage, only when debug is on; the IR and emitted text
-  are never touched.
+  are never touched. On `--emit bin` (and `run`) the pyrefly `check` stage
+  overlaps emit/link: its row closes after `link`, so `total` can read below
+  the sum of the rows. `PYSC_NO_CHECK_OVERLAP=1` restores the serial order.
 - `fences` — the fence table: count, then `file:line:col CODE message` per fence
   (the same dicts that `module["fences"]` carries; no extra computation).
 - `cc` — every clang/zig command line `link_binary` runs (the `.ll`/`.c -> .o`

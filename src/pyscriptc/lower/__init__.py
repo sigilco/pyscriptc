@@ -73,6 +73,8 @@ from pyscriptc.stdmore import PTR_CLASSES, member_callable, module_constant
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 from pyscriptc.tirserde import dict_to_span as dict_to_span_local
 
+WHOLE_TABLE = "*"
+
 
 def _mk_span(span: dict[str, Any]) -> Any:
     """The Span record the dict-IR span spells."""
@@ -104,23 +106,6 @@ def _builtin_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], sp
     """The call to a builtin."""
 
     return _call_node({"kind": "builtin", "name": name}, args, typ, span)
-
-
-def _abi_call_node(
-    module: str, name: str, args: list[dict[str, Any]], typ: dict[str, Any], symbol: str, span: dict[str, Any]
-) -> Any:
-    """The module call node with the ABI symbol one `_abi_call` spells."""
-
-    node = _ir.call(
-        _ir.module_callee(module, name),
-        [dict_to_node(arg) for arg in args],
-        _mk_type(typ),
-        _mk_span(span),
-        symbol,
-        "",
-        -1,
-    )
-    return node_to_dict(node)
 
 
 def _expr_node(expr: dict[str, Any], span: dict[str, Any]) -> Any:
@@ -224,6 +209,10 @@ class Lowerer(
         self.comp_init: dict[str, Any] | None = None
         self.comp_expect: dict[str, Any] | None = None
         self.comp_ready = False
+        # `all`/`any` over a comprehension fuses the loop into a bool
+        # accumulator instead of materializing the element list: the pair
+        # is (result name, want_all). None means the comp builds its list.
+        self.comp_pred: tuple[str, bool] | None = None
         # The inference peek (issue #500): while True, `_expr` is running
         # speculatively to learn a value's type; the emitted IR and the
         # temp counter are discarded, and any fence becomes the inference
@@ -284,6 +273,14 @@ class Lowerer(
         # Class name -> the hidden local that owns its island handle, reset
         # per function scope like `island_modules`.
         self.island_class_handles: dict[str, str] = {}
+        # boxed:begin
+        # The per-module plane split: another module's island classes this
+        # module imported (`from other import Cls` where `Cls` rides that
+        # module's island floor). Name -> (defining module, class name); the
+        # handle, the call and the base-class refusal all go through the
+        # namespaced seam (`ps_island_mod_def_handle`).
+        self.island_floor_classes: dict[str, tuple[str, str]] = {}
+        # boxed:end
         # The per-definition probe state: the definition list to probe and
         # the names the probe fenced.
         self._boxed_functions: list[ast.FunctionDef] = []
@@ -302,6 +299,26 @@ class Lowerer(
         # the island (Decision A). `entry_fn_name` then names the entry whose
         # fences drop with the top level.
         self._boxed_top_island = False
+        # The per-module plane split: a program compile keeps the native lane
+        # and the island lane side by side, so a call into another module's
+        # island floor crosses the boundary instead of refusing.
+        self._boxed_plane_split = False
+        # The island group (the plane split's cycle rule): this unit rides
+        # the island floor whole-module. The merge sets it from the program
+        # plan's cycle members before the catalog pass, so the export table
+        # agrees on which definitions the unit keeps.
+        self._boxed_island_unit = False
+        # The island group's own module-level fences drop with its top
+        # level: the group's bootstrap execs the real body, so a lambda the
+        # checker refuses or an empty container literal is CPython's own
+        # there, exactly as under the whole-program island.
+        self._boxed_island_unit_drops_module_fences = False
+        # The island group's member names (the cycle rule's closed set). The
+        # group bootstrap installs every member in `sys.modules` before the
+        # per-module seeds run, so a seed import of a group member resolves
+        # against that namespace even when the member's own exports carry no
+        # island flag.
+        self._boxed_island_group: set[str] = set()
         # boxed:end
         self.module_name = ""
         self.is_package = False
@@ -359,6 +376,13 @@ class Lowerer(
         # tree twice for the same `ast.Global` nodes. Bodies are not mutated
         # after parsing, so identity is a stable key within one lower_file run.
         self._globals_cache: dict[int, frozenset[str]] = {}
+        # `global X` names a function assigns from a function-local import
+        # (`from pyscriptc import assess as _assess` then `assess = _assess`):
+        # X resolves at module scope exactly like the top-level import would.
+        # The record carries what the replayed import bound so the write can
+        # prove it is the alias init and not some other store. Populated by
+        # `_scan_global_aliases` before any body lowers.
+        self.global_aliases: dict[str, dict[str, Any]] = {}
         # The function body being lowered, so `del name` can see a later load.
         self.fn_body: list[ast.stmt] = []
         # Names bound to frozenset(...). The value is still the set list. .add and
@@ -402,6 +426,34 @@ class Lowerer(
         # inferred-type map. None means no bridge: lowering keeps every
         # inference fence exactly as before.
         self.bridge: Any = None
+        # Cross-module parameter pinning (issue #87, `pyscriptc infer`):
+        # the checker's call-site facts, keyed by module stem and qualified
+        # name, with the source line/col of each call. Set by `pyscriptc
+        # infer`; None means the compiler's own same-module pin stands.
+        self.call_site_facts: Any = None
+        # Every fact the checker proved and the lowerer accepted this run,
+        # for `compile --debug` and `pyscriptc infer`. A record carries the
+        # module, qualified name, the accepted IR type and a render of the
+        # checker's proof. The bridge owns the list when one is wired, so
+        # a package compile gathers every file's records in one place.
+        self.infer_records: list[dict[str, Any]] = []
+        # The pin-pass caller caches (issue #500, per pin round): the
+        # def-independent facts of each caller, reused across the pending
+        # defs of one `_pin_call_site_params` run. The calls list is the
+        # caller's Name-callee call nodes (a pure AST walk); the locals
+        # table is what `_call_site_locals` derives, keyed by the pin epoch
+        # so a pin landing mid-round (a new caller-parameter annotation, a
+        # new signature) recomputes the callers it can now see differently.
+        # Both reset at the start of every pin pass.
+        self._pin_epoch: int = 0
+        self._pin_caller_calls: dict[int, list[ast.Call]] = {}
+        self._pin_caller_locals: dict[tuple[int, int], dict[str, dict[str, Any]]] = {}
+        # The export-table reads this run made (issue #424, the catalog
+        # fixpoint): (module, member) pairs, or (module, None) for a
+        # module-presence check. The catalog memo compares exactly these
+        # entries between rounds, so a unit whose imports did not change
+        # reuses its previous round's result instead of re-lowering.
+        self._export_reads: set[tuple[str, str | None]] = set()
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
@@ -557,9 +609,67 @@ class Lowerer(
                         else:
                             self.constants[name] = prev
 
-    def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
+    def _bind_star(self, module: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        """Bind the names `from module import *` brings in.
+
+        CPython binds the module's `__all__` when it has one and every
+        public name otherwise. The export table records the module's
+        `__all__` under the `__all__` key, so the star binds the same set.
+        A name the table does not carry is skipped: the star import only
+        brings in what the module exports.
+        """
+
+        exported = self._export_lookup(module, None)
+        if exported is None:
+            fences.append(
+                Fence(
+                    "PS2002",
+                    f"{module} is not a module in this package",
+                    span_of(stmt, self.filename),
+                    None,
+                )
+            )
+            return
+        declared = exported.get("__all__")
+        names = declared.get("names") if isinstance(declared, dict) else None
+        for name in sorted(exported):
+            if name == "__all__":
+                continue
+            if names is not None:
+                if name not in names:
+                    continue
+            elif name.startswith("_"):
+                continue
+            self._bind_one_export(module, name, name, stmt, fences)
+
+    def _export_lookup(self, module: str, member: str | None) -> dict[str, Any] | None:
+        """One export-table read, recorded for the catalog memo.
+
+        Every read the lowerer makes goes through here (or through the
+        helpers that call it), so the catalog memo can compare exactly the
+        entries a unit consumed: when they are unchanged, the unit's
+        lowering is unchanged and the previous round's result stands.
+        """
+
         package = self.package or {}
-        item = package.get(module, {}).get(name)
+        self._export_reads.add((module, member))
+        bucket = package.get(module)
+        if bucket is None:
+            return None
+        return bucket if member is None else bucket.get(member)
+
+    def _export_table(self) -> dict[str, dict[str, dict[str, Any]]]:
+        """The whole export table, recorded as one table-wide read.
+
+        A scan over every bucket sees everything, so the catalog memo
+        invalidates the unit when any part of the table changes.
+        """
+
+        self._export_reads.add((WHOLE_TABLE, None))
+        return self.package or {}
+
+    def _bind_one_export(self, module: str, name: str, local: str, stmt: ast.AST, fences: list[Fence]) -> None:
+        item = self._export_lookup(module, name)
         if item is None:
             fences.append(
                 Fence(
@@ -586,6 +696,17 @@ class Lowerer(
             # seam to cross: the import refuses here, at module level, where
             # the fence survives the module's own island planning.
             if item.get("island"):
+                # The per-module plane split: the defining module planned the
+                # definition for its own island floor, and a program compile
+                # keeps the two planes side by side. The call crosses the
+                # boundary through the boxed seam, namespaced by the
+                # defining module (`ps_island_mod_fn_invoke`). A package
+                # compile (no program) has no per-module seed to cross
+                # into, so it refuses as before.
+                if self.program and self._boxed_cross_module_island():
+                    self.bindings[local] = Binding("island_floor", module, name, False, item["return"])
+                    self.declared.add(local)
+                    return
                 fence = Fence(
                     "PS2002",
                     f"{module}.{name} runs on the island floor of its own module, and importing it "
@@ -605,12 +726,58 @@ class Lowerer(
             self._install_return_class(module, item["return"], stmt, fences)
             return
         if _record_kind(item) == "class":
+            # boxed:begin
+            # The defining module planned the class for its own island floor
+            # (issue #628): no native body exists, so the import cannot
+            # install a lowered class record. Binding the name as a
+            # cross-module island class keeps the import from fencing the
+            # module level: the uses that need the class natively (a base
+            # class, an `except` clause) fence their own definition instead
+            # of the whole module, and the uses that only call or pass it
+            # cross the boundary through the boxed seam.
+            if item.get("island"):
+                if self.program and self._boxed_cross_module_island():
+                    # The class object lives in the *defining* module's island
+                    # namespace, which is not always the module the import
+                    # names: a package re-exports it (`from ._utils import
+                    # *`), so the entry carries the owner.
+                    owner = str(item.get("module") or module)
+                    self.bindings[local] = Binding("island_floor_class", owner, name, False)
+                    self.island_floor_classes[local] = (owner, name)
+                    self.declared.add(local)
+                    return
+                fence = Fence(
+                    "PS2002",
+                    f"{module}.{name} runs on the island floor of its own module, and importing it "
+                    "crosses a package boundary into it. Compile the tree as a program "
+                    "(--program --fallback=cpython) so the whole program runs island-side, "
+                    "or make the class lower natively.",
+                    span_of(stmt, self.filename),
+                    None,
+                )
+                fences.append(fence)
+                self._boxed_module_fences.append(fence)
+                return
+            # boxed:end
             self._install_class_export(local, item, stmt, fences)
             return
         if _record_kind(item) == "module":
             # A module re-exported by the package (`from . import core` in
             # `pkg/__init__.py`, issue #405): the name binds the submodule.
             self._bind_pkg_module(local, str(item["module"]), stmt, fences)
+            return
+        if item["kind"] == "global":
+            # A module-level global that lives in a runtime slot in the
+            # defining module. The consumer reads it through the defining
+            # module's qualified key, so the slot is installed locally with
+            # a foreign key and no initializer: the defining module's own
+            # `ps_global_set_*` runs in its module init.
+            self.global_slots[local] = {
+                "type": dict(item["type"]),
+                "active": True,
+                "foreign_key": f"{item['module']}.{item['name']}",
+            }
+            self.declared.add(local)
             return
         fences.append(
             Fence("PS2002", f"{module}.{name} is not a function or constant", span_of(stmt, self.filename), None)
@@ -627,7 +794,7 @@ class Lowerer(
         """
         if _maybe_type_kind(typ) != "class" or typ["name"] in self.classes:
             return
-        item = (self.package or {}).get(module, {}).get(typ["name"])
+        item = self._export_lookup(module, typ["name"])
         if item is None or _record_kind(item) != "class":
             return
         self._install_class_export(typ["name"], item, stmt, fences)
@@ -644,7 +811,7 @@ class Lowerer(
         return module == root or module.startswith(root + ".")
 
     def _pkg_item(self, node: ast.AST, module: str, member: str) -> dict[str, Any]:
-        item = (self.package or {}).get(module, {}).get(member)
+        item = self._export_lookup(module, member)
         if item is None:
             self.fail(node, "PS2001", f"{module}.{member} is not exported by this package")
         return item
@@ -655,7 +822,14 @@ class Lowerer(
             self.fail(node, "PS2001", f"{module}.{member} is not exported by this package")
         return item
 
-    def _linked_call(self, node: ast.Call, span: dict[str, Any], item: dict[str, Any], what: str) -> dict[str, Any]:
+    def _linked_call(
+        self,
+        node: ast.Call,
+        span: dict[str, Any],
+        item: dict[str, Any],
+        what: str,
+        expect: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         if _record_kind(item) != "func":
             self.fail(node, "PS2002", f"{what} is not a function")
         # boxed:begin
@@ -668,6 +842,15 @@ class Lowerer(
         # The refusal is a module-level fence (it belongs to no
         # definition), so it survives the module's own island planning.
         if item.get("island"):
+            # The plane split (see `_bind_one_export`): in a program compile
+            # the call crosses into the defining module's island floor
+            # through the boxed seam instead of refusing. The actual
+            # argument values marshal (the island side receives them
+            # untyped); the result unboxes through the call site's
+            # expectation.
+            if self.program and self._boxed_cross_module_island():
+                name = item["ir_name"].rsplit(".", 1)[1]
+                return self._island_floor_call(node, span, item["ir_name"].rsplit(".", 1)[0], name, expect)
             fence = Fence(
                 "PS2002",
                 f"{what} runs on the island floor of its own module, and this call crosses a "
@@ -709,14 +892,18 @@ class Lowerer(
                     proven = when_false if then_exits and not else_exits else when_true if else_exits else set()
                     rest = statements[index + 1 :]
                     for name in proven:
-                        if not any(
-                            isinstance(inner, ast.Name)
-                            and inner.id == name
-                            and isinstance(inner.ctx, (ast.Store, ast.Del))
-                            for item in rest
-                            for inner in ast.walk(item)
-                        ):
-                            self.opt_unwrap[name] = self.locals[name]
+                        opt = self._narrow_opt_type(name)
+                        if opt is not None and not self._key_rebinds(name, rest):
+                            self.opt_unwrap[name] = opt
+                elif isinstance(stmt, ast.Assert):
+                    # `assert x is not None` proves x set for the rest of
+                    # this body, the same rule the if-exit arm applies.
+                    proven, _ = self._narrow_names(stmt.test)
+                    rest = statements[index + 1 :]
+                    for name in proven:
+                        opt = self._narrow_opt_type(name)
+                        if opt is not None and not self._key_rebinds(name, rest):
+                            self.opt_unwrap[name] = opt
                 skips = (self.break_flag is not None and _stmt_breaks_this_loop(stmt)) or (
                     self.continue_flag is not None and _stmt_continues_this_loop(stmt)
                 )
@@ -828,10 +1015,36 @@ class Lowerer(
     def _assign_global(self, stmt: ast.Assign, target: str, span: dict[str, Any]) -> list[dict[str, Any]]:
         slot = self.global_slots.get(target)
         if slot is None or not slot.get("active"):
+            if self._global_alias_write(stmt, target):
+                return [{"kind": "pass", "span": span}]
             self.fail(stmt, "PS2002", f"global {target} is not a module slot")
         value = self._expr(stmt.value, slot["type"])
         self._expect(stmt, value["type"], slot["type"], target)
         return [self._global_set(target, value, span)]
+
+    def _global_alias_write(self, stmt: ast.Assign, target: str) -> bool:
+        """`global X` + `X = <name>` where `<name>` is the import the scan aliased.
+
+        The write needs no runtime code: X already resolves through the
+        module-scope binding the alias installed, so the statement lowers to
+        a pass. Any other store to the name keeps the module-slot fence.
+        """
+        rec = self.global_aliases.get(target)
+        if rec is None or not isinstance(stmt.value, ast.Name) or stmt.value.id == target:
+            return False
+        rhs = stmt.value.id
+        if rec["kind"] == "binding":
+            want = rec["binding"]
+            found = self.bindings.get(rhs)
+            return (
+                found is not None
+                and found.kind == want.kind
+                and found.module == want.module
+                and found.attr == want.attr
+            )
+        if rec["kind"] == "class":
+            return self.class_aliases.get(rhs) == rec["class"]
+        return self.constants.get(rhs) is rec["const"]
 
     def _slot_key(self, name: str) -> str:
         if self.module_name:
@@ -841,7 +1054,10 @@ class Lowerer(
     def _global_get(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
         slot = self.global_slots[name]
         typ = slot["type"]
-        key = _text_ir(self._slot_key(name), "str", span)
+        # A slot imported from another module reads the defining module's
+        # qualified key: the runtime registry is process-wide and the
+        # defining module's init wrote the value there.
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         # boxed:begin
         # The island top level (issue #613): a global the island bound is a
         # read of the once-unboxed shadow slot, under the island-prefixed key.
@@ -879,7 +1095,7 @@ class Lowerer(
                 "write it in a function that runs on the island, or annotate the global so it lowers native",
             )
         # boxed:end
-        key = _text_ir(self._slot_key(name), "str", span)
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         if _type_kind(typ) == "str":
             symbol = "ps_global_set_str"
         elif _type_kind(typ) == "int":
@@ -900,7 +1116,8 @@ class Lowerer(
         )
 
     def _global_is_set(self, name: str, span: dict[str, Any]) -> dict[str, Any]:
-        key = _text_ir(self._slot_key(name), "str", span)
+        slot = self.global_slots.get(name, {})
+        key = _text_ir(slot.get("foreign_key") or self._slot_key(name), "str", span)
         return self._abi_call("builtins", "global_is_set", [key], {"kind": "bool"}, "ps_global_is_set", span)
 
     def _bind_deferred_module(self, fences: list[Fence]) -> None:
@@ -1097,6 +1314,147 @@ class Lowerer(
         # and everything else consults the map when a bridge is wired.
         return self._bridge_type(node)
 
+    def _scan_global_aliases(self, functions: list[ast.FunctionDef]) -> None:
+        """Promote `global X` + `X = <imported name>` writes to module bindings.
+
+        The lazy-loader idiom (`def _load(): global assess; from pyscriptc
+        import assess as _assess; assess = _assess`) writes a module global
+        from inside a function. For the subset the write is a no-op: X takes
+        exactly the binding the function-local import produced, so every
+        reader resolves it like a top-level import of the same name. The
+        scan replays each body's import statements through the real bind
+        pass on a scratch state (restored afterwards), so the alias carries
+        the binding the import would really have made. A name promotes only
+        when every store to it in every body is that alias shape resolving
+        to the same target; anything else keeps today's fences.
+        """
+        records: dict[str, dict[str, Any]] = {}
+        bad: set[str] = set()
+
+        def store_names(target: ast.expr) -> list[str]:
+            if isinstance(target, ast.Name):
+                return [target.id]
+            if isinstance(target, (ast.Tuple, ast.List)):
+                return [name for elt in target.elts for name in store_names(elt)]
+            if isinstance(target, ast.Starred):
+                return store_names(target.value)
+            return []
+
+        saved = (
+            dict(self.bindings),
+            dict(self.type_aliases),
+            dict(self.constants),
+            set(self.declared),
+            dict(self.typevars),
+            dict(self.classes),
+            dict(self.class_aliases),
+            set(self.known_classes),
+            dict(self.pkg_funcs),
+            set(self.synthetics),
+        )
+        try:
+            for fn in functions:
+                declared = self._globals_for(fn.body)
+                if not declared:
+                    continue
+                stores: dict[str, list[ast.expr | None]] = {name: [] for name in declared}
+                for node in ast.walk(ast.Module(body=list(fn.body), type_ignores=[])):
+                    if isinstance(node, ast.Import):
+                        try:
+                            self._bind_import(node, [])
+                        except Fence:
+                            pass
+                    elif isinstance(node, ast.ImportFrom):
+                        try:
+                            self._bind_from(node, [])
+                        except Fence:
+                            pass
+                    elif isinstance(node, ast.Assign):
+                        for target in node.targets:
+                            for name in store_names(target):
+                                if name in stores:
+                                    stores[name].append(node.value)
+                    elif isinstance(node, (ast.AnnAssign, ast.AugAssign)):
+                        for name in store_names(node.target):
+                            if name in stores:
+                                stores[name].append(None)
+                for name, values in stores.items():
+                    if name in bad or not values:
+                        continue
+                    found: dict[str, Any] | None = None
+                    ok = True
+                    for value in values:
+                        rec = self._alias_record(value)
+                        if rec is None or (found is not None and rec["key"] != found["key"]):
+                            ok = False
+                            break
+                        found = rec
+                    if not ok or found is None:
+                        bad.add(name)
+                        records.pop(name, None)
+                    else:
+                        records[name] = found
+        finally:
+            (
+                self.bindings,
+                self.type_aliases,
+                self.constants,
+                self.declared,
+                self.typevars,
+                self.classes,
+                self.class_aliases,
+                self.known_classes,
+                self.pkg_funcs,
+                self.synthetics,
+            ) = (
+                saved[0],
+                saved[1],
+                saved[2],
+                saved[3],
+                saved[4],
+                saved[5],
+                saved[6],
+                saved[7],
+                saved[8],
+                saved[9],
+            )
+        for name, rec in records.items():
+            if name in bad:
+                continue
+            self.global_aliases[name] = rec
+            if rec["kind"] == "binding":
+                want = rec["binding"]
+                self.bindings[name] = Binding(want.kind, want.module, want.attr, want.queued, want.type, want.rooted)
+                if want.kind == "pyfunc" and rec.get("item") is not None:
+                    self.pkg_funcs[name] = rec["item"]
+                self.declared.add(name)
+            elif rec["kind"] == "class":
+                self.class_aliases[name] = rec["class"]
+                self.known_classes.add(name)
+                self.declared.add(name)
+            else:
+                self.constants[name] = rec["const"]
+                self.declared.add(name)
+
+    def _alias_record(self, value: ast.expr | None) -> dict[str, Any] | None:
+        """The alias a `global X = <name>` store would install, else None."""
+        if not isinstance(value, ast.Name):
+            return None
+        rhs = value.id
+        found = self.bindings.get(rhs)
+        if found is not None:
+            return {
+                "kind": "binding",
+                "key": ("binding", found.kind, found.module, found.attr),
+                "binding": found,
+                "item": self.pkg_funcs.get(rhs),
+            }
+        if rhs in self.class_aliases:
+            return {"kind": "class", "key": ("class", self.class_aliases[rhs]), "class": self.class_aliases[rhs]}
+        if rhs in self.constants:
+            return {"kind": "const", "key": ("const", id(self.constants[rhs])), "const": self.constants[rhs]}
+        return None
+
 
 def lower_source(
     source: str,
@@ -1214,24 +1572,36 @@ def lower_file(
 def render_fences(module: dict[str, Any], source: str) -> str:
     import re
 
-    raw_fences = module.get("fences") or []
+    raw_fences: list[dict[str, Any]] = module["fences"] if "fences" in module else []
     if not raw_fences:
         return ""
 
     # Deduplicate fences while preserving lowering order.
-    seen: set[tuple[Any, ...]] = set()
+    seen: set[str] = set()
     fences: list[dict[str, Any]] = []
     for f in raw_fences:
-        span = f.get("span") or {}
-        key = (f.get("code"), span.get("file"), span.get("line"), span.get("col"), f.get("message"))
+        span: dict[str, Any] = f["span"] if "span" in f else {}
+        if not span:
+            span = {}
+        key: str = str(
+            (
+                f["code"] if "code" in f else None,
+                span["file"] if "file" in span else None,
+                span["line"] if "line" in span else None,
+                span["col"] if "col" in span else None,
+                f["message"] if "message" in f else None,
+            )
+        )
         if key in seen:
             continue
         seen.add(key)
         fences.append(f)
 
     def _source_for(f: dict[str, Any]) -> str:
-        path = f.get("span", {}).get("file")
-        if path and path != module.get("sourceFile"):
+        span: dict[str, Any] = f["span"] if "span" in f else {}
+        path: str | None = span["file"] if "file" in span else None
+        src_file: str = module["sourceFile"] if "sourceFile" in module else ""
+        if path is not None and path != "" and path != src_file:
             try:
                 return open(path, encoding="utf-8").read()
             except OSError:
@@ -1239,19 +1609,20 @@ def render_fences(module: dict[str, Any], source: str) -> str:
         return source
 
     if len(fences) <= 1:
-        fence = fences[0] if fences else raw_fences[0]
+        fence: dict[str, Any] = fences[0] if fences else raw_fences[0]
         return format_diagnostic(fence, _source_for(fence))
 
-    tree_cache: dict[str | None, Any] = {}
+    tree_cache: dict[str, Any] = {}
 
     def _get_tree(file_path: str | None) -> Any:
-        if file_path not in tree_cache:
-            src = _source_for({"span": {"file": file_path}})
+        key: str = file_path or ""
+        if key not in tree_cache:
+            src = _source_for({"span": {"file": key}})
             try:
-                tree_cache[file_path] = ast.parse(src)
+                tree_cache[key] = ast.parse(src)
             except Exception:
-                tree_cache[file_path] = None
-        return tree_cache[file_path]
+                tree_cache[key] = None
+        return tree_cache[key]
 
     def _assign_targets(tree: Any, line: int) -> set[str]:
         if tree is None:
@@ -1292,23 +1663,24 @@ def render_fences(module: dict[str, Any], source: str) -> str:
         return None
 
     def _stopped_names(fence: dict[str, Any]) -> set[str]:
-        msg = fence.get("message", "")
-        line = fence.get("span", {}).get("line", 0)
-        file_path = fence.get("span", {}).get("file")
+        msg: str = fence["message"] if "message" in fence else ""
+        span: dict[str, Any] = fence["span"] if "span" in fence else {}
+        line: int = span["line"] if "line" in span else 0
+        file_path: str | None = span["file"] if "file" in span else None
         tree = _get_tree(file_path)
 
         names: set[str] = set()
         m = re.search(r"^([a-zA-Z_]\w*)\s+needs an annotation before use", msg)
         if m:
-            names.add(m.group(1))
+            names.add(str(m.group(1)))
         m = re.search(r"^parameter\s+([a-zA-Z_]\w*)\s+needs an annotation", msg)
         if m:
-            names.add(m.group(1))
+            names.add(str(m.group(1)))
         m = re.search(r"^([a-zA-Z_]\w*)\s+needs an initial value", msg)
         if m:
-            names.add(m.group(1))
+            names.add(str(m.group(1)))
 
-        names.update(_assign_targets(tree, line))
+        names |= _assign_targets(tree, line)
         def_name = _def_at(tree, line)
         if def_name:
             names.add(def_name)
@@ -1317,42 +1689,43 @@ def render_fences(module: dict[str, Any], source: str) -> str:
     from pyscriptc.coverage import family_of
 
     def _resolves_to(fence: dict[str, Any]) -> set[str]:
-        msg = fence.get("message", "")
-        code = fence.get("code", "")
+        msg: str = fence["message"] if "message" in fence else ""
+        code: str = fence["code"] if "code" in fence else ""
         fam = family_of(code, msg)
 
         res: set[str] = set()
         m = re.search(r"^([a-zA-Z_]\w*)\s+is not a local or parameter", msg)
         if m:
-            res.add(m.group(1))
+            res.add(str(m.group(1)))
         m = re.search(r"^call to ([a-zA-Z_]\w*)\s+is not lowered", msg)
         if m:
-            res.add(m.group(1))
+            res.add(str(m.group(1)))
         m = re.search(r"^this class ([a-zA-Z_]\w*)\s+is not lowered", msg)
         if m:
-            res.add(m.group(1))
+            res.add(str(m.group(1)))
         m = re.search(r"^([a-zA-Z_]\w*)\s+is not exported", msg)
         if m:
-            res.add(m.group(1))
+            res.add(str(m.group(1)))
         m = re.search(r"cannot re-export unlowered ([a-zA-Z_]\w*)", msg)
         if m:
-            res.add(m.group(1))
+            res.add(str(m.group(1)))
 
         if fam in ("export-cascade", "class-cascade"):
             words = set(re.findall(r"\b[a-zA-Z_]\w*\b", msg))
-            res.update(words)
+            res |= words
 
-        line = fence.get("span", {}).get("line", 0)
-        file_path = fence.get("span", {}).get("file")
+        span: dict[str, Any] = fence["span"] if "span" in fence else {}
+        line: int = span["line"] if "line" in span else 0
+        file_path: str | None = span["file"] if "file" in span else None
         tree = _get_tree(file_path)
-        res.update(_assign_rhs_names(tree, line))
+        res |= _assign_rhs_names(tree, line)
         return res
 
-    root_fences: list[list[Any]] = []
+    root_fences: list[tuple[dict[str, Any], list[dict[str, Any]], set[str]]] = []
 
     for fence in fences:
         target_names = _resolves_to(fence)
-        matched_root = None
+        matched_root: tuple[dict[str, Any], list[dict[str, Any]], set[str]] | None = None
 
         if target_names:
             for item in root_fences:
@@ -1362,15 +1735,19 @@ def render_fences(module: dict[str, Any], source: str) -> str:
                     break
 
         if matched_root is not None:
-            matched_root[1].append(fence)
-            line = fence.get("span", {}).get("line", 0)
-            file_path = fence.get("span", {}).get("file")
+            consequences = matched_root[1]
+            consequences.append(fence)
+            stopped = matched_root[2]
+            span: dict[str, Any] = fence["span"] if "span" in fence else {}
+            line: int = span["line"] if "line" in span else 0
+            file_path: str | None = span["file"] if "file" in span else None
             tree = _get_tree(file_path)
-            matched_root[2].update(_assign_targets(tree, line))
-            matched_root[2].update(_stopped_names(fence))
+            stopped |= _assign_targets(tree, line)
+            stopped |= _stopped_names(fence)
         else:
             s_names = _stopped_names(fence)
-            root_fences.append([fence, [], s_names])
+            consequences: list[dict[str, Any]] = []
+            root_fences.append((fence, consequences, s_names))
 
     parts: list[str] = []
     printed_roots = root_fences[:3]
@@ -1384,7 +1761,7 @@ def render_fences(module: dict[str, Any], source: str) -> str:
             parts.append(f"(and {count} more fences that follow from it)")
 
     if len(root_fences) > 3:
-        rem = sum(1 + len(cons) for _, cons, _ in root_fences[3:])
+        rem = sum(1 + len(cons) for _fence_item, cons, _name_set in root_fences[3:])
         if rem == 1:
             parts.append("(and 1 more fence)")
         elif rem > 1:
@@ -1470,11 +1847,18 @@ def _const_list_concat(left: dict[str, Any], right: dict[str, Any], span: dict[s
 
 
 def _static_int(expr: dict[str, Any]) -> int | None:
-    if _maybe_node_kind(expr) == "const" and _maybe_type_kind(expr.get("type", {})) == "int":
-        value = expr.get("value")
-        if isinstance(value, str) and _int_text(value):
-            return int(value)
-    if _maybe_node_kind(expr) == "unary" and expr.get("op") == "-" and isinstance(expr.get("operand"), dict):
+    if _maybe_node_kind(expr) == "const" and "type" in expr and _maybe_type_kind(expr["type"]) == "int":
+        if "value" in expr:
+            value: str = expr["value"]
+            if isinstance(value, str) and _int_text(value):
+                return int(value)
+    if (
+        _maybe_node_kind(expr) == "unary"
+        and "op" in expr
+        and expr["op"] == "-"
+        and "operand" in expr
+        and isinstance(expr["operand"], dict)
+    ):
         inner = _static_int(expr["operand"])
         if inner is not None:
             return -inner

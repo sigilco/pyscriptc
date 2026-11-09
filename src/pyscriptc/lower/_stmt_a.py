@@ -13,11 +13,13 @@ byte-identical.
 from __future__ import annotations
 
 import ast
+import copy
 from typing import TYPE_CHECKING, Any  # noqa: F401  # moved-verbatim import
 
 from pyscriptc import _irnode as _ir  # noqa: F401  # moved-verbatim import
 from pyscriptc.ir import types_equal  # noqa: F401  # moved-verbatim import
 from pyscriptc.lower._core import (
+    _BARE_CONTAINER_NAMES,  # noqa: F401  # moved-verbatim import
     Fence,  # noqa: F401  # moved-verbatim import
     _any_contains,  # noqa: F401  # moved-verbatim import
     _assign,  # noqa: F401  # moved-verbatim import
@@ -29,6 +31,7 @@ from pyscriptc.lower._core import (
     _const_int,  # noqa: F401  # moved-verbatim import
     _const_none,  # noqa: F401  # moved-verbatim import
     _const_str,  # noqa: F401  # moved-verbatim import
+    _dotted,  # noqa: F401  # moved-verbatim import
     _has_typevar,  # noqa: F401  # moved-verbatim import
     _is_none_expr,  # noqa: F401  # moved-verbatim import
     _item,  # noqa: F401  # moved-verbatim import
@@ -43,6 +46,7 @@ from pyscriptc.lower._core import (
     _type_kind,  # noqa: F401  # moved-verbatim import
     _zero,  # noqa: F401  # moved-verbatim import
 )
+from pyscriptc.lower._misc_emit import _one_identity_note
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict  # noqa: F401  # moved-verbatim import
 
 if TYPE_CHECKING:
@@ -64,6 +68,19 @@ def _pass_stmt(span: dict[str, Any]) -> dict[str, Any]:
 
 def _expr_wrap(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span_of(span)))
+
+
+def _empty_container_expr(node: ast.expr) -> bool:
+    """An initializer that carries no element type (issue #483): an empty
+    `[]`/`{}`/set display or a nullary `list()`/`dict()`/`set()` call, so
+    the body's mutations are what pin the bare annotation's `any` slots."""
+    if isinstance(node, (ast.List, ast.Set)):
+        return not node.elts
+    if isinstance(node, ast.Dict):
+        return not node.keys
+    if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and not node.args:
+        return node.func.id in _BARE_CONTAINER_NAMES
+    return False
 
 
 def _mk_span_of(span: dict[str, Any]) -> Any:
@@ -109,6 +126,63 @@ class StmtAMixin:
         typ = self.locals.get(name)
         return typ is not None and bool(typ.get("optional")) and name not in self.fn_globals
 
+    def _narrow_probe_key(self, node: ast.expr) -> str | None:
+        """The `opt_unwrap` key an `is None` probe proves: a local name,
+        or `base.attr` for a one-level attribute read off a local."""
+        if isinstance(node, ast.Name):
+            return node.id
+        if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
+            return f"{node.value.id}.{node.attr}"
+        return None
+
+    def _narrow_opt_type(self, key: str) -> dict[str, Any] | None:
+        """The tagged-optional type `key` narrows to, or None when the
+        probe is not a narrowable optional. A `base.attr` key resolves
+        the field's declared type on the base's class; globals stay out
+        on either side of the dot."""
+        if "." not in key:
+            if key in self.fn_globals:
+                return None
+            typ = self.locals.get(key)
+            return typ if typ is not None and typ.get("optional") else None
+        base, _, attr = key.partition(".")
+        if base in self.fn_globals:
+            return None
+        btyp = self.locals.get(base)
+        if btyp is None or btyp.get("kind") != "class" or btyp.get("optional"):
+            return None
+        for field in self.classes.get(btyp.get("name", ""), {}).get("fields", []):
+            if field.get("name") == attr:
+                ftyp = field.get("type")
+                return ftyp if isinstance(ftyp, dict) and ftyp.get("optional") else None
+        return None
+
+    def _key_rebinds(self, key: str, scopes: list[ast.stmt] | ast.expr) -> bool:
+        """Whether `key` is rebound anywhere in `scopes`: a Store/Del of
+        the name itself, or for a `base.attr` key a Store/Del of the
+        attribute or of the base name."""
+        items = scopes if isinstance(scopes, list) else [scopes]
+        if "." not in key:
+            return any(
+                isinstance(inner, ast.Name) and inner.id == key and isinstance(inner.ctx, (ast.Store, ast.Del))
+                for item in items
+                for inner in ast.walk(item)
+            )
+        base, _, attr = key.partition(".")
+        for item in items:
+            for inner in ast.walk(item):
+                if isinstance(inner, ast.Name) and inner.id == base and isinstance(inner.ctx, (ast.Store, ast.Del)):
+                    return True
+                if (
+                    isinstance(inner, ast.Attribute)
+                    and inner.attr == attr
+                    and isinstance(inner.value, ast.Name)
+                    and inner.value.id == base
+                    and isinstance(inner.ctx, (ast.Store, ast.Del))
+                ):
+                    return True
+        return False
+
     def _narrow_names(self, test: ast.expr) -> tuple[set[str], set[str]]:
         """The tagged optionals a test proves set when it is true and when it is false.
 
@@ -126,10 +200,11 @@ class StmtAMixin:
         if isinstance(test, ast.Compare) and len(test.ops) == 1 and isinstance(test.ops[0], (ast.Is, ast.IsNot)):
             left, right = test.left, test.comparators[0]
             probe = left if _is_none_expr(right) else right if _is_none_expr(left) else None
-            if isinstance(probe, ast.Name) and self._narrowable(probe.id):
+            key = self._narrow_probe_key(probe) if probe is not None else None
+            if key is not None and self._narrow_opt_type(key) is not None:
                 if isinstance(test.ops[0], ast.IsNot):
-                    return {probe.id}, none
-                return none, {probe.id}
+                    return {key}, none
+                return none, {key}
             return none, none
         if isinstance(test, ast.BoolOp):
             parts = [self._narrow_names(value) for value in test.values]
@@ -144,17 +219,13 @@ class StmtAMixin:
         """Run `body()` with `names` narrowed, minus any name rebound in `scope`."""
         scopes = scope if isinstance(scope, list) else [scope]
         usable = {
-            name
-            for name in names
-            if not any(
-                isinstance(inner, ast.Name) and inner.id == name and isinstance(inner.ctx, (ast.Store, ast.Del))
-                for item in scopes
-                for inner in ast.walk(item)
-            )
+            name for name in names if self._narrow_opt_type(name) is not None and not self._key_rebinds(name, scopes)
         }
         saved = dict(self.opt_unwrap)
         for name in usable:
-            self.opt_unwrap[name] = self.locals[name]
+            opt = self._narrow_opt_type(name)
+            if opt is not None:
+                self.opt_unwrap[name] = opt
         try:
             return body()
         finally:
@@ -316,7 +387,7 @@ class StmtAMixin:
             visit(stmt)
         return (not state["seen"]) or state["hit"]
 
-    def _infer_accumulated_type(self, stmt: ast.Assign) -> dict[str, Any] | None:
+    def _infer_accumulated_type(self, stmt: ast.Assign | ast.AnnAssign) -> dict[str, Any] | None:
         """The container type an empty display accumulates in this body.
 
         An empty `[]` or `{}` says nothing about its element type: the uses
@@ -330,18 +401,38 @@ class StmtAMixin:
         mutation that is not a plain append or item write is a refusal
         (None): the name keeps its annotation fence. A display that is not
         empty has its own element type and never reaches here.
+
+        An `x: list`, `x: dict` or `x: set` annotated assignment (issue
+        #483) scans the same way and pins the bare annotation's `any`
+        slots: `set` reads `name.add(v)` writes, `list` reads `append` and
+        int-subscript writes, and `dict` reads `setdefault` and item writes
+        (the key type pins too, so an int-keyed write keeps a concrete
+        dict). A mutation that does not match the annotated shape refuses.
         """
-        if not isinstance(stmt.value, (ast.List, ast.Dict, ast.Set)):
-            return None
-        if isinstance(stmt.value, ast.List) and stmt.value.elts:
-            return None
-        if isinstance(stmt.value, ast.Set) and stmt.value.elts:
-            return None
-        if isinstance(stmt.value, ast.Dict) and stmt.value.keys:
-            return None
+        bare: str | None = None
+        if isinstance(stmt, ast.AnnAssign):
+            if (
+                not isinstance(stmt.target, ast.Name)
+                or not isinstance(stmt.annotation, ast.Name)
+                or stmt.annotation.id not in _BARE_CONTAINER_NAMES
+            ):
+                return None
+            if stmt.value is not None and not _empty_container_expr(stmt.value):
+                return None
+            target = stmt.target.id
+            bare = stmt.annotation.id
+        else:
+            if not isinstance(stmt.value, (ast.List, ast.Dict, ast.Set)):
+                return None
+            if isinstance(stmt.value, ast.List) and stmt.value.elts:
+                return None
+            if isinstance(stmt.value, ast.Set) and stmt.value.elts:
+                return None
+            if isinstance(stmt.value, ast.Dict) and stmt.value.keys:
+                return None
+            target = stmt.targets[0].id
         if self.function is None or self.inf_peek:
             return None
-        target = stmt.targets[0].id
 
         def _locals_upto(node: ast.AST) -> None:
             """Bind the names assigned before `node` in source order.
@@ -393,8 +484,17 @@ class StmtAMixin:
                         # element type is the fact, or the peek refuses and
                         # the target stays out.
                         iter_typ = self._infer_type_of(loop.iter)
-                    if iter_typ is not None and _maybe_type_kind(iter_typ) == "list":
+                    if iter_typ is None:
+                        continue
+                    kind = _maybe_type_kind(iter_typ)
+                    if kind == "list":
                         self.locals[name] = iter_typ["elem"]
+                    elif kind == "dict":
+                        self.locals[name] = iter_typ["key"]
+                    elif kind == "str":
+                        self.locals[name] = {"kind": "str"}
+                    elif kind == "bytes":
+                        self.locals[name] = {"kind": "int"}
 
         def _written_value(node: ast.expr) -> dict[str, Any] | None:
             """The written value's type, read through the accumulator.
@@ -436,6 +536,7 @@ class StmtAMixin:
 
         saved_locals = dict(self.locals)
         elem: dict[str, Any] | None = None
+        key_t: dict[str, Any] | None = None
         value: dict[str, Any] | None = None
         try:
             _bind_for_targets()
@@ -445,7 +546,7 @@ class StmtAMixin:
                         continue
                     if node.func.attr != "append" or not isinstance(node.func.value, ast.Name):
                         continue
-                    if node.func.value.id != target or len(node.args) != 1:
+                    if node.func.value.id != target or len(node.args) != 1 or bare == "set":
                         continue
                     _locals_upto(node)
                     _bind_for_targets()
@@ -459,9 +560,25 @@ class StmtAMixin:
                 for node in ast.walk(item):
                     if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
                         continue
+                    if node.func.attr != "add" or not isinstance(node.func.value, ast.Name):
+                        continue
+                    if node.func.value.id != target or len(node.args) != 1 or bare != "set":
+                        continue
+                    _locals_upto(node)
+                    _bind_for_targets()
+                    typ = self._infer_type_of(node.args[0])
+                    if typ is None or _type_kind(typ) not in {"int", "str"}:
+                        return None
+                    if elem is None:
+                        elem = typ
+                    elif not types_equal(elem, typ):
+                        return None
+                for node in ast.walk(item):
+                    if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                        continue
                     if node.func.attr != "setdefault" or not isinstance(node.func.value, ast.Name):
                         continue
-                    if node.func.value.id != target or len(node.args) != 2:
+                    if node.func.value.id != target or len(node.args) != 2 or bare in {"list", "set"}:
                         continue
                     _locals_upto(node)
                     _bind_for_targets()
@@ -469,6 +586,11 @@ class StmtAMixin:
                     val = self._infer_type_of(node.args[1])
                     if key is None or val is None or _type_kind(key) not in {"int", "str"}:
                         return None
+                    if bare == "dict":
+                        if key_t is None:
+                            key_t = key
+                        elif not types_equal(key_t, key):
+                            return None
                     if value is None:
                         value = val
                     elif not types_equal(value, val):
@@ -483,22 +605,64 @@ class StmtAMixin:
                         _locals_upto(node)
                         _bind_for_targets()
                         key = self._infer_type_of(node.targets[0].slice)
+                        if bare == "list":
+                            # `x[i] = v` on a `list` annotee pins the element
+                            # like an append does; a non-int subscript write
+                            # refuses, and the real write keeps its own fence.
+                            val = self._infer_type_of(node.value)
+                            if key is None or val is None or _type_kind(key) != "int":
+                                return None
+                            if elem is None:
+                                elem = val
+                            elif not types_equal(elem, val):
+                                return None
+                            continue
+                        if bare == "set":
+                            continue
                         val = _written_value(node.value)
                         if key is None or val is None or _type_kind(key) not in {"int", "str"}:
                             return None
+                        if bare == "dict":
+                            if key_t is None:
+                                key_t = key
+                            elif not types_equal(key_t, key):
+                                return None
                         if value is None:
                             value = val
                         elif not types_equal(value, val):
                             return None
         finally:
             self.locals = saved_locals
+        if bare == "dict":
+            if value is not None and key_t is not None:
+                return {"kind": "dict", "key": key_t, "value": value}
+            return None
+        if bare == "set":
+            return {"kind": "list", "elem": elem, "set": True} if elem is not None else None
         if elem is not None:
             return {"kind": "list", "elem": elem}
-        if value is not None:
+        if bare is None and value is not None:
             return {"kind": "dict", "key": {"kind": "str"}, "value": value}
         return None
 
     def _aug_assign(self, stmt: ast.AugAssign, span: dict[str, Any]) -> list[dict[str, Any]]:
+        if isinstance(stmt.target, (ast.Attribute, ast.Subscript)):
+            # `t[i] op= v` / `o.f op= v` desugar to the plain store of the
+            # binary result: the Assign paths already lower subscript and
+            # attribute targets. Only the outermost target node carries the
+            # Store context, so a Load-context copy of it reads the current
+            # value back.
+            target = stmt.target
+            left = copy.deepcopy(target)
+            left.ctx = ast.Load()
+            assign = ast.Assign(
+                targets=[target],
+                value=ast.BinOp(left=left, op=stmt.op, right=stmt.value),
+            )
+            ast.copy_location(assign, stmt)
+            ast.copy_location(assign.value, stmt)
+            ast.copy_location(left, stmt)
+            return self._stmt_core(assign)
         if not isinstance(stmt.target, ast.Name):
             self.fail(stmt, "PS2002", "augmented assignment is only lowered for a name")
         target = stmt.target.id
@@ -531,6 +695,18 @@ class StmtAMixin:
         The RHS lowers once; a non-name value pins to a temp when several
         targets share it or a destructuring needs repeated reads.
         """
+        if (
+            len(stmt.targets) > 1
+            and isinstance(stmt.value, ast.Name)
+            and (const := self._module_const_container(stmt.value)) is not None
+        ):
+            name, typ = const
+            self.fail(
+                stmt,
+                "PS2002",
+                f"a chained assignment from the module-scope constant {name} binds a copy: "
+                f"a copy-on-alias is not representable — {_one_identity_note(name, typ)}",
+            )
         value = self._expr(stmt.value)
         stmts: list[dict[str, Any]] = []
         for target in stmt.targets:
@@ -587,7 +763,7 @@ class StmtAMixin:
         star = -1
         for index, elt in enumerate(elts):
             inner = elt.value if isinstance(elt, ast.Starred) else elt
-            if not isinstance(inner, (ast.Name, ast.Tuple, ast.List)):
+            if not isinstance(inner, (ast.Name, ast.Tuple, ast.List, ast.Subscript, ast.Attribute)):
                 self.fail(elt, "PS2002", "unpack targets are names")
             if isinstance(elt, ast.Starred):
                 if star >= 0:
@@ -715,13 +891,66 @@ class StmtAMixin:
         return stmts
 
     def _unpack_name(self, elt: ast.expr, member: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
-        """One unpack element: a Name binds; a nested tuple/list recurses."""
+        """One unpack element: a Name binds; a nested tuple/list recurses; a
+        subscript or attribute target stores the member through the same
+        nodes a plain `t[i] = v` / `o.f = v` assignment emits."""
         if isinstance(elt, ast.Starred):
             elt = elt.value
         if isinstance(elt, ast.Name):
             return [self._store_target(elt, elt.id, member, span)]
+        if isinstance(elt, ast.Subscript):
+            return [self._unpack_setitem(elt, member, span)]
+        if isinstance(elt, ast.Attribute):
+            return [self._unpack_setattr(elt, member, span)]
         assert isinstance(elt, (ast.Tuple, ast.List))
         return self._unpack(elt, elt.elts, member, span)
+
+    def _unpack_setitem(self, target: ast.Subscript, member: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """`t[i]` as an unpack target: the `_setitem` store with the member
+        value already lowered (the RHS evaluated once, before any store)."""
+        if isinstance(target.slice, ast.Slice):
+            self.fail(target, "PS2002", "slices are not lowered")
+        container = self._expr(target.value)
+        index = self._expr(target.slice)
+        kind = _node_type_kind(container)
+        if kind == "list" and container["type"].get("set"):
+            self.fail(target, "PS2002", "a set has no item assignment")
+        if kind == "list":
+            if _node_type_kind(index) != "int":
+                self.fail(target, "PS1003", "a list index is int")
+            self._expect(target, member["type"], container["type"]["elem"], "list item")
+        elif kind == "dict":
+            self._expect(target, index["type"], container["type"]["key"], "dict key")
+            self._expect(target, member["type"], container["type"]["value"], "dict value")
+        else:
+            self.fail(target, "PS2002", "item assignment targets a list or dict")
+        return node_to_dict(
+            _ir.setitem_stmt(dict_to_node(container), dict_to_node(index), dict_to_node(member), _mk_span_of(span))
+        )
+
+    def _unpack_setattr(self, target: ast.Attribute, member: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """`o.f` as an unpack target: the `_setattr` store with the member
+        value already lowered."""
+        obj = self._expr(target.value)
+        if _node_type_kind(obj) != "class":
+            self.fail(target, "PS2001", f"attribute assignment is not lowered ({_dotted(target)})")
+        class_name = obj["type"]["name"]
+        # boxed:begin
+        if obj["type"].get("island"):
+            self.fail(
+                target,
+                "PS2001",
+                f"{class_name} is an island handle: mutate it on the island, or read the result back",
+            )
+        # boxed:end
+        info = self.classes[class_name]
+        if info.get("namedtuple"):
+            self.fail(target, "PS2002", f"{class_name}.{target.attr} is read-only on a namedtuple")
+        field = next((item for item in info["fields"] if item["name"] == target.attr), None)
+        if field is None:
+            self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
+        self._expect(target, member["type"], field["type"], target.attr)
+        return node_to_dict(_ir.setattr_stmt(dict_to_node(obj), target.attr, dict_to_node(member), _mk_span_of(span)))
 
 
 def _is_main_guard(stmt: ast.stmt) -> bool:
@@ -749,10 +978,9 @@ def _always_returns(body: list[dict[str, Any]]) -> bool:
             return True
         if _node_kind(stmt) == "if" and _always_returns(stmt["then"]) and _always_returns(stmt["else"]):
             return True
-        if (
-            _node_kind(stmt) == "try"
-            and _always_returns(stmt["body"])
-            and all(_always_returns(handler["body"]) for handler in stmt["handlers"])
-        ):
-            return True
+        if _node_kind(stmt) == "try":
+            body: list[dict[str, Any]] = stmt["body"]
+            handlers: list[dict[str, Any]] = stmt["handlers"]
+            if _always_returns(body) and all(_always_returns(handler["body"]) for handler in handlers):
+                return True
     return False
