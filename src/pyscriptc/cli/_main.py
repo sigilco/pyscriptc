@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 # boxed:begin
-from pyscriptc import embed, runcache, sitedeps, stdlibzip
+from pyscriptc import embed, island_engine, runcache, sitedeps, stdlibzip
 
 # boxed:end
 from pyscriptc.cli._report import (
@@ -296,6 +296,14 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="ROOT",
         help="import root a bundle does not carry: the host must provide it "
         "(an optional or native-backed dependency); repeatable",
+    )
+    compile_parser.add_argument(
+        "--island-engine",
+        default=None,
+        metavar="ENGINE",
+        help="island engine descriptor to use (a TOML path, a name searched in PYSC_ISLAND_ENGINES, "
+        "or cpython for the built-in embedded-CPython engine); resolved, validated and recorded "
+        "in the debug summary. Also read from the `engine` key of [tool.pyscriptc.island]",
     )
     compile_parser.add_argument(
         "--embed-headers",
@@ -1023,6 +1031,7 @@ def _run_key(args: argparse.Namespace) -> str:
             f"fallback={getattr(args, 'fallback', None)}",
             f"island={getattr(args, 'island', False)}",
             f"embed_python={getattr(args, 'embed_python', None)}",
+            f"island_engine={getattr(args, 'island_engine', None)}",
             # boxed:end
         ],
     )
@@ -1074,6 +1083,7 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         fallback=getattr(args, "fallback", None),
         island=getattr(args, "island", False),
         embed_python=getattr(args, "embed_python", None),
+        island_engine=getattr(args, "island_engine", None),
         # boxed:end
         driver=args.driver,
         target=args.target,
@@ -1551,6 +1561,25 @@ def _require_toolchain(args: argparse.Namespace) -> None:
         )
 
 
+def _require_island_engine(args: argparse.Namespace) -> island_engine.EngineDescriptor | None:
+    """Resolve `--island-engine` (or the config key) to a validated descriptor.
+
+    None when no engine was requested: the default path is unchanged and the
+    built-in embedded-CPython engine stays in place. The selection is inert
+    in this slice (issue #666): it is validated and recorded in the debug
+    summary, no lowering or link behavior changes.
+    """
+    # boxed:begin
+    selection = getattr(args, "island_engine", None)
+    if not selection:
+        return None
+    try:
+        return island_engine.resolve(selection)
+    except island_engine.EngineError as exc:
+        raise IRError(str(exc)) from exc
+    # boxed:end
+
+
 def _load_ffi(args: argparse.Namespace, config: Config) -> list[FfiManifest]:
     """The `--ffi` manifests of this compile, CLI first then the config file.
 
@@ -1635,6 +1664,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     config = load_config(source_path)
     for note in apply_to_args(config, args):
         print(note, file=sys.stderr)
+    engine = _require_island_engine(args)
+    if engine is not None:
+        dbg.engine_info = engine.as_summary()
     manifests = _load_ffi(args, config)
     log.info(
         "compile.start",

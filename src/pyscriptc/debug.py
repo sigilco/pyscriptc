@@ -70,6 +70,9 @@ class Debug:
     # bare annotation registers the field; `self.x: T = v` AnnAssigns do
     # not lower, so `__init__` assigns a plain `None`.
     mir_plan: dict[str, Any] | None
+    # The island engine selection (issue #666): the validated descriptor
+    # summary, or None when no engine was requested. Inert in this slice.
+    engine_info: dict[str, Any] | None
 
     def __init__(self, topics: set[str], debug_dir: Path | None) -> None:
         self.topics = topics
@@ -93,6 +96,7 @@ class Debug:
         self.llvm_verification: dict[str, Any] | None = None
         self.binding_info: dict[str, Any] | None = None
         self.mir_plan = None
+        self.engine_info = None
 
     def set_binding(self, emitted: list[dict[str, Any]], skipped: list[tuple[str, str]]) -> None:
         self.binding_info = {
@@ -235,6 +239,13 @@ class Debug:
                 f"[debug] binding: {self.binding_info['emittedCount']} exported, "
                 f"{self.binding_info['skippedCount']} skipped"
             )
+        if self.engine_info is not None and self.wants("stages"):
+            info = self.engine_info
+            caps = ",".join(str(c) for c in info.get("capabilities", [])) or "-"
+            lines.append(
+                f"[debug] island-engine: {info.get('name')} {info.get('version')} "
+                f"kind={info.get('kind')} capabilities={caps} source={info.get('source')}"
+            )
         return "\n".join(lines)
 
     def summary(self, module: dict[str, Any] | None, outputs: dict[str, str], status: str) -> dict[str, Any]:
@@ -266,6 +277,8 @@ class Debug:
         if mir_plan is not None:
             mir_records: list[dict[str, Any]] = mir_plan["records"]
             res["mirAdapter"] = mir_records
+        if self.engine_info is not None:
+            res["islandEngine"] = self.engine_info
         # boxed:begin
         if module is not None and _has(module, "fallback"):
             fallback: dict[str, Any] = module["fallback"]

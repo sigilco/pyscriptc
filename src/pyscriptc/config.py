@@ -281,6 +281,19 @@ class Config:
                 return str(value)
         return None
 
+    def island_engine(self) -> str | None:
+        """The `[tool.pyscriptc.island] engine` selection, or None when unset."""
+        # boxed:begin
+        if isinstance(self.island, dict):
+            if "engine" in self.island:
+                value = self.island["engine"]
+                if not isinstance(value, str) or not value.strip():
+                    table = "pyscriptc.island" if self.source == "pyscriptc.toml" else "tool.pyscriptc.island"
+                    raise ConfigError(f"{table}.engine must be a non-empty string, got {value!r}")
+                return str(value)
+        return None
+        # boxed:end
+
     # boxed:end
 
     def lane_for(self, name: str) -> tuple[str, str]:
@@ -437,6 +450,19 @@ def _paths(table: Dict[str, Any], key: str) -> tuple[str, ...]:
     return _as_tuple(out)
 
 
+def _validate_island(table: str, island: Dict[str, Any]) -> None:
+    """Key and type check of the `[tool.pyscriptc.island]` subtable.
+
+    This adds the `engine` key (issue #666); `embed` and `stdlib` are
+    checked in `Config.island_embed` / `Config.island_stdlib`.
+    """
+    for key, value in island.items():
+        if key not in ("embed", "stdlib", "engine"):
+            raise ConfigError(f"{table}: unknown key (known: embed, engine, stdlib)")
+        if key == "engine" and not isinstance(value, str):
+            raise ConfigError(f"{table}.engine must be str, got {type(value).__name__}")
+
+
 def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in data.items():
         if key not in _KEYS:
@@ -514,6 +540,7 @@ def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
     island: Dict[str, Any] = {}
     if "island" in table:
         island = table["island"]
+        _validate_island("tool.pyscriptc.island" if source == "pyproject.toml" else "pyscriptc.island", island)
     imports: Dict[str, str] = {}
     if "imports" in table:
         imports = table["imports"]
@@ -695,5 +722,9 @@ def apply_to_args(config: Config, args: Any) -> list[str]:
         island_stdlib = config.island_stdlib()
         if island_stdlib is not None:
             args.embed_stdlib = island_stdlib
+    if hasattr(args, "island_engine") and getattr(args, "island_engine", None) is None:
+        island_engine = config.island_engine()
+        if island_engine is not None:
+            args.island_engine = island_engine
     # boxed:end
     return notes
