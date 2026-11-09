@@ -193,7 +193,7 @@ def test_nightly_wires_strict_lane_as_report_only() -> None:
     assert "continue-on-error: true" in workflow
     # Report only: the failure-issue job does not wait on this lane.
     report = workflow.split("report-failure:")[-1]
-    assert "needs: [visible-score, boxed-ledger, embed-acceptance]" in report
+    assert "needs: [visible-score, boxed-ledger, embed-acceptance, r0-lane]" in report
 
 
 @pytest.mark.skipif(not has_c_toolchain(), reason="no C toolchain")
