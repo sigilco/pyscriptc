@@ -297,7 +297,7 @@ def _check_ladder(ladder: Any, where: str, problems: list[str]) -> None:
     if not _is_str(ladder.get("corpus")):
         problems.append(f"{where}.corpus is not a string")
     r0 = ladder.get("r0")
-    if r0 is not None:
+    if r0:
         _check_ladder_r0(r0, f"{where}.r0", problems)
 
 

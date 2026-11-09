@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-08",
-  "commit": "31e5ee7ec652ee1d743264ecd1b2e89011515a8f",
+  "generated": "2026-11-09",
+  "commit": "3c7cd005703a847bc296ff3d3564d9dc00a65467",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -2077,7 +2077,105 @@
       }
     ],
     "selfContainedShare": 0.2222,
-    "trees": 18
+    "trees": 18,
+    "r0": {
+      "rung": "R0",
+      "label": "Vendored real script",
+      "corpus": "benchmarks/real_scripts/scripts",
+      "total": 39,
+      "passed": 2,
+      "rate": 0.0513,
+      "fences": 294,
+      "date": "2026-11-09",
+      "blockers": [
+        {
+          "family": "keyword-args",
+          "rootCause": "call-table",
+          "scriptsBlocked": 2,
+          "scriptsAlone": 2
+        },
+        {
+          "family": "module-assign",
+          "rootCause": "statements",
+          "scriptsBlocked": 2,
+          "scriptsAlone": 1
+        },
+        {
+          "family": "dynamic-annotation",
+          "rootCause": "inference",
+          "scriptsBlocked": 1,
+          "scriptsAlone": 1
+        },
+        {
+          "family": "stdlib:os",
+          "rootCause": "stdlib-surface",
+          "scriptsBlocked": 2,
+          "scriptsAlone": 1
+        },
+        {
+          "family": "construct-other",
+          "rootCause": "statements",
+          "scriptsBlocked": 9,
+          "scriptsAlone": 2
+        },
+        {
+          "family": "annotation-other",
+          "rootCause": "inference",
+          "scriptsBlocked": 3,
+          "scriptsAlone": 0
+        },
+        {
+          "family": "call-arity",
+          "rootCause": "call-table",
+          "scriptsBlocked": 19,
+          "scriptsAlone": 0
+        },
+        {
+          "family": "field-lookup",
+          "rootCause": "classes",
+          "scriptsBlocked": 6,
+          "scriptsAlone": 0
+        },
+        {
+          "family": "forward-reference",
+          "rootCause": "inference",
+          "scriptsBlocked": 1,
+          "scriptsAlone": 0
+        },
+        {
+          "family": "generic-alias",
+          "rootCause": "inference",
+          "scriptsBlocked": 1,
+          "scriptsAlone": 0
+        }
+      ],
+      "rootCauses": [
+        {
+          "cause": "statements",
+          "scriptsReleased": 3
+        },
+        {
+          "cause": "call-table",
+          "scriptsReleased": 2
+        },
+        {
+          "cause": "inference",
+          "scriptsReleased": 2
+        },
+        {
+          "cause": "stdlib-surface",
+          "scriptsReleased": 1
+        }
+      ],
+      "history": [
+        {
+          "date": "2026-11-09",
+          "passed": 2,
+          "total": 39,
+          "rate": 0.0513
+        }
+      ]
+    }
   },
   "fences": [
     {
@@ -2265,6 +2363,15 @@
     {
       "date": "2026-11-08",
       "commit": "31e5ee7ec652ee1d743264ecd1b2e89011515a8f",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2614
+    },
+    {
+      "date": "2026-11-09",
+      "commit": "3c7cd005703a847bc296ff3d3564d9dc00a65467",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

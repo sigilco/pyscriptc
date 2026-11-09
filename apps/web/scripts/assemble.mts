@@ -134,7 +134,7 @@ function appendLlmsDataSection(): void {
       "compat_schema.py (version 1)",
     ],
     "ladder.json": [
-      "Adoption ladder scores across R1 (single-file), R2 (multi-module), and R4 (dependency lanes) rungs",
+      "Adoption ladder scores across R0 (real scripts), R1 (single-file), R2 (multi-module), and R4 (dependency lanes) rungs",
       "ladder JSON (version 1)",
     ],
     "what_will_fail.json": [

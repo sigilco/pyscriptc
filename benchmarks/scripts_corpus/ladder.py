@@ -1,4 +1,4 @@
-"""The adoption ladder metrics: R1, R2 and the R4 lane shares.
+"""The adoption ladder metrics: R0, R1, R2 and the R4 lane shares.
 
 The ladder is the public story of the compat site: one rate per rung, never a
 single "Python compat percent". This module produces the numbers the site
@@ -6,9 +6,14 @@ publishes, from the sources the plan names:
 
 | rung | metric | source |
 | --- | --- | --- |
+| R0 | pass rate over the vendored third-party real scripts | `benchmarks/real_scripts/scripts/` |
 | R1 | whole-file pass rate over single-file CLI scripts | `benchmarks/scripts_corpus/scripts/` |
 | R2 | pass rate over multi-module trees | `benchmarks/scripts_corpus/trees/` |
 | R4 | lane share over the locked dependencies | `benchmarks/compat/top100/src/` |
+
+R0 is measured by `benchmarks.real_scripts.measure` and merged into the same
+ladder document by `scripts/r0_lane.py` (see `benchmarks/real_scripts/lane.py`),
+which this module preserves when it rewrites the file. |
 
 The runner never writes to `benchmarks/compat2/`, never reads the closed
 scorer evaluation set, and never touches a frozen gate file.

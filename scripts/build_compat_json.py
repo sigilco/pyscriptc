@@ -334,7 +334,7 @@ def _ladder_rows(path: Path | None) -> dict[str, Any]:
     The section is empty when there is no ladder document, so the site
     renders "no ladder data yet" instead of failing.
     """
-    empty: dict[str, Any] = {"corpus": "", "rungs": [], "lanes": []}
+    empty: dict[str, Any] = {"corpus": "", "rungs": [], "lanes": [], "r0": {}}
 
     def _r0(document: dict[str, Any] | None) -> dict[str, Any]:
         """The R0 section: the vendored real-script rate plus the 30-point trend."""
