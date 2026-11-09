@@ -1341,6 +1341,10 @@ class StdlibDispatchMixin(StdlibBindMixin):
                     val, _ = constant
                     span = span_of(node, self.filename)
                     return _make_const(val, span)
+            class_name = self.class_aliases.get(node.value.id, node.value.id)
+            const = self._class_const(class_name, node.attr)
+            if const is not None:
+                return {**const, "span": span_of(node, self.filename)}
             return None
         if isinstance(node, ast.IfExp):
             truthy = _const_truthy(self._module_const(node.test))

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-08",
-  "commit": "f6963ecd693756927067f564914e59968d258e36",
+  "commit": "31e5ee7ec652ee1d743264ecd1b2e89011515a8f",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2670
+    "fences": 2614
   },
   "builtins": [
     {
@@ -1426,14 +1426,10 @@
       "import_name": "colorama",
       "version": "0.4.6",
       "status": "none",
-      "fences": 133,
+      "fences": 84,
       "definitions": 77,
-      "fenced_definitions": 48,
+      "fenced_definitions": 43,
       "top_families": [
-        {
-          "family": "class-body",
-          "count": 51
-        },
         {
           "family": "param-inference",
           "count": 29
@@ -1441,13 +1437,13 @@
         {
           "family": "construct-other",
           "count": 13
+        },
+        {
+          "family": "name-resolution",
+          "count": 8
         }
       ],
       "codes": [
-        {
-          "code": "PS1204",
-          "count": 51
-        },
         {
           "code": "PS2002",
           "count": 42
@@ -1455,6 +1451,10 @@
         {
           "code": "PS1001",
           "count": 36
+        },
+        {
+          "code": "PS2003",
+          "count": 3
         }
       ],
       "pypi": "https://pypi.org/project/colorama/"
@@ -1654,7 +1654,7 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "fences": 124,
+      "fences": 122,
       "definitions": 200,
       "fenced_definitions": 106,
       "top_families": [
@@ -1667,8 +1667,8 @@
           "count": 15
         },
         {
-          "family": "class-body",
-          "count": 9
+          "family": "decorators",
+          "count": 7
         }
       ],
       "codes": [
@@ -1681,8 +1681,8 @@
           "count": 13
         },
         {
-          "code": "PS1204",
-          "count": 9
+          "code": "PS1201",
+          "count": 7
         }
       ],
       "pypi": "https://pypi.org/project/jmespath/"
@@ -1692,7 +1692,7 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "fences": 108,
+      "fences": 107,
       "definitions": 171,
       "fenced_definitions": 52,
       "top_families": [
@@ -1768,9 +1768,9 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "partial",
-      "fences": 549,
+      "fences": 546,
       "definitions": 558,
-      "fenced_definitions": 277,
+      "fenced_definitions": 275,
       "top_families": [
         {
           "family": "unlowered-type-name",
@@ -1782,7 +1782,7 @@
         },
         {
           "family": "class-body",
-          "count": 52
+          "count": 49
         }
       ],
       "codes": [
@@ -1796,7 +1796,7 @@
         },
         {
           "code": "PS1204",
-          "count": 52
+          "count": 49
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1992,7 +1992,7 @@
       "import_name": "zipp",
       "version": "4.1.1",
       "status": "none",
-      "fences": 72,
+      "fences": 71,
       "definitions": 75,
       "fenced_definitions": 57,
       "top_families": [
@@ -2105,15 +2105,9 @@
       "packages": 14
     },
     {
-      "code": "PS1204",
-      "title": "class body statement",
-      "count": 128,
-      "packages": 7
-    },
-    {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 125,
+      "count": 126,
       "packages": 9
     },
     {
@@ -2127,6 +2121,12 @@
       "title": "call arguments not supported",
       "count": 87,
       "packages": 10
+    },
+    {
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 71,
+      "packages": 7
     },
     {
       "code": "PS1201",
@@ -2264,12 +2264,12 @@
     },
     {
       "date": "2026-11-08",
-      "commit": "f6963ecd693756927067f564914e59968d258e36",
+      "commit": "31e5ee7ec652ee1d743264ecd1b2e89011515a8f",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2670
+      "fences": 2614
     }
   ]
 }
