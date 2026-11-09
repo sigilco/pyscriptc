@@ -470,3 +470,84 @@ All measurements are reproducible from this worktree.
 
 This token cannot add the issue or the PR to project board 6. The board entry for this research, and the board entries for every slice in section 3, must be added by a session with board access.
 
+---
+
+# Addendum (2026-11-09): Linux re-measurement and v0.10.0 status re-check
+
+This addendum re-runs the headline measurements on a different host (Debian 13, Linux 6.12, x86-64, gcc 14.2.0 and clang (Debian) as the C toolchain, CPython 3.14.9 via mise) against `origin/master` at `f8571c8a`, and re-checks every claim the note makes against the tree two days later. Conclusion up front: every load-bearing number replicates, two of them move in the direction that strengthens the recommendation, and the tree state is unchanged for all five shortlist items. The v0.10.0 shortlist in section 3.2 stands as written.
+
+## A.1 Host difference
+
+The original measurements were taken on macOS arm64 with Apple clang. This host is Linux x86-64 with gcc-built runtime objects and clang as the LLVM driver. That is actually the more representative configuration for the receipt work, because `benchmarks/baseline` is recorded on Linux.
+
+## A.2 The MIR/direct ratio on this host
+
+`uv run python scripts/mir_perf_ratio.py --runs 3` gives geomean ratio **0.9519** (kernel 0.8799, stdlib 0.9508, scripting 1.3404), with 3 of the visible rows marked "faster" and the rest inconclusive, all under the noise band the baseline README documents. The MIR lane is performance-neutral on this host too, exactly as section 0.1 concluded; the scripting group being 1.34 here is a single-row group (`script-slice`) and inside the noise for a kernel of that size. No change to the recommendation: the MIR lane is not where the user-visible wins are.
+
+## A.3 The `-O` sweep replicates and is tighter
+
+Same amplified-kernel method as section 0.2 (`sum_squares` over `n = 400000` invoked 30 times in an LLVM-level driver loop), interleaved timing, 9 rounds:
+
+| build | median |
+|---|---:|
+| `-O0` | 99.86 ms |
+| `-O1` | 13.79 ms |
+| `-O2` | 12.75 ms |
+| `-O3` | 12.92 ms |
+
+`-O1` through `-O3` are within 8 percent of each other and `-O3` is not faster than `-O2`, reproducing the macOS result. `-O0` is 7.8x slower, so the emitted `.ll` depends on the optimizer for its performance shape. Section 0.2's conclusion is confirmed on a second toolchain.
+
+## A.4 The overflow-check cost is larger on Linux
+
+Same bisect as section 0.3, replacing the helper calls with raw `add` / `mul` in the emitted IR and keeping everything else byte-identical:
+
+| variant | median | versus emitted |
+|---|---:|---:|
+| emitted (`ps.iadd` + `ps.imul`, both checked) | 14.41 ms | 1.00x |
+| unchecked `mul` only | 14.66 ms | 1.02x |
+| unchecked `add` and `mul` | 1.71 ms | **0.12x (about 8.4x faster)** |
+
+The interesting difference from macOS is where the cost sits. On Apple clang, removing the multiply check alone was worth 16 percent; here removing the multiply check alone is worth nothing, and removing both is worth everything. Inspecting the emitted IR at `-O2` explains it: the multiply is loop-invariant-shaped to LLVM only after the add check is also gone, because the checked `ps.iadd` of the accumulator is what keeps the loop body from being simplified into a form where the multiply result feeds a strength-reducible induction chain. In other words the two checks interact, and the full win only appears when the whole loop body is unchecked. That makes rank 8 (range analysis plus overflow-check elision) **more** valuable than the note claimed, and it also means a partial elision (drop one check, keep the other) may buy nothing: the receipt for rank 8 must measure the combined variant, not per-check deltas. The 8.4x figure is specific to this kernel and this amplification shape; treat it as an upper bound, not an expectation for real workloads.
+
+One nuance for whoever picks up rank 8: the emitted helpers use `llvm.sadd.with.overflow` plus a branch to `ps_raise_code` (a `noreturn` trap), not the `nsw` flag. An `nsw`-based rewrite would change overflow from a defined abort into poison, which is exactly the silent-wrong-answer failure mode section 4 warns about. Any elision must keep the explicit trap on the paths the analysis cannot prove, or move divergence 1 deliberately with an owner decision.
+
+## A.5 `fastcc` replicates
+
+| variant | median | versus emitted |
+|---|---:|---:|
+| `fastcc` on the user function (definition plus call site) | 12.75 ms | 0.88x |
+| `fastcc` on the two internal helpers | 13.71 ms | 0.95x |
+
+The user-function `fastcc` win is 12 percent here (was 24 percent on Apple clang): same direction, smaller magnitude, still the largest zero-semantics-change lever measured. The helper-side effect is also visible here, unlike macOS, but is within run-to-run drift. Rank 3 stands; the receipt should report both hosts.
+
+## A.6 Tree re-check, 2026-11-09
+
+- `mir.py` (1237 lines), `mirlower.py` (2949), `miremit.py` (2088), `mirverify.py` (717): unchanged in shape since the note; three commits since November 7 touched them and all were selfhost annotation fixes plus a str.rsplit/print fix, no new passes, no new ops.
+- No `miropt` package exists yet. There is still no IR-to-IR transform between `mirlower` and `miremit`.
+- The MVS verifier still has three rule families (`MVS01` type, `MVS02` use-def, `MVS03` control) with hand-written negative coverage in `tests/test_mirverify_negative.py`.
+- The Hypothesis gap named in rank 4 is **partially closed, differently**: `tests/test_differential_hypothesis.py` now exists and property-tests compiled binaries against the CPython 3.14 oracle for int arithmetic, division, bitwise ops and string operations, derandomized for CI. This is differential testing of generated code, not fuzzing of `mirverify` itself: the verifier-structure fuzzer from rank 4 (random `MirFunction` shapes, "accepted module must print, hash and emit; rejected module must raise `MirError`") is still missing. Rank 4 narrows to exactly that.
+- The `str` cell still stores only the `%ps.buf` prefix; `miremit.py` `_widen_str_cell` and the direct path `_core.py` `_widen_cell` still call `ps_str_counts` on every read (`ps_rt.h` line 345). Rank 1 is still open.
+- `scripts/runtime_ab.py` and `scripts/strict_corpus_ab.py` exist unchanged; `scripts/mirverify_mutants.py` does not exist (rank 9 still open).
+- `benchmarks/baseline/reference.json` (recorded 2026-10-15) re-read: overall geomean 4.18 percent of CPython, weakest non-island rows `pathlib-read` 4.1x, `os-files` 5.6x, `path-join` 7.7x, `struct-pack` 8.3x, `url-parse` 9.1x, `builtins-loop` 10x, `stringio-loop` 11.1x, all stdlib/runtime-helper-bound. Section 0.1's reading is unchanged.
+
+## A.7 What this changes in the shortlist
+
+Nothing in ranks 1, 2, 4, 5, 7, 9 and 10 changes. Two adjustments:
+
+- **Rank 8 (range analysis + overflow-check elision)**: evidence upgraded from "2.3x on one kernel on one host" to "replicated on two hosts, 2.3x on Apple clang and up to 8.4x on gcc-built-runtime Linux, with a demonstrated check-interaction effect". The interaction finding adds a receipt requirement: measure the fully-elided variant, and add a probe whose loop is only provably safe when both checks are gone. The v0.10.0 placement stands, behind a flag, gated by `runtime_ab` plus the three-category adversarial set.
+- **Rank 3 (`fastcc`)**: expected gain range narrows to "12 to 24 percent on an amplified int kernel depending on host clang", and the receipt must run `benchmarks/baseline` rather than a synthetic kernel, because the synthetic number is clearly kernel-dependent.
+
+## A.8 Updated unverified list
+
+All of section 5 still stands, plus:
+
+- The 8.4x figure in A.4 is a single-kernel, single-amplification measurement on one Linux host: UNVERIFIED as a general number (the direction and the check-interaction are verified by direct IR inspection).
+- The claim that gcc-built runtime objects versus clang-built ones do not change the kernel comparisons in A.4/A.5 was not controlled for: all Linux runs used gcc-built runtime objects. UNVERIFIED; not load-bearing, since the emitted `.ll` was constant across each bisect row.
+
+## A.9 Reproduction
+
+All commands run in this worktree at `f8571c8a`:
+
+- `uv run python scripts/mir_perf_ratio.py --runs 3` (A.2).
+- Kernel emitted with `uv run pyscriptc compile /tmp/optres2/k1.py --emit llvm --out-dir /tmp/optres2`; runtime objects built with `cc -O2 -c` per file (skipping `ps_island.c`, which needs `Python.h`); linked with `clang -O2 k1.ll <amp driver> objs/*.o -lm` plus a two-line LLVM `main` wrapper calling `@ps.user.main` (the emitted entry point has a dot in its name, so a C shim cannot reference it directly).
+- Variants, sweep and interleaved timing: `/tmp/optres2/` (`k1.py`, `emitted.ll`, `unchecked-mul.ll`, `unchecked-both.ll`, `fastccuser.ll`, `fastcchelpers.ll`, `amp.ll`, plus the `_amp.bin` binaries).
