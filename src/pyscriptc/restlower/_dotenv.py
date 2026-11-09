@@ -20,6 +20,7 @@ from typing import Any
 
 from pyscriptc.lower._core import _show
 from pyscriptc.lower._stdlib_shared import _mod_call
+from pyscriptc.restlower._shared import _node_type, _node_type_kind, _t_leaf, _type_kind
 
 _SUBSET = ("dotenv_values", "load_dotenv")
 
@@ -35,14 +36,14 @@ def _dotenv_call(
     if attr == "dotenv_values" and expect is None:
         lo.fail(node, "PS1001", "dotenv.dotenv_values needs the result annotation")
     text = lo._expr(node.args[0])
-    if text["type"]["kind"] != "str":
-        lo.fail(node, "PS1003", f"dotenv.{attr} argument is " + _show(text["type"]) + ", expected str")
+    if _node_type_kind(text) != "str":
+        lo.fail(node, "PS1003", f"dotenv.{attr} argument is " + _show(_node_type(text)) + ", expected str")
     if attr == "load_dotenv":
-        if expect is not None and expect["kind"] != "bool":
+        if expect is not None and _type_kind(expect) != "bool":
             lo.fail(node, "PS1003", "load_dotenv returns bool")
-        typ = expect or {"kind": "bool"}
+        typ = expect or _t_leaf("bool")
         return _mod_call("dotenv", "load_dotenv", [text], typ, span) | {"symbol": "ps_dotenv_load"}
     lo._json_type(node, expect, "dotenv.dotenv_values")
-    doc = _mod_call("dotenv", "dotenv_values", [text], {"kind": "str"}, span)
-    doc["symbol"] = "ps_dotenv_values"
+    doc = _mod_call("dotenv", "dotenv_values", [text], _t_leaf("str"), span)
+    doc.update({"symbol": "ps_dotenv_values"})
     return _mod_call("json", "loads", [doc], expect, span)

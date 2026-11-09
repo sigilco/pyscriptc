@@ -16,6 +16,7 @@ from tests.test_gates import compile_run, run_cli, write_case
 from tests.test_spike import ROOT
 
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_node, dict_to_type
 
 
 def _entry(mod: dict) -> dict | None:
@@ -37,11 +38,17 @@ print("hello", 42)
     entry = _entry(mod)
     assert entry is not None and entry["name"] == "main"
     shout = next(fn for fn in mod["functions"] if fn["name"] == "shout")
-    assert [stmt["kind"] for stmt in entry["body"]] == ["expr"]
-    assert [stmt["kind"] for stmt in shout["body"]] == ["expr", "expr"]
+    assert [dict_to_node(stmt).kind for stmt in entry["body"]] == ["expr"]
+    assert [dict_to_node(stmt).kind for stmt in shout["body"]] == ["expr", "expr"]
     for stmt in [*entry["body"], *shout["body"]]:
-        assert stmt["expr"]["callee"] == {"kind": "builtin", "name": "print"}
-        assert stmt["expr"]["type"] == {"kind": "none"}
+        node = dict_to_node(stmt)
+        expr = node.expr
+        callee_src = expr["callee"] if isinstance(expr, dict) else expr.callee
+        typ_src = expr["type"] if isinstance(expr, dict) else expr.type
+        callee = dict_to_node(callee_src)
+        typ = dict_to_type(typ_src) if isinstance(typ_src, dict) else typ_src
+        assert callee.kind == "builtin" and callee.name == "print"
+        assert typ.kind == "none"
 
 
 def test_print_in_entry_prints_like_cpython(tmp_path: Path) -> None:
@@ -180,14 +187,26 @@ def test_print_to_stderr_links_and_writes_to_stderr(tmp_path: Path) -> None:
 def test_print_value_outside_the_scalar_set_fences() -> None:
     mod = lower_source(
         """
-items: list[int] = [1, 2]
+items: list[int | None] = [1, None]
 print(items)
 """
     )
     assert len(mod["fences"]) == 1
     fence = mod["fences"][0]
     assert fence["code"] == "PS2003"
-    assert "print is lowered for str, int, float, bool, and bytes values" in fence["message"]
+    assert "print is lowered for str, int, float, bool, bytes and list/dict/set values" in fence["message"]
+
+
+def test_print_nested_containers_lower_without_fences() -> None:
+    mod = lower_source(
+        """
+def show(grid: list[list[int]], table: dict[str, list[int]], bags: list[set[str]]) -> None:
+    print(grid)
+    print(table)
+    print(bags)
+"""
+    )
+    assert mod["fences"] == []
 
 
 def test_print_star_args_and_double_star_fence() -> None:
@@ -255,5 +274,54 @@ def test_print_matches_cpython_oracle(tmp_path: Path) -> None:
         ),
     )
     got = compile_run(tmp_path, path, "main")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle_script(path)
+
+
+def test_print_exception_instance_matches_cpython(tmp_path: Path) -> None:
+    # An exception instance prints its str(): the message for a plain
+    # raise, the repr'd argument for KeyError (CPython's str(KeyError)).
+    path = write_case(
+        tmp_path,
+        "excprint.py",
+        "\n".join(
+            [
+                "try:",
+                "    raise KeyError('missing')",
+                "except KeyError as err:",
+                "    print('caught', err)",
+                "try:",
+                "    raise ValueError('bad')",
+                "except ValueError as err:",
+                "    print(err)",
+                "",
+            ]
+        ),
+    )
+    got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "excprint"))
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle_script(path)
+
+
+def test_print_containers_with_tuple_elements_matches_cpython(tmp_path: Path) -> None:
+    # list/dict/set of tuples ride the same repr spec: the `u` element
+    # spec frames each tuple_N field (len byte + field spec) and the
+    # runtime reads the %cls struct fields at their ABI offsets.
+    path = write_case(
+        tmp_path,
+        "tupleprint.py",
+        "\n".join(
+            [
+                "print(list(zip('ab', range(2))))",
+                "print(list(enumerate('xy', 1)))",
+                "print([(a, b) for a in range(3) for b in range(a)])",
+                "print([(True, 2.5, 'z'), (False, -0.5, 'q')])",
+                "print({1: (2, 'x'), 3: (4, 'y')})",
+                "print([((1, 'x'), 2.5), ((3, 'z'), -1.0)])",
+                "",
+            ]
+        ),
+    )
+    got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "tupleprint"))
     assert got.returncode == 0, got.stderr
     assert got.stdout == oracle_script(path)

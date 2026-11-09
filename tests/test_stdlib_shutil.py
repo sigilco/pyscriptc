@@ -173,3 +173,28 @@ def test_shutil_get_terminal_size(tmp_path: Path) -> None:
             ]
         ),
     )
+
+
+def test_shutil_which_found_and_missing(tmp_path: Path) -> None:
+    # CPython returns None for a missing executable and the path for a hit;
+    # `sh` sits on every PATH. The narrowed arm reuses the str methods.
+    _oracle(
+        tmp_path,
+        "which.py",
+        "\n".join(
+            [
+                "import shutil",
+                "",
+                "def run() -> int:",
+                "    found: str | None = shutil.which('sh')",
+                "    if found is not None:",
+                "        print(found.endswith('sh'))",
+                "    else:",
+                "        print('missing')",
+                "    gone: str | None = shutil.which('pyscriptc-missing-binary-xyz')",
+                "    print(gone is None)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )

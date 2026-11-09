@@ -105,31 +105,74 @@ def zdi_variants() -> dict[str, int]:
 
 
 def type_key(typ: dict[str, Any]) -> str:
-    if typ["kind"] == "list":
+    kind = _kind(typ)
+    if kind == "list":
         if "elem" not in typ:
             # An accumulated list whose element is still unknown (a bare
             # `[]` before the first append): key on the shape alone.
             return "list[?]"
         head = "set" if typ.get("set") else "list"
         return f"{head}[{type_key(typ['elem'])}]"
-    if typ["kind"] == "dict":
+    if kind == "dict":
+        if "key" not in typ or "value" not in typ:
+            # A bare `dict` shape (the isinstance want record carries no
+            # parameters): key on the shape alone, like `list[?]`.
+            return "dict[?]"
         return f"dict[{type_key(typ['key'])}, {type_key(typ['value'])}]"
-    if typ["kind"] == "class":
+    if kind == "class":
         if "elem" in typ:
             return f"{typ['name']}[{type_key(typ['elem'])}]"
         return str(typ["name"])
-    if typ["kind"] == "func":
+    if kind == "func":
         args = ", ".join(type_key(param) for param in typ["params"])
         return f"({args}) -> {type_key(typ['return'])}"
-    if typ["kind"] == "any":
+    if kind == "any":
         # The unresolved slot matches only itself: an `any` value never
         # type-equal-checks against a concrete type.
         return "any"
-    return str(typ["kind"])
+    return str(kind)
 
 
 def types_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return type_key(a) == type_key(b)
+
+
+def _kind(typ: dict[str, Any]) -> str:
+    """The kind tag of a type record.
+
+    Every type dispatch reads the record through this accessor instead of
+    the raw dict key.
+    """
+    kind: str = typ["kind"]
+    return kind
+
+
+def _node_kind(node: dict[str, Any]) -> str:
+    """The kind tag of a typed IR node (assign, expr, raise, ...).
+
+    Statement and expression dispatch reads the node through this accessor
+    instead of the raw dict key.
+    """
+    kind: str = node["kind"]
+    return kind
+
+
+def _maybe_node_kind(node: dict[str, Any]) -> str | None:
+    """The kind tag of a typed IR node, or None when the node carries no kind.
+
+    Optional-shape dispatch reads the node through this accessor instead of
+    the raw dict key.
+    """
+    if "kind" not in node:
+        return None
+    kind = node["kind"]
+    return kind if isinstance(kind, str) else None
+
+
+def _node_type_kind(node: dict[str, Any]) -> str:
+    """The kind tag of the type record a typed IR node carries."""
+    typ: dict[str, Any] = node["type"]
+    return _kind(typ)
 
 
 def fits_i64(value: int) -> bool:
@@ -144,7 +187,7 @@ def _reject_forbidden(kind: str, where: str) -> None:
 def validate_type(typ: Any, where: str) -> None:
     if not isinstance(typ, dict) or "kind" not in typ:
         raise IRError(f"{where}: type must be an object with kind")
-    kind = typ["kind"]
+    kind = _kind(typ)
     _reject_forbidden(kind, where)
     if kind not in TYPE_KINDS:
         raise IRError(f"{where}: unknown type kind {kind!r}")
@@ -174,7 +217,7 @@ def validate_type(typ: Any, where: str) -> None:
 def validate_expr(expr: Any, where: str) -> None:
     if not isinstance(expr, dict) or "kind" not in expr:
         raise IRError(f"{where}: expression must be an object with kind")
-    kind = expr["kind"]
+    kind = _node_kind(expr)
     _reject_forbidden(kind, where)
     if kind not in EXPR_KINDS:
         raise IRError(f"{where}: unknown expression kind {kind!r}")
@@ -242,7 +285,7 @@ def validate_expr(expr: Any, where: str) -> None:
     elif kind == "closure":
         if not isinstance(expr.get("name"), str) or not _dotted_identifier(expr["name"]):
             raise IRError(f"{where}: closure needs a function name")
-        if expr["type"]["kind"] != "func":
+        if _node_type_kind(expr) != "func":
             raise IRError(f"{where}: closure type must be func")
         env = expr.get("env")
         if not isinstance(env, list):
@@ -271,7 +314,7 @@ def validate_expr(expr: Any, where: str) -> None:
 def validate_stmt(stmt: Any, where: str) -> None:
     if not isinstance(stmt, dict) or "kind" not in stmt:
         raise IRError(f"{where}: statement must be an object with kind")
-    kind = stmt["kind"]
+    kind = _node_kind(stmt)
     _reject_forbidden(kind, where)
     if kind not in STMT_KINDS:
         raise IRError(f"{where}: unknown statement kind {kind!r}")
@@ -311,9 +354,9 @@ def validate_stmt(stmt: Any, where: str) -> None:
             validate_expr(message, f"{where}.message")
         cause = stmt.get("cause")
         if cause is not None:
-            if not isinstance(cause, dict) or cause.get("kind") not in {"name", "excmake"}:
+            if not isinstance(cause, dict) or _maybe_node_kind(cause) not in {"name", "excmake"}:
                 raise IRError(f"{where}: raise cause must be a name or excmake")
-            if cause["kind"] == "name":
+            if _node_kind(cause) == "name":
                 validate_expr(cause, f"{where}.cause")
             else:
                 if not isinstance(cause.get("exc"), str):
@@ -349,21 +392,22 @@ def validate_stmt(stmt: Any, where: str) -> None:
 def _validate_callee(callee: Any, where: str) -> None:
     if not isinstance(callee, dict):
         raise IRError(f"{where}: call callee must be an object")
-    kind = callee.get("kind")
+    node: dict[str, Any] = callee
+    kind = _maybe_node_kind(node)
     if kind in {"function", "builtin", "class"}:
-        if not isinstance(callee.get("name"), str):
+        if not isinstance(node.get("name"), str):
             raise IRError(f"{where}: call callee needs a name")
         return
     if kind == "module":
-        if not isinstance(callee.get("module"), str) or not isinstance(callee.get("name"), str):
+        if not isinstance(node.get("module"), str) or not isinstance(node.get("name"), str):
             raise IRError(f"{where}: module callee needs module and name")
         return
     if kind == "method":
-        if callee.get("receiver") not in {"str", "bytes"} or not isinstance(callee.get("name"), str):
+        if node.get("receiver") not in {"str", "bytes"} or not isinstance(node.get("name"), str):
             raise IRError(f"{where}: method callee needs a str or bytes receiver and a name")
         return
     if kind == "value":
-        validate_expr(callee.get("target"), f"{where}.callee")
+        validate_expr(node.get("target"), f"{where}.callee")
         return
     raise IRError(f"{where}: call callee must be function, builtin, module, method, or class")
 

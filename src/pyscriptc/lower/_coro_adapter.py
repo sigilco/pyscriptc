@@ -1,15 +1,19 @@
-"""The generator seam adapter: the dict IR the generator pass reads.
+"""The generator seam adapter: the dict IR the pass output emits.
 
-`coro.py` stays on the HIR dict path: the frame pass walks the lowered
-function and class records as plain dicts, and the typed-node list excludes
-it. The lowering seam is free to build typed nodes, so this module is the
-one place where the two paths meet for resumables: it converts the lowered
-records into the dict IR on entry, with `node_to_dict`, the reconstruction
-every other seam already uses. The conversion is lossless, so the generator
-output stays byte identical.
+`coro.py` walks typed nodes inside the pass (`_walk_node` converts each
+planned statement with `dict_to_node`) and builds dict records for emit,
+so the lowering seam needs no conversion on the way in: the module
+arrives as the lowerer left it. On the way out the pass output still has
+to be the dict IR emit reads, so this module is the one place where the
+two paths meet for resumables: `node_to_dict` over the pass output, the
+reconstruction every other seam already uses. A record that is already
+the dict IR maps to itself, key for key; a typed node reconstructs the
+dict it was built from, so the generator output stays byte identical.
 
-The adapter lives outside `coro.py` on purpose: the generator logic is
-untouched, and the conversion happens at the seam that feeds it.
+The adapter lives outside `coro.py` on purpose: the generator logic
+never imports `tirserde` for the module boundary, and the conversion
+happens at the seam that feeds emit. It dies when emit reads typed
+nodes.
 """
 
 from __future__ import annotations
@@ -20,24 +24,14 @@ from pyscriptc.tirserde import node_to_dict
 
 
 def coro_module(module: dict[str, Any]) -> dict[str, Any]:
-    """The module the generator pass reads: the dict IR of the records.
+    """The module emit reads: `node_to_dict` over the pass output.
 
-    The frame pass walks the module's functions and classes (the records
-    that carry the bodies), so those are the ones the adapter converts. The
-    rest of the module (the fences, the globals, the island plane) is not
-    read by the pass and rides through untouched. A record that is already
-    the dict IR maps to itself, key for key; a typed node reconstructs the
-    dict it was built from.
+    `lower_resumables` rewrites the planned functions and classes and
+    leaves every other record untouched. A record the pass built or
+    passed through may still carry a typed node (a kept-dict marker's
+    children, a statement kind the typed schema does not cover), so the
+    whole output converts once here. The rest of the module (the fences,
+    the globals, the island plane) is not IR and rides through
+    `node_to_dict` unchanged, key for key.
     """
-    out: dict[str, Any] = {}
-    for key in module:
-        out[key] = module[key]
-    functions: list[dict[str, Any]] = []
-    for fn in module["functions"]:
-        functions.append(node_to_dict(fn))
-    classes: list[dict[str, Any]] = []
-    for cls in module["classes"]:
-        classes.append(node_to_dict(cls))
-    out["functions"] = functions
-    out["classes"] = classes
-    return out
+    return node_to_dict(module)

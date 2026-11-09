@@ -6,6 +6,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.emit._ir import (
     _const_bool,
     _const_text,
@@ -16,15 +17,18 @@ from pyscriptc.emit._ir import (
     _has,
     _ir_const_value,
     _items,
-    _kind,
     _llvm_type,
     _memory_type,
     _name_list,
+    _node_kind,
+    _node_value_node,
     _none_type,
     _opt_default,
     _opt_int,
+    _opt_record,
     _opt_span,
     _opt_str,
+    _opt_str_or_none,
     _prepare_arg,
     _return_type,
     _safe,
@@ -34,11 +38,13 @@ from pyscriptc.emit._ir import (
 )
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
+from pyscriptc.tirserde import dict_to_type
 
 
 class FuncsMixin(EmitterBase):
     def emit_function(self, fn: dict[str, Any]) -> None:
-        return_type: dict[str, Any] = fn["returnType"]
+        return_type: dict[str, Any] = _return_type(fn)
+        ret_kind: str = dict_to_type(return_type).kind
         ret: str = _llvm_type(return_type)
         # Env-first functions (nested defs and lambdas) take the caller's env
         # cell array as a leading `ptr %env` and bind those slots by pointer.
@@ -72,7 +78,7 @@ class FuncsMixin(EmitterBase):
         for local in _items(fn, "locals"):
             local_name: str = _opt_str(local, "name")
             local_type: dict[str, Any] = _type_of(local)
-            if _kind(local_type) == "none":
+            if dict_to_type(local_type).kind == "none":
                 # None is not a runtime value. The local is the singleton, so it has no slot.
                 self.slots[local_name] = ("", local_type)
                 continue
@@ -85,7 +91,7 @@ class FuncsMixin(EmitterBase):
                 ptr = self.tmp()
                 self.line(f"{ptr} = alloca {_memory_type(local_type)}")
                 # boxed:begin
-                if _flag_of(local_type, "island") or _flag_of(local_type, "handle"):
+                if dict_to_type(local_type).flags & (_ir.F_TMARK_ISLAND | _ir.F_TMARK_HANDLE):
                     self.line(f"store ptr null, ptr {ptr}")
                 # boxed:end
             self.slots[local_name] = (ptr, local_type)
@@ -100,7 +106,7 @@ class FuncsMixin(EmitterBase):
             self.slots[item_name] = (ptr, item_type)
             self.slot_order.append(item_name)
             self.slot_types[item_name] = item_type
-        self.ret_llvm = None if _kind(return_type) == "none" else _llvm_type(return_type)
+        self.ret_llvm = None if ret_kind == "none" else _llvm_type(return_type)
         self.ret_ptr = None if self.ret_llvm is None else self._alloca(self.ret_llvm)
         self.flow_ptr = self._alloca("i32")
         for param in params:
@@ -108,7 +114,7 @@ class FuncsMixin(EmitterBase):
             self.store(param_name, f"%{_safe(param_name)}")
         self.emit_body(_items(fn, "body"))
         if not self.terminated:
-            if _kind(return_type) == "none":
+            if ret_kind == "none":
                 self.line("ret void")
             else:
                 self.line("unreachable")
@@ -119,8 +125,7 @@ class FuncsMixin(EmitterBase):
             dwarf.exit_function()
 
     def emit_main(self, name: str, args: list[Any], library: bool = False) -> None:
-        functions: dict[str, dict[str, Any]] = self.functions
-        fn: dict[str, Any] | None = functions.get(name)
+        fn: dict[str, Any] | None = _opt_record(self.functions, name)
         if fn is None:
             raise IRError(f"no function {name} to call")
         params: list[dict[str, Any]] = _items(fn, "params")
@@ -129,10 +134,10 @@ class FuncsMixin(EmitterBase):
         filled: list[Any] = list(args)
         for param in params[len(args) :]:
             default: dict[str, Any] | None = _opt_default(param)
-            if default is None or _kind(default) != "const":
+            if default is None or _node_kind(default) != "const":
                 raise FitError(f"{name} expects {len(params)} argument(s), got {len(args)}")
             default_type: dict[str, Any] = _type_of(default)
-            if _kind(default_type) == "bool":
+            if dict_to_type(default_type).kind == "bool":
                 filled.append(_ir_const_value(_type_of(param), _const_bool(default)))
             else:
                 filled.append(_ir_const_value(_type_of(param), _const_text(default)))
@@ -165,6 +170,7 @@ class FuncsMixin(EmitterBase):
             # boxed:end
             for init in _items(module, "globals"):
                 self.emit_expr(init)
+            self._emit_module_inits()
             values: list[str] = []
             for index in range(len(params)):
                 param = params[index]
@@ -201,6 +207,7 @@ class FuncsMixin(EmitterBase):
         # boxed:end
         for init in _items(module, "globals"):
             self.emit_expr(init)
+        self._emit_module_inits()
         values = []
         for index in range(len(params)):
             param = params[index]
@@ -208,7 +215,7 @@ class FuncsMixin(EmitterBase):
             values.append(self.materialize_arg(_type_of(param), value))
         result: str = self.call_function(fn, values)
         return_type: dict[str, Any] = _return_type(fn)
-        if _kind(return_type) != "none":
+        if dict_to_type(return_type).kind != "none":
             self.print_value(return_type, result)
         self.line("ret i32 0")
         self._flush_allocas()
@@ -217,6 +224,21 @@ class FuncsMixin(EmitterBase):
         self.span = None
         if dwarf is not None:
             dwarf.exit_function()
+
+    def _emit_module_inits(self) -> None:
+        """The module init calls a `--call` entry skips.
+
+        The program entry carries its own injected init calls at the import
+        sites. A called function bypasses the entry, so the module bodies
+        that bind global slots run here first, in the import order the
+        merge recorded.
+        """
+
+        for name in _name_list(self.module, "moduleInits"):
+            fn: dict[str, Any] | None = _opt_record(self.functions, name)
+            if fn is None:
+                continue
+            self.call_function(fn, [])
 
     def emit_noop_library_main(self) -> None:
         """The `pyscriptc_main` of a definition-only module.
@@ -291,25 +313,77 @@ class FuncsMixin(EmitterBase):
 
         Issue #665: the bootstrap rebases the origins and the entry
         `__file__` onto the staged data tree at run time.
+
+        Issue #712: a program-wide island carries its module bodies as
+        marshalled bytecode in two blobs beside the bootstrap. The runtime
+        hands them to the bootstrap as the `__pyscriptc_seed__` module, and
+        the bootstrap's finder inflates one module body per import.
         """
 
         source: str = _opt_str(self.module, "islandSource")
         if not source:
             raise IRError("an island top level carries no islandSource")
+        # Issue #782: the precompiled code cache registers before the seed,
+        # so the bootstrap's loader unmarshals instead of compiling. A blob
+        # the running interpreter refuses (a different magic) is dropped by
+        # the loader and the seed compiles source - slower, never wrong.
+        cache_hex: str = _opt_str(self.module, "islandCodeCache")
+        if cache_hex:
+            cache_data: bytes = bytes.fromhex(cache_hex)
+            cache_symbol: str = self.format_global("island.codecache", cache_data)
+            self._abi_decl("ps_island_codecache", "void", ["i64", "ptr"])
+            self._call_void("ps_island_codecache", [f"i64 {len(cache_data)}", f"ptr {cache_symbol}"])
         data: bytes = source.encode("utf-8")
         size: int = len(data)
         symbol: str = self.format_global("island.seed", data)
         path: str = _opt_str(self.module, "sourceFile")
         path_data: bytes = path.encode("utf-8")
         path_symbol: str | None = self.format_global("island.seed.path", path_data) if path_data else None
-        self._abi_decl("ps_island_top_seed", "void", ["i64", "ptr", "i64", "ptr"])
+        # The `python -m pkg` shape (issue #765): the runtime keeps the
+        # mirrored argv[0] (the binary path) instead of overriding it with
+        # the source path, because the program bootstrap's exec'd entry
+        # already sets `__file__` to the entry file path - the value CPython
+        # records for `-m`. The override exists for the single-file script
+        # shape, where CPython's argv[0] is the script path itself.
+        program_mode: bool = _flag_of(self.module, "islandProgram")
+        index_b64: str | None = _opt_str_or_none(self.module, "islandSeedIndex")
+        body_b64: str | None = _opt_str_or_none(self.module, "islandSeedBody")
+        if index_b64 is None or body_b64 is None:
+            self._abi_decl("ps_island_top_seed", "void", ["i64", "ptr", "i64", "ptr", "i32"])
+            self._call_void(
+                "ps_island_top_seed",
+                [
+                    f"i64 {size}",
+                    f"ptr {symbol}",
+                    f"i64 {len(path_data)}",
+                    f"ptr {path_symbol}" if path_symbol else "ptr null",
+                    f"i32 {'1' if program_mode else '0'}",
+                ],
+            )
+            return
+        from base64 import b64decode
+
+        index_blob: bytes = b64decode(index_b64)
+        body_blob: bytes = b64decode(body_b64)
+        index_symbol: str = self.format_global("island.seed.index", index_blob)
+        body_symbol: str = self.format_global("island.seed.body", body_blob)
+        self._abi_decl(
+            "ps_island_top_seed_payload",
+            "void",
+            ["i64", "ptr", "i64", "ptr", "i64", "ptr", "i64", "ptr", "i32"],
+        )
         self._call_void(
-            "ps_island_top_seed",
+            "ps_island_top_seed_payload",
             [
                 f"i64 {size}",
                 f"ptr {symbol}",
                 f"i64 {len(path_data)}",
                 f"ptr {path_symbol}" if path_symbol else "ptr null",
+                f"i64 {len(index_blob)}",
+                f"ptr {index_symbol}",
+                f"i64 {len(body_blob)}",
+                f"ptr {body_symbol}",
+                f"i32 {'1' if program_mode else '0'}",
             ],
         )
 
@@ -376,7 +450,7 @@ class FuncsMixin(EmitterBase):
         for index in range(len(params)):
             param: dict[str, Any] = params[index]
             param_type: dict[str, Any] = _type_of(param)
-            param_kind: str = _kind(param_type)
+            param_kind: str = dict_to_type(param_type).kind
             if param_kind == "none":
                 continue
             param_name: str = _opt_str(param, "name")
@@ -399,16 +473,16 @@ class FuncsMixin(EmitterBase):
             self.span = saved
 
     def _emit_return(self, stmt: dict[str, Any]) -> None:
-        expr: dict[str, Any] = stmt["value"]
+        expr: dict[str, Any] = _node_value_node(stmt)
         expr_type: dict[str, Any] = _type_of(expr)
-        kind: str = _kind(expr_type)
+        kind: str = dict_to_type(expr_type).kind
         if self.outline_depth:
             if kind != "none":
                 value: str = self.emit_expr(expr)
                 if self.ret_ptr is None or self.ret_llvm is None:
                     raise IRError("return inside try has no slot")
                 self.line(f"store {self.ret_llvm} {value}, ptr {self.ret_ptr}")
-            elif _kind(expr) != "const":
+            elif _node_kind(expr) != "const":
                 self.emit_expr(expr)
             if self.terminated:
                 return
@@ -417,7 +491,7 @@ class FuncsMixin(EmitterBase):
             # suspension skips the finally, a return runs it.
             self.line(f"ret i32 {2 if _flag_of(stmt, 'suspend') else 1}")
         elif kind == "none":
-            if _kind(expr) != "const":
+            if _node_kind(expr) != "const":
                 self.emit_expr(expr)
             if self.terminated:
                 return

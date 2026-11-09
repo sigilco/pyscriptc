@@ -20,11 +20,14 @@ from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _TRUTHY,
     _assign,
+    _attr,
+    _const_str,
     _dotted,
     _is_none_expr,
     _name,
     _node_kind,
     _node_type_kind,
+    _show,
     _tuple_assign,
     _type_kind,
 )
@@ -76,10 +79,61 @@ def _mk_type(typ: dict[str, Any]) -> Any:
     return dict_to_type(typ)
 
 
+def _one_identity_note(name: str, typ: dict[str, Any]) -> str:
+    """The substitute sentence every module-constant-identity fence ends on.
+
+    `module_needs_slot` containers keep one pointer only when they take a
+    global slot, and the slot path wants an annotation (#512), so the fix the
+    diagnostics name is always the same.
+    """
+
+    return f"annotate {name} ({name}: {_show(typ)} = ...) so the container keeps one identity"
+
+
 class MiscEmitMixin:
+    def _module_const_container(self, node: ast.expr) -> tuple[str, dict[str, Any]] | None:
+        """`(name, type)` when `node` reads a module-scope container constant.
+
+        A module constant re-emits its literal at every read, so a mutation
+        bound through the name lands on a fresh copy no slot keeps (issue
+        #525): `xs.sort()` sorts a list nothing else sees, `xs[i] = v` writes
+        a throwaway, `ys = xs` freezes the value at bind time. The probe
+        walks the subscript spine — `xs[0].sort()` and `d["k"][0] = v` reach
+        the copy through the same name — and mirrors `_name`'s resolution
+        order so a shadowing local, capture or active slot is not caught.
+        Only a literal `list`/`dict` node is a fresh copy: a `call` constant
+        (a `global_get` read, a `re.compile` pattern) re-runs the same lookup
+        every read and keeps its identity.
+        """
+        while isinstance(node, ast.Subscript):
+            node = node.value
+        if not isinstance(node, ast.Name):
+            return None
+        name = node.id
+        if name in self.locals or name in self.captures:
+            return None
+        slot = self.global_slots.get(name)
+        if slot is not None and slot.get("active"):
+            return None
+        found = self.constants.get(name)
+        if found is None or found.get("frozen"):
+            return None
+        if found.get("kind") in {"list", "dict"}:
+            return name, found["type"]
+        return None
+
     def _setitem(self, stmt: ast.Assign, span: dict[str, Any]) -> dict[str, Any]:
         target = stmt.targets[0]
         assert isinstance(target, ast.Subscript)
+        const = self._module_const_container(target.value)
+        if const is not None:
+            name, typ = const
+            self.fail(
+                target,
+                "PS2002",
+                f"{name} is a module-scope constant: every read is a fresh copy, so the "
+                f"item store lands on a container nothing keeps — {_one_identity_note(name, typ)}",
+            )
         if isinstance(target.slice, ast.Slice):
             # `xs[a:b] = ys` splices a list, growing or shrinking it; a step
             # stays fenced with the slice-read message.
@@ -130,9 +184,18 @@ class MiscEmitMixin:
     def _setattr(self, stmt: ast.Assign, span: dict[str, Any]) -> dict[str, Any]:
         target = stmt.targets[0]
         assert isinstance(target, ast.Attribute)
+        return self._setattr_target(target, stmt.value, stmt, span)
+
+    def _setattr_target(
+        self, target: ast.Attribute, value_node: ast.expr, report: ast.AST, span: dict[str, Any]
+    ) -> dict[str, Any]:
         obj = self._expr(target.value)
         if _node_type_kind(obj) != "class":
             self.fail(target, "PS2001", f"attribute assignment is not lowered ({_dotted(target)})")
+        if obj["type"].get("optional") and _type_kind(obj["type"].get("elem", {})) == "class":
+            # `x.f = v` on a `T | None` cell: CPython raises AttributeError
+            # when the tag is unset; a set tag writes through `_val`.
+            obj = self._opt_payload(obj, target.attr, span)
         class_name = obj["type"]["name"]
         # boxed:begin
         # An island handle is opaque, and the seam carries values one way:
@@ -151,9 +214,32 @@ class MiscEmitMixin:
         field = next((item for item in info["fields"] if item["name"] == target.attr), None)
         if field is None:
             self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
-        value = self._expr(stmt.value, field["type"])
-        self._expect(stmt, value["type"], field["type"], target.attr)
+        value = self._expr(value_node, field["type"])
+        self._expect(report, value["type"], field["type"], target.attr)
         return _setattr_node(obj, target.attr, value, span)
+
+    def _opt_payload(self, obj: dict[str, Any], attr: str, span: dict[str, Any]) -> dict[str, Any]:
+        """The `_val` of a tagged optional cell, guarded like CPython's miss.
+
+        `x.f` on a `T | None` cell raises AttributeError when the tag is
+        unset; a set tag yields the payload the field lookup reads. A
+        non-name object pins to a temp so the guard and the read see one
+        evaluation.
+        """
+        typ = obj["type"]
+        if _node_kind(obj) != "name":
+            temp = self._temp("optattr")
+            self.locals[temp] = typ
+            self.prelude.append(_assign(temp, obj, span))
+            obj = _name(temp, typ, span)
+        tag = _attr(obj, "_tag", {"kind": "bool"}, span)
+        cond = node_to_dict(_ir.unary("not", dict_to_node(tag), _ir.t_leaf("bool"), _mk_span(span)))
+        message = f"'NoneType' object has no attribute '{attr}'"
+        raised = node_to_dict(
+            _ir.raise_stmt("AttributeError", _mk_span(span), -1, dict_to_node(_const_str(message, span)))
+        )
+        self.prelude.append(node_to_dict(_ir.if_stmt(cond, [dict_to_node(raised)], [], _mk_span(span))))
+        return _attr(obj, "_val", typ["elem"], span)
 
     def _bool_cond_of(self, node: ast.expr, want: dict[str, Any]) -> dict[str, Any]:
         """A condition whose expected type rides down (the `__getattr__` hook)."""
@@ -184,12 +270,12 @@ class MiscEmitMixin:
         dest = self._temp("set")
         self.locals[dest] = typ
         self.prelude.append(_assign(dest, _list_empty_node(typ, span), span))
-        self.prelude.extend(self._set_insert_stmts(dest, typ, first, span))
+        self.prelude.extend(self._set_insert_stmts(_name(dest, typ, span), typ, first, span))
         for elt in node.elts[1:]:
             value = self._expr(elt, elem)
             if not types_equal(value["type"], elem):
                 self.fail(node, "PS1003", "set elements have one type")
-            self.prelude.extend(self._set_insert_stmts(dest, typ, value, span))
+            self.prelude.extend(self._set_insert_stmts(_name(dest, typ, span), typ, value, span))
         return _name(dest, typ, span)
 
     def _comp(
@@ -197,15 +283,20 @@ class MiscEmitMixin:
         node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp,
         span: dict[str, Any],
         expect: dict[str, Any] | None,
+        pred: tuple[str, bool] | None = None,
     ) -> dict[str, Any]:
         # GeneratorExp lowers like ListComp: the elements materialize
-        # eagerly into a list (the eager model documented for R24).
+        # eagerly into a list (the eager model documented for R24). A `pred`
+        # pair (`all`/`any` over the comprehension) swaps the materialized
+        # list for updates of the named bool accumulator.
         if isinstance(node, (ast.ListComp, ast.GeneratorExp)):
             kind = "list"
         elif isinstance(node, ast.SetComp):
             kind = "set"
         else:
             kind = "dict"
+        if pred is not None and kind != "list":
+            self.fail(node, "PS2002", "all/any over a comprehension lowers a list or generator")
         if any(gen.is_async for gen in node.generators):
             self.fail(node, "PS2002", "async comprehensions are not lowered")
         for gen in node.generators:
@@ -226,6 +317,7 @@ class MiscEmitMixin:
             self.comp_init,
             self.comp_expect,
             self.comp_ready,
+            self.comp_pred,
         )
         self.comp_elt = node.value if isinstance(node, ast.DictComp) else node.elt
         self.comp_key = node.key if isinstance(node, ast.DictComp) else None
@@ -236,6 +328,7 @@ class MiscEmitMixin:
         self.comp_init = None
         self.comp_expect = expect
         self.comp_ready = False
+        self.comp_pred = pred
         first = node.generators[0]
         loop = ast.For(target=first.target, iter=first.iter, body=[ast.Pass()], orelse=[], type_comment=None)
         ast.copy_location(loop, node)
@@ -253,11 +346,14 @@ class MiscEmitMixin:
                 self.comp_init,
                 self.comp_expect,
                 self.comp_ready,
+                self.comp_pred,
             ) = saved
         if init is None:
             self.fail(node, "PS2002", f"{kind} comprehension is not lowered")
         self.prelude.append(init)
         self.prelude.extend(lowered)
+        if pred is not None:
+            return _name(pred[0], {"kind": "bool"}, span)
         return _name(dest, self.locals[dest], span)
 
     def _store_tuple_constant(self, name: str, node: ast.Tuple, stmt: ast.AST) -> None:

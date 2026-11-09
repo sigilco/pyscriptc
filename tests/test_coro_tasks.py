@@ -23,6 +23,7 @@ import pytest
 from pyscriptc.coro import AWAIT_TASK_MARKER, TASK_CLASS
 from pyscriptc.ir import validate_module
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_type
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
@@ -269,7 +270,7 @@ def test_task_type_carries_the_result_type() -> None:
     ]
     assert task_types, "the task handle is not typed"
     for typ in task_types:
-        assert typ["elem"] == {"kind": "int"}
+        assert dict_to_type(typ).elem.kind == "int"
 
 
 def test_await_of_a_task_is_not_a_child_poll() -> None:

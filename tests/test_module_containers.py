@@ -16,6 +16,8 @@ from pathlib import Path
 
 from tests.test_gates import run_cli, write_case
 
+from pyscriptc.tirserde import dict_to_node
+
 
 def differential(tmp_path: Path, name: str, source: str) -> subprocess.CompletedProcess[str]:
     """Compile, run, and pin the three observable channels to CPython."""
@@ -253,8 +255,9 @@ except ValueError as e:
 """
     )
     assert mod["fences"] == []
-    handler = mod["functions"][0]["body"][0]["handlers"][0]
-    assert handler["excslot"] == "e"
+    try_node = dict_to_node(mod["functions"][0]["body"][0])
+    handler = try_node.handlers[0]
+    assert handler.excslot == "e"
     # The used-name walk packs the handler excslot, so the outer outline
     # carries the slot the bare raise loads. A slot that is still not
     # packed raises IRError, which the CLI prints as a diagnostic.

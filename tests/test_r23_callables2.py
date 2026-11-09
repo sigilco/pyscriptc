@@ -194,6 +194,34 @@ def test_nested_user_decorator(tmp_path: Path) -> None:
     )
 
 
+def test_nested_stacked_user_decorators(tmp_path: Path) -> None:
+    _oracle_diff(
+        tmp_path,
+        "r23_nested_stacked.py",
+        "\n".join(
+            [
+                "from typing import Callable",
+                "",
+                "def dec(f: Callable[[int], int]) -> Callable[[int], int]:",
+                "    def wrapped(x: int) -> int:",
+                "        return f(x) * 10",
+                "    return wrapped",
+                "",
+                "def outer() -> int:",
+                "    @dec",
+                "    @dec",
+                "    def g(x: int) -> int:",
+                "        return x + 1",
+                "    return g(4)",
+                "",
+                "def probe() -> int:",
+                "    return outer()",
+                "",
+            ]
+        ),
+    )
+
+
 def test_rebind_to_different_function(tmp_path: Path) -> None:
     _oracle_diff(
         tmp_path,
@@ -238,7 +266,33 @@ def test_partial_through_value_call(tmp_path: Path) -> None:
     )
 
 
-def test_stacked_user_decorators_stay_fenced(tmp_path: Path) -> None:
+def test_stacked_user_decorators(tmp_path: Path) -> None:
+    _oracle_diff(
+        tmp_path,
+        "r23_stacked_ok.py",
+        "\n".join(
+            [
+                "from typing import Callable",
+                "",
+                "def dec(f: Callable[[], int]) -> Callable[[], int]:",
+                "    def wrapped() -> int:",
+                "        return f() + 1",
+                "    return wrapped",
+                "",
+                "@dec",
+                "@dec",
+                "def g() -> int:",
+                "    return 1",
+                "",
+                "def probe() -> int:",
+                "    return g()",
+                "",
+            ]
+        ),
+    )
+
+
+def test_stacked_unlowerable_decorator_stays_fenced(tmp_path: Path) -> None:
     _fence(
         tmp_path,
         "r23_stacked.py",
@@ -254,7 +308,7 @@ def test_stacked_user_decorators_stay_fenced(tmp_path: Path) -> None:
                 "",
             ]
         ),
-        "stacked decorators are not lowered",
+        "decorator dec is not a lowered callable",
     )
 
 

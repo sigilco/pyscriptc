@@ -336,6 +336,30 @@ def test_run_refuses_bundle_mode(tmp_path: Path) -> None:
     assert "run cache" in done.stderr
 
 
+def test_run_plain_script_when_auto_resolves_bundle(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capfd: pytest.CaptureFixture[str]
+) -> None:
+    """Issue #1145: a program with no island references never links libpython,
+    so an auto-resolved bundle must not turn the run output into a directory."""
+    from pyscriptc import cli
+
+    monkeypatch.setattr(embed, "host_has_shared_libpython", lambda: False)
+    if embed.resolve_mode("auto") != "bundle":
+        pytest.skip("no locked runtime pack for this host platform")
+    pack = _fake_pack(tmp_path / "pack")
+    monkeypatch.setenv("PYSC_RUNTIME_DIR", str(pack))
+    monkeypatch.setenv("PYSC_CACHE_DIR", str(tmp_path / "cache"))
+    src = tmp_path / "prog.py"
+    src.write_text("print('hello')\n", encoding="utf-8")
+    assert cli.main(["run", str(src), "--skip-check"]) == 0
+    assert "hello" in capfd.readouterr().out
+    binaries = list((tmp_path / "cache" / "bin").glob("*/prog"))
+    assert binaries and all(path.is_file() for path in binaries)
+    # The warm run must hit the cache: the stored entry is the binary file.
+    assert cli.main(["run", str(src), "--skip-check"]) == 0
+    assert "hello" in capfd.readouterr().out
+
+
 def test_config_island_embed_key(tmp_path: Path) -> None:
     from pyscriptc.config import ConfigError, load_config
 

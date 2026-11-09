@@ -23,6 +23,7 @@ from pyscriptc.builtins import EXCEPTIONS, method_spec
 from pyscriptc.coro import DONE, STATE
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
+    Fence,
     _any_accepts,
     _assign,
     _attr,
@@ -31,11 +32,14 @@ from pyscriptc.lower._core import (
     _const_none,
     _const_str,
     _dotted,
+    _maybe_node_kind,
     _mk_span,
     _mk_type,
     _name,
     _show,
+    _type_kind,
 )
+from pyscriptc.lower._misc_emit import _one_identity_note
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
 from pyscriptc.reflection import inspect_note, kwargs_call_note, typing_note
 from pyscriptc.restlower import (
@@ -49,6 +53,45 @@ from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
 from pyscriptc.tirserde import dict_to_node, node_to_dict
+
+# In-place methods per container family: the calls a module-constant
+# receiver cannot honour, since each read re-emits the literal (issue #525).
+_MUTATING_METHODS = {
+    "list": {"append", "clear", "extend", "insert", "pop", "remove", "reverse", "sort"},
+    "set": {
+        "add",
+        "clear",
+        "difference_update",
+        "discard",
+        "intersection_update",
+        "pop",
+        "remove",
+        "symmetric_difference_update",
+        "update",
+    },
+    "dict": {"clear", "move_to_end", "pop", "popitem", "setdefault", "update"},
+}
+
+
+def _get_expect(expect: dict[str, Any] | None, value_type: dict[str, Any]) -> dict[str, Any]:
+    """The expectation `dict.get`'s desugared read proves an `Any` element with.
+
+    A plain `d[k]` subscript proves an unresolved element from the read
+    site's expected type (the annotation, the call parameter). `d.get(k, v)`
+    lowers to the same subscript inside an `IfExp`, so the call site's
+    concrete expectation is the same proof; without one the dict's own
+    value type (`any` for `dict[K, Any]`) stands and PS1107 fences the read.
+    """
+    if _type_kind(value_type) != "any":
+        return value_type
+    if expect is None:
+        return value_type
+    if _type_kind(expect) == "any":
+        return value_type
+    optional: bool = expect.get("optional", False)
+    if optional:
+        return value_type
+    return expect
 
 
 def _contains_node(hay: dict[str, Any], needle: dict[str, Any], negated: bool, span: dict[str, Any]) -> dict[str, Any]:
@@ -169,10 +212,18 @@ class CallAttrMixin:
             if status == "pkg":
                 item = self._pkg_item(node, module, member)
                 if item["kind"] == "class":
-                    return self._construct(node, span, str(item["name"]))
+                    # `pkg.mod.Class(...)` spells the class through the module,
+                    # so no from-import ever installed its export: install it
+                    # here the way `_bind_one_export` does for the named form.
+                    name = str(item["name"])
+                    pending: list[Fence] = []
+                    self._install_class_export(name, item, node, pending)
+                    if pending:
+                        raise pending[0]
+                    return self._construct(node, span, name)
                 if item["kind"] != "func":
                     self.fail(node, "PS2002", f"{dotted} is not a function")
-                return self._linked_call(node, span, item, dotted)
+                return self._linked_call(node, span, item, dotted, expect)
             if status == "queued":
                 self._queued(node, dotted)
             if status != "lowered":
@@ -197,6 +248,18 @@ class CallAttrMixin:
             named = self.class_aliases.get(node.func.value.id, node.func.value.id)
         if named is not None and named in self.classes:
             return self._named_class_call(node, span, named)
+        const = self._module_const_container(node.func.value)
+        if const is not None:
+            name, typ = const
+            family = "set" if typ.get("set") else typ["kind"]
+            if node.func.attr in _MUTATING_METHODS.get(family, ()):
+                self.fail(
+                    node,
+                    "PS2002",
+                    f"{name} is a module-scope constant: every read is a fresh copy, so "
+                    f"{_dotted(node.func)} mutates a container nothing keeps — "
+                    f"{_one_identity_note(name, typ)}",
+                )
         receiver = self._expr(node.func.value)
         # boxed:begin
         if receiver["type"].get("island"):
@@ -357,7 +420,7 @@ class CallAttrMixin:
                 sub.lineno, sub.col_offset = node.lineno, node.col_offset
                 sub.end_lineno, sub.end_col_offset = node.end_lineno, node.end_col_offset
             if len(node.args) == 2:
-                value = self._expr(ifexp, receiver["type"]["value"])
+                value = self._expr(ifexp, _get_expect(expect, receiver["type"]["value"]))
                 self._expect(node, value["type"], receiver["type"]["value"], "dict.get default")
                 return value
             return self._expr(ifexp)
@@ -856,8 +919,16 @@ class CallAttrMixin:
             self._reject_keywords(node)
             if len(node.args) != 1:
                 self.fail(node, "PS2003", "list.append expects 1 argument(s)")
-            if receiver["kind"] != "name":
-                self.fail(node, "PS2002", "list.append needs a name")
+            if receiver["kind"] not in {"name", "attr"}:
+                # A module-level list reads through `ps_global_get_ptr`, which
+                # hands back the shared sequence pointer: the push mutates the
+                # same object the slot holds. An attribute read hands back the
+                # field's own sequence pointer the same way. Other non-name
+                # receivers keep the fence.
+                recv = node.func.value
+                slot = self.global_slots.get(recv.id) if isinstance(recv, ast.Name) else None
+                if slot is None or not slot.get("active"):
+                    self.fail(node, "PS2002", "list.append needs a name")
             elem = receiver["type"]["elem"]
             value = self._expr(node.args[0], elem)
             if not types_equal(value["type"], elem) and not _any_accepts(elem, value["type"]):
@@ -999,14 +1070,15 @@ class CallAttrMixin:
             self._reject_keywords(node)
             if len(node.args) != 1:
                 self.fail(node, "PS2003", f"set.{attr} expects 1 argument(s)")
-            if receiver["kind"] != "name":
+            if receiver["kind"] != "name" and not (attr == "add" and receiver["kind"] == "attr"):
                 self.fail(node, "PS2002", f"set.{attr} needs a name")
             elem = receiver["type"]["elem"]
             value = self._expr(node.args[0], elem)
             if not types_equal(value["type"], elem):
                 self.fail(node, "PS1003", f"set.{attr} takes an element of that set")
             if attr == "add":
-                self.prelude.extend(self._set_insert_stmts(receiver["id"], receiver["type"], value, span))
+                hay = receiver if receiver["kind"] == "attr" else _name(str(receiver["id"]), receiver["type"], span)
+                self.prelude.extend(self._set_insert_stmts(hay, receiver["type"], value, span))
                 return _const_none(span)
             # discard removes when present; remove raises KeyError when absent.
             slot = self._temp("elt")
@@ -1075,16 +1147,18 @@ class CallAttrMixin:
 def _const_dict_keys(receiver: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
     """A dict literal's keys are already the list the IR builds, in insertion order."""
 
-    if receiver.get("kind") != "dict":
+    if _maybe_node_kind(receiver) != "dict":
         return None
     elems: list[dict[str, Any]] = []
-    seen: list[Any] = []
-    for pair in receiver["pairs"]:
-        key = pair["key"]
-        if key.get("kind") != "const":
+    seen: list[str] = []
+    pairs: list[dict[str, Any]] = receiver["pairs"]
+    for pair in pairs:
+        key: dict[str, Any] = pair["key"]
+        if _maybe_node_kind(key) != "const":
             return None
-        if key["value"] in seen:
+        kval: str = key["value"]
+        if kval in seen:
             continue
-        seen.append(key["value"])
+        seen.append(kval)
         elems.append(key)
     return _list_node(elems, typ, span)

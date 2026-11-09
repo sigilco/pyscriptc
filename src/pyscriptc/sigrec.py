@@ -102,10 +102,10 @@ class Sig:
     ret: T
     defaults: list[str] | None
     names: list[str] | None
-    min: int = -1
+    min: int
     # None means "no symbol key in the dict"; "" means the key exists with
     # the empty value, the spelling the isnan family carries.
-    symbol: str | None = None
+    symbol: str | None
 
 
 def sig(params: list[T], ret: T, symbol: str = "") -> Sig:

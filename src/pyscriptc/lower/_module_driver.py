@@ -16,7 +16,6 @@ from pyscriptc.errors import span_of
 from pyscriptc.ffi_manifest import is_handle_type
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 from pyscriptc.lower._core import Fence, _has_typevar, _type_kind
-from pyscriptc.lower._coro_adapter import coro_module
 from pyscriptc.lower._stmt import _always_returns
 
 # Issue #587: the deepest AST nesting the recursive lowering passes handle.
@@ -51,7 +50,10 @@ def _deepest_node(tree: ast.AST) -> ast.AST:
     stack: list[tuple[ast.AST, int]] = [(tree, 0)]
     while stack:
         node, depth = stack.pop()
-        if depth > best_depth:
+        # `ast.Load()` and its siblings are shared singletons: an earlier
+        # lowering can stamp a `lineno` on them, so a span taken from one
+        # would depend on test order. Only positioned nodes are candidates.
+        if depth > best_depth and not isinstance(node, ast.expr_context):
             best, best_depth = node, depth
         stack.extend((child, depth + 1) for child in ast.iter_child_nodes(node))
     return best
@@ -87,7 +89,13 @@ class ModuleDriverMixin:
         functions: list[ast.FunctionDef] = []
         class_nodes: list[ast.ClassDef] = []
         live = self._live_statements(list(tree.body), fences)
+        # The import pass may have installed slots imported from other
+        # modules (a cross-module global read). The scan of the module's own
+        # `global` declarations does not know them, so they are kept: the
+        # scan replaces the table, and the imported entries survive it.
+        imported_slots = {k: v for k, v in self.global_slots.items() if v.get("foreign_key")}
         self.global_slots = self._scan_global_slots(live)
+        self.global_slots.update(imported_slots)
         entry_stmts = self._split_entry(live, functions, class_nodes, fences)
         # boxed:end
         entry_fn = self._entry_function(entry_stmts, functions)
@@ -101,6 +109,7 @@ class ModuleDriverMixin:
         self.known_classes = {node.name for node in class_nodes}
         self.known_classes.update(name for name, info in self.classes.items() if info.get("synthetic"))
         self.known_classes.update(imported)
+        self._scan_global_aliases(functions)
         for node in class_nodes:
             self.function = node.name
             self.caught = []
@@ -183,12 +192,36 @@ class ModuleDriverMixin:
             has_import_fence = any(
                 fence.function in (None, "__module__") and fence.code in ("PS2001", "PS2002") for fence in fences
             )
-            self._boxed_top_island = bool(probe_fences) or has_import_fence
+            # The split's module rule: under the plane split a module-level
+            # fence anywhere in the module (a lambda the checker refuses, an
+            # empty container literal, an import outside the table) routes
+            # that module's top level to its own island floor, exactly like
+            # the import fences. Under the whole-program island these fences
+            # never mattered, so the rule stays scoped to the split: without
+            # a plane split (`_boxed_plane_split` false) the fence list
+            # reaches the CLI as before.
+            has_module_fence = self._boxed_plane_split and any(
+                fence.function in (None, "__module__") for fence in fences
+            )
+            self._boxed_top_island = bool(probe_fences) or has_import_fence or has_module_fence
             if self._boxed_top_island:
                 if probe_fences:
                     fences.extend(probe_fences)
                 if entry_name:
                     self._boxed_island.add(entry_name)
+            # The island group: a unit the program plan routed to the island
+            # floor for the import cycle rides whole-module. Every definition
+            # and the top level join the island; the seed is the module's own
+            # source, exec'd by CPython, which resolves the cycle natively.
+            if self._boxed_island_unit:
+                self._boxed_top_island = True
+                self._boxed_island_unit_drops_module_fences = True
+                for fn in self._boxed_functions:
+                    self._boxed_island.add(fn.name)
+                for node in class_nodes:
+                    if node.name not in self.island_classes:
+                        self._boxed_island_class(node)
+                self.island_fns = set(self._boxed_island)
         # boxed:end
         if self.cataloguing:
             self.function = None
@@ -240,7 +273,12 @@ class ModuleDriverMixin:
                 continue
             # boxed:end
             if lowered is not None and not self.caught:
-                lowered_classes.append(lowered)
+                # The island group: the group's bootstrap defines the class
+                # in CPython, so a native copy of it would collide with the
+                # other modules' class of the same name (the merged class
+                # table is program-wide) and would be the wrong class.
+                if not (self._boxed_island_unit and node.name in self.island_classes):
+                    lowered_classes.append(lowered)
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         lowered: list[dict[str, Any]] = []
         for fn in functions:
@@ -317,6 +355,19 @@ class ModuleDriverMixin:
                 self.typevars = saved_typevars
         self._drain_instances(lowered, lowered_classes, fences)
         lowered.extend(self.nested_fns)
+        # A program module's global slot initializers belong to its module
+        # body: in CPython the assignment runs when the module is imported,
+        # so the synthesized `__init__` carries them. The single-file shape
+        # keeps them in `module["globals"]`, which the binary main emits
+        # before it calls the entry.
+        if self.module_init and self.global_inits:
+            for record in lowered:
+                if record["name"] == self._ir_name("__init__"):
+                    record["body"] = [
+                        {"kind": "expr", "expr": init, "span": init.get("span", {})} for init in self.global_inits
+                    ] + record["body"]
+                    self.global_inits = []
+                    break
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         # The deferred classes (the argparse namespace) grew their fields
         # while the statements lowered, so they close here.
@@ -348,7 +399,19 @@ class ModuleDriverMixin:
                     fence
                     for fence in fences
                     if (fence.function != entry_name if entry_name is not None else True)
-                    and not (fence.function in (None, "__module__") and fence.code in ("PS2001", "PS2002"))
+                    and not (
+                        fence.function in (None, "__module__")
+                        and (
+                            fence.code in ("PS2001", "PS2002")
+                            # The island group: the group's bootstrap execs the
+                            # real body, so its module-level fences are the
+                            # island's, not the compile's.
+                            or self._boxed_island_unit_drops_module_fences
+                            # The split's module rule: the top level this
+                            # fence routed island-side owns the statement.
+                            or has_module_fence
+                        )
+                    )
                 ]
             else:
                 island.discard(entry_name)
@@ -409,4 +472,4 @@ class ModuleDriverMixin:
         # boxed:end
         if self.global_inits:
             module["globals"] = self.global_inits
-        return self._coro_finish(coro_module(module))
+        return self._coro_finish(module)

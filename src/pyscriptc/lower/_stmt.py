@@ -39,6 +39,7 @@ from pyscriptc.lower._core import (
     _type_kind,  # noqa: F401  # moved-verbatim import
     _zero,  # noqa: F401  # moved-verbatim import
 )
+from pyscriptc.lower._misc_emit import _one_identity_note  # noqa: F401  # moved-verbatim import
 from pyscriptc.lower._stmt_a import (
     StmtAMixin,  # noqa: F401  # moved-verbatim import
     _always_returns,  # noqa: F401  # re-exported for lower.__init__ and the sibling mixins
@@ -218,8 +219,22 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             if stmt.target.id in self.fn_nonlocals:
                 self.fail(stmt, "PS2002", f"nonlocal {stmt.target.id} cannot be annotated")
             typ = self._annotation(stmt.annotation)
+            if isinstance(stmt.value, ast.Name) and (const := self._module_const_container(stmt.value)) is not None:
+                name, ctyp = const
+                self.fail(
+                    stmt,
+                    "PS2002",
+                    f"{stmt.target.id} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                    f"is not representable — {_one_identity_note(name, ctyp)}",
+                )
             if _has_typevar(typ):
                 self.fail(stmt, "PS1001", f"{stmt.target.id} needs a concrete type")
+            accumulated = self._infer_accumulated_type(stmt)
+            if accumulated is not None:
+                # Issue #483: a bare container annotation's `any` slots pin
+                # from the body's mutations, the same scan an unannotated
+                # empty display gets.
+                typ = accumulated
             if stmt.value is None:
                 self.locals[stmt.target.id] = typ
                 return [_assign(stmt.target.id, _zero(typ, span), span)]
@@ -261,10 +276,16 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             dropped = self._rebind_handle(stmt.target.id, typ, stmt.value, span)
             self._note_frozen(stmt.target.id, stmt.value)
             return [*dropped, _assign(stmt.target.id, value, span)]
+        if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Attribute):
+            # `self.f: T = v` declares the field and stores like an
+            # assignment; a bare `self.f: T` is annotation-only, no store.
+            if stmt.value is None:
+                return [_pass_stmt(span)]
+            return [self._setattr_target(stmt.target, stmt.value, stmt, span)]
         if isinstance(stmt, ast.Global):
             for name in stmt.names:
                 slot = self.global_slots.get(name)
-                if slot is None or not slot.get("active"):
+                if (slot is None or not slot.get("active")) and name not in self.global_aliases:
                     self.fail(stmt, "PS2002", f"global {name} is not a module slot")
             return [_pass_stmt(span)]
         if isinstance(stmt, ast.Assign):
@@ -285,6 +306,14 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             if len(stmt.targets) != 1 or not isinstance(stmt.targets[0], ast.Name):
                 return self._spread_assign(stmt, span)
             target = stmt.targets[0].id
+            if isinstance(stmt.value, ast.Name) and (const := self._module_const_container(stmt.value)) is not None:
+                name, typ = const
+                self.fail(
+                    stmt,
+                    "PS2002",
+                    f"{target} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                    f"is not representable — {_one_identity_note(name, typ)}",
+                )
             if target in self.fn_globals or (self.function == self.entry_fn_name and target in self.global_slots):
                 return self._assign_global(stmt, target, span)
             if target in self.fn_nonlocals and target in self.captures:
@@ -305,36 +334,55 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                     # `p = functools.partial(f, 1)` / `p = dec()`: a call
                     # whose result is a callable binds like a Callable
                     # annotation.
-                    value = self._expr(stmt.value)
+                    # The shape test is speculative: when no shape matches,
+                    # the inference peek below lowers the same call again.
+                    # A value with a side effect (a comprehension that
+                    # drains an iterator, issue #1098) would then run twice
+                    # and the first run would consume the value. The
+                    # speculative IR is therefore discarded when the shape
+                    # test falls through: the prelude goes back and the temp
+                    # counter rewinds, so the real pass allocates the same
+                    # temps the peek used and the value runs once. A shape
+                    # that matches keeps its IR.
+                    saved_prelude = self.prelude
+                    saved_temp_n = self.temp_n
+                    self.prelude = []
+                    try:
+                        value = self._expr(stmt.value)
+                    except Fence:
+                        # The fence is the answer (the call does not lower):
+                        # it propagates as before, and the partial prelude is
+                        # dropped by the statement frame.
+                        self.prelude = saved_prelude
+                        raise
+                    shape = ""
                     if _node_type_kind(value) == "func":
-                        self.locals[target] = value["type"]
-                        return [_assign(target, value, span)]
+                        shape = "func"
                     # boxed:begin
-                    if value["type"].get("island"):
+                    elif value["type"].get("island"):
                         # An island call yields an opaque handle; the name owns
                         # it and the scope-exit free releases it (issue #553).
-                        self.locals[target] = value["type"]
-                        self._own_handle(target, value["type"])
-                        return [_assign(target, value, span)]
+                        shape = "island"
                     # boxed:end
-                    if _node_type_kind(value) == "class" and value["type"].get("name") in {"ArgParser", "Namespace"}:
+                    elif _node_type_kind(value) == "class" and value["type"].get("name") in {"ArgParser", "Namespace"}:
+                        shape = "argparse"
+                    if shape:
+                        self.prelude = [*saved_prelude, *self.prelude]
                         self.locals[target] = value["type"]
+                        if shape == "island":
+                            self._own_handle(target, value["type"])
                         return [_assign(target, value, span)]
-                    if self._bridge_type(stmt.value) is not None:
-                        # Checker bridge: the checker proved the call's result
-                        # type; bind the name to it instead of fencing.
-                        value = self._expr(stmt.value)
-                        if _node_type_kind(value) != "func":
-                            self.locals[target] = value["type"]
-                            return [_assign(target, value, span)]
-                if self._bridge_type(stmt.value) is not None:
-                    # Checker bridge: an unannotated assignment whose inferred
-                    # type the subset can express binds without an annotation.
-                    value = self._expr(stmt.value)
-                    self.locals[target] = value["type"]
-                    self._note_frozen(target, stmt.value)
-                    return [_assign(target, value, span)]
-                # The inference peek (issue #500): a literal, a comprehension
+                    # No shape matched: the speculative IR is dropped and the
+                    # real pass below lowers the value once.
+                    self.prelude = saved_prelude
+                    self.temp_n = saved_temp_n
+                # The inference peek (issue #500) and the accumulated-type
+                # pass run before the checker bridge: a value the compiler's
+                # own analysis types stays on that path, so the bridge only
+                # ever rescues what it refused. The bridge's fact may name a
+                # type the expression does not lower to, and binding that
+                # would fence where the peek would not.
+                # The inference peek: a literal, a comprehension
                 # or a call of known return type types the name from its
                 # value. The peek discards the speculative IR; the real pass
                 # below emits the value once. Anything the peek refuses keeps
@@ -352,6 +400,11 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                     self._note_frozen(target, stmt.value)
                     return [*dropped, _assign(target, value, span)]
                 inferred = self._infer_type_known(stmt.value) or self._infer_type_of(stmt.value)
+                if inferred is None and self._bridge_type(stmt.value) is not None:
+                    # Checker bridge: an unannotated assignment the
+                    # compiler's own peek refused, whose inferred type the
+                    # subset can express, binds to the checker's proof.
+                    inferred = self._bridge_type(stmt.value)
                 if inferred is not None and _type_kind(inferred) != "none":
                     self.locals[target] = inferred
                     value = self._expr(stmt.value, inferred)

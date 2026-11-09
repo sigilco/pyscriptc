@@ -24,6 +24,7 @@ from pyscriptc._irnode import t_class, t_leaf, t_list
 from pyscriptc.boxed import (  # boxed:begin
     DEF_HANDLE_SYMBOL,
     INVOKE_SYMBOL,
+    MOD_DEF_HANDLE_SYMBOL,
     island_class_type,
     island_handle_type,
 )  # boxed:end
@@ -31,7 +32,7 @@ from pyscriptc.coro import enabled
 
 # boxed:end
 from pyscriptc.errors import span_of
-from pyscriptc.ffi_manifest import is_handle_type, type_ir
+from pyscriptc.ffi_manifest import FfiManifest, is_handle_type, type_ir
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
     _MISSING,
@@ -54,6 +55,7 @@ from pyscriptc.lower._core import (
     _show,
     module_needs_slot,
 )
+from pyscriptc.lower._misc_emit import _one_identity_note
 from pyscriptc.lower._stdlib_bind import StdlibBindMixin
 from pyscriptc.restlower import alias_name, rest_call
 from pyscriptc.stdlib_queue import (
@@ -102,7 +104,7 @@ def _const_str_node(value: str, span: dict[str, Any], extra: dict[str, Any] | No
     const record has no slot for, so the spelling keeps the dict whole.
     """
 
-    node = node_to_dict(_ir.const_str(value, t_leaf("str"), _mk_span(span)))
+    node: dict[str, Any] = node_to_dict(_ir.const_str(value, t_leaf("str"), _mk_span(span)))
     if extra:
         node.update(extra)
     return node
@@ -124,7 +126,7 @@ def _island_call_node(
     spells the call and the extras ride along on the dict.
     """
 
-    node = node_to_dict(
+    node: dict[str, Any] = node_to_dict(
         _ir.call(
             _ir.module_callee(module, name),
             [dict_to_node(arg) for arg in args],
@@ -235,7 +237,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
         self.bindings[bound or name] = Binding("module", name, "", False)
         return True
 
-    def _ffi_module(self, name: str) -> Any:
+    def _ffi_module(self, name: str) -> FfiManifest | None:
         return ffi_manifests().get(name)
 
     def _ffi_call(self, node: ast.Call, span: dict[str, Any], module: str, attr: str) -> dict[str, Any]:
@@ -429,7 +431,22 @@ class StdlibDispatchMixin(StdlibBindMixin):
         if not fn.decorator_list:
             return None
         if len(fn.decorator_list) != 1:
-            return "stacked decorators are not lowered"
+            # A stack of user decorators defers to the same wrap pass a
+            # single one does (`_bind_callable_global` applies them
+            # bottom-up). Under the fallback tier the island seed owns the
+            # decorated source, so the stack keeps its fence there. A
+            # builtin spelling anywhere in the stack keeps the stacked
+            # fence: `staticmethod` is not a lowered callable.
+            if self.fallback_definitions:
+                return "stacked decorators are not lowered"
+            for dec in fn.decorator_list:
+                if (isinstance(dec, ast.Name) and dec.id in {"staticmethod", "property", "classmethod"}) or (
+                    isinstance(dec, ast.Call)
+                    and isinstance(dec.func, ast.Name)
+                    and dec.func.id in {"staticmethod", "property", "classmethod"}
+                ):
+                    return "stacked decorators are not lowered"
+            return None
         dec = fn.decorator_list[0]
         if isinstance(dec, ast.Name):
             if dec.id == "staticmethod":
@@ -658,6 +675,87 @@ class StdlibDispatchMixin(StdlibBindMixin):
         self.fail(node, "PS1003", f"island cannot unmarshal {_show(expect)}; {idiom_note}")
 
     # boxed:begin
+    def _island_floor_call(
+        self, node: ast.Call, span: dict[str, Any], module: str, name: str, expect: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """`helper(x)` where `helper` rides another module's island floor.
+
+        The per-module plane split: the same marshalling and `want`
+        unboxing as `_island_fn_call`, with the defining module's name in
+        front of the callee key (`ps_island_mod_fn_invoke`). The caller
+        stays native; the arguments cross as copies (the seam is
+        copy-in), the result unboxes through `want` like the
+        single-namespace trampoline.
+        """
+        marshalled, npos, nkw = self._island_args(node, span)
+        call_expr: dict[str, Any] = _island_call_node(
+            "island",
+            name,
+            marshalled,
+            _island_handle(f"{module}.{name}()"),
+            INVOKE_SYMBOL,
+            span,
+            {"island_fn": {"name": name, "module": module}, "island_npos": npos, "island_nkw": nkw},
+        )
+        if expect is not None and not expect.get("island"):
+            self._island_validate_expect(node, expect)
+            call_expr["type"] = expect
+            call_expr["island_fn"]["want"] = expect
+        return call_expr
+
+    def _island_floor_class_handle(
+        self, local_name: str, module: str, name: str, span: dict[str, Any]
+    ) -> dict[str, Any]:
+        """`Cls` of another module as a value: a handle from its namespace.
+
+        The class object lives in the defining module's island namespace;
+        `ps_island_mod_def_handle(mod, name)` returns a new reference to it,
+        the namespaced shape of `ps_island_def_handle` (issue #628). The
+        hidden local owns the reference for the scope like the in-module
+        handle does.
+        """
+        local = self.island_class_handles.get(local_name)
+        if local is not None and local not in self.locals:
+            del self.island_class_handles[local_name]
+            local = None
+        if local is None:
+            local = self._temp("icls").replace(".", "_")
+            typ = island_class_type(f"{module}.{name}")
+            self.locals[local] = typ
+            call = self._abi_call(module, name, [], typ, MOD_DEF_HANDLE_SYMBOL, span)
+            call["island_mod_def"] = {"module": module, "name": name}
+            self.prelude.append(_assign(local, call, span))
+            self._own_handle(local, typ)
+            self.island_class_handles[local_name] = local
+        return _name(local, self.locals[local], span)
+
+    def _island_floor_class_call(
+        self, node: ast.Call, span: dict[str, Any], module: str, name: str, expect: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
+        """`Cls(...)` where `Cls` rides another module's island floor.
+
+        The class object lives in the defining module's island namespace,
+        where it is callable, so the instantiation is the same namespaced
+        trampoline as `_island_floor_call` with the class name as the callee
+        key. The instance is an opaque handle of the class's own type (the
+        class's spelling carries the defining module, issue #628).
+        """
+        marshalled, npos, nkw = self._island_args(node, span)
+        call_expr: dict[str, Any] = _island_call_node(
+            "island",
+            name,
+            marshalled,
+            island_class_type(f"{module}.{name}"),
+            INVOKE_SYMBOL,
+            span,
+            {"island_fn": {"name": name, "module": module}, "island_npos": npos, "island_nkw": nkw},
+        )
+        if expect is not None and not expect.get("island"):
+            self._island_validate_expect(node, expect)
+            call_expr["type"] = expect
+            call_expr["island_fn"]["want"] = expect
+        return call_expr
+
     def _island_fn_call(
         self, node: ast.Call, span: dict[str, Any], name: str, expect: dict[str, Any] | None = None
     ) -> dict[str, Any]:
@@ -683,6 +781,12 @@ class StdlibDispatchMixin(StdlibBindMixin):
         # An island class instantiation returns the class's one handle type,
         # so the destination annotation proves the same type (issue #628).
         result_type = island_class_type(name) if name in self.island_classes else _island_handle(f"{name}()")
+        island_fn: dict[str, Any] = {"name": name}
+        # The per-module plane split: the single island namespace does not
+        # exist (every module's floor is its own namespace), so the call
+        # names the owning module and rides the namespaced trampoline.
+        if self._boxed_plane_split and self.module_name:
+            island_fn["module"] = self.module_name
         call_expr: dict[str, Any] = _island_call_node(
             "island",
             name,
@@ -690,7 +794,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
             result_type,
             INVOKE_SYMBOL,
             span,
-            {"island_fn": {"name": name}, "island_npos": npos, "island_nkw": nkw},
+            {"island_fn": island_fn, "island_npos": npos, "island_nkw": nkw},
         )
         if expect is not None and not expect.get("island"):
             self._island_validate_expect(node, expect)
@@ -716,9 +820,16 @@ class StdlibDispatchMixin(StdlibBindMixin):
             local = self._temp("icls").replace(".", "_")
             typ = island_class_type(name)
             self.locals[local] = typ
-            call = self._abi_call("island", name, [], typ, DEF_HANDLE_SYMBOL, span)
-            call["island"] = {"name": name}
-            call["island_def"] = {"name": name}
+            if self._boxed_plane_split and self.module_name:
+                # The per-module plane split: the class object lives in this
+                # module's own island namespace, so the handle is fetched
+                # through the namespaced trampoline.
+                call = self._abi_call(self.module_name, name, [], typ, MOD_DEF_HANDLE_SYMBOL, span)
+                call["island_mod_def"] = {"module": self.module_name, "name": name}
+            else:
+                call = self._abi_call("island", name, [], typ, DEF_HANDLE_SYMBOL, span)
+                call["island"] = {"name": name}
+                call["island_def"] = {"name": name}
             self.prelude.append(_assign(local, call, span))
             self._own_handle(local, typ)
             self.island_class_handles[name] = local
@@ -874,10 +985,9 @@ class StdlibDispatchMixin(StdlibBindMixin):
             return dotted, binding.module, member, "erased"
         if binding.kind == "pkg":
             module = binding.module
-            package = self.package or {}
             for attr in attrs[:-1]:
                 child = f"{module}.{attr}"
-                if child not in package:
+                if self._export_lookup(child, None) is None:
                     return dotted, module, ".".join(attrs), "missing"
                 module = child
             if not attrs:
@@ -1015,6 +1125,14 @@ class StdlibDispatchMixin(StdlibBindMixin):
                         self._expect(stmt, folded["type"], typ, stmt.target.id)
                         self._store_constant(stmt.target.id, folded, stmt)
                         return
+                if isinstance(stmt.value, ast.Name) and (const := self._module_const_container(stmt.value)) is not None:
+                    name, typ2 = const
+                    self.fail(
+                        stmt,
+                        "PS2002",
+                        f"{stmt.target.id} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                        f"is not representable — {_one_identity_note(name, typ2)}",
+                    )
                 value = self._module_fold(stmt.value)
                 if value is None:
                     # An optional target keeps its raw constant: each read
@@ -1055,6 +1173,19 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 if tv_call is not None:
                     self._declare_typevar(target, tv_call, stmt)
                     return
+                if isinstance(stmt.value, ast.Name) and (const := self._module_const_container(stmt.value)) is not None:
+                    # `ys = xs` freezes a copy of the constant's literal at
+                    # bind time: CPython would alias the one container, and a
+                    # copy-on-alias is not representable (issue #525). In a
+                    # script the fence retracts and the statement re-fences
+                    # from the entry; in a definition-only module it stays.
+                    name, typ = const
+                    self.fail(
+                        stmt,
+                        "PS2002",
+                        f"{target} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                        f"is not representable — {_one_identity_note(name, typ)}",
+                    )
                 if (
                     not self._deferring
                     and self._script_line is None
@@ -1130,6 +1261,17 @@ class StdlibDispatchMixin(StdlibBindMixin):
             if isinstance(stmt, ast.Assign) and len(stmt.targets) > 1:
                 names = [target.id for target in stmt.targets if isinstance(target, ast.Name)]
                 if len(names) == len(stmt.targets):
+                    if (
+                        isinstance(stmt.value, ast.Name)
+                        and (const := self._module_const_container(stmt.value)) is not None
+                    ):
+                        name, typ = const
+                        self.fail(
+                            stmt,
+                            "PS2002",
+                            f"{names[0]} = {name} copies the module-scope constant {name}: a copy-on-alias "
+                            f"is not representable — {_one_identity_note(name, typ)}",
+                        )
                     value = self._module_fold(stmt.value)
                     if value is None:
                         value = self._expr(stmt.value)
@@ -1148,6 +1290,14 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 names = [elt.id for elt in elts if isinstance(elt, ast.Name)]
                 if len(stmt.value.elts) == len(elts) and len(names) == len(elts):
                     for name, part in zip(names, stmt.value.elts, strict=True):
+                        if isinstance(part, ast.Name) and (const := self._module_const_container(part)) is not None:
+                            cname, ctyp = const
+                            self.fail(
+                                stmt,
+                                "PS2002",
+                                f"{name} = {cname} copies the module-scope constant {cname}: a copy-on-alias "
+                                f"is not representable — {_one_identity_note(cname, ctyp)}",
+                            )
                         value = self._module_fold(part)
                         if value is None:
                             value = self._expr(part)
@@ -1195,6 +1345,10 @@ class StdlibDispatchMixin(StdlibBindMixin):
                     val, _ = constant
                     span = span_of(node, self.filename)
                     return _make_const(val, span)
+            class_name = self.class_aliases.get(node.value.id, node.value.id)
+            const = self._class_const(class_name, node.attr)
+            if const is not None:
+                return {**const, "span": span_of(node, self.filename)}
             return None
         if isinstance(node, ast.IfExp):
             truthy = _const_truthy(self._module_const(node.test))

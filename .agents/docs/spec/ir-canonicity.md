@@ -118,7 +118,7 @@ Hash the canonical module as `json.dumps(canonical, sort_keys=True, separators=(
 
 ## 7. PROPOSED (2026-11-02, pending owner sign-off): the streaming canonical serializer and the TIR gate
 
-This section is the spec the draft recorded decision `.agents/plans/decisions/2026-11-02-tir-gate-streaming-serializer.md` points at. Nothing in sections 1-6 changes: `canonical.py` is frozen, `IR_HASHES.json` and `irscore.py` keep running, and the new gate is added beside them. Retirement of the old gate is the R5 decision, not this one.
+This section is the spec the draft recorded decision `.agents/plans/decisions/2026-11-02-tir-gate-streaming-serializer.md` points at. Nothing in sections 1-6 changes: `canonical.py` is frozen, `IR_HASHES.json` and `irscore.py` keep running, and the new gate is added beside them. Retirement of the old gate is the R5 decision, not this one; it is tracked in issue #830 and the retirement plan rides in open PRs #980 and #973 (not yet on master).
 
 ### 7.1 The serializer
 

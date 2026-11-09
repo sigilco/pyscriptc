@@ -73,7 +73,15 @@ from pyscriptc.restlower._random import _random_call
 from pyscriptc.restlower._subprocess import _call as _sub_call
 from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
 from pyscriptc.restlower._subprocess import _run as _sub_run
-from pyscriptc.restlower._system import _as_file_value, _atexit_register, _exit, _getenv, _resource_files, _unicode_name
+from pyscriptc.restlower._system import (
+    _as_file_value,
+    _atexit_register,
+    _exit,
+    _getenv,
+    _resource_files,
+    _shutil_which,
+    _unicode_name,
+)
 from pyscriptc.restlower._textwrap import _textwrap_call
 from pyscriptc.restlower._threading import _lock_method, _thread_method, _threading_call
 from pyscriptc.restlower._time import _clock, _sleep, _strftime
@@ -110,7 +118,7 @@ __all__ = [
 # and the attribute name, whatever subset of those it actually needs.
 Handler = Callable[[Any, ast.Call, dict[str, Any], "dict[str, Any] | None", str], dict[str, Any]]
 
-_DATETIME_ROWS: dict[str, tuple[str, str, int, list[str]]] = {
+_DATETIME_ROWS = {
     "date": ("ps_date_ymd", "Date", 3, ["year", "month", "day"]),
     "datetime": (
         "ps_dt_new",
@@ -139,6 +147,8 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("importlib.resources", "as_file"): lambda lo, node, span, expect, attr: _as_file_value(lo, node, span),
     # The 1-arg form returns the tagged `str | None`; the 2-arg form returns the default instead.
     ("os", "getenv"): lambda lo, node, span, expect, attr: _getenv(lo, node, span),
+    # The tagged `str | None`: None for a missing executable, like CPython.
+    ("shutil", "which"): lambda lo, node, span, expect, attr: _shutil_which(lo, node, span),
     ("time", "strftime"): lambda lo, node, span, expect, attr: _strftime(lo, node, span),
     ("tempfile", "NamedTemporaryFile"): lambda lo, node, span, expect, attr: _named_temp(lo, node, span),
     ("functools", "partial"): lambda lo, node, span, expect, attr: lo._partial_callable(node, span),

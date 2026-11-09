@@ -286,6 +286,316 @@ def _env_item_name(item: dict[str, Any]) -> str:
     return name
 
 
+def _callee_kind(callee: dict[str, Any]) -> str:
+    """The callee record's kind tag: builtin, module, method, class or
+    value."""
+
+    kind: str = callee["kind"]
+    return kind
+
+
+def _callee_name(callee: dict[str, Any]) -> str:
+    """The callee's name: the builtin, module member or method name."""
+
+    name: str = callee["name"]
+    return name
+
+
+def _callee_module(callee: dict[str, Any]) -> str:
+    """The module a module call names."""
+
+    module: str = callee["module"]
+    return module
+
+
+def _callee_receiver(callee: dict[str, Any]) -> str:
+    """The receiver kind a method call names: str or bytes."""
+
+    receiver: str = callee["receiver"]
+    return receiver
+
+
+def _callee_tuple(callee: dict[str, Any]) -> str:
+    """The tuple class a method call packs its result into."""
+
+    tname: str = callee["tuple"]
+    return tname
+
+
+def _node_symbol(node: dict[str, Any]) -> str:
+    """The runtime symbol a module call lowers to (`ps_seq_new`, ...)."""
+
+    symbol: str = node["symbol"]
+    return symbol
+
+
+def _node_thread(node: dict[str, Any]) -> dict[str, Any]:
+    """The thread plan a thread call node carries (closure, name, daemon)."""
+
+    thread: dict[str, Any] = node["thread"]
+    return thread
+
+
+def _node_fn_name(node: dict[str, Any]) -> str:
+    """The reduced function's name a `functools.reduce` call names."""
+
+    fn_name: str = node["fn"]
+    return fn_name
+
+
+def _thread_closure(thread: dict[str, Any]) -> dict[str, Any]:
+    """The closure expression a thread plan runs."""
+
+    closure: dict[str, Any] = thread["closure"]
+    return closure
+
+
+def _thread_size(thread: dict[str, Any]) -> int:
+    """The result slot size a `to_thread` record allocates."""
+
+    size: int = thread["size"]
+    return size
+
+
+def _node_island(node: dict[str, Any]) -> dict[str, Any]:
+    """The island plan an island call node carries (name, want, key)."""
+
+    island: dict[str, Any] = node["island"]
+    return island
+
+
+def _island_mod_def(expr: dict[str, Any]) -> tuple[str, str]:
+    """The (module, class name) pair of an `island_mod_def` expression."""
+    rec: dict[str, Any] = expr["island_mod_def"]
+    return str(rec["module"]), str(rec["name"])
+
+
+def _node_island_fn(node: dict[str, Any]) -> dict[str, Any]:
+    """The boxed island namespace record an island fn call names."""
+
+    island_fn: dict[str, Any] = node["island_fn"]
+    return island_fn
+
+
+def _island_want(island: dict[str, Any]) -> dict[str, Any]:
+    """The expected result type record an island plan marshals toward."""
+
+    want: dict[str, Any] = island["want"]
+    return want
+
+
+def _island_text(island: dict[str, Any]) -> str:
+    """The name or key payload an island plan carries."""
+
+    name: str = island["name"]
+    return name
+
+
+def _island_key(island: dict[str, Any]) -> str:
+    """The subscript key an island getitem plan carries."""
+
+    key: str = island["key"]
+    return key
+
+
+def _spec_bound(spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """The bound type records a partial or thread shim spec carries."""
+
+    bound: list[dict[str, Any]] = spec["bound"]
+    return bound
+
+
+def _spec_params(spec: dict[str, Any]) -> list[dict[str, Any]]:
+    """The forwarding parameter types a partial or thread shim spec carries."""
+
+    params: list[dict[str, Any]] = spec["params"]
+    return params
+
+
+def _spec_return(spec: dict[str, Any]) -> dict[str, Any]:
+    """The return type record a partial or thread shim spec carries."""
+
+    typ: dict[str, Any] = spec["return"]
+    return typ
+
+
+def _arg_type(arg: dict[str, Any]) -> dict[str, Any]:
+    """The type record one call argument carries."""
+
+    typ: dict[str, Any] = arg["type"]
+    return typ
+
+
+def _elem_of(typ: dict[str, Any]) -> dict[str, Any]:
+    """The element type record a list or dict type record carries."""
+
+    elem: dict[str, Any] = typ["elem"]
+    return elem
+
+
+def _key_of(typ: dict[str, Any]) -> dict[str, Any]:
+    """The key type record a dict type record carries."""
+
+    key: dict[str, Any] = typ["key"]
+    return key
+
+
+def _value_of(typ: dict[str, Any]) -> dict[str, Any]:
+    """The value type record a dict type record carries."""
+
+    value: dict[str, Any] = typ["value"]
+    return value
+
+
+def _class_fields(cls: dict[str, Any]) -> list[dict[str, Any]]:
+    """The field records one class record carries."""
+
+    fields: list[dict[str, Any]] = cls["fields"]
+    return fields
+
+
+def _opt_record(record: dict[str, Any], key: str) -> dict[str, Any] | None:
+    """A record-valued field of a record, or None when the record omits it."""
+
+    if key not in record:
+        return None
+    value: dict[str, Any] = record[key]
+    return value
+
+
+def _record(record: dict[str, Any], key: str) -> dict[str, Any]:
+    """A record-valued field of a record, required: the read raises on an
+    absent key, like the raw subscript it replaces."""
+
+    value: dict[str, Any] = record[key]
+    return value
+
+
+def _mark_fmt(typ: dict[str, Any]) -> dict[str, Any]:
+    """The %ps.arg record one formatted argument stores: the type with the
+    `fmt` marker set."""
+
+    merged: dict[str, Any] = dict(typ)
+    merged["fmt"] = 1
+    return merged
+
+
+def _node_target(node: dict[str, Any]) -> str:
+    """The local name an assign (or annassign/augassign) node writes."""
+
+    target: str = node["target"]
+    return target
+
+
+def _node_cond(node: dict[str, Any]) -> dict[str, Any]:
+    """The condition expression an `if` or `while` node carries."""
+
+    cond: dict[str, Any] = node["cond"]
+    return cond
+
+
+def _node_then(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The then-body statements an `if` node carries."""
+
+    then: list[dict[str, Any]] = node["then"]
+    return then
+
+
+def _node_else(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The else-body statements an `if` node carries."""
+
+    else_body: list[dict[str, Any]] = node["else"]
+    return else_body
+
+
+def _node_body(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The body statements a compound node (`while`, `try`, handler) carries."""
+
+    body: list[dict[str, Any]] = node["body"]
+    return body
+
+
+def _node_handlers(node: dict[str, Any]) -> list[dict[str, Any]]:
+    """The except-handler records a `try` node carries."""
+
+    handlers: list[dict[str, Any]] = node["handlers"]
+    return handlers
+
+
+def _node_container(node: dict[str, Any]) -> dict[str, Any]:
+    """The container expression a setitem node writes into."""
+
+    container: dict[str, Any] = node["container"]
+    return container
+
+
+def _node_object(node: dict[str, Any]) -> dict[str, Any]:
+    """The object expression a setattr node writes through."""
+
+    obj: dict[str, Any] = node["object"]
+    return obj
+
+
+def _node_exc(node: dict[str, Any]) -> str:
+    """The exception class name a raise or excmake node carries."""
+
+    exc: str = node["exc"]
+    return exc
+
+
+def _opt_node_code(node: dict[str, Any]) -> int | None:
+    """The numeric exception code a raise or excmake node carries, or None
+    when the node names the class instead."""
+
+    if "code" not in node:
+        return None
+    code: int = node["code"]
+    return code
+
+
+def _opt_node_message(node: dict[str, Any]) -> dict[str, Any] | None:
+    """The message expression a raise or excmake node carries, or None."""
+
+    if "message" not in node:
+        return None
+    message: dict[str, Any] = node["message"]
+    return message
+
+
+def _opt_node_cause(node: dict[str, Any]) -> dict[str, Any] | None:
+    """The cause expression a `raise ... from` node carries, or None."""
+
+    if "cause" not in node:
+        return None
+    cause: dict[str, Any] = node["cause"]
+    return cause
+
+
+def _opt_excslot(node: dict[str, Any]) -> str | None:
+    """The bound-exception slot a raise or except handler carries, or None."""
+
+    if "excslot" not in node:
+        return None
+    slot: str = node["excslot"]
+    return slot
+
+
+def _handler_exc(handler: dict[str, Any]) -> list[str]:
+    """The exception class names an except-handler record matches."""
+
+    names: list[str] = handler["exc"]
+    return names
+
+
+def _handler_codes(handler: dict[str, Any]) -> list[int]:
+    """The numeric exception codes an except-handler record matches, or []."""
+
+    if "codes" not in handler:
+        return []
+    codes: list[int] = handler["codes"]
+    return codes
+
+
 def _field_name(field: dict[str, Any]) -> str:
     """The source name of one class field."""
     name: str = field["name"]
@@ -298,11 +608,32 @@ def _field_type(field: dict[str, Any]) -> dict[str, Any]:
     return typ
 
 
+def _field_index(field: dict[str, Any]) -> int:
+    """The struct index a class field carries after `_field` annotates it."""
+
+    index: int = field["index"]
+    return index
+
+
 def _elem_kind(typ: dict[str, Any]) -> str:
     """The kind tag of the element type a list or dict type record carries."""
     elem: dict[str, Any] = typ["elem"]
     kind: str = elem["kind"]
     return kind
+
+
+def _elem_type(typ: dict[str, Any]) -> dict[str, Any]:
+    """The element type record a list or optional type carries."""
+
+    elem: dict[str, Any] = typ["elem"]
+    return elem
+
+
+def _map_value_type(typ: dict[str, Any]) -> dict[str, Any]:
+    """The value type record a dict type carries."""
+
+    value: dict[str, Any] = typ["value"]
+    return value
 
 
 def _is_optional(typ: dict[str, Any]) -> bool:
@@ -321,17 +652,44 @@ def _opt_str_or_none(expr: dict[str, Any], key: str) -> str | None:
     return value
 
 
+def _opt_node_sep(node: dict[str, Any]) -> dict[str, Any] | None:
+    """The `sep=` expression a print call carries, or None when absent."""
+
+    if "sep" not in node:
+        return None
+    sep: dict[str, Any] = node["sep"]
+    return sep
+
+
+def _opt_node_end(node: dict[str, Any]) -> dict[str, Any] | None:
+    """The `end=` expression a print call carries, or None when absent."""
+
+    if "end" not in node:
+        return None
+    end: dict[str, Any] = node["end"]
+    return end
+
+
 def standalone_entry(module: dict[str, Any]) -> dict[str, Any] | None:
     """The module's runnable entry (a script body or `__main__` guard), if `--run` without `--call` has one."""
     entry = module.get("entry")
-    fn = next((f for f in module["functions"] if f["name"] == entry), None)
-    if fn is not None and not fn["params"]:
-        name = fn["name"]
+    fn = next((f for f in _items(module, "functions") if _opt_str(f, "name") == entry), None)
+    if fn is not None and not _items(fn, "params"):
+        name = _opt_str(fn, "name")
         # A script's entry is `main`/`__entry__`; a program's is the
         # qualified `__main__.main`/`__main__.__entry__`.
         if name in ("main", "__entry__") or name.startswith("__main__."):
             return fn
     return None
+
+
+def _opt_module_fallback(module: dict[str, Any]) -> dict[str, Any] | None:
+    """The boxed fallback record a module carries, or None when native."""
+
+    if "fallback" not in module:
+        return None
+    fallback: dict[str, Any] = module["fallback"]
+    return fallback
 
 
 def _type_of(expr: dict[str, Any]) -> dict[str, Any]:
@@ -583,3 +941,18 @@ def _llvm_bytes(data: bytes) -> str:
             parts.append(f"\\{byte:02X}")
     parts.append("\\00")
     return "".join(parts)
+
+
+# Function-record readers the expression emitter uses (#829, batch 7).
+
+
+def _fn_name(fn: dict[str, Any]) -> str:
+    """The qualified name of a function record."""
+    name: str = fn["name"]
+    return name
+
+
+def _fn_params(fn: dict[str, Any]) -> list[dict[str, Any]]:
+    """The param records of a function record, in declaration order."""
+    params: list[dict[str, Any]] = fn["params"]
+    return params
