@@ -121,7 +121,6 @@ def _call_node(
     span: dict[str, Any],
     *,
     format_style: str = "",
-    format_kwnames: int = -1,
 ) -> dict[str, Any]:
     """The call node one dict-IR call spells."""
     return node_to_dict(
@@ -132,14 +131,9 @@ def _call_node(
             _mk_span(span),
             "",
             format_style,
-            format_kwnames,
+            -1,
         )
     )
-
-
-def _callee_node(callee: dict[str, Any]) -> Any:
-    """The callee record one dict-IR callee spells."""
-    return dict_to_node(callee)
 
 
 def _builtin_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
@@ -299,7 +293,7 @@ class ExprMixin(ExprCompareMixin):
             # the point of evaluation, like the iterator builtins do.
             return self._comp(node, span, expect)
         if isinstance(node, ast.IfExp):
-            return self._ifexp(node, span)
+            return self._ifexp(node, span, expect)
         if isinstance(node, ast.Lambda):
             return self._lambda(node, span, expect)
         self.fail(node, "PS2002", f"{_node_text(node)} is not lowered")
@@ -387,6 +381,12 @@ class ExprMixin(ExprCompareMixin):
         # `ps_island_fn_invoke`, like any other island definition.
         if node.id in self.island_classes:
             return self._island_class_handle(node.id, span)
+        # An island class of another module taken as a value: the same
+        # opaque handle, fetched from the defining module's namespace.
+        floor = self.island_floor_classes.get(node.id)
+        if floor is not None:
+            module, cls = floor
+            return self._island_floor_class_handle(node.id, module, cls, span)
         # boxed:end
         if node.id in self.classes:
             self.fail(node, "PS2002", f"class {node.id} is not a value")
@@ -608,8 +608,6 @@ class ExprMixin(ExprCompareMixin):
         elem_expect = expect["elem"] if expect and expect["kind"] == "list" else None
         elems = [self._expr(elt, elem_expect) for elt in node.elts]
         elem = elems[0]["type"]
-        if elem["kind"] == "bool":
-            self.fail(node, "PS2002", "list[bool] is not lowered")
         for item in elems[1:]:
             if not types_equal(item["type"], elem):
                 self.fail(node, "PS1003", "list elements have one type")
@@ -839,8 +837,18 @@ class ExprMixin(ExprCompareMixin):
                 if member is None:
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
                 return _const_of(str(member), "int", span)
+            const = self._class_const(class_name, node.attr)
+            if const is not None:
+                return {**const, "span": span}
         value = self._expr(node.value)
-        return path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
+        read = path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
+        if isinstance(node.value, ast.Name):
+            # A `base.attr is not None` proof narrows the attribute read to
+            # the tagged value, the same rule a narrowed local name follows.
+            narrowed = self.opt_unwrap.get(f"{node.value.id}.{node.attr}")
+            if narrowed is not None:
+                return _attr_node(read, "_val", narrowed["elem"], span)
+        return read
 
     def _call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None = None) -> dict[str, Any]:
         if isinstance(node.func, ast.Name):
@@ -932,7 +940,7 @@ class ExprMixin(ExprCompareMixin):
             self.prelude.append(_if_node(cond, inner, [], span))
         return _name(temp, typ, span)
 
-    def _ifexp(self, node: ast.IfExp, span: dict[str, Any]) -> dict[str, Any]:
+    def _ifexp(self, node: ast.IfExp, span: dict[str, Any], expect: dict[str, Any] | None = None) -> dict[str, Any]:
         """`a if cond else b` is the if statement BoolOp already uses.
 
         The condition is whatever `if` already accepts. Both operands lower to
@@ -944,10 +952,10 @@ class ExprMixin(ExprCompareMixin):
         self.prelude = []
         when_true, when_false = self._narrow_names(node.test)
         try:
-            body = self._narrowed(when_true, node, lambda: self._expr(node.body))
+            body = self._narrowed(when_true, node, lambda: self._expr(node.body, expect))
             body_pre = self.prelude
             self.prelude = []
-            orelse = self._narrowed(when_false, node, lambda: self._expr(node.orelse))
+            orelse = self._narrowed(when_false, node, lambda: self._expr(node.orelse, expect))
             orelse_pre = self.prelude
         finally:
             self.prelude = saved

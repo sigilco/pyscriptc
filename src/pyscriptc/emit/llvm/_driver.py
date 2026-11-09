@@ -18,6 +18,7 @@ from typing import Any
 
 from pyscriptc import embed, rtcache, zigshim
 from pyscriptc.dwarf import DwarfEmitter
+from pyscriptc.emit._ir import _items, _name_list, _opt_module_fallback, _opt_str, _opt_str_or_none
 from pyscriptc.emit.llvm._abi import AbiMixin
 from pyscriptc.emit.llvm._calls import CallsMixin
 from pyscriptc.emit.llvm._core import CoreMixin
@@ -91,7 +92,7 @@ def emit_llvm(
     and `%.*s` printf lengths truncate to i32 (wasm32 varargs are 32-bit).
     """
     assert_same_cpython(module)
-    if module["fences"]:
+    if _name_list(module, "fences"):
         raise IRError("refusing to emit LLVM while fences are present")
     # boxed:begin
     # The island top level (issue #613): the module body runs island-side,
@@ -99,16 +100,22 @@ def emit_llvm(
     # alone, emitted as the no-op main with the island prologue. Native
     # functions that lowered clean may stay in the IR (the emitter skips
     # them); the seed's namespace holds the real definitions.
-    if module.get("fallback", {}).get("moduleTopLevel") == "island" and call is None and not (library or binding):
-        dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
+    fallback = _opt_module_fallback(module)
+    if (
+        fallback is not None
+        and _opt_str_or_none(fallback, "moduleTopLevel") == "island"
+        and call is None
+        and not (library or binding)
+    ):
+        dwarf = DwarfEmitter(_opt_str(module, "sourceFile")) if debug_info else None
         emitter = Emitter(module, dwarf, wasm=wasm)
         emitter.library = library
         emitter.binding = binding
         return emitter.emit_top_island()
     # boxed:end
-    if not module["functions"]:
+    if not _items(module, "functions"):
         raise IRError("module has no functions to emit")
-    dwarf = DwarfEmitter(module["sourceFile"]) if debug_info else None
+    dwarf = DwarfEmitter(_opt_str(module, "sourceFile")) if debug_info else None
     return Emitter(module, dwarf, wasm=wasm).emit(
         call, [] if args is None else args, standalone, library=library, binding=binding
     )
@@ -126,7 +133,7 @@ def sanitize_flags(sanitize: list[str] | None) -> list[str]:
 # pthread_cond_wait traps. The link would succeed and the program would fail
 # at run time with a libc error that names neither the target nor the reason.
 # The refusal names both, at link time, before the sysroot is touched.
-_WASM_TARGETS = ("wasm32",)
+_WASM_TARGET_PREFIX = "wasm32"
 # The symbols that need a second thread. `ps_lock_*` is not here: a lock on
 # the one thread a WASI program has is a working mutex.
 _THREAD_SYMBOLS = (
@@ -188,9 +195,11 @@ def curl_link_flags(text: str, target: str | None = None) -> list[str]:
         tool = shutil.which(argv[0])
         if tool is None:
             continue
-        proc = subprocess.run([tool, *argv[1:]], capture_output=True, text=True, timeout=30)
+        proc: subprocess.CompletedProcess | None = subprocess.run(
+            [tool, *argv[1:]], capture_output=True, text=True, timeout=30
+        )
         if proc.returncode == 0 and proc.stdout.strip():
-            return proc.stdout.split()
+            return [str(part) for part in proc.stdout.split()]
     raise IRError(
         "this program makes an https:// request and the runtime links libcurl "
         "for it at build time, but neither curl-config nor pkg-config found "
@@ -213,12 +222,12 @@ def refuse_unsupported_target(text: str, target: str | None) -> None:
     """
     if target is None:
         return
-    if not target.startswith(_WASM_TARGETS):
+    if not target.startswith(_WASM_TARGET_PREFIX):
         return
     # The IR names a global as `@symbol(`, both in its declaration and in
     # every call. Anchoring on that form keeps a colliding name (say
     # `not_ps_thread_start2`) from reading as a use of the runtime symbol.
-    used = [symbol for symbol in _THREAD_SYMBOLS if f"@{symbol}(" in text]
+    used: list[str] = [symbol for symbol in _THREAD_SYMBOLS if f"@{symbol}(" in text]
     if not used:
         return
     raise IRError(
@@ -288,16 +297,16 @@ def link_binary(
     # The refusal comes before the sysroot is touched: a program that
     # cannot run threads on the target should not reach the compiler at all.
     refuse_unsupported_target(text, target)
-    sources = [str(path) for path in sorted(runtime.glob("*.c"))]
+    sources: list[str] = sorted([str(path) for path in runtime.glob("*.c")])
     is_wasm = target is not None and target.startswith("wasm32")
     # wasm32-wasi-p2: the same p1 core module, wrapped into a WASI 0.2
     # component by wasm-tools after the link. The core build is identical
     # to wasm32-wasi-musl; only the wrapper step differs.
-    is_wasi_p2 = is_wasm and (target or "").endswith("wasi-p2")
+    is_wasi_p2: bool = is_wasm and (target or "").endswith("wasi-p2")
     if is_wasi_p2:
-        target = target.replace("wasi-p2", "wasi-musl")
+        target = (target or "").replace("wasi-p2", "wasi-musl")
     is_wasm = is_wasm and not is_wasi_p2
-    target_flags = ["-target", target] if target is not None else []
+    target_flags: list[str] = ["-target", target] if target is not None else []
     # wasm32-wasi: try/except lowers to setjmp/longjmp, which wasi-libc builds
     # from wasm exception handling. The flags unlock the sjlj lowering and the
     # exception-handling target feature; the vendored rt_wasm.c below supplies
@@ -305,7 +314,7 @@ def link_binary(
     # TODO(zig-0.18): drop -D__wasm_exception_handling__ and the target-feature
     # pair if zig 0.18 (LLVM 23) defaults them; keep the -mllvm pair only as
     # long as zig still needs it.
-    wasm_flags = (
+    wasm_flags: list[str] = (
         [
             "-mllvm",
             "-wasm-enable-sjlj",
@@ -323,15 +332,15 @@ def link_binary(
     if (is_wasm or is_wasi_p2) and output.suffix != ".wasm":
         output = output.with_suffix(".wasm")
     san_flags = sanitize_flags(sanitize)
-    dbg_flags = ["-g"] if debug_info else []
-    pic_flags = ["-fPIC"] if shared else []
+    dbg_flags: list[str] = ["-g"] if debug_info else []
+    pic_flags: list[str] = ["-fPIC"] if shared else []
     curl_flags = curl_link_flags(text, target)
     # The runtime units compile with PSC_HAVE_CURL exactly when the link line
     # gains libcurl: ps_http_curl.c's real implementation (and its curl
     # symbol references) exist only under the macro, so a no-curl link never
     # sees one. The define rides the per-unit flags, not the link line.
-    curl_defines = [f"-D{PS_HAVE_CURL_DEFINE}"] if curl_flags else []
-    tail = [*san_flags, "-lm", *curl_flags, "-o", str(output)]
+    curl_defines: list[str] = [f"-D{PS_HAVE_CURL_DEFINE}"] if curl_flags else []
+    tail: list[str] = san_flags + ["-lm"] + curl_flags + ["-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
             raise IRError(
@@ -359,13 +368,29 @@ def link_binary(
             pack = embed.lock_pack()
             pack_directory = embed.ensure_pack(pack)
             embed_version = embed.python_version()
-            include, embed_flags = embed.link_flags(pack_directory, embed_version)
+            link_parts: tuple[str, list[str]] = embed.link_flags(pack_directory, embed_version)
+            include, embed_flags = link_parts
             target_flags.extend(["-I", include])
-            tail = [*embed_flags, *tail]
+            tail = embed_flags + tail
         else:
+            if include is None or not Path(include).is_dir():
+                raise IRError(
+                    f"the island link needs the CPython headers ({include or 'include'}); "
+                    "this interpreter has no usable header directory. On a self-compiled "
+                    "pyscriptc bundle, rebuild it with --embed-python=bundle --embed-headers, "
+                    "or compile this program with --embed-python=bundle so the pinned "
+                    "runtime pack supplies the headers"
+                )
             # boxed:end
             target_flags.extend(["-I", include])
-            tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}", *tail]
+            if not Path(libdir).is_dir():
+                # A relocatable build (a python-build-standalone install)
+                # reports the build machine's LIBDIR (`/install/lib`): the
+                # library travels with the interpreter, so the interpreter's
+                # own directory is the real link directory (the same rule
+                # host_has_shared_libpython applies).
+                libdir = str(Path(sys.executable).resolve().parent.parent / "lib")
+            tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}"] + tail
     else:
         sources = [source for source in sources if not source.endswith("ps_island.c")]
     if is_wasm or is_wasi_p2:
@@ -376,10 +401,19 @@ def link_binary(
         # the lowerer), and a 0.2 component has no thread world to spawn into.
         refused = sorted({symbol for symbol in ("ps_sub_", "ps_mix_", "ps_island_") if symbol in text})
         if refused:
-            what = ", ".join(f"{symbol.rstrip('_')}*" for symbol in refused)
+            what = ", ".join([f"{symbol[:-1]}*" for symbol in refused])
             raise IRError(
-                f"target {target} refuses {what}: WASI has no subprocess, dynamic-loading "
+                f"target {target or ''} refuses {what}: WASI has no subprocess, dynamic-loading "
                 "or island story (see docs/divergences.md)"
+            )
+        # os.symlink/os.readlink lower onto ps_os_symlink/ps_os_readlink; the
+        # wasi stubs in ps_compat.c exist only so ps_path.c compiles, and a
+        # program that calls them is refused here, before the sysroot runs.
+        link_refused = [symbol for symbol in ("ps_os_symlink", "ps_os_readlink") if f"@{symbol}(" in text]
+        if link_refused:
+            raise IRError(
+                f"target {target or ''} refuses {', '.join(link_refused)}: WASI has no "
+                "symbolic-link story the runtime lowers (see docs/divergences.md)"
             )
         sources = [source for source in sources if not source.endswith(("ps_sub.c", "ps_mix.c"))]
         sources.append(str(runtime / "wasm" / "rt_wasm.c"))
@@ -389,49 +423,47 @@ def link_binary(
     # A missing unit is refused before the compiler runs, so the failure names
     # the manifest that declared it instead of surfacing as a cc error.
     _require_units(compile_units, link_units)
-    ffi_sources = [str(unit) for unit in compile_units or []]
-    ffi_archives = [str(unit) for unit in link_units or []]
+    no_units: list[Path] = []
+    ffi_sources: list[str] = [str(unit) for unit in compile_units or no_units]
+    ffi_archives: list[str] = [str(unit) for unit in link_units or no_units]
     sources.extend(ffi_sources)
     # zig cannot compile C sources inside a link invocation for Mach-O, so
     # every unit goes to .o first and the link line carries objects only.
     use_cache = rtcache.prepare()
     ll_obj = output.with_name(f"{output.name}.{llvm_path.stem}.o")
-    ll_kind = ["-x", "ir"] if driver == "clang" else []
-    ll_argv = _cc_argv(cc)
-    ll_argv = [
-        *cc.split(),
-        "-O2",
-        *pic_flags,
-        *wasm_flags,
-        *dbg_flags,
-        *san_flags,
-        *ll_kind,
-        "-c",
-        str(llvm_path),
-        "-o",
-        str(ll_obj),
-        *target_flags,
-    ]
-    jobs: list[tuple[list[str], Path | None]] = [(ll_argv, None)]
-    objects = [ll_obj]
+    ll_kind: list[str] = ["-x", "ir"] if driver == "clang" else []
+    ll_argv = (
+        cc.split()
+        + ["-O2"]
+        + pic_flags
+        + wasm_flags
+        + dbg_flags
+        + san_flags
+        + ll_kind
+        + ["-c", str(llvm_path), "-o", str(ll_obj)]
+        + target_flags
+    )
+    no_final: Path | None = None
+    jobs: list[tuple[list[str], Path | None]] = [(ll_argv, no_final)]
+    objects: list[Path] = [ll_obj]
     hits = 0
     # A manifest unit compiles against the manifest's own directory (vendored
     # headers) and against the runtime directory (ps_rt.h, the contract the
     # thunk is written against). The runtime units gain nothing.
     ffi_include_flags = ["-I", str(runtime)]
-    for directory in include_dirs or []:
-        ffi_include_flags.extend(["-I", str(directory)])
+    manifest_include_dirs: list[Path] = include_dirs or no_units
+    for directory in [str(path) for path in manifest_include_dirs]:
+        ffi_include_flags.extend(["-I", directory])
     # The manifest units carry the manifest's own include dirs; the runtime
     # units keep the flags they always had, so a manifest-free build compiles
     # the runtime exactly as it did before the FFI gate.
-    manifest_sources = frozenset(ffi_sources)
     for source in sources:
         src = Path(source)
-        flags = ["-O2", *pic_flags, *wasm_flags, *san_flags, *curl_defines, *target_flags]
-        extra_dirs: tuple[Path, ...] = ()
-        if source in manifest_sources:
+        flags: list[str] = ["-O2"] + pic_flags + wasm_flags + san_flags + curl_defines + target_flags
+        extra_dirs: list[Path] = []
+        if source in ffi_sources:
             flags.extend(ffi_include_flags)
-            extra_dirs = (runtime, *(include_dirs or []))
+            extra_dirs = [runtime] + (include_dirs or no_units)
         if use_cache:
             final = rtcache.object_path(src, runtime, cc.split(), flags, extra_dirs)
             objects.append(final)
@@ -439,26 +471,27 @@ def link_binary(
                 hits += 1
                 continue
             tmp = rtcache.temp_for(final)
-            jobs.append((_cc_argv(cc) + [*flags, "-c", source, "-o", str(tmp)], final))
+            jobs.append((_cc_argv(cc) + flags + ["-c", source, "-o", str(tmp)], final))
         else:
             obj = output.with_name(f"{output.name}.{src.stem}.o")
             objects.append(obj)
-            jobs.append((_cc_argv(cc) + [*flags, "-c", source, "-o", str(obj)], None))
+            jobs.append((_cc_argv(cc) + flags + ["-c", source, "-o", str(obj)], None))
     if record is not None:
         state = f"on dir={rtcache.cache_dir()}" if use_cache else "off"
         record.append(["#", f"rtcache {state} hit={hits} miss={len(jobs) - 1}"])
-        record.extend([str(arg) for arg in argv] for argv, _ in jobs)
+        for job_argv, _job_final in jobs:
+            record.append([str(arg) for arg in job_argv])
     cc_started = time.perf_counter()
-    proc = rtcache.run_jobs(jobs)
+    proc: subprocess.CompletedProcess | None = rtcache.run_jobs(jobs)
     if timings is not None:
         timings["cc_compile"] = round((time.perf_counter() - cc_started) * 1000.0, 3)
-    ok = proc is None
+    ok: bool = proc is None
     if ok:
         # no -O on the link line: it is a compile flag and zig's Mach-O
         # driver crashes on it (0.16.0)
         link_cc = ("zig cc" if link_driver == "zig" else link_driver) if link_driver else cc
-        link_mode = ["-shared"] if shared else []
-        argv = [
+        link_mode: list[str] = ["-shared"] if shared else []
+        argv: list[Any] = [
             *_cc_argv(link_cc),
             *link_mode,
             *objects,
@@ -474,7 +507,7 @@ def link_binary(
         if timings is not None:
             timings["cc_link"] = round((time.perf_counter() - link_started) * 1000.0, 3)
     if proc is not None and proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout).strip()
+        detail: str = str((proc.stderr or proc.stdout).strip())
         raise IRError(f"{cc} failed to assemble LLVM IR: {detail}")
     if is_wasi_p2:
         _wrap_wasi_p2(output, record)
@@ -514,7 +547,7 @@ def _wrap_wasi_p2(core: Path, record: list[list[str]] | None) -> None:
         record.append(argv)
     proc = subprocess.run(argv, capture_output=True, text=True)
     if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout).strip()
+        detail: str = (proc.stderr or proc.stdout).strip()
         raise IRError(f"wasm-tools failed to wrap the core module into a WASI 0.2 component: {detail}")
     staged.replace(core)
 
@@ -534,9 +567,10 @@ def _require_units(compile_units: list[Path] | None, link_units: list[Path] | No
     A missing file would otherwise surface as a cc error halfway through the
     build, which names the compiler and not the manifest that declared it.
     """
-    for unit in [*(compile_units or []), *(link_units or [])]:
-        if not unit.exists():
-            raise IRError(f"the declared unit {unit} does not exist")
+    for units in (compile_units, link_units):
+        for unit in units or []:
+            if not unit.exists():
+                raise IRError(f"the declared unit {unit} does not exist")
 
 
 def _write_debug_symbols(output: Path, record: list[list[str]] | None) -> None:
@@ -554,7 +588,7 @@ def _write_debug_symbols(output: Path, record: list[list[str]] | None) -> None:
         record.append(argv)
     proc = subprocess.run(argv, capture_output=True, text=True)
     if proc.returncode != 0:
-        detail = (proc.stderr or proc.stdout).strip()
+        detail: str = (proc.stderr or proc.stdout).strip()
         raise IRError(f"dsymutil failed to write the debug symbols: {detail}")
 
 
@@ -576,9 +610,9 @@ def compile_unit(
     output.parent.mkdir(parents=True, exist_ok=True)
     cc = "zig cc" if driver == "zig" else driver
     mode = "-S" if kind == "asm" else "-c"
-    ir_kind = ["-x", "ir"] if driver == "clang" else []
-    target_flags = ["-target", target] if target is not None else []
-    dbg_flags = ["-g"] if debug_info else []
+    ir_kind: list[str] = ["-x", "ir"] if driver == "clang" else []
+    target_flags: list[str] = ["-target", target] if target is not None else []
+    dbg_flags: list[str] = ["-g"] if debug_info else []
     argv = _cc_argv(cc)
     argv = [*argv, "-O2", *dbg_flags, *ir_kind, mode, str(llvm_path), "-o", str(output), *target_flags]
     if record is not None:

@@ -226,6 +226,28 @@ class BoxedResolveMixin:
                         msg = f"{fn.name} runs on the island and cannot call the compiled function {callee}: {reason}"
                         fences.append(Fence("PS2002", msg, span_of(node, self.filename), fn.name))
                         self._boxed_sibling_fences.append(fences[-1])
+        # The per-module plane split: an island definition calling a native
+        # definition of another module is the same island-to-compiled seam,
+        # one module further out. The sibling above demotes a definition of
+        # the same module; a definition of another module cannot be
+        # demoted from here, so the call refuses with the same diagnostic.
+        for fn in self._boxed_functions:
+            if fn.name not in self.island_fns:
+                continue
+            for node in ast.walk(fn):
+                if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Name)):
+                    continue
+                callee = node.func.id
+                binding = self.bindings.get(callee)
+                if binding is None or binding.kind != "pyfunc":
+                    continue
+                module = binding.module
+                msg = (
+                    f"{fn.name} runs on the island and cannot call the compiled function "
+                    f"{module}.{callee}: the island-to-compiled seam is the `--emit binding` surface"
+                )
+                fences.append(Fence("PS2002", msg, span_of(node, self.filename), fn.name))
+                self._boxed_sibling_fences.append(fences[-1])
 
     def _island_call_passes_mutable(self, callee: str) -> bool:
         """Whether the island callee has a mutable container parameter
@@ -493,11 +515,21 @@ class BoxedResolveMixin:
         return AbiMixin._ISLAND_ARG_CODES[_type_kind(typ)]
 
     def _boxed_stage2_source(self, tree: ast.Module, island: set[str]) -> str:
-        """The Stage 2 seed: imports, literal module values, island defs."""
+        """The Stage 2 seed: imports, literal module values, island defs.
+
+        An import of another program module rides the seed only when that
+        module rides the island too: the split seeds one namespace per
+        fenced module, and a sibling that lowered native has no namespace
+        for the import to resolve against. The import is not load-bearing
+        anyway: an island definition that used the native sibling's
+        definition already refused (the island-to-compiled seam, one
+        module further out), so the seed loses nothing it could use.
+        """
         segments: list[str] = []
         for stmt in tree.body:
             if isinstance(stmt, (ast.Import, ast.ImportFrom)):
-                segments.append(ast.get_source_segment(self.source, stmt) or "")
+                if self._boxed_seed_import_is_island(stmt):
+                    segments.append(ast.get_source_segment(self.source, stmt) or "")
                 continue
             if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and self._boxed_is_literal_module_value(stmt):
                 segment = ast.get_source_segment(self.source, stmt)
@@ -515,6 +547,55 @@ class BoxedResolveMixin:
                 if segment:
                     segments.append(segment)
         return "\n\n\n".join(segment for segment in segments if segment)
+
+    def _boxed_seed_import_is_island(self, stmt: ast.Import | ast.ImportFrom) -> bool:
+        """True when a seed import resolves against an island namespace.
+
+        A program sibling's island plans live in the export table under its
+        name: the sibling that carries an island plan carries a seed, and
+        its namespace exists when this seed runs (the merge emits the
+        seeds in finish order). A stdlib module outside the closed table
+        resolves through the island's own import machinery. An import of a
+        sibling with no island plan has nothing to resolve against and
+        drops from the seed: the native lane ran the sibling's body
+        already, and an island definition of this module that used it
+        fenced instead of lowering.
+        """
+        if self.program is None:
+            return True
+        targets: list[str] = []
+        if isinstance(stmt, ast.Import):
+            targets.extend(alias.name for alias in stmt.names)
+        elif stmt.level:
+            # A relative import inside a program is not a plain sibling
+            # shape (the split refuses package-shaped programs), so it
+            # keeps the old seed behavior.
+            return True
+        else:
+            targets.append(stmt.module or "")
+        exports = self.package or {}
+        for target in targets:
+            root = target.split(".", 1)[0]
+            # An island group member's namespace lives in `sys.modules`:
+            # the group bootstrap execs the group's bodies under CPython and
+            # registers each under its real name before the per-module
+            # seeds run. Such an import resolves even when the member's
+            # exports carry no island flag (its definitions are constants),
+            # so the seed keeps it: dropping it loses a binding an island
+            # class body reads at definition time
+            # (`PROVIDER_VERSION = __version__`).
+            if target in self._boxed_island_group:
+                continue
+            if root in exports or target in exports:
+                module = target if target in exports else root
+                bucket = exports.get(module) or {}
+                if any(item.get("island") for item in bucket.values()):
+                    continue
+                return False
+            # Not a program module (stdlib): the island import machinery
+            # resolves it, as before.
+            continue
+        return True
 
     def _boxed_definition_source(self, node: ast.AST) -> str:
         """One definition's source text, decorators included.
@@ -602,6 +683,17 @@ class BoxedResolveMixin:
             elem = typ.get("elem") or {}
             return not elem.get("optional") and _maybe_type_kind(elem) in {"bool", "int", "float", "str", "bytes"}
         return False
+
+    def _boxed_cross_module_island(self) -> bool:
+        """Whether a call may cross into another module's island floor.
+
+        The plane split (the per-module island granularity) is on when the
+        compile runs the fallback tier and the program keeps both planes.
+        The merge sets the flag once it knows the program is not one whole
+        island.
+        """
+
+        return self._boxed_plane_split
 
     # boxed:end
 

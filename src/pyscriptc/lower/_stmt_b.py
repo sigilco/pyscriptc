@@ -757,7 +757,7 @@ class StmtBMixin:
                 names = _handler_names(self, handler.type)
                 if "Exception" not in names:
                     for name in names:
-                        codes.extend(self._exception_codes(name))
+                        codes.extend(self._exception_codes(name, handler.type))
             bind = handler.name
             if bind is not None:
                 prior = self.locals.get(bind)
@@ -1026,34 +1026,61 @@ class StmtBMixin:
             typ = {"kind": "list", "elem": elem, "set": True}
             what = "set"
         else:
-            if _type_kind(elem) == "bool" or _type_kind(elem) not in {
-                "int",
-                "float",
-                "str",
-                "bytes",
-                "list",
-                "dict",
-                "class",
-            }:
+            if self.comp_pred is None and (
+                _type_kind(elem) == "bool"
+                or _type_kind(elem)
+                not in {
+                    "int",
+                    "float",
+                    "str",
+                    "bytes",
+                    "list",
+                    "dict",
+                    "class",
+                }
+            ):
                 self.fail(self.comp_elt, "PS2002", f"list[{_show(elem)}] is not lowered")
             typ = {"kind": "list", "elem": elem}
             what = "list"
         if self.comp_expect is not None and _type_kind(self.comp_expect) == _type_kind(typ):
             self._expect(self.comp_elt, typ, self.comp_expect, what)
         if not self.comp_ready:
-            self.locals[self.comp_dest] = typ
             span = span_of(self.comp_elt, self.filename)
-            empty = (
-                {"kind": "dict", "pairs": [], "type": typ, "span": span}
-                if self.comp_kind == "dict"
-                else {"kind": "list", "elems": [], "type": typ, "span": span}
-            )
-            self.comp_init = _assign(self.comp_dest, empty, span)
+            if self.comp_pred is not None:
+                self.comp_init = _assign(self.comp_pred[0], _const_bool(self.comp_pred[1], span), span)
+            else:
+                self.locals[self.comp_dest] = typ
+                empty = (
+                    {"kind": "dict", "pairs": [], "type": typ, "span": span}
+                    if self.comp_kind == "dict"
+                    else {"kind": "list", "elems": [], "type": typ, "span": span}
+                )
+                self.comp_init = _assign(self.comp_dest, empty, span)
             self.comp_ready = True
         # The push args are emitted where they sit, so key/element calls are
         # stored first: each runs once, and only inside this branch.
         kept: list[dict[str, Any]] = []
-        if self.comp_kind == "dict":
+        if self.comp_pred is not None:
+            # The `all`/`any` sink: the element's truth updates the bool
+            # accumulator in place of a list push, so a bool element never
+            # materializes a `list[bool]`.
+            pred_name = self.comp_pred[0]
+            want_all = self.comp_pred[1]
+            truth = self._truthy(elt, elt["span"])
+            if want_all:
+                upd = _if_stmt(
+                    _unary_not(truth, elt["span"]),
+                    [_assign(pred_name, _const_bool(False, elt["span"]), elt["span"])],
+                    elt["span"],
+                )
+            else:
+                upd = _if_stmt(
+                    truth,
+                    [_assign(pred_name, _const_bool(True, elt["span"]), elt["span"])],
+                    elt["span"],
+                )
+            kept = [*inner, upd]
+        elif self.comp_kind == "dict":
             kslot = self._temp("key")
             vslot = self._temp("elt")
             self.locals[kslot] = key["type"]
@@ -1072,7 +1099,7 @@ class StmtBMixin:
                 ),
             ]
         elif self.comp_kind == "set":
-            kept = [*inner, *self._set_insert_stmts(self.comp_dest, typ, elt, elt["span"])]
+            kept = [*inner, *self._set_insert_stmts(_name(self.comp_dest, typ, elt["span"]), typ, elt, elt["span"])]
         else:
             slot = self._temp("elt")
             self.locals[slot] = elem
@@ -1333,11 +1360,7 @@ class StmtBMixin:
                 self.fail(call, "PS2003", "enumerate start given more than once")
             start_node = call.args[1]
         source = self._expr(call.args[0])
-        if _node_type_kind(source) != "list" or source["type"].get("set"):
-            self.fail(call, "PS2002", "enumerate() takes a list")
-        elem = source["type"]["elem"]
-        if _type_kind(elem) not in _SCALAR | {"bool"}:
-            self.fail(call, "PS2002", f"enumerate() of list[{_show(elem)}] is not lowered")
+        elem = self._pair_source_elem(call, source, "enumerate")
         start = _const_int(0, span)
         if start_node is not None:
             start = self._expr(start_node, {"kind": "int"})
@@ -1348,18 +1371,29 @@ class StmtBMixin:
     def _for_zip(self, stmt: ast.For, span: dict[str, Any]) -> list[dict[str, Any]]:
         call = stmt.iter
         assert isinstance(call, ast.Call)
-        if call.keywords or len(call.args) != 2:
-            self.fail(call, "PS2003", "zip takes 2 lists")
+        if call.keywords or len(call.args) < 2:
+            self.fail(call, "PS2003", "zip takes at least 2 lists")
         sources = [self._expr(arg) for arg in call.args]
         elems: list[dict[str, Any]] = []
         for source in sources:
-            if _node_type_kind(source) != "list" or source["type"].get("set"):
-                self.fail(call, "PS2002", "zip() takes lists")
-            elem = source["type"]["elem"]
-            if _type_kind(elem) not in _SCALAR | {"bool"}:
-                self.fail(call, "PS2002", f"zip() of list[{_show(elem)}] is not lowered")
-            elems.append(elem)
+            elems.append(self._pair_source_elem(call, source, "zip"))
         return self._for_pairs(stmt, span, sources, elems, None, "zip")
+
+    def _pair_source_elem(self, call: ast.Call, source: dict[str, Any], what: str) -> dict[str, Any]:
+        """The element type one enumerate/zip source iterates, or a fence.
+
+        A source is a non-set `list` of scalars or a `str` (which iterates
+        its one-character strs); anything else keeps the PS2002 fence.
+        """
+        kind = _node_type_kind(source)
+        if kind == "str":
+            return {"kind": "str"}
+        if kind != "list" or source["type"].get("set"):
+            self.fail(call, "PS2002", f"{what}() takes lists")
+        elem = source["type"]["elem"]
+        if _type_kind(elem) not in _SCALAR | {"bool"}:
+            self.fail(call, "PS2002", f"{what}() of list[{_show(elem)}] is not lowered")
+        return elem
 
     def _for_pairs(
         self,
@@ -1420,24 +1454,19 @@ class StmtBMixin:
         for seq, source in zip(seqs, sources, strict=True):
             prefix.append(_assign(seq, source, span))
         prefix.append(_assign(idx, _const_int(0, span), span))
-        if len(sources) == 1:
-            prefix.append(_assign(length, _len_call(_name(seqs[0], sources[0]["type"], span), span), span))
-        else:
-            left_n = self._temp("n")
-            right_n = self._temp("n")
-            self.locals[left_n] = int_t
-            self.locals[right_n] = int_t
-            prefix.extend(
-                [
-                    _assign(left_n, _len_call(_name(seqs[0], sources[0]["type"], span), span), span),
-                    _assign(right_n, _len_call(_name(seqs[1], sources[1]["type"], span), span), span),
-                    _assign(length, _name(left_n, int_t, span), span),
-                    _if_stmt(
-                        _compare("<", _name(right_n, int_t, span), _name(left_n, int_t, span), span),
-                        [_assign(length, _name(right_n, int_t, span), span)],
-                        span,
-                    ),
-                ]
+        # zip stops at the shortest source; enumerate has one. Each extra
+        # source folds its length into `length` through its own temp.
+        prefix.append(_assign(length, _len_call(_name(seqs[0], sources[0]["type"], span), span), span))
+        for seq, source in zip(seqs[1:], sources[1:], strict=True):
+            n_tmp = self._temp("n")
+            self.locals[n_tmp] = int_t
+            prefix.append(_assign(n_tmp, _len_call(_name(seq, source["type"], span), span), span))
+            prefix.append(
+                _if_stmt(
+                    _compare("<", _name(n_tmp, int_t, span), _name(length, int_t, span), span),
+                    [_assign(length, _name(n_tmp, int_t, span), span)],
+                    span,
+                )
             )
         if enum_start is not None:
             prefix.append(_assign(enum_i, enum_start, span))

@@ -74,8 +74,8 @@ def test_tuple_ellipsis_fences(tmp_path: Path) -> None:
         ),
         (
             "bools.py",
-            "def read() -> tuple[bool, ...]:\n    return []\n",
-            "list[bool] is not lowered",
+            "def read() -> tuple[dict[str, bool], ...]:\n    return []\n",
+            "dict values of bool are not lowered",
         ),
     ]
     for name, source, text in cases:

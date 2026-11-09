@@ -22,12 +22,16 @@ from __future__ import annotations
 
 import ast
 import tempfile
+from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any, Protocol
 
 from pyscriptc.check import CheckFailed
 from pyscriptc.typefacts import TypeFacts
+
+if TYPE_CHECKING:
+    from pyscriptc.typefacts import CallableFacts, PyreflyTspFactsAdapter, _LspConnection
 
 _MYPY_MIN = (2, 4)
 _MYPY_MAX = (2, 5)
@@ -377,6 +381,15 @@ class PyreflyBridge:
     `pyrefly tsp` (the `pyrefly/typeFacts` bulk request plus the per-def
     `typeServer/getComputedType` signature), not from mypy's TypeMap.
 
+    `facts(path)` runs TSP with `check-unannotated-defs` and
+    `infer-return-types = "checked"` pinned on the command line (the
+    tsp server has no config file on its argv, so pyrefly.toml defaults
+    would otherwise apply): an unannotated `def` then reports its
+    inferred return type instead of `Any`, even for a fully unannotated
+    def. Parameter types are unchanged: pyrefly resolves an unannotated
+    parameter to `Any` regardless (checked on 1.4.x, the same limit the
+    mypy lane has).
+
     What pyrefly proves and what it does not, measured on pyrefly 1.4.x
     (issue #258):
 
@@ -385,11 +398,15 @@ class PyreflyBridge:
       `dict[str, int]`, `Literal[...]`).
     - Parameters: pyrefly resolves an annotated parameter to its type, and
       resolves an unannotated one to `Any` exactly like mypy does. It does
-      not infer an unannotated parameter from its uses or its callers.
-    - Returns: an unannotated `def` gets `Any` as its computed return type
-      even when every `return` statement agrees on a type. The bridge
-      recovers it the same way the mypy lane does, from the return
-      expressions' own facts, and only when they all agree.
+      not infer an unannotated parameter from its uses or its callers
+      (`pyrefly infer` pins the same `a: int` only from literal same-file
+      call sites; cross-module or non-literal callers do not pin).
+    - Returns: with the two flags pinned here, an unannotated `def`
+      carries its inferred return type (literal widened: `Literal['x']`
+      reads as `str`, `LiteralString` as `str`). Without them (the raw
+      tsp default) an unannotated `def` gets `Any`, and the bridge
+      recovers it from the return expressions' own facts, only when they
+      all agree.
 
     So the two lanes answer the same questions with the same limits: the
     bridge is a second opinion on the checker, not a second inference
@@ -398,8 +415,70 @@ class PyreflyBridge:
 
     name: str
 
-    def __init__(self) -> None:
+    def __init__(self, command: Sequence[str] | None = None) -> None:
         self.name = "pyrefly"
+        self._command = command
+        self._config_dir: tempfile.TemporaryDirectory[str] | None = None
+        self._adapter: Any = None
+
+    def _config_args(self) -> list[str]:
+        """`tsp` spawn flags that pin the inference configuration.
+
+        `pyrefly tsp` takes none of the check-mode inference flags on its
+        command line, so the bridge writes a synthetic `pyrefly.toml`
+        (`check-unannotated-defs = true`, `infer-return-types = "checked"`)
+        into a scratch directory and points the server at it with
+        `--config`. An unannotated `def` then reports its inferred return
+        type instead of `Any` (checked on 1.4.x). The directory outlives
+        the adapter's lifetime: the caller passes it back with
+        `_config_dir_done` after `facts()` returns.
+        """
+        directory = tempfile.TemporaryDirectory(prefix="pyscriptc-pyrefly-tsp-")
+        self._config_dir = directory
+        Path(directory.name, "pyrefly.toml").write_text(
+            'check-unannotated-defs = true\ninfer-return-types = "checked"\n',
+            encoding="utf-8",
+        )
+        return ["--config", str(Path(directory.name, "pyrefly.toml"))]
+
+    def _config_dir_done(self) -> None:
+        """Release the scratch config directory after `facts()` returned."""
+        if self._config_dir is not None:
+            self._config_dir.cleanup()
+            self._config_dir = None
+
+    def open(self) -> None:
+        """Start the shared `pyrefly tsp` server this bridge serves files with.
+
+        One server answers every file of a tree: the `tsp` server keeps a
+        snapshot per open document, so a package costs one server start
+        instead of one per file. `facts` uses the shared server when one
+        is open, and spawns its own otherwise.
+        """
+
+        from pyscriptc.typefacts import PyreflyTspFactsAdapter
+
+        if self._adapter is not None:
+            return
+        adapter = PyreflyTspFactsAdapter(self._command)
+        adapter.with_config_args(self._config_args())
+        adapter._connect()
+        self._adapter = adapter
+
+    def close(self) -> None:
+        """Stop the shared server, if one is open."""
+
+        if self._adapter is not None:
+            self._adapter.close()
+            self._adapter = None
+        self._config_dir_done()
+
+    def __enter__(self) -> PyreflyBridge:
+        self.open()
+        return self
+
+    def __exit__(self, *_exc: BaseException) -> None:
+        self.close()
 
     def facts(self, path: Path) -> BridgeFacts:
         from pyscriptc.typefacts import PyreflyTspFactsAdapter
@@ -414,10 +493,18 @@ class PyreflyBridge:
         except SyntaxError as exc:
             raise CheckFailed(f"cannot parse {path}: {exc}") from exc
         lines = source.splitlines()
-        with PyreflyTspFactsAdapter() as adapter:
+        if self._adapter is not None:
+            adapter = self._adapter
             module_facts = adapter.facts(path)
             expressions = dict(module_facts.expressions)
             defs = self._def_facts(adapter, path, tree, lines, expressions)
+        else:
+            with PyreflyTspFactsAdapter(self._command) as adapter:
+                adapter.with_config_args(self._config_args())
+                module_facts = adapter.facts(path)
+                self._config_dir_done()
+                expressions = dict(module_facts.expressions)
+                defs = self._def_facts(adapter, path, tree, lines, expressions)
         return BridgeFacts(
             path=path,
             provider=self.name,
@@ -427,7 +514,7 @@ class PyreflyBridge:
 
     def _def_facts(
         self,
-        adapter: Any,
+        adapter: PyreflyTspFactsAdapter,
         path: Path,
         tree: ast.Module,
         lines: list[str],
@@ -461,13 +548,13 @@ class PyreflyBridge:
 
     def _computed_signature(
         self,
-        adapter: Any,
-        connection: Any,
+        adapter: PyreflyTspFactsAdapter,
+        connection: _LspConnection,
         uri: str,
         snapshot: int,
         node: ast.FunctionDef | ast.AsyncFunctionDef,
         lines: list[str],
-    ) -> Any:
+    ) -> CallableFacts | None:
         """The computed signature of one `def`, or None when pyrefly gives none."""
         from pyscriptc.typefacts import _def_name_range, _tsp_type
 
@@ -488,7 +575,7 @@ class PyreflyBridge:
         self,
         node: ast.FunctionDef | ast.AsyncFunctionDef,
         expressions: dict[str, TypeFacts],
-        signature: Any,
+        signature: CallableFacts | None,
     ) -> TypeFacts | None:
         """The return type pyrefly proved, or None when it proved none.
 
@@ -626,7 +713,10 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
         elem: dict[str, Any] | None = facts_to_ir(facts.args[0], classes)
         if elem is None:
             return None
-        return {"kind": "list", "elem": elem}
+        out: dict[str, Any] = {}
+        out["kind"] = "list"
+        out["elem"] = elem
+        return out
     if facts.kind == "set" and len(facts.args) == 1:
         elem_set: dict[str, Any] | None = facts_to_ir(facts.args[0], classes)
         if elem_set is None:
@@ -634,7 +724,11 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
         ekind: str = elem_set["kind"]
         if ekind not in {"int", "str"}:
             return None
-        return {"kind": "list", "elem": elem_set, "set": True}
+        out_set: dict[str, Any] = {}
+        out_set["kind"] = "list"
+        out_set["elem"] = elem_set
+        out_set["set"] = True
+        return out_set
     if facts.kind == "dict" and len(facts.args) == 2:
         key: dict[str, Any] | None = facts_to_ir(facts.args[0], classes)
         value: dict[str, Any] | None = facts_to_ir(facts.args[1], classes)
@@ -643,7 +737,11 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
         kkind: str = key["kind"]
         if kkind not in {"int", "str"}:
             return None
-        return {"kind": "dict", "key": key, "value": value}
+        out_dict: dict[str, Any] = {}
+        out_dict["kind"] = "dict"
+        out_dict["key"] = key
+        out_dict["value"] = value
+        return out_dict
     if facts.kind == "union":
         arms: list[TypeFacts] = [arm for arm in facts.args if arm.kind != "none"]
         optional: bool = any(arm.kind == "none" for arm in facts.args)
@@ -654,13 +752,13 @@ def facts_to_ir(facts: TypeFacts, classes: dict[str, Any] | None = None) -> dict
             return None
         if not optional:
             return base
-        return {
-            "kind": "class",
-            "name": f"__opt_{_slug(base)}",
-            "label": _label(base) + " | None",
-            "optional": True,
-            "elem": base,
-        }
+        out_opt: dict[str, Any] = {}
+        out_opt["kind"] = "class"
+        out_opt["name"] = f"__opt_{_slug(base)}"
+        out_opt["label"] = _label(base) + " | None"
+        out_opt["optional"] = True
+        out_opt["elem"] = base
+        return out_opt
     if facts.kind == "class" and classes is not None and facts.args:
         # A generic user class: the subset erases the type argument, so the
         # plain class name is the honest translation.
@@ -715,6 +813,16 @@ def _slug(typ: dict[str, Any]) -> str:
     return kind
 
 
+class _PinSource(Protocol):
+    """The pin-map surface a `CheckerBridge.call_site_facts` value answers.
+
+    `pins_for` returns the package-wide pins of one callee, the shape
+    `pyscriptc inferrunner.facts_as_pins` produces.
+    """
+
+    def pins_for(self, callee: str) -> dict[str, Any]: ...
+
+
 class BridgeProvider:
     """A provider name that builds one bridge per file of a package tree.
 
@@ -727,13 +835,67 @@ class BridgeProvider:
     provider: str
     strict: int
 
-    def __init__(self, provider: str, strict: bool = True) -> None:
+    def __init__(
+        self,
+        provider: str,
+        strict: bool = True,
+        pins: _PinSource | None = None,
+        pinned: dict[Any, Any] | None = None,
+    ) -> None:
         self.provider = provider
         self.strict = 1 if strict else 0
+        # The inference records the lowerer accepted across every file the
+        # provider served, gathered by `pyscriptc infer` and `compile
+        # --debug`. Each per-file `CheckerBridge` points here.
+        self.records: list[dict[str, Any]] = []
+        # The package-wide pin map (`pyscriptc infer`): the lowerer asks
+        # every bridge for the pins of the callee it lowers, so the pins
+        # ride the bridge the same way the per-file facts do.
+        self.pins = pins
+        # The per-file facts re-checked over a pinned copy of each module
+        # (`pyscriptc infer`): a return the checker derives from a pinned
+        # parameter is consistent with what the lowerer applies.
+        self.pinned = pinned or {}
+        self._pyrefly_bridge: PyreflyBridge | None = None
+
+    def open(self) -> None:
+        """Start the shared `pyrefly tsp` server the per-file bridges serve from.
+
+        One server answers every file of a tree: the `tsp` server keeps a
+        snapshot per open document, so a package costs one server start
+        instead of one per file. A no-op for lanes without a shared server.
+        """
+
+        if self.provider == "pyrefly" and self._pyrefly_bridge is None:
+            bridge = PyreflyBridge()
+            bridge.open()
+            self._pyrefly_bridge = bridge
+
+    def close(self) -> None:
+        """Stop the shared server, if one is open."""
+
+        if self._pyrefly_bridge is not None:
+            self._pyrefly_bridge.close()
+            self._pyrefly_bridge = None
+
+    def __enter__(self) -> BridgeProvider:
+        self.open()
+        return self
+
+    def __exit__(self, *_exc: BaseException) -> None:
+        self.close()
 
     def for_file(self, path: Path) -> CheckerBridge:
+        found = self.pinned.get(path.resolve())
         strict_flag: bool = True if self.strict != 0 else False
-        return CheckerBridge.for_path(path, self.provider, strict=strict_flag)
+        if self._pyrefly_bridge is not None:
+            bridge = CheckerBridge(found if found is not None else self._pyrefly_bridge.facts(path), self.records)
+        elif found is not None:
+            bridge = CheckerBridge(found, self.records)
+        else:
+            bridge = CheckerBridge.for_path(path, self.provider, strict=strict_flag, records=self.records)
+        bridge.call_site_facts = self.pins
+        return bridge
 
 
 class CheckerBridge:
@@ -747,19 +909,32 @@ class CheckerBridge:
 
     _facts: BridgeFacts
 
-    def __init__(self, facts: BridgeFacts) -> None:
+    def __init__(self, facts: BridgeFacts, records: list[dict[str, Any]] | None = None) -> None:
         self._facts = facts
+        # The accepted-inference records this file's lowering appended
+        # (`pyscriptc infer`, `compile --debug`). None means the caller
+        # does not collect records.
+        self.infer_records = records if records is not None else []
+        # The package-wide pin map (`pyscriptc infer`): the lowerer reads
+        # it through the same handle as the per-module facts.
+        self.call_site_facts: Any = None
 
     @property
     def provider(self) -> str:
         return self._facts.provider
 
     @classmethod
-    def for_path(cls, path: Path, provider: str = "mypy", strict: bool = True) -> CheckerBridge:
+    def for_path(
+        cls,
+        path: Path,
+        provider: str = "mypy",
+        strict: bool = True,
+        records: list[dict[str, Any]] | None = None,
+    ) -> CheckerBridge:
         if provider == "mypy":
-            return cls(MypyBridge(strict=strict).facts(path))
+            return cls(MypyBridge(strict=strict).facts(path), records)
         if provider == "pyrefly":
-            return cls(PyreflyBridge().facts(path))
+            return cls(PyreflyBridge().facts(path), records)
         raise CheckFailed(f"checker bridge {provider!r} is not wired; use 'mypy' or 'pyrefly'")
 
     def for_file(self, path: Path) -> CheckerBridge:
@@ -769,6 +944,7 @@ class CheckerBridge:
         bridge per file. The provider is remembered so the per-file bridge
         is the same lane as the one the compile asked for.
         """
+
         return BridgeProvider(self.provider).for_file(path)
 
     def inferred_local(self, line: int, col: int) -> TypeFacts | None:

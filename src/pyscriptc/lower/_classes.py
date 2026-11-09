@@ -128,7 +128,10 @@ def _class_type(name: str) -> dict[str, Any]:
 
 def _param_row(name: str, typ: dict[str, Any]) -> dict[str, Any]:
     """The `{name, type}` parameter row one lowered parameter spells."""
-    return {"name": name, "type": _type_rt(typ)}
+    row: dict[str, Any] = {}
+    row["name"] = name
+    row["type"] = _type_rt(typ)
+    return row
 
 
 def _self_param(class_name: str) -> dict[str, Any]:
@@ -189,7 +192,11 @@ def _tuple_default(elems: list[dict[str, Any]], typ: dict[str, Any]) -> dict[str
     The marker is not an IR node: the call site replays the stored constant
     elements, so the record stays a plain dict.
     """
-    return {"kind": "tuple-default", "elems": elems, "type": typ}
+    row: dict[str, Any] = {}
+    row["kind"] = "tuple-default"
+    row["elems"] = elems
+    row["type"] = typ
+    return row
 
 
 def _bare_leaf(kind: str) -> dict[str, Any]:
@@ -197,7 +204,10 @@ def _bare_leaf(kind: str) -> dict[str, Any]:
 
     The `bare` bit has no typed `T` slot, so the record stays a plain dict.
     """
-    return {"kind": kind, "bare": True}
+    row: dict[str, Any] = {}
+    row["kind"] = kind
+    row["bare"] = True
+    return row
 
 
 def _field_rows(fields: list[tuple[str, T]]) -> list[dict[str, Any]]:
@@ -391,13 +401,33 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
         methods: list[tuple[ast.FunctionDef, str]] = []
         seen: set[str] = set()
         seen_default = False
+        # Class-level constants: `name = <fold>` and `name: T = <fold>` keep
+        # a compile-time value readable as `C.name` and `obj.name`, never an
+        # instance field. Ancestor constants merge in MRO order so the
+        # nearest definer wins, the same rule instance attribute lookup
+        # follows.
+        class_constants: dict[str, dict[str, Any]] = {}
+        for ancestor in reversed(mro[1:]):
+            ancestor_constants = self.classes.get(ancestor, {}).get("constants")
+            if ancestor_constants:
+                class_constants.update(ancestor_constants)
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
             try:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     if stmt.value is not None and deco != "dataclass":
-                        self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
+                        const = self._module_fold(stmt.value)
+                        if const is None or const.get("kind") != "const":
+                            self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
+                        typ = self._annotation(stmt.annotation)
+                        if typ.get("optional"):
+                            if _type_kind(const["type"]) != "none" and not types_equal(const["type"], typ["elem"]):
+                                self.fail(stmt, "PS1003", f"{stmt.target.id} default is not {_show(typ)}")
+                        else:
+                            self._expect(stmt, const["type"], typ, stmt.target.id)
+                        class_constants[stmt.target.id] = const
+                        continue
                     if stmt.target.id in seen or stmt.target.id in inherited_types:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                     typ = self._annotation(stmt.annotation)
@@ -466,6 +496,11 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
                         self.fail(stmt, "PS1201", "decorators are not lowered")
                     methods.append((stmt, kind))  # type: ignore[arg-type]
                     continue
+                if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                    const = self._module_fold(stmt.value)
+                    if const is not None and const.get("kind") == "const":
+                        class_constants[stmt.targets[0].id] = const
+                        continue
                 self.fail(stmt, "PS1204", f"{type(stmt).__name__} in a class body is not lowered")
             except Fence as exc:
                 self.caught.append(exc)
@@ -514,6 +549,20 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
         # all-or-nothing.
         if len(self.caught) > body_fences + sig_fences or (sig_fences and not self.cataloguing):
             return
+        if wrote_init and deco != "dataclass":
+            # A written `__init__` is the field declaration the corpus
+            # spells: `self.x = <param>` takes the parameter's annotated
+            # type, `self.x: T = v` takes the annotation. Fields the class
+            # body already named keep their declared type.
+            init_fn = next((method for method, _kind in methods if method.name == "__init__"), None)
+            if init_fn is not None:
+                fields.extend(
+                    self._init_fields(
+                        init_fn,
+                        method_sigs.get("__init__"),
+                        {field["name"] for field in fields} | set(inherited_types),
+                    )
+                )
         generated: str | None = None
         init_target: str | None = None
         if deco == "dataclass":
@@ -561,10 +610,18 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
             # the secondary base's.
         elif parent is not None and fields and not wrote_init:
             self.fail(node, "PS1001", f"{node.name} needs __init__")
+        if deco == "dataclass":
+            # A field default is also the class attribute CPython leaves
+            # behind, so `C.x` reads it like any other class constant.
+            for field in fields:
+                default = field.get("default")
+                if default is not None and default.get("kind") == "const":
+                    class_constants[field["name"]] = default
         exception = bool(base and (_base_kind(base) == "exception" or (parent and parent.get("exception"))))
         info: dict[str, Any] = {
             "fields": [*inherited, *fields],
             "own_fields": fields,
+            "constants": class_constants,
             "methods": method_sigs,
             "method_kind": kinds,
             "method_owner": owners,
@@ -589,6 +646,62 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
         if protocol:
             info["protocol"] = True
         self.classes[node.name] = info
+
+    def _init_fields(
+        self,
+        fn: ast.FunctionDef,
+        sig: tuple[list[dict[str, Any]], dict[str, Any]] | None,
+        taken: set[str],
+    ) -> list[dict[str, Any]]:
+        """Fields a written `__init__` proves by `self.<name>` targets.
+
+        `self.x = <param>` takes the parameter's annotated type;
+        `self.x: T = v` takes the annotation (the value's own check runs
+        in the body pass). Names the class body or a base already
+        declared are skipped: the declared type wins and a mismatch
+        fences at the write.
+        """
+        found: list[dict[str, Any]] = []
+        seen = set(taken)
+        if sig is None:
+            return found
+        params = sig[0]
+        arg_types: dict[str, dict[str, Any]] = {}
+        plain = list(fn.args.posonlyargs) + list(fn.args.args)
+        for index, arg in enumerate(plain):
+            if index < len(params):
+                arg_types[arg.arg] = params[index]["type"]
+        for stmt in ast.walk(fn):
+            target: ast.expr | None = None
+            typ: dict[str, Any] | None = None
+            if isinstance(stmt, ast.AnnAssign) and stmt.value is not None and isinstance(stmt.target, ast.Attribute):
+                target = stmt.target
+                try:
+                    typ = self._annotation(stmt.annotation)
+                except Fence:
+                    continue
+            elif (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Attribute)
+                and isinstance(stmt.value, ast.Name)
+            ):
+                target = stmt.targets[0]
+                typ = arg_types.get(stmt.value.id)
+                if typ is None:
+                    continue
+            else:
+                continue
+            if not isinstance(target, ast.Attribute):
+                continue
+            if not (isinstance(target.value, ast.Name) and target.value.id == "self"):
+                continue
+            name = target.attr
+            if name in seen:
+                continue
+            seen.add(name)
+            found.append({"name": name, "type": copy.deepcopy(typ)})
+        return found
 
     def _mro_chain(self, node: ast.ClassDef, bases: list[dict[str, str]]) -> tuple[list[str], set[str]]:
         """C3 linearization of the bases, plus the primary-base spine.
@@ -1211,6 +1324,15 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
         for field in info["fields"]:
             if field["name"] == name:
                 return _attr_node(obj, name, field["type"], span)
+        if obj["type"].get("optional") and _maybe_type_kind(obj["type"].get("elem", {})) == "class":
+            # `x.f` on a `T | None` cell reads through `_val` once the tag
+            # is proven set; an unset tag raises AttributeError.
+            return self._lookup_attr(self._opt_payload(obj, name, span), name, span, node, expect)
+        # A class-level constant reads through the instance when no instance
+        # field shadows it.
+        const = self._class_const(class_name, name)
+        if const is not None:
+            return {**const, "span": span}
         if info.get("method_kind", {}).get(name) == "property":
             sig = info["methods"][name]
             owner = self._emit_owner(class_name, name)
@@ -1229,6 +1351,21 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
             self.fail(node, "PS2001", note)
         self.fail(node, "PS2001", f"{class_name}.{name} is not a field")
         raise AssertionError("unreachable")
+
+    def _class_const(self, class_name: str, attr: str) -> dict[str, Any] | None:
+        """The class-level constant `attr` of `class_name`, or None.
+
+        A method defined on the class itself wins over a same-named
+        constant, matching the class dictionary's own-name precedence;
+        ancestors' methods do not shadow it.
+        """
+        info = self.classes.get(class_name)
+        if info is None:
+            return None
+        const = (info.get("constants") or {}).get(attr)
+        if const is None or info.get("method_owner", {}).get(attr) == class_name:
+            return None
+        return const
 
     def _getattr_hook(self, class_name: str) -> tuple[str, dict[str, Any]] | None:
         """The first `__getattr__` definer in the MRO, as (owner, signature).

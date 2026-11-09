@@ -19,6 +19,7 @@ from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.ffi_manifest import handle_type
 from pyscriptc.ir import type_key
 from pyscriptc.lower._core import (
+    _BARE_CONTAINER_NAMES,
     _DICT_FORMS,
     _LIST_FORMS,
     _SET_FORMS,
@@ -152,6 +153,11 @@ class AnnotationMixin:
             # no fence from the peek: the caller keeps its own diagnostic.
             bridged = self._infer_signature(fn)
             if bridged is None:
+                # The checker's proof is the fallback for the body's own
+                # proof (it types the whole body, so it sees returns the
+                # subset's peek cannot lower).
+                bridged = self._bridged_signature(fn)
+            if bridged is None:
                 self.fail(fn, "PS1001", f"{fn.name} needs a return annotation")
             ret = bridged
         else:
@@ -163,8 +169,6 @@ class AnnotationMixin:
         return params, ret
 
     def _reject_banned_type(self, node: ast.AST, typ: dict[str, Any]) -> None:
-        if typ["kind"] == "list" and typ["elem"]["kind"] == "bool":
-            self.fail(node, "PS2002", "list[bool] is not lowered")
         if typ["kind"] == "dict":
             if typ["key"]["kind"] not in {"int", "str"}:
                 self.fail(node, "PS2002", "dict keys are int or str")
@@ -204,9 +208,14 @@ class AnnotationMixin:
         # boxed:begin
         # An island class annotation is its handle type (issue #628): the
         # class lives in the embedded interpreter, and an instance crossed
-        # into a compiled local is an opaque handle.
+        # into a compiled local is an opaque handle. Another module's island
+        # class annotates the same way, with the defining module in the type
+        # name so two modules' same-named classes stay distinct.
         if isinstance(node, ast.Name) and node.id in self.island_classes:
             return _type(island_class_type(node.id))
+        floor = self.island_floor_classes.get(node.id) if isinstance(node, ast.Name) else None
+        if floor is not None:
+            return _type(island_class_type(f"{floor[0]}.{floor[1]}"))
         # boxed:end
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
             return _type({"kind": "class", "name": self.class_aliases.get(node.id, node.id)})
@@ -223,6 +232,8 @@ class AnnotationMixin:
             # (dict[K, Any], list[Any]) resolves through the `any` element,
             # because there the shape is known.
             self.fail(node, "PS1104", f"{node.id} is a dynamic or structural type and is not lowered")
+        if isinstance(node, ast.Name) and node.id in _BARE_CONTAINER_NAMES:
+            return self._bare_container_annotation(node)
         if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id == "set":
             elem = self._annotation(node.slice)
             if elem["kind"] not in {"int", "str"}:
@@ -273,6 +284,27 @@ class AnnotationMixin:
         if isinstance(node, ast.Name) and node.id in _DYNAMIC_ANNOTATIONS:
             self.fail(node, "PS1104", f"{node.id} is a dynamic or structural type and is not lowered")
         return self._annotation(node)
+
+    def _bare_container_annotation(self, node: ast.Name) -> dict[str, Any]:
+        """A bare `list`, `dict` or `set` annotation (issue #483).
+
+        The container's shape is known; its element slots take the
+        unresolved `any` kind `list[Any]` and `dict[K, Any]` already spell
+        (issue #781), so the bare spelling is never a silent Any: a local's
+        slots pin from the body's mutations through the accumulated-type
+        inference an unannotated `x = []` gets, a concrete initializer
+        satisfies the annotation, and a read nothing proves keeps its
+        PS1107 fence. `dict` pins the key to str when the body proves no
+        key type — the map ABI keeps no room for an unresolved key kind —
+        and a body's int-keyed writes still pin a concrete `dict[int, V]`
+        through the same scan. `tuple` keeps its PS1106 fence: a tuple's
+        shape is its arity and the bare name carries none.
+        """
+        if node.id == "dict":
+            return _type({"kind": "dict", "key": {"kind": "str"}, "value": {"kind": _UNRESOLVED_KIND}})
+        if node.id == "set":
+            return _type({"kind": "list", "elem": {"kind": _UNRESOLVED_KIND}, "set": True})
+        return _type({"kind": "list", "elem": {"kind": _UNRESOLVED_KIND}})
 
     def _fail_annotation(self, node: ast.AST) -> NoReturn:
         """Fence an annotation the subset does not lower, with the code that names why."""
@@ -550,8 +582,17 @@ class AnnotationMixin:
 
     def _synthetic_classes(self, seen: set[str], deferred_only: bool = False) -> list[dict[str, Any]]:
         found: list[dict[str, Any]] = []
+        # The island group: the group's bootstrap defines the module's names
+        # in CPython, so a class the island unit declares itself (a namedtuple
+        # that shadows a stdlib type, say) is the island's, not the merged
+        # native table's — emitting it would collide with the stdlib class of
+        # the same name in the other modules. The stdlib synthetics stay:
+        # they are program-wide and identical across modules.
+        skip_island = self._boxed_island_unit
         for name, info in self.classes.items():
             if name in seen or not info.get("synthetic"):
+                continue
+            if skip_island and info.get("namedtuple"):
                 continue
             # A deferred class (the argparse Namespace) grows fields while
             # the statements lower, so only the closing pass emits it.
@@ -709,26 +750,34 @@ def _param(
     lowerer: Any, arg: ast.arg, fn: ast.FunctionDef | None = None, default: ast.expr | None = None
 ) -> dict[str, Any]:
     if arg.annotation is None:
-        # Checker bridge: the checker inferred the parameter's type (from the
-        # default, the callers, or the body). Without a bridged answer the
-        # fence stands (PS1001, param-inference family). Inside the return
-        # peek the refusal becomes a caught fence, so the peek returns None.
-        if fn is not None:
-            inferred = lowerer._bridge_param_type(fn, arg)
-            if inferred is not None:
-                return {"name": arg.arg, "type": inferred}
         # Issue #500: an unannotated parameter with a default of a proven
         # type binds to that type. The default is a value the call site may
         # rely on, so its own lowered type is the fact, not a guess: this is
         # CPython's `def f(x=0)` reading as `x: int`. A default the peek
         # cannot type (None, an empty display, a call that does not lower)
-        # keeps the fence.
+        # keeps the fence. The compiler's own proof runs first so the
+        # bridge and the pin only ever rescue what it refused.
         if default is not None:
             inferred = lowerer._infer_type_of(default)
             if inferred is not None and inferred["kind"] not in {"none", "func"}:
                 return {"name": arg.arg, "type": inferred}
-        # Both paths raise PS1001; the return peek catches it and returns
-        # None. An unannotated parameter is named by its own fence.
+        # Checker bridge: the checker inferred the parameter's type (from
+        # the default, the callers, or the body). Without a bridged answer
+        # the fence stands (PS1001, param-inference family). Inside the
+        # return peek the refusal becomes a caught fence, so the peek
+        # returns None.
+        if fn is not None:
+            inferred = lowerer._bridge_param_type(fn, arg)
+            if inferred is not None:
+                return {"name": arg.arg, "type": inferred}
+            # Cross-module pin (`pyscriptc infer`): the whole-package call
+            # sites proved the parameter's type. Applied after the bridge
+            # (the per-module map wins when both answer).
+            inferred = lowerer._checker_pin_type(fn, arg)
+            if inferred is not None:
+                return {"name": arg.arg, "type": inferred}
+        # Every proof refused: the fence stands. The return peek catches it
+        # and returns None. An unannotated parameter is named by its own fence.
         lowerer.fail(arg, "PS1001", f"parameter {arg.arg} needs an annotation")
     return {"name": arg.arg, "type": lowerer._annotation(arg.annotation)}
 

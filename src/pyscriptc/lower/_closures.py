@@ -28,7 +28,7 @@ def _func_type(param_types: list[dict[str, Any]], ret: dict[str, Any]) -> dict[s
     return node_to_dict(_ir.t_func([_mk_type(param) for param in param_types], _mk_type(ret)))
 
 
-def _env_item(entry: dict[str, Any]) -> Any:
+def _env_item(entry: dict[str, Any]) -> _ir.EnvItem:
     """The EnvItem record one dict-IR env entry spells."""
 
     if "init" in entry:
@@ -41,8 +41,8 @@ def _closure_node(
     env: list[dict[str, Any]],
     ftype: dict[str, Any],
     span: dict[str, Any],
-    stub: Any = None,
-) -> Any:
+    stub: _ir.Stub | None = None,
+) -> _ir.IrNode:
     """The typed closure node one dict-IR closure spells."""
 
     return _ir.closure(name, [_env_item(item) for item in env], _mk_type(ftype), _mk_span(span), stub)
@@ -105,12 +105,12 @@ class ClosuresMixin:
         dec(name)`; the local's type updates to the decorator's return."""
         if not fn.decorator_list:
             return []
-        if len(fn.decorator_list) != 1:
-            self.fail(fn, "PS2002", "stacked decorators are not lowered")
-        dec = fn.decorator_list[0]
-        value = self._apply_decorator(dec, _name(fn.name, self.locals[fn.name], span), span)
-        self.locals[fn.name] = value["type"]
-        return [_assign(fn.name, value, span)]
+        stmts: list[dict[str, Any]] = []
+        for dec in reversed(fn.decorator_list):
+            value = self._apply_decorator(dec, _name(fn.name, self.locals[fn.name], span), span)
+            self.locals[fn.name] = value["type"]
+            stmts.append(_assign(fn.name, value, span))
+        return stmts
 
     def _apply_decorator(self, dec: ast.expr, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         """`dec(value)` as a callable-value call; the result must stay callable."""

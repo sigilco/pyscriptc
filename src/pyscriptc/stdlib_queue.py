@@ -15,6 +15,7 @@ from contextlib import contextmanager
 from pyscriptc.ffi_manifest import FfiManifest
 from pyscriptc.sigrec import (
     Sig,
+    T,
     optional,
     sig_for,
     t_class,
@@ -98,9 +99,9 @@ def canonical_module(name: str) -> str:
     return MODULE_ALIASES.get(name, name)
 
 
-_F = t_leaf("float")
-_I = t_leaf("int")
-_B = t_leaf("bool")
+_F: T = t_leaf("float")
+_I: T = t_leaf("int")
+_B: T = t_leaf("bool")
 
 
 def _fixed(params: list, ret) -> Sig:
@@ -145,15 +146,15 @@ MATH_CONSTANTS: dict[str, str] = {
     "nan": "nan",
 }
 
-_STR = t_leaf("str")
-_BYTES = t_leaf("bytes")
-_BUF = t_leaf("buf")
-_LIST_STR = t_list(_STR)
-_HASH = t_class("Hash")
-_PATTERN = t_class("Pattern")
-_SPLIT = t_class("SplitResult")
-_DICT_STR = t_dict(_STR, _STR)
-_QS = t_dict(_STR, _LIST_STR)
+_STR: T = t_leaf("str")
+_BYTES: T = t_leaf("bytes")
+_BUF: T = t_leaf("buf")
+_LIST_STR: T = t_list(_STR)
+_HASH: T = t_class("Hash")
+_PATTERN: T = t_class("Pattern")
+_SPLIT: T = t_class("SplitResult")
+_DICT_STR: T = t_dict(_STR, _STR)
+_QS: T = t_dict(_STR, _LIST_STR)
 
 
 def _optional(params: list, ret, defaults: list[str], names: list[str] | None = None) -> Sig:

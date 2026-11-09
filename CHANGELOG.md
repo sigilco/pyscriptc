@@ -1,5 +1,107 @@
 # Changelog
 
+## [0.9.0] - 2026-11-08
+
+0.9.0 makes the new compiler architecture the default. Programs now compile through the typed HIR, a three-address MIR with a control-flow graph, a verifier (MVS codes) and a printable IR, and `PYSC_MIR=0` keeps the old direct path as an escape hatch until it is removed in 0.10.0. Output speed is unchanged against the old path (geomean 1.02); the gains are in what compiles natively, the island floor, and compile-side speed and distribution.
+
+### Highlights
+
+- **New architecture is the default:** the MIR lane, its verifier and printable IR replace the direct path (#1067).
+- **Mixed programs stay mostly native:** a fenced module no longer demotes the whole program, and island classes cross module boundaries (86% of yt-dlp top levels native) (#793, #1071, #1099).
+- **No Python needed to run the compiler:** a self-compiled `pyscriptc` bundle (#1068).
+- **More code lowers natively:** unannotated code via `--infer` pins and global export slots, inferred generator element types, bare `list`/`dict`/`set` annotations (#792, #1042, #1107).
+- **Faster compile steps:** cached typeshed, overlapped type check and emit, and a precompiled island code cache (#1077, #1082, #1083).
+
+### Receipt
+
+- Flip receipts: MIR slice coverage 42/42; `runtime_ab` (stdout, stderr, exit code) 67 PASS, 0 FAIL, 0 ERROR, 1 SKIP (`json_like_dump`, PS1104/PS2002 on `object`/`isinstance`).
+- Speed: MIR versus the direct path, perf geomean 1.02 (`scripts/mir_perf_ratio.py`). No speedup is claimed.
+- Self-host fences (`benchmarks.compat2.census_self`): about 4041 to 3328 on the new architecture.
+- Boxed ledger (`mise run boxed:cost`, window `13163f86b304..15ca4f824cfe`): code 5.4%, churn 0%, bugs 0%, tax 0%, drop flag false.
+- Release rehearsal: build matrix, smoke and wheel verify passed on `5048a563`.
+
+### Features
+- native lowering for binary_trees, exceptions_flow, generators_comp (runtime_ab 64->67 PASS) (#1124)
+- a divergence ledger with a probe per entry (#1109)
+- fence mutations and copy-aliases of module-scope container constants (#1111)
+- bare list/dict/set annotations as Any-slot containers (#1107)
+- coverage and assess survive a real package tree (#1102)
+- a bytecode-backed lazy island seed (#1101)
+- route import cycles island-side so the plane split engages on yt-dlp (#1099)
+- strict corpus A/B lane over unstripped stdout bytes (#1095)
+- island classes cross the module boundary, 86% of yt-dlp top levels native (#1071)
+- self-host fence batch B2 (-61: attribute receivers for append/add, write_text/update kwargs) (#1079)
+- verdict ratchet ages persistent wrong-output rows into findings (#1090)
+- MIR lane becomes the default (MIR_DEFAULT = True) (#1067)
+- self-compiled pyscriptc bundle that runs with no Python installed (#1068)
+- per-module plane split, clean modules stay native beside a fenced module (#793)
+- global export slots and --infer pins, so unannotated code lowers natively (#792)
+- resolve global-aliased imports at module scope (fence T4) (#1064)
+- admit linked_list and quicksort into the MIR leaf slice (#1047)
+- infer unannotated generator element types; fix send-None recv path (#1042)
+- lower print() of list, dict and set values (#1049)
+- admit list[bool] into the slice, unfencing sieve and nqueens (#1031)
+- zip() over 2+ sources and str sources, enumerate() over str (#1046)
+- admit dict ops and str.split into the leaf slice (#1037)
+- admit user-class values and non-module callees in the leaf slice (#1035)
+- admit str subscript, chr and ord into the leaf slice (#1033)
+- lower try statements and exception flow through the MIR lane (#1030)
+- admit dict values, list[str], str.join and builtins.format into the leaf slice (#1029)
+- admit str values, concat, compares and builtins through the MIR lane (#1022)
+- lower tuple-class values through newobj/setattr/getattr (#1025)
+- admit recursive calls and int bitwise ops into the leaf slice (#1023)
+- per-function MIR-or-direct adapter with fallback telemetry (B11) (#1018)
+- admit runtime-ABI module calls and nested list shapes (#1021)
+- lower none-typed print builtin calls into the leaf slice (#1017)
+- lower list[int] and list[float] through the MIR lane (A9 step 1) (#1019)
+- admit int & and int_to_float casts into the leaf slice (#1016)
+- str value type (A8 step 1, M-1) (#1015)
+- admit short-circuit, ternary and augmented assignment into the leaf slice (A6/A7) (#1014)
+- lower calls of scalar user functions through the MIR lane (#1013)
+- add MIR_CALL with builder emission and verifier rules (#1012)
+- --emit mir prints the leaf-slice MIR as text (#991)
+- compat_mir_flip receipt driver for the MIR default flip (#1009)
+- out-of-slice reasons table in compiler_progress (#993)
+- MIR vs direct perf ratio receipt (#977)
+- report outcome flips both directions (#982)
+- MIR slice coverage metric in the compiler trend table (#944)
+- accept None returns in the MIR leaf slice (#941)
+
+### Performance
+- idle-skip the dict conversion; typed constructors for the coro helpers (#1118)
+- persist compiler identity and overlap pyrefly with emit/link (#1082)
+- write .ir.json only when asked (#1092)
+- cache the patched typeshed content-addressed (#1077)
+- embed a validated precompiled code cache for the program island (#1083)
+- reuse a name's live value for reads inside one block (#1063)
+
+### Fixes
+- rewrite the stdlib.sys.argv probe without len(argv[0]) (#924) (#1135)
+- disable the uv cache in the release checksums job (post-step failed with nothing to cache) (#1142)
+- run the release notes script on Python 3.14, the runner python3 rejects PEP 758 syntax (#935)
+- int() separator, Unicode strip and repr'd message for the base form (#1119)
+- run a peeked call value once, not twice (#1098) (#1117)
+- run multiprocessing -c children inside the island (#1105)
+- read dotted class names in attr keys; unfence sum over generators (#1103)
+- str.rsplit maxsplit; print() of nested list/dict/set values (#1084)
+- defer resolution diagnostics to the lowerer (#1088)
+- __name__/pickle/atexit island floor fix (#1087)
+- a bare isinstance dict target no longer crashes type_key (#1085)
+- realpath keeps the resolved prefix; triage of the #924 nightly rows (#1080)
+- island argv[0] keeps the binary path; report why the plane map demotes a function (#1076)
+- unblock flip receipt tooling (#1060)
+- pkg class export on module.Class calls, isinstance bare-container fold (#1061)
+- compile and run yt-dlp end to end on the island tier (#791)
+- unfence augmented assignment on subscript/attribute targets and str-iterating accumulators (#1028)
+- skip shared ast context singletons when picking the deepest-node span (#1026)
+- CPython 3.14 int() literal parity and shutil.which None (#965)
+- sort synthetic class install so .ll is PYTHONHASHSEED independent (#817) (#936)
+
+### Internal
+- Internal changes: 49 areas (agents, assess,reduce, binding,boxed, check, ci, cli, config, coro, coverage, debug, decisions, docs, dwarf, e1, emit/llvm, emit/llvm _abi,_calls, emit/llvm _calls, emit/llvm _core, emit/llvm _exprs, emit/llvm _funcs, emit/llvm _print, emit/llvm _stdlib, emit/llvm _stmts, factsbridge, ffi, ffi_manifest, ir, irverify, lower, mir, mirverify, module, nightly, notes, p6, package, plan, plans, project, refactor, release, restlower, runtime-ab, selfhost, stdlib_queue, stubs, test, tests, verify). Summarize before publishing.
+- bench(ytdlp): composite benchmark, first result FAIL (1.36 to 1.47) (#1100)
+- selfpack: the self-hosted compiler as a single binary, and the PS1104 receipt (#773)
+- test+docs: TIR/IR hash coverage pin and retirement cross-links (#830 follow-through) (#1006)
 ## [0.8.0] - 2026-11-05
 
 0.8.0 is the architecture release. The compiler's lowering stage is split into typed HIR and MIR slices behind opt-in lanes, with fixed-point, per-function IR digest and TIR gates guarding that the output stays byte-identical. Users get `https://` over libcurl, native `super()` with two arguments, frozen and slots dataclasses, `while` and `for range` loops in the MIR lane, an opt-in project bundler and a Windows install script. Measured against 0.7.0 on the same scorer, probes and workloads, compat outcomes and speed are unchanged within noise (see Receipt).
@@ -481,4 +583,5 @@ Initial release.
 - Closed stdlib surface: `math`, `re`, `json`, `urllib.parse`, `base64`, `hashlib`, `hmac`, `struct`, `datetime`, `collections`, `itertools`, `os`, `pathlib`, `tempfile`, `atexit`, `shutil`, `enum`, `dataclasses`. Anything outside the table fences instead of guessing.
 - `try`/`except` for builtin exceptions and user subclasses; `sys.argv` as `list[str]`.
 
+[0.9.0]: https://github.com/sigilco/pyscriptc/compare/v0.8.0...v0.9.0
 [0.8.0]: https://github.com/sigilco/pyscriptc/compare/v0.7.0...v0.8.0

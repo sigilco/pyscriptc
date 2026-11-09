@@ -26,37 +26,41 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.coro import PRIM_MARKER, THREAD_MARKER, _await_result_name, enabled
-from pyscriptc.restlower._shared import _const_int
+from pyscriptc.restlower._shared import (
+    _asg,
+    _call_builtin,
+    _call_module,
+    _class,
+    _const_int,
+    _expr_stmt,
+    _mk_span,
+    _nm,
+    _node_kind,
+    _node_type,
+    _node_type_kind,
+    _node_value,
+    _t_leaf,
+    _type_kind,
+    _type_name,
+)
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
-# The primitive records. Each one is a runtime pointer.
-_ASYNC_LOCK = {"kind": "class", "name": "AsyncLock"}
-_ASYNC_EVENT = {"kind": "class", "name": "AsyncEvent"}
-_ASYNC_SEM = {"kind": "class", "name": "AsyncSemaphore"}
-_ASYNC_QUEUE = {"kind": "class", "name": "AsyncQueue"}
-
-_INT = {"kind": "int"}
-_BOOL = {"kind": "bool"}
-_NONE = {"kind": "none"}
-
-# The primitive constructors and the class each one lowers to.
-_PRIMS: dict[str, tuple[dict[str, Any], str]] = {
-    "Lock": (_ASYNC_LOCK, "ps_alock_new"),
-    "Event": (_ASYNC_EVENT, "ps_aevent_new"),
-    "Semaphore": (_ASYNC_SEM, "ps_asem_new"),
-    "Queue": (_ASYNC_QUEUE, "ps_aqueue_new"),
-}
+# The primitive constructors and the class each one lowers to, spelled at
+# the call site: a module-level record would be a call, and a module
+# assignment must be a constant.
 
 
 def _const_number(lo: Any, value: ast.expr, what: str) -> int:
     """A constant int, including the unary-minus spelling."""
     arg = lo._expr(value)
-    if arg["kind"] == "const" and arg["type"]["kind"] in {"int", "bool"}:
-        return int(arg["value"])
+    if _node_kind(arg) == "const" and _node_type_kind(arg) in {"int", "bool"}:
+        return int(_node_value(arg))
     if isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.USub):
         inner = lo._expr(value.operand)
-        if inner["kind"] == "const" and inner["type"]["kind"] == "int":
-            return -int(inner["value"])
+        if _node_kind(inner) == "const" and _node_type_kind(inner) == "int":
+            return -int(_node_value(inner))
     lo.fail(value, "PS1003", f"{what} is a constant int")
     raise AssertionError("unreachable")
 
@@ -68,7 +72,13 @@ def _prim_call(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
     `queue.Queue(maxsize)` do. The queue's element type comes from the
     annotation, the way a queue annotation carries it.
     """
-    spec = _PRIMS.get(attr)
+    prims: dict[str, tuple[dict[str, Any], str]] = {
+        "Lock": (_class("AsyncLock"), "ps_alock_new"),
+        "Event": (_class("AsyncEvent"), "ps_aevent_new"),
+        "Semaphore": (_class("AsyncSemaphore"), "ps_asem_new"),
+        "Queue": (_class("AsyncQueue"), "ps_aqueue_new"),
+    }
+    spec = prims.get(attr)
     if spec is None:
         lo.fail(node, "PS2001", f"asyncio.{attr} is not in the lowered subset of asyncio")
         raise AssertionError("unreachable")
@@ -104,7 +114,7 @@ def _prim_call(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
         maxsize = _const_number(lo, node.args[0], "asyncio.Queue maxsize")
     if maxsize < 0:
         lo.fail(node, "PS1003", "asyncio.Queue maxsize is a non-negative int")
-    if expect is None or expect.get("name") != "AsyncQueue" or "elem" not in expect:
+    if expect is None or _type_name(expect) != "AsyncQueue" or "elem" not in expect:
         lo.fail(node, "PS1001", "asyncio.Queue() needs a queue annotation")
     from pyscriptc.stdmore import slot_size
 
@@ -118,24 +128,21 @@ def _prim_call(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
     )
 
 
-def _prim_marker(lo: Any, span: dict[str, Any], prim: dict[str, Any], op: str) -> dict[str, Any]:
+def _prim_marker(lo: Any, span: dict[str, Any], prim: dict[str, Any], op: str) -> tuple[dict[str, Any], str]:
     """The marker call the IR pass expands into the park-and-suspend.
 
     The marker is a builtin call, so the pass recognizes it by name. The
     primitive rides in a local: the frame copies its locals out at the
-    suspension, so the record stays alive across the resume.
+    suspension, so the record stays alive across the resume. Returns the
+    marker and the slot the await's result name derives from.
     """
     slot = lo._temp("prm")
-    lo.locals[slot] = prim["type"]
-    lo.prelude.append({"kind": "assign", "target": slot, "value": prim, "span": span})
-    return {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": PRIM_MARKER},
-        "args": [{"kind": "name", "id": slot, "type": prim["type"], "span": span}],
-        "type": dict(_NONE),
-        "span": span,
-        "prim_op": op,
-    }
+    prim_t = _node_type(prim)
+    lo.locals[slot] = prim_t
+    lo.prelude.append(_asg(slot, prim, span))
+    marker = _call_builtin(PRIM_MARKER, [_nm(slot, prim_t, span)], _t_leaf("none"), span)
+    marker["prim_op"] = op
+    return marker, slot
 
 
 def _await_prim(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any], op: str) -> dict[str, Any]:
@@ -149,12 +156,12 @@ def _await_prim(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
     if not enabled():
         lo.fail(node, "PS2001", "coroutines are not lowered")
     if lo._coro_current() is None:
-        lo.fail(node, "PS2002", f"awaiting {receiver['type'].get('name')} is only lowered inside a coroutine")
-    marker = _prim_marker(lo, span, receiver, op)
-    lo.prelude.append({"kind": "expr", "expr": marker, "span": span})
-    result = _await_result_name(marker["args"][0]["id"])
-    lo.locals[result] = dict(_NONE)
-    return {"kind": "name", "id": result, "type": dict(_NONE), "span": span}
+        lo.fail(node, "PS2002", f"awaiting {_type_name(_node_type(receiver))} is only lowered inside a coroutine")
+    marker, slot = _prim_marker(lo, span, receiver, op)
+    lo.prelude.append(_expr_stmt(marker, span))
+    result = _await_result_name(slot)
+    lo.locals[result] = _t_leaf("none")
+    return _nm(result, _t_leaf("none"), span)
 
 
 def _await_queue_get(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
@@ -164,7 +171,7 @@ def _await_queue_get(lo: Any, node: ast.Call, span: dict[str, Any], receiver: di
     annotation carries it. The value lands in a frame local the await
     reads after the resume.
     """
-    typ = receiver["type"]
+    typ = _node_type(receiver)
     if "elem" not in typ:
         lo.fail(node, "PS2002", "this queue has no element type")
     elem = typ["elem"]
@@ -174,20 +181,14 @@ def _await_queue_get(lo: Any, node: ast.Call, span: dict[str, Any], receiver: di
         lo.fail(node, "PS2002", "awaiting a queue is only lowered inside a coroutine")
     slot = lo._temp("prq")
     lo.locals[slot] = typ
-    lo.prelude.append({"kind": "assign", "target": slot, "value": receiver, "span": span})
-    marker = {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": PRIM_MARKER},
-        "args": [{"kind": "name", "id": slot, "type": typ, "span": span}],
-        "type": dict(_NONE),
-        "span": span,
-        "prim_op": "queue_get",
-        "prim_elem": elem,
-    }
-    lo.prelude.append({"kind": "expr", "expr": marker, "span": span})
+    lo.prelude.append(_asg(slot, receiver, span))
+    marker = _call_builtin(PRIM_MARKER, [_nm(slot, typ, span)], _t_leaf("none"), span)
+    marker["prim_op"] = "queue_get"
+    marker["prim_elem"] = elem
+    lo.prelude.append(_expr_stmt(marker, span))
     result = _await_result_name(slot)
     lo.locals[result] = elem
-    return {"kind": "name", "id": result, "type": elem, "span": span}
+    return _nm(result, elem, span)
 
 
 def _prim_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
@@ -199,7 +200,7 @@ def _prim_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
     """
     assert isinstance(node.func, ast.Attribute)
     attr = node.func.attr
-    cls = receiver["type"]["name"]
+    cls = _type_name(_node_type(receiver))
 
     def call(typ: dict[str, Any], symbol: str, args: list[dict[str, Any]], what: str) -> dict[str, Any]:
         return lo._abi_call("asyncio", what, [receiver, *args], typ, symbol, span)
@@ -214,12 +215,12 @@ def _prim_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Lock.release expects 0 argument(s)")
-            return call(_NONE, "ps_alock_release", [], "Lock.release")
+            return call(_t_leaf("none"), "ps_alock_release", [], "Lock.release")
         if attr == "locked":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Lock.locked expects 0 argument(s)")
-            return call(_BOOL, "ps_alock_locked", [], "Lock.locked")
+            return call(_t_leaf("bool"), "ps_alock_locked", [], "Lock.locked")
     if cls == "AsyncEvent":
         if attr == "wait":
             lo._reject_keywords(node)
@@ -230,17 +231,17 @@ def _prim_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Event.set expects 0 argument(s)")
-            return call(_NONE, "ps_aevent_set", [], "Event.set")
+            return call(_t_leaf("none"), "ps_aevent_set", [], "Event.set")
         if attr == "clear":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Event.clear expects 0 argument(s)")
-            return call(_NONE, "ps_aevent_clear", [], "Event.clear")
+            return call(_t_leaf("none"), "ps_aevent_clear", [], "Event.clear")
         if attr == "is_set":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Event.is_set expects 0 argument(s)")
-            return call(_BOOL, "ps_aevent_is_set", [], "Event.is_set")
+            return call(_t_leaf("bool"), "ps_aevent_is_set", [], "Event.is_set")
     if cls == "AsyncSemaphore":
         if attr == "acquire":
             lo._reject_keywords(node)
@@ -251,12 +252,12 @@ def _prim_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Semaphore.release expects 0 argument(s)")
-            return call(_NONE, "ps_asem_release", [], "Semaphore.release")
+            return call(_t_leaf("none"), "ps_asem_release", [], "Semaphore.release")
         if attr == "_value":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Semaphore._value expects 0 argument(s)")
-            return call(_INT, "ps_asem_value", [], "Semaphore._value")
+            return call(_t_leaf("int"), "ps_asem_value", [], "Semaphore._value")
     if cls == "AsyncQueue":
         if attr == "get":
             lo._reject_keywords(node)
@@ -273,17 +274,17 @@ def _prim_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Queue.qsize expects 0 argument(s)")
-            return call(_INT, "ps_aqueue_qsize", [], "Queue.qsize")
+            return call(_t_leaf("int"), "ps_aqueue_qsize", [], "Queue.qsize")
         if attr == "empty":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Queue.empty expects 0 argument(s)")
-            return call(_BOOL, "ps_aqueue_empty", [], "Queue.empty")
+            return call(_t_leaf("bool"), "ps_aqueue_empty", [], "Queue.empty")
         if attr == "full":
             lo._reject_keywords(node)
             if node.args:
                 lo.fail(node, "PS2003", "Queue.full expects 0 argument(s)")
-            return call(_BOOL, "ps_aqueue_full", [], "Queue.full")
+            return call(_t_leaf("bool"), "ps_aqueue_full", [], "Queue.full")
     lo.fail(node, "PS2001", f"{cls}.{attr} is not lowered")
     raise AssertionError("unreachable")
 
@@ -297,15 +298,9 @@ def _queue_put(
         lo.fail(node, "PS2001", "coroutines are not lowered")
     if lo._coro_current() is None:
         lo.fail(node, "PS2002", "a queue put is only lowered inside a coroutine")
-    return {
-        "kind": "call",
-        "callee": {"kind": "module", "module": "asyncio", "name": "queue_put"},
-        "args": [receiver, item],
-        "type": dict(_NONE),
-        "span": span,
-        "symbol": "ps_aqueue_put",
-        "prim_op": "queue_put",
-    }
+    call = _call_module("asyncio", "queue_put", "ps_aqueue_put", [receiver, item], _t_leaf("none"), span)
+    call["prim_op"] = "queue_put"
+    return call
 
 
 def _to_thread(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = "") -> dict[str, Any]:
@@ -328,81 +323,66 @@ def _to_thread(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
     if not node.args:
         lo.fail(node, "PS2003", "asyncio.to_thread expects at least 1 argument")
     target = lo._expr(node.args[0])
-    ftype = target["type"]
-    if ftype.get("kind") != "func":
+    ftype = _node_type(target)
+    if _type_kind(ftype) != "func":
         lo.fail(node, "PS1003", "asyncio.to_thread takes a callable")
     bound_nodes = list(node.args[1:])
     if len(bound_nodes) > len(ftype["params"]):
         lo.fail(node, "PS2003", f"asyncio.to_thread target expects {len(ftype['params'])} argument(s)")
-    env: list[dict[str, Any]] = []
+    env: list[_ir.EnvItem] = []
     bound: list[dict[str, Any]] = []
     for index, arg_node in enumerate(bound_nodes):
         expect = ftype["params"][index]
         value = lo._expr(arg_node, expect)
-        lo._expect(arg_node, value["type"], expect, f"asyncio.to_thread argument {index + 1}")
-        env.append({"init": value, "type": expect})
+        lo._expect(arg_node, _node_type(value), expect, f"asyncio.to_thread argument {index + 1}")
+        env.append(_ir.EnvItem(dict_to_node(value), dict_to_type(expect)))
         bound.append(expect)
-    env.append({"init": target, "type": ftype})
+    env.append(_ir.EnvItem(dict_to_node(target), dict_to_type(ftype)))
     ret = ftype["return"]
     # The record the worker writes its result into. The size is the result
     # slot's size, so the runtime copies exactly the value's bytes.
     from pyscriptc.emit._ir import _elem_size
 
     slot = lo._temp("thc")
-    lo.locals[slot] = {"kind": "class", "name": "ThreadCall"}
+    threadcall = _class("ThreadCall")
+    lo.locals[slot] = threadcall
     # The record rides in the pair's env, after the inner pair, so the
     # worker stub can store the result into it. The `init` form packs the
     # record into a heap cell: a stack slot would die when the coroutine
     # wrapper suspends, and the worker reads the env after that.
-    env.append(
-        {
-            "init": {"kind": "name", "id": slot, "type": {"kind": "class", "name": "ThreadCall"}, "span": span},
-            "type": {"kind": "class", "name": "ThreadCall"},
-        }
-    )
+    env.append(_ir.EnvItem(dict_to_node(_nm(slot, threadcall, span)), dict_to_type(threadcall)))
     # The record comes first: the pair's env names its slot, so the slot
     # has to hold the record before the pair is built.
-    made = {
-        "kind": "call",
-        "callee": {"kind": "module", "module": "asyncio", "name": "to_thread_new"},
-        "args": [],
-        "type": {"kind": "class", "name": "ThreadCall"},
-        "span": span,
-        "symbol": "ps_to_thread_new",
-        "thread": {"result": ret, "size": _elem_size(ret)},
-    }
-    lo.prelude.append({"kind": "assign", "target": slot, "value": made, "span": span})
-    pair = {
-        "kind": "closure",
-        "name": "ps.thread",
-        "env": env,
-        "type": {"kind": "func", "params": ftype["params"][len(bound) :], "return": ret},
-        "thread_stub": {
-            "bound": bound,
-            "params": ftype["params"][len(bound) :],
-            "return": ret,
-        },
-        "span": span,
-    }
-    start = {
-        "kind": "call",
-        "callee": {"kind": "module", "module": "asyncio", "name": "to_thread_start"},
-        "args": [{"kind": "name", "id": slot, "type": made["type"], "span": span}, pair],
-        "type": dict(_NONE),
-        "span": span,
-        "symbol": "ps_to_thread_start",
-        "thread": {"result": ret, "size": _elem_size(ret)},
-    }
-    lo.prelude.append({"kind": "expr", "expr": start, "span": span})
-    marker = {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": THREAD_MARKER},
-        "args": [{"kind": "name", "id": slot, "type": made["type"], "span": span}],
-        "type": dict(_NONE),
-        "span": span,
-        "thread_elem": ret,
-    }
-    lo.prelude.append({"kind": "expr", "expr": marker, "span": span})
+    made = _call_module("asyncio", "to_thread_new", "ps_to_thread_new", [], threadcall, span)
+    made["thread"] = {"result": ret, "size": _elem_size(ret)}
+    lo.prelude.append(_asg(slot, made, span))
+    remaining = ftype["params"][len(bound) :]
+    pair = node_to_dict(
+        _ir.closure(
+            "ps.thread",
+            env,
+            _ir.t_func([dict_to_type(param) for param in remaining], dict_to_type(ret)),
+            _mk_span(span),
+            thread_stub=_ir.Stub(
+                [dict_to_type(param) for param in bound],
+                [dict_to_type(param) for param in remaining],
+                dict_to_type(ret),
+            ),
+        )
+    )
+    start = _call_module(
+        "asyncio",
+        "to_thread_start",
+        "ps_to_thread_start",
+        [_nm(slot, _node_type(made), span), pair],
+        _t_leaf("none"),
+        span,
+    )
+    start["thread"] = {"result": ret, "size": _elem_size(ret)}
+    lo.prelude.append(_expr_stmt(start, span))
+    marker = _call_builtin(THREAD_MARKER, [_nm(slot, _node_type(made), span)], _t_leaf("none"), span)
+    marker["thread_elem"] = ret
+    lo.prelude.append(_expr_stmt(marker, span))
     result = _await_result_name(slot)
     lo.locals[result] = ret
-    return {"kind": "name", "id": result, "type": ret, "span": span}
+    return _nm(result, ret, span)

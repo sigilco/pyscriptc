@@ -8,18 +8,28 @@ from typing import Any
 from pyscriptc.restlower._iterators import _elem_list, _fn_ref, _lambda_params, _mk_iter
 from pyscriptc.restlower._shared import (
     _asg,
+    _bin,
     _cmp,
     _emit,
     _field,
+    _if_stmt,
     _incr,
     _int,
     _len_of,
     _nm,
+    _node_id,
+    _node_type,
+    _node_type_kind,
     _pin,
+    _raise_stmt,
     _same,
     _set_field,
     _span_to,
+    _t_leaf,
+    _t_list,
     _tname,
+    _type_kind,
+    _type_name,
 )
 
 
@@ -27,10 +37,11 @@ def _pool(lo: Any, node: ast.AST, source: dict[str, Any], span: dict[str, Any], 
     """Materialize an iterable argument into a named `list[T]`: iterator
     records drain to the end like `list(it)`, and other kinds go through the
     `for` lowering (str, bytes, dict keys, files)."""
-    typ = source["type"]
+    typ = _node_type(source)
     name = _tname(lo, hint)
-    if typ["kind"] == "class" and lo.classes.get(typ["name"], {}).get("iterator"):
-        list_t = {"kind": "list", "elem": typ["elem"]}
+    if _type_kind(typ) == "class" and lo.classes.get(_type_name(typ), {}).get("iterator"):
+        list_t = _t_list(typ["elem"])
+        int_t = _t_leaf("int")
         itn = _pin(lo, source, span, hint)
         seq_r = _field(itn, "seq", list_t, span)
         lo.locals[name] = list_t
@@ -43,7 +54,7 @@ def _pool(lo: Any, node: ast.AST, source: dict[str, Any], span: dict[str, Any], 
                         "list",
                         [
                             seq_r,
-                            _field(itn, "idx", {"kind": "int"}, span),
+                            _field(itn, "idx", int_t, span),
                             _int(0, span),
                             _int(1, span),
                             _int(0, span),
@@ -59,10 +70,10 @@ def _pool(lo: Any, node: ast.AST, source: dict[str, Any], span: dict[str, Any], 
             ]
         )
         return _nm(name, list_t, span)
-    seq = _elem_list(lo, node, source, span, hint) if typ["kind"] != "list" else source
-    lo.locals[name] = seq["type"]
+    seq = _elem_list(lo, node, source, span, hint) if _type_kind(typ) != "list" else source
+    lo.locals[name] = _node_type(seq)
     lo.prelude.append(_asg(name, seq, span))
-    return _nm(name, seq["type"], span)
+    return _nm(name, _node_type(seq), span)
 
 
 def _fn_call(
@@ -108,7 +119,7 @@ def _islice(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo.fail(node, "PS2003", "itertools.islice expects 2 to 4 argument(s)")
     bounds = [lo._expr(arg) for arg in node.args[1:]]
     for arg in bounds:
-        if arg["type"]["kind"] != "int":
+        if _node_type_kind(arg) != "int":
             lo.fail(node, "PS1003", "itertools.islice bounds are int")
     start = _int(0, span) if len(bounds) == 1 else bounds[0]
     stop = bounds[0] if len(bounds) == 1 else bounds[1]
@@ -116,65 +127,56 @@ def _islice(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     # CPython raises ValueError on negative bounds or a non-positive step.
     for val, floor in ((start, 0), (stop, 0), (step, 1)):
         lo.prelude.append(
-            {
-                "kind": "if",
-                "cond": _cmp("<", val, _int(floor, span), span),
-                "then": [{"kind": "raise", "exc": "ValueError", "message": None, "span": span}],
-                "else": [],
-                "span": span,
-            }
+            _if_stmt(
+                _cmp("<", val, _int(floor, span), span),
+                [_raise_stmt("ValueError", None, span)],
+                [],
+                span,
+            )
         )
     source = lo._expr(node.args[0])
-    typ = source["type"]
-    if typ["kind"] == "class" and lo.classes.get(typ["name"], {}).get("iterator"):
+    typ = _node_type(source)
+    if _type_kind(typ) == "class" and lo.classes.get(_type_name(typ), {}).get("iterator"):
         itn = _pin(lo, source, span, "sl")
         elem = typ["elem"]
-        seq_r = _field(itn, "seq", {"kind": "list", "elem": elem}, span)
-        idx_r = _field(itn, "idx", {"kind": "int"}, span)
-        new_idx = {
-            "kind": "binary",
-            "op": "+",
-            "left": idx_r,
-            "right": stop,
-            "type": {"kind": "int"},
-            "span": span,
-        }
+        int_t = _t_leaf("int")
+        list_t = _t_list(elem)
+        seq_r = _field(itn, "seq", list_t, span)
+        idx_r = _field(itn, "idx", int_t, span)
+        new_idx = _bin("+", idx_r, stop, int_t, span)
         sliced = lo._abi_call(
             "builtins",
             "list",
             [
                 seq_r,
-                {
-                    "kind": "binary",
-                    "op": "+",
-                    "left": _field(itn, "idx", {"kind": "int"}, span),
-                    "right": start,
-                    "type": {"kind": "int"},
-                    "span": span,
-                },
+                _bin("+", _field(itn, "idx", int_t, span), start, int_t, span),
                 new_idx,
                 _int(1, span),
                 _int(1, span),
                 step,
             ],
-            {"kind": "list", "elem": elem},
+            list_t,
             "ps_seq_slice",
             span,
         )
         sliced_pin = _pin(lo, sliced, span, "sls")
         lo.prelude.append(
-            {
-                "kind": "if",
-                "cond": _cmp("<=", new_idx, _len_of(seq_r, span), span),
-                "then": [_set_field(itn, "idx", new_idx, span)],
-                "else": [_set_field(itn, "idx", _len_of(seq_r, span), span)],
-                "span": span,
-            }
+            _if_stmt(
+                _cmp("<=", new_idx, _len_of(seq_r, span), span),
+                [_set_field(itn, "idx", new_idx, span)],
+                [_set_field(itn, "idx", _len_of(seq_r, span), span)],
+                span,
+            )
         )
         return _mk_iter(lo, sliced_pin, node, span)
     seq = _pool(lo, node, source, span, "sl")
     sliced = lo._abi_call(
-        "builtins", "list", [seq, start, stop, _int(1, span), _int(1, span), step], seq["type"], "ps_seq_slice", span
+        "builtins",
+        "list",
+        [seq, start, stop, _int(1, span), _int(1, span), step],
+        _node_type(seq),
+        "ps_seq_slice",
+        span,
     )
     return _mk_iter(lo, sliced, node, span)
 
@@ -200,7 +202,7 @@ def _product(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         generators=[
             ast.comprehension(
                 target=ast.Name(id=n, ctx=ast.Store()),
-                iter=ast.Name(id=p["id"], ctx=ast.Load()),
+                iter=ast.Name(id=_node_id(p), ctx=ast.Load()),
                 ifs=[],
                 is_async=False,
             )
@@ -222,7 +224,7 @@ def _combinations(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, An
     r = count.value
     pool = _pool(lo, node, lo._expr(node.args[0]), span, "cb")
     n = _tname(lo, "cbn")
-    lo.locals[n] = {"kind": "int"}
+    lo.locals[n] = _t_leaf("int")
     lo.prelude.append(_asg(n, _len_of(pool, span), span))
     idxs = [lo._temp("ci") for _ in range(r)]
     gens = []
@@ -244,7 +246,9 @@ def _combinations(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, An
         elt=ast.Tuple(
             elts=[
                 ast.Subscript(
-                    value=ast.Name(id=pool["id"], ctx=ast.Load()), slice=ast.Name(id=i, ctx=ast.Load()), ctx=ast.Load()
+                    value=ast.Name(id=_node_id(pool), ctx=ast.Load()),
+                    slice=ast.Name(id=i, ctx=ast.Load()),
+                    ctx=ast.Load(),
                 )
                 for i in idxs
             ],
@@ -262,30 +266,29 @@ def _accumulate(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
     if len(node.args) not in {1, 2}:
         lo.fail(node, "PS2003", "itertools.accumulate takes an iterable and an optional function")
     pool = _pool(lo, node, lo._expr(node.args[0]), span, "ac")
-    elem = pool["type"]["elem"]
+    pid = _node_id(pool)
+    elem = _node_type(pool)["elem"]
     out, acc, i, n = (_tname(lo, h) for h in ("aco", "acc", "aci", "acn"))
-    lo.locals[out] = {"kind": "list", "elem": elem}
+    lo.locals[out] = _t_list(elem)
     lo.locals[acc] = elem
-    lo.locals[i] = {"kind": "int"}
-    lo.locals[n] = {"kind": "int"}
+    lo.locals[i] = _t_leaf("int")
+    lo.locals[n] = _t_leaf("int")
     if len(node.args) == 2:
-        pre, step, post, saves = _fn_call(
-            lo, node.args[1], [acc, f"{pool['id']}[{i}]"], [elem, elem], span, "accumulate"
-        )
+        pre, step, post, saves = _fn_call(lo, node.args[1], [acc, f"{pid}[{i}]"], [elem, elem], span, "accumulate")
         step_lines = [*pre, f"{acc} = {step}"]
     else:
         post, saves = [], {}
-        step_lines = [f"{acc} = {acc} + {pool['id']}[{i}]"]
+        step_lines = [f"{acc} = {acc} + {pid}[{i}]"]
     _emit(
         lo,
         node,
         [
             f"{out} = []",
-            f"{n} = len({pool['id']})",
+            f"{n} = len({pid})",
             f"{i} = 0",
             f"while {i} < {n}:",
             f"    if {i} == 0:",
-            f"        {acc} = {pool['id']}[{i}]",
+            f"        {acc} = {pid}[{i}]",
             "    else:",
             *[f"        {line}" for line in step_lines],
             f"    {out}.append({acc})",
@@ -311,40 +314,41 @@ def _ziplongest(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
     if len(node.args) < 2:
         lo.fail(node, "PS2003", "itertools.zip_longest takes at least two iterables")
     pools = [_pool(lo, node, lo._expr(arg), span, "zl") for arg in node.args]
-    elems = [p["type"]["elem"] for p in pools]
+    pids = [_node_id(p) for p in pools]
+    elems = [_node_type(p)["elem"] for p in pools]
     fill_expr = lo._expr(fill) if fill is not None else None
-    if fill_expr is None or fill_expr["type"]["kind"] == "none":
+    if fill_expr is None or _node_type_kind(fill_expr) == "none":
         fields = [lo._opt_type(e, node) for e in elems]
         fill_src = "None"
     else:
         for e in elems:
-            if not _same(fill_expr["type"], e):
+            if not _same(_node_type(fill_expr), e):
                 lo.fail(node, "PS1003", "itertools.zip_longest fillvalue matches the element types")
         fields = elems
         fill_src = _tname(lo, "zlf")
-        lo.locals[fill_src] = fill_expr["type"]
+        lo.locals[fill_src] = _node_type(fill_expr)
         lo.prelude.append(_asg(fill_src, fill_expr, span))
     tup_t = lo._tuple_type(fields, node)
     out, i, n = (_tname(lo, h) for h in ("zlo", "zli", "zln"))
-    lo.locals[out] = {"kind": "list", "elem": tup_t}
-    lo.locals[i] = {"kind": "int"}
-    lo.locals[n] = {"kind": "int"}
+    lo.locals[out] = _t_list(tup_t)
+    lo.locals[i] = _t_leaf("int")
+    lo.locals[n] = _t_leaf("int")
     lens, vals, lines = [], [], []
-    for k, p in enumerate(pools):
+    for k in range(len(pools)):
         ln, va = _tname(lo, f"zk{k}"), _tname(lo, f"zv{k}")
-        lo.locals[ln] = {"kind": "int"}
+        lo.locals[ln] = _t_leaf("int")
         lo.locals[va] = fields[k]
-        lines.append(f"{ln} = len({p['id']})")
+        lines.append(f"{ln} = len({pids[k]})")
         lens.append(ln)
         vals.append(va)
     lines.append(f"{n} = {lens[0]}")
     for ln in lens[1:]:
         lines.append(f"if {ln} > {n}: {n} = {ln}")
     lines += [f"{out} = []", f"{i} = 0", f"while {i} < {n}:"]
-    for k, p in enumerate(pools):
+    for k in range(len(pools)):
         lines += [
             f"    if {i} < {lens[k]}:",
-            f"        {vals[k]} = {p['id']}[{i}]",
+            f"        {vals[k]} = {pids[k]}[{i}]",
             "    else:",
             f"        {vals[k]} = {fill_src}",
         ]
@@ -361,13 +365,13 @@ def _takewhile(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 2:
         lo.fail(node, "PS2003", "itertools.takewhile takes a predicate and an iterable")
     source = lo._expr(node.args[1])
-    typ = source["type"]
-    int_t = {"kind": "int"}
+    typ = _node_type(source)
+    int_t = _t_leaf("int")
     itn = None
-    if typ["kind"] == "class" and lo.classes.get(typ["name"], {}).get("iterator"):
+    if _type_kind(typ) == "class" and lo.classes.get(_type_name(typ), {}).get("iterator"):
         itn = _pin(lo, source, span, "tw")
         elem = typ["elem"]
-        list_t = {"kind": "list", "elem": elem}
+        list_t = _t_list(elem)
         seq_r = _field(itn, "seq", list_t, span)
         pool = _tname(lo, "twp")
         lo.locals[pool] = list_t
@@ -394,10 +398,10 @@ def _takewhile(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         )
     else:
         pool_nm = _pool(lo, node, source, span, "twp")
-        pool = pool_nm["id"]
-        elem = pool_nm["type"]["elem"]
+        pool = _node_id(pool_nm)
+        elem = _node_type(pool_nm)["elem"]
     out, i, n, v = (_tname(lo, h) for h in ("two", "twi", "twn", "twv"))
-    lo.locals[out] = {"kind": "list", "elem": elem}
+    lo.locals[out] = _t_list(elem)
     lo.locals[i] = int_t
     lo.locals[n] = int_t
     lo.locals[v] = elem
@@ -428,23 +432,15 @@ def _takewhile(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
                 _set_field(
                     itn,
                     "idx",
-                    {
-                        "kind": "binary",
-                        "op": "+",
-                        "left": _field(itn, "idx", int_t, span),
-                        "right": _nm(i, int_t, span),
-                        "type": int_t,
-                        "span": span,
-                    },
+                    _bin("+", _field(itn, "idx", int_t, span), _nm(i, int_t, span), int_t, span),
                     span,
                 ),
-                {
-                    "kind": "if",
-                    "cond": _cmp("<", _nm(i, int_t, span), _nm(n, int_t, span), span),
-                    "then": [_set_field(itn, "idx", _incr(_field(itn, "idx", int_t, span), 1, span), span)],
-                    "else": [],
-                    "span": span,
-                },
+                _if_stmt(
+                    _cmp("<", _nm(i, int_t, span), _nm(n, int_t, span), span),
+                    [_set_field(itn, "idx", _incr(_field(itn, "idx", int_t, span), 1, span), span)],
+                    [],
+                    span,
+                ),
             ]
         )
     return _mk_iter(lo, _nm(out, lo.locals[out], span), node, span)
@@ -767,7 +763,8 @@ def _groupby(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) not in {1, 2}:
         lo.fail(node, "PS2003", "itertools.groupby takes an iterable and an optional key function")
     pool = _pool(lo, node, lo._expr(node.args[0]), span, "gb")
-    elem = pool["type"]["elem"]
+    pid = _node_id(pool)
+    elem = _node_type(pool)["elem"]
     v = _tname(lo, "gbv")
     if len(node.args) == 2:
         key = node.args[1]
@@ -782,10 +779,10 @@ def _groupby(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
                 del lo.locals[names[0]]
             else:
                 lo.locals[names[0]] = saved
-            key_t = probe["type"]
+            key_t = _node_type(probe)
         else:
-            ftype = lo._expr(key)["type"]
-            if ftype["kind"] != "func":
+            ftype = _node_type(lo._expr(key))
+            if _type_kind(ftype) != "func":
                 lo.fail(key, "PS2003", "itertools.groupby key is a function name or an inline lambda")
             key_t = ftype["return"]
         pre, ktext, post, saves = _fn_call(lo, key, [v], [elem], span, "groupby")
@@ -793,29 +790,29 @@ def _groupby(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         key_t = elem
         pre, post, saves = [], [], {}
         ktext = v
-    list_t = {"kind": "list", "elem": elem}
+    list_t = _t_list(elem)
     tup_t = lo._tuple_type([key_t, list_t], node)
     g, out, i, n, k = (_tname(lo, h) for h in ("gbg", "gbo", "gbi", "gbn", "gbk"))
-    lo.locals[out] = {"kind": "list", "elem": tup_t}
+    lo.locals[out] = _t_list(tup_t)
     lo.locals[g] = list_t
     lo.locals[k] = key_t
     lo.locals[v] = elem
-    lo.locals[i] = {"kind": "int"}
-    lo.locals[n] = {"kind": "int"}
+    lo.locals[i] = _t_leaf("int")
+    lo.locals[n] = _t_leaf("int")
     _emit(
         lo,
         node,
         [
             f"{out} = []",
-            f"{n} = len({pool['id']})",
+            f"{n} = len({pid})",
             f"{i} = 0",
             f"while {i} < {n}:",
-            f"    {v} = {pool['id']}[{i}]",
+            f"    {v} = {pid}[{i}]",
             *[f"    {line}" for line in pre],
             f"    {k} = {ktext}",
             f"    {g} = []",
             f"    while {i} < {n}:",
-            f"        {v} = {pool['id']}[{i}]",
+            f"        {v} = {pid}[{i}]",
             *[f"        {line}" for line in pre],
             f"        if ({ktext}) == {k}:",
             f"            {g}.append({v})",

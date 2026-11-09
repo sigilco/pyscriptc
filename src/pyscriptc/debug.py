@@ -19,7 +19,19 @@ import time
 from pathlib import Path
 from typing import Any
 
-_TOPICS = {"stages", "fences", "cc", "paths", "verify", "all"}
+from pyscriptc.emit._ir import (
+    _has,
+    _items,
+    _kind_or_none,
+    _name_list,
+    _node_name,
+    _opt_int,
+    _opt_span,
+    _opt_str,
+    _opt_str_or_none,
+)
+
+_TOPICS = {"stages", "fences", "cc", "paths", "verify", "mir", "all"}
 
 
 def parse_topics(value: str | None) -> set[str]:
@@ -41,7 +53,7 @@ def resolve(flag: str | None, debug_dir: str | None, timings: bool = False) -> D
     value = flag if flag is not None else os.environ.get("PYSC_DEBUG")
     if flag is None and not value and debug_dir is None and not timings:
         return None
-    topics = parse_topics(value) if (flag is not None or value) else set()
+    topics: set[str] = parse_topics(value) if (flag is not None or (value is not None and value != "")) else set()
     if debug_dir is not None:
         # The dump is the point of `--debug-dir`: it carries the verification
         # verdicts, so the directory always turns the verifier on.
@@ -53,6 +65,12 @@ def resolve(flag: str | None, debug_dir: str | None, timings: bool = False) -> D
 
 
 class Debug:
+    # The B11 MIR adapter record, set by the CLI only on the MIR lane:
+    # lowered/adapter counts plus the per-function fallback records. The
+    # bare annotation registers the field; `self.x: T = v` AnnAssigns do
+    # not lower, so `__init__` assigns a plain `None`.
+    mir_plan: dict[str, Any] | None
+
     def __init__(self, topics: set[str], debug_dir: Path | None) -> None:
         self.topics = topics
         self.debug_dir = debug_dir
@@ -74,14 +92,37 @@ class Debug:
         self.ir_verifications: list[dict[str, Any]] = []
         self.llvm_verification: dict[str, Any] | None = None
         self.binding_info: dict[str, Any] | None = None
+        self.mir_plan = None
 
     def set_binding(self, emitted: list[dict[str, Any]], skipped: list[tuple[str, str]]) -> None:
         self.binding_info = {
-            "emitted": [fn["name"] for fn in emitted],
+            "emitted": [_node_name(fn) for fn in emitted],
             "emittedCount": len(emitted),
             "skipped": [{"name": name, "reason": reason} for name, reason in skipped],
             "skippedCount": len(skipped),
         }
+
+    def set_mir(self, lowered: int, records: list[dict[str, Any]]) -> None:
+        # Records print sorted by module then function. `sorted(key=)`
+        # does not lower on record elements, so the sort keys are plain
+        # strings looked back up in a name map.
+        keys: list[str] = []
+        record_by_key: dict[str, dict[str, Any]] = {}
+        for record in records:
+            record_module: str = record["module"]
+            record_fn: str = record["function"]
+            key = record_module + "\x00" + record_fn
+            keys.append(key)
+            record_by_key[key] = record
+        ordered: list[dict[str, Any]] = []
+        for key in sorted(keys):
+            rec: dict[str, Any] = record_by_key[key]
+            ordered.append(rec)
+        plan: dict[str, Any] = {}
+        plan["lowered"] = lowered
+        plan["adapter"] = len(ordered)
+        plan["records"] = ordered
+        self.mir_plan = plan
 
     def wants(self, topic: str) -> bool:
         return "all" in self.topics or topic in self.topics
@@ -97,7 +138,7 @@ class Debug:
             "ms": round(ms, 3),
             "rssKb": max(rss - self._rss_peak, 0),
             "nodes": _count_nodes(module),
-            "functions": 0 if module is None else len(module.get("functions", [])),
+            "functions": 0 if module is None else len(_items(module, "functions")),
         }
         self._rss_peak = max(self._rss_peak, rss)
 
@@ -111,7 +152,11 @@ class Debug:
         `lower` covers the whole lowering call; `parse` is the part of it that
         went into the Python parser. The stage keeps the remainder.
         """
-        inner_ms = next((ms for name, ms, primary in self.entries if name == inner and not primary), None)
+        inner_ms: float | None = None
+        for name, ms, primary in self.entries:
+            if name == inner and not primary:
+                inner_ms = ms
+                break
         if inner_ms is None:
             return
         for index, (name, ms, primary) in enumerate(self.entries):
@@ -130,6 +175,7 @@ class Debug:
 
     def render(self, module: dict[str, Any] | None, outputs: dict[str, str]) -> str:
         lines: list[str] = []
+        mir_plan = self.mir_plan
         if self.wants("stages"):
             lines.append("[debug] stage           ms    rssKB   nodes   funcs")
             for name, ms, primary in self.entries:
@@ -137,20 +183,35 @@ class Debug:
                 if stats is None:
                     lines.append(f"[debug] {name:<12}{ms:>8.1f}")
                 else:
-                    lines.append(
-                        f"[debug] {name:<12}{ms:>8.1f}{stats['rssKb']:>8}{stats['nodes']:>8}{stats['functions']:>8}"
-                    )
-            total = (time.perf_counter() - self._t0) * 1000.0
+                    rss = _opt_int(stats, "rssKb", 0)
+                    nodes = _opt_int(stats, "nodes", 0)
+                    funcs = _opt_int(stats, "functions", 0)
+                    lines.append(f"[debug] {name:<12}{ms:>8.1f}{rss:>8}{nodes:>8}{funcs:>8}")
+                if name == "emit_llvm" and mir_plan is not None:
+                    mir_lowered: int = mir_plan["lowered"]
+                    mir_adapter: int = mir_plan["adapter"]
+                    lines.append(f"[debug] mir  lowered {mir_lowered}  adapter {mir_adapter}")
+            total: float = (time.perf_counter() - self._t0) * 1000.0
             lines.append(f"[debug] {'total':<12}{total:>8.1f}")
+        if mir_plan is not None and self.wants("mir"):
+            records: list[dict[str, Any]] = mir_plan["records"]
+            for record in records:
+                record_module: str = record["module"]
+                record_fn: str = record["function"]
+                record_reason: str = record["reason"]
+                lines.append(f"[debug] mir.adapter {record_module}:{record_fn}  {record_reason}")
         if module is not None and self.wants("stages"):
             lines.extend(_capability_lines(module))
         if module is not None and self.wants("fences"):
-            fences = module.get("fences", [])
+            fences = _items(module, "fences")
             lines.append(f"[debug] fences: {len(fences)}")
             for fence in fences:
-                span = fence.get("span", {})
+                span: dict[str, Any] = {}
+                span_opt = _opt_span(fence)
+                if span_opt is not None:
+                    span = span_opt
                 lines.append(
-                    f"[debug]   {span.get('file')}:{span.get('line')}:{span.get('col')}"
+                    f"[debug]   {_opt_str_or_none(span, 'file')}:{span.get('line')}:{span.get('col')}"
                     f" {fence.get('code')} {fence.get('message')}"
                 )
         if self.commands and self.wants("cc"):
@@ -186,8 +247,8 @@ class Debug:
             ],
             "timings": self.timings(),
             "totalMs": round((time.perf_counter() - self._t0) * 1000.0, 3),
-            "fences": [] if module is None else module.get("fences", []),
-            "functions": 0 if module is None else len(module.get("functions", [])),
+            "fences": [] if module is None else _items(module, "fences"),
+            "functions": 0 if module is None else len(_items(module, "functions")),
             "capabilities": {} if module is None else _capability_report(module),
             "commands": self.commands,
             "outputs": outputs,
@@ -201,9 +262,14 @@ class Debug:
             res["binding"] = self.binding_info
             if self.binding_info.get("skippedCount", 0) > 0:
                 res["bindingSkipped"] = self.binding_info["skippedCount"]
+        mir_plan = self.mir_plan
+        if mir_plan is not None:
+            mir_records: list[dict[str, Any]] = mir_plan["records"]
+            res["mirAdapter"] = mir_records
         # boxed:begin
-        if module is not None and "fallback" in module:
-            res["fallback"] = module["fallback"]
+        if module is not None and _has(module, "fallback"):
+            fallback: dict[str, Any] = module["fallback"]
+            res["fallback"] = fallback
         # boxed:end
         return res
 
@@ -248,7 +314,7 @@ def _count_nodes(module: dict[str, Any] | None) -> int:
 
     def walk(value: Any) -> int:
         if isinstance(value, dict):
-            count = 1 if isinstance(value.get("kind"), str) else 0
+            count = 1 if isinstance(_kind_or_none(value), str) else 0
             return count + sum(walk(item) for item in value.values())
         if isinstance(value, list):
             return sum(walk(item) for item in value)
@@ -261,16 +327,27 @@ def _module_files(module: dict[str, Any]) -> list[str]:
     """Every source file the lowered module mentions."""
 
     files: set[str] = set()
-    for fence in module.get("fences", []):
-        path = fence.get("span", {}).get("file")
+    for fence in _items(module, "fences"):
+        span: dict[str, Any] = {}
+        span_opt = _opt_span(fence)
+        if span_opt is not None:
+            span = span_opt
+        path = _opt_str_or_none(span, "file")
         if path:
             files.add(str(path))
     for key in ("functions", "classes"):
-        for item in module.get(key, []):
-            path = (item.get("span") or {}).get("file")
+        for item in _items(module, key):
+            span: dict[str, Any] = {}
+            span_opt = _opt_span(item)
+            if span_opt is not None:
+                span = span_opt
+            path = _opt_str_or_none(span, "file")
             if path:
                 files.add(str(path))
-    return sorted(files)
+    file_list: list[str] = []
+    for f in files:
+        file_list.append(f)
+    return sorted(file_list)
 
 
 def _capability_report(module: dict[str, Any]) -> dict[str, Any]:
@@ -283,18 +360,22 @@ def _capability_report(module: dict[str, Any]) -> dict[str, Any]:
 
 def _capability_lines(module: dict[str, Any]) -> list[str]:
     report = _capability_report(module)
-    totals = report["totals"]
+    totals: dict[str, Any] = report["totals"]
     lines = [
-        f"[debug] capability: {totals['native']} native, {totals['fenced']} fenced, "
-        f"{totals['island']} island definitions of {totals['definitions']}"
+        f"[debug] capability: {_opt_int(totals, 'native', 0)} native, {_opt_int(totals, 'fenced', 0)} fenced, "
+        f"{_opt_int(totals, 'island', 0)} island definitions of {_opt_int(totals, 'definitions', 0)}"
     ]
-    for item in report["byFile"]:
-        if not (item["fences"] or item["definitions"]):
+    for item in _items(report, "byFile"):
+        fences_n = _opt_int(item, "fences", 0)
+        defs_n = _opt_int(item, "definitions", 0)
+        if not (fences_n or defs_n):
             continue
-        mechanisms = f", reflection: {', '.join(item['mechanisms'])}" if item["mechanisms"] else ""
+        mechs = _name_list(item, "mechanisms")
+        mechanisms = f", reflection: {', '.join(mechs)}" if mechs else ""
         lines.append(
-            f"[debug]   {item['file']}: {item['native']} native, {item['fenced']} fenced, "
-            f"{item['island']} island of {item['definitions']} definitions, {item['fences']} fences{mechanisms}"
+            f"[debug]   {_opt_str(item, 'file')}: {_opt_int(item, 'native', 0)} native, "
+            f"{_opt_int(item, 'fenced', 0)} fenced, "
+            f"{_opt_int(item, 'island', 0)} island of {defs_n} definitions, {fences_n} fences{mechanisms}"
         )
     return lines
 

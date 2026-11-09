@@ -23,9 +23,13 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc import config
+from pyscriptc._irnode import IrNode, Span, T
+from pyscriptc.emit._ir import _items, _kind, _none_type, _opt_str, _return_type
 from pyscriptc.errors import IRError
 from pyscriptc.package import lower_directory
+from pyscriptc.tirserde import dict_to_span, node_to_dict
 
 
 class ProjectError(IRError):
@@ -38,7 +42,9 @@ def discover_pyproject(directory: Path) -> Path:
     start = directory.resolve()
     if start.is_file():
         start = start.parent
-    for candidate in (start, *start.parents):
+    candidates: list[Path] = [start]
+    candidates.extend(start.parents)
+    for candidate in candidates:
         path = candidate / "pyproject.toml"
         if path.is_file():
             return path
@@ -50,7 +56,7 @@ def script_entry(pyproject: Path, name: str) -> str:
 
     target = config.entry_points(pyproject).get(name)
     if target is None:
-        known = ", ".join(sorted(config.entry_points(pyproject)))
+        known: str = ", ".join(sorted(config.entry_points(pyproject).keys()))
         raise ProjectError(f"{pyproject}: no console script {name!r}" + (f" (known: {known})" if known else ""))
     return target
 
@@ -93,10 +99,10 @@ def script_file(pyproject: Path, module: str) -> Path:
 
     base = pyproject.parent
     for root in config.project_roots(pyproject):
-        candidate = base / root / Path(*module.split(".")).with_suffix(".py")
+        candidate: Path = base / root / Path("/".join(module.split(".")) + ".py")
         if candidate.is_file():
             return candidate
-        package = base / root / Path(*module.split(".")) / "__init__.py"
+        package: Path = base / root / Path("/".join(module.split("."))) / "__init__.py"
         if package.is_file():
             return package
     raise ProjectError(f"{pyproject}: {module} not found under the project roots {roots_note(pyproject)}")
@@ -131,11 +137,11 @@ def _tree_root(entry_file: Path, module: str, pyproject: Path) -> Path:
     # A module inside a package lowers with its package; a package module
     # lowers with its own directory.
     tail = parts[:-1] if len(parts) > 1 else parts
-    root = base / roots[0] / Path(*tail)
+    root: Path = base / roots[0] / Path("/".join(tail))
     if (root / "__init__.py").is_file():
         return root
     if len(parts) > 1:
-        parent = base / roots[0] / Path(*parts[:-1])
+        parent: Path = base / roots[0] / Path("/".join(parts[:-1]))
         if (parent / "__init__.py").is_file():
             return parent
     return (base / roots[0]) if (base / roots[0]).is_dir() else base
@@ -152,7 +158,8 @@ def _retarget_entry(merged: dict[str, Any], module: str, attr: str) -> None:
     are the script the module runs at import time.
     """
 
-    names = {fn["name"] for fn in merged.get("functions", [])}
+    functions = _items(merged, "functions")
+    names = {_opt_str(fn, "name") for fn in functions}
     target = f"{module}.{attr}"
     if target not in names:
         return
@@ -160,68 +167,53 @@ def _retarget_entry(merged: dict[str, Any], module: str, attr: str) -> None:
     # attribute. The synthesized `main` does both, in that order: the
     # module's own entry function (`__entry__` or `main`) first, then the
     # attribute, whose return value is the process exit code.
-    span = {"file": merged["sourceFile"], "line": 1, "col": 1, "endLine": 1, "endCol": 1}
+    span_rec: dict[str, Any] = {}
+    span_rec["file"] = _opt_str(merged, "sourceFile")
+    span_rec["line"] = 1
+    span_rec["col"] = 1
+    span_rec["endLine"] = 1
+    span_rec["endCol"] = 1
+    span = dict_to_span(span_rec)
     body: list[dict[str, Any]] = []
-    script_entry = merged.get("entry")
-    script_fn = next((fn for fn in merged["functions"] if fn["name"] == script_entry), None)
+    script_entry = _opt_str(merged, "entry")
+    script_fn: dict[str, Any] | None = None
+    for fn in functions:
+        if _opt_str(fn, "name") == script_entry:
+            script_fn = fn
+            break
     if script_fn is not None and script_entry != target:
-        if script_fn["returnType"]["kind"] == "int":
-            body.append(
-                {
-                    "kind": "expr",
-                    "expr": {
-                        "kind": "call",
-                        "callee": {"kind": "function", "name": script_entry},
-                        "args": [],
-                        "type": {"kind": "int"},
-                        "span": span,
-                    },
-                    "span": span,
-                }
-            )
-        elif script_fn["returnType"]["kind"] == "none":
-            body.append(
-                {
-                    "kind": "expr",
-                    "expr": {
-                        "kind": "call",
-                        "callee": {"kind": "function", "name": script_entry},
-                        "args": [],
-                        "type": {"kind": "none"},
-                        "span": span,
-                    },
-                    "span": span,
-                }
-            )
+        ret_kind: str = _kind(_return_type(script_fn))
+        if ret_kind == "int" or ret_kind == "none":
+            body.append(_expr_call(_ir.function_callee(script_entry), [], _ir.t_leaf(ret_kind), span, ""))
     body.append(
-        {
-            "kind": "expr",
-            "expr": {
-                "kind": "call",
-                "callee": {"kind": "module", "module": "sys", "name": "exit"},
-                "args": [
-                    {
-                        "kind": "call",
-                        "callee": {"kind": "function", "name": target},
-                        "args": [],
-                        "type": {"kind": "int"},
-                        "span": span,
-                    }
-                ],
-                "type": {"kind": "none"},
-                "span": span,
-                "symbol": "exit",
-            },
-            "span": span,
-        }
+        _expr_call(
+            _ir.module_callee("sys", "exit"),
+            [_call(_ir.function_callee(target), [], _ir.t_leaf("int"), span, "")],
+            _ir.t_leaf("none"),
+            span,
+            "exit",
+        )
     )
-    merged["functions"].append(
+    functions.append(
         {
             "name": "main",
             "params": [],
-            "returnType": {"kind": "none"},
+            "returnType": _none_type(),
             "locals": [],
             "body": body,
         }
     )
     merged["entry"] = "main"
+
+
+def _call(callee: IrNode, args: list[IrNode], typ: T, span: Span, symbol: str) -> IrNode:
+    """The typed call node the console-script wrapper emits."""
+
+    return _ir.call(callee, args, typ, span, symbol, "", -1)
+
+
+def _expr_call(callee: IrNode, args: list[IrNode], typ: T, span: Span, symbol: str) -> dict[str, Any]:
+    """The expr-statement wrapping one typed call, as dict IR."""
+
+    stmt: dict[str, Any] = node_to_dict(_ir.expr_stmt(_call(callee, args, typ, span, symbol), span))
+    return stmt

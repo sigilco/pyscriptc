@@ -226,7 +226,19 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 return self._island_call(node, span, binding.module, binding.attr, expect)
             # boxed:end
             if binding.kind == "pyfunc":
-                return self._linked_call(node, span, self.pkg_funcs[name], name)
+                return self._linked_call(node, span, self.pkg_funcs[name], name, expect)
+            # boxed:begin
+            # The per-module plane split: the definition rides another
+            # module's island floor, so the call crosses the boundary
+            # through the boxed seam, namespaced by the defining module.
+            if binding.kind == "island_floor":
+                return self._island_floor_call(node, span, binding.module, binding.attr, expect)
+            # An island class of another module instantiates through the same
+            # namespaced trampoline: the class object is callable island-side,
+            # so `Cls(...)` is one invoke keyed by (module, class name).
+            if binding.kind == "island_floor_class":
+                return self._island_floor_class_call(node, span, binding.module, binding.attr, expect)
+            # boxed:end
             if binding.kind == "const" and self._ffi_module(binding.module) is not None:
                 self.fail(node, "PS2002", f"{name} is a constant and is not a function")
             self.fail(node, "PS2002", f"{name} is not a function")
@@ -237,6 +249,12 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         # handle.
         if name in self.island_classes:
             return self._island_fn_call(node, span, name, expect)
+        # An island class of another module: the same trampoline with the
+        # defining module's name in front of the callee key.
+        floor = self.island_floor_classes.get(name)
+        if floor is not None:
+            module, cls = floor
+            return self._island_floor_class_call(node, span, module, cls, expect)
         # boxed:end
         if name in self.class_aliases or name in self.classes:
             return self._construct(node, span, self.class_aliases.get(name, name))
@@ -1143,7 +1161,10 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 node_to_dict(
                     _ir.if_stmt(
                         dict_to_node(_contains_node(_name(oth, other["type"], span), item_n, which != "inter", span)),
-                        [dict_to_node(stmt) for stmt in self._set_insert_stmts(dest, typ, item_n, span)],
+                        [
+                            dict_to_node(stmt)
+                            for stmt in self._set_insert_stmts(_name(dest, typ, span), typ, item_n, span)
+                        ],
                         [],
                         _mk_span(span),
                     )
@@ -1182,7 +1203,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         self.locals[item] = elem
         body = [
             _assign(item, _subscript_node(_name(src, source["type"], span), _name(idx, int_t, span), elem, span), span),
-            *self._set_insert_stmts(dest, typ, _name(item, elem, span), span),
+            *self._set_insert_stmts(_name(dest, typ, span), typ, _name(item, elem, span), span),
             _assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span),
         ]
         return [
@@ -1199,13 +1220,12 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         ]
 
     def _set_insert_stmts(
-        self, dest: str, typ: dict[str, Any], value: dict[str, Any], span: dict[str, Any]
+        self, hay: dict[str, Any], typ: dict[str, Any], value: dict[str, Any], span: dict[str, Any]
     ) -> list[dict[str, Any]]:
         elem = typ["elem"]
         slot = self._temp("elt")
         self.locals[slot] = elem
         needle = _name(slot, elem, span)
-        hay = _name(dest, typ, span)
         missing = _contains_node(hay, needle, True, span)
         push = node_to_dict(
             _ir.expr_stmt(
@@ -1263,7 +1283,10 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         self._reject_keywords(node)
         if len(node.args) != 1:
             self.fail(node, "PS2003", f"{label} expects 1 argument(s)")
-        source = self._expr(node.args[0])
+        arg = node.args[0]
+        if isinstance(arg, (ast.GeneratorExp, ast.ListComp)):
+            return self._all_any_comp(arg, span, want_all)
+        source = self._expr(arg)
         if _node_type_kind(source) != "list":
             self.fail(node, "PS2002", f"{label}() takes a list")
         elem = source["type"]["elem"]
@@ -1316,6 +1339,17 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             ]
         )
         return _name(result, bool_t, span)
+
+    def _all_any_comp(
+        self, comp: ast.GeneratorExp | ast.ListComp, span: dict[str, Any], want_all: bool
+    ) -> dict[str, Any]:
+        """`all`/`any` over a comprehension: the eager comp loop updates a
+        bool accumulator instead of materializing the element list, so a
+        bool element never builds a `list[bool]` (still fenced elsewhere)."""
+        result = self._temp("pred")
+        self.locals[result] = {"kind": "bool"}
+        self._comp(comp, span, None, pred=(result, want_all))
+        return _name(result, {"kind": "bool"}, span)
 
 
 def _subscript_node(
