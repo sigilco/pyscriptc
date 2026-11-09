@@ -158,7 +158,7 @@ def _dict_first_key(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, 
     opt = _nm(box, opt_t, span)
     # Empty map: StopIteration exactly like the drained cursor; the tag
     # test catches it without a try block.
-    tag = _field(opt, "_tag", {"kind": "bool"}, span)
+    tag = _field(opt, "_tag", _t_leaf("bool"), span)
     val = _field(opt, "_val", key_t, span)
     out = lo._temp("nx")
     lo.locals[out] = key_t
