@@ -37,6 +37,7 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 | `mise run support:table` | Regenerate the supported-API tables under `.agents/docs/support` (append `--check` to compare) |
 | `mise run boxed:cost` | The boxed ledger window, per `AGENTS.md` |
 | `mise run ir:hashes` | Canonical IR hash compare against the committed baseline (linux oracle; see the note in `mise.toml` for the 3.14 micro stamp and macOS behavior) |
+| `mise run tir:hashes` | Streaming TIR hash compare against the committed baseline (linux oracle, same rules as `ir:hashes`) |
 | `mise run compile` | `pyscriptc compile`, extra args pass through: `mise run compile examples/hello.py --emit bin` |
 | `mise run run` | `pyscriptc run` (content-cached compile and execute), args pass through |
 | `mise run wheel:smoke` | Build the wheel, install it in a fresh venv, compile and run hello |
