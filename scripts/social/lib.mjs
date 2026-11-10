@@ -1,5 +1,7 @@
 // Shared card theme and renderer. Tokens mirror src/styles/theme.css (obsidian canvas,
 // one blue accent). Cards carry only the values; all explanation goes in the post text.
+// Header and footer chrome is forbidden on cards: no .brand/.pitch/.top header block
+// and no .foot footer line — render() rejects bodies that use them.
 import { execFile } from "node:child_process";
 import { mkdirSync, readFileSync, writeFileSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -36,10 +38,6 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono)}
 .term{font-size:33px;line-height:1.5;white-space:pre} .term .p{color:var(--accent)} .term .o{color:var(--sec)}
 .stack{display:flex;flex-direction:column;justify-content:center;height:100%}
 .seam{justify-content:space-between}
-.top{padding-top:8px}
-.brand{font-family:var(--sans);font-weight:700;font-size:44px;letter-spacing:-.02em}
-.brand .ver{color:var(--accent);font-weight:600}
-.pitch{font-family:var(--sans);color:var(--sec);font-size:30px;margin-top:14px}
 .pipe{display:flex;flex-direction:column;justify-content:center;flex:1}
 .row{display:flex;align-items:baseline;gap:26px;padding:17px 0;border-bottom:1px solid var(--hair)}
 .row:last-child{border-bottom:0}
@@ -47,8 +45,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--mono)}
 .row.new .stage{color:var(--accent-strong)}
 .desc{font-family:var(--sans);color:var(--slate);font-size:27px;flex:1}
 .tag{font-family:var(--sans);color:var(--accent-strong);font-size:22px;width:190px;flex:none;text-align:right}
-.arrow{color:#3a404b;font-size:26px;line-height:1;padding:6px 0 6px 96px}
-.foot{font-family:var(--sans);color:var(--muted);font-size:28px;padding-bottom:8px}`;
+.arrow{color:#3a404b;font-size:26px;line-height:1;padding:6px 0 6px 96px}`;
+
+// Header/footer chrome is forbidden on cards (owner rule): no brand/pitch/top
+// header block, no foot footer line. `.lbl` stays — it labels card sections.
+const FORBIDDEN_CHROME = /class="[^"]*\b(?:brand|pitch|top|foot)\b/;
 
 export const fmt = (ms) => (ms >= 100 ? Math.round(ms).toLocaleString("en-US") : ms.toFixed(ms < 10 ? 1 : 0)) + " ms";
 
@@ -64,6 +65,10 @@ export async function render(cards) {
   const base = `http://127.0.0.1:${server.address().port}`;
   const pw = (...a) => run("playwright-cli", ["-s=social", ...a], { maxBuffer: 8e6 });
   for (const [name, body] of Object.entries(cards)) {
+    if (FORBIDDEN_CHROME.test(body)) {
+      console.error(`render failed ${name}: header/footer chrome is forbidden on cards`);
+      process.exit(2);
+    }
     writeFileSync(join(out, `${name}.html`), `<!doctype html><meta charset=utf-8><style>${css}</style><div id="card">${body}</div>`);
     await pw("open", `${base}/${name}.html`);
     await pw("resize", "1080", "1080");
