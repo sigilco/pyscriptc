@@ -231,6 +231,11 @@ class StdlibBindMixin:
                 self.bindings[local] = Binding("module", child, "", child_status == "queued")
                 self._note_module(child)
                 continue
+            # The member is outside the lowered subset. Record where the name
+            # came from so a later use (a decorator) still names the stdlib
+            # member (issue #732): the behavior-synthesizing guard reads this
+            # table for a `from functools import lru_cache` spelling.
+            self.stdlib_imports[local] = (module, alias.name)
             fences.append(
                 Fence(
                     "PS2001",

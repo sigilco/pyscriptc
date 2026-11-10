@@ -104,6 +104,34 @@ _DECO_ERASED_MESSAGE = (
     "object (docs/reference/divergences.md #53, PS3099)"
 )
 
+_METHOD_DECO_ERASED_MESSAGE = (
+    "the method decorator is erased: the method lowers undecorated and the "
+    "wrap never runs, where CPython replaces the attribute with whatever the "
+    "decorator returns (docs/reference/divergences.md #54, PS3099)"
+)
+
+_MODULE_DECO_ERASED_MESSAGE = (
+    "the function decorator is erased: the function lowers undecorated and the "
+    "wrap never runs, where CPython replaces the name with whatever the "
+    "decorator returns (docs/reference/divergences.md #54, PS3099)"
+)
+
+# The stdlib decorators that synthesize function behavior at runtime: they
+# never take the erase, they keep the fence (native) or the island route
+# (fallback tier). `lru_cache` memoizes (a second call with a warm cache
+# skips the body, and attribute reads see a wrapper object, not a function);
+# `wraps` rebinds `__wrapped__` and `__dict__` metadata on the wrapper;
+# `contextmanager` turns a generator into a context manager (the `with`
+# block calls `__enter__`/`__exit__` on a manager object, not the
+# generator).
+_METHOD_SYNTHESIS_DECORATORS = {
+    ("functools", "lru_cache"),
+    ("functools", "cache"),
+    ("functools", "wraps"),
+    ("functools", "singledispatchmethod"),
+    ("contextlib", "contextmanager"),
+}
+
 
 class ClassesMoreMixin:
     def _class_decorator(self, node: ast.ClassDef) -> str | None:
@@ -138,6 +166,78 @@ class ClassesMoreMixin:
         if note not in self.module_notes:
             self.module_notes.append(note)
         return None
+
+    def _is_method_synthesis_deco(self, dec: ast.expr) -> bool:
+        """A stdlib decorator whose call changes the function's call semantics.
+
+        `functools.lru_cache` (and `cache`) memoizes, `wraps` attaches
+        metadata to a wrapper, `singledispatchmethod` dispatches on the first
+        argument's type; erasing any of them silently loses that behavior,
+        so they never take the erase (they keep the PS1201 fence native and
+        the island route under the fallback tier).
+        """
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if isinstance(target, ast.Name):
+            binding = self.bindings.get(target.id)
+            if binding is not None:
+                return (binding.module, binding.attr) in _METHOD_SYNTHESIS_DECORATORS
+            # A `from functools import lru_cache` spelling: the member is
+            # outside the lowered subset, so the import fenced and no
+            # binding exists. The import table still names the member.
+            imported = self.stdlib_imports.get(target.id)
+            return imported is not None and imported in _METHOD_SYNTHESIS_DECORATORS
+        if isinstance(target, ast.Attribute):
+            resolved = self._resolve_module(target)
+            if resolved is None:
+                return False
+            return (resolved[1], resolved[2]) in _METHOD_SYNTHESIS_DECORATORS
+        return False
+
+    def _has_synthesis_deco(self, fn: ast.FunctionDef) -> bool:
+        """True when the definition carries a behavior-synthesizing decorator.
+
+        A stack that holds one never takes the advisory erase: the def
+        lowers undecorated, so the synthesis (`functools.lru_cache`'s
+        memoization, `wraps`' metadata, `singledispatchmethod`'s dispatch)
+        would be lost with it. Such a definition keeps its fence.
+        """
+        return any(self._is_method_synthesis_deco(dec) for dec in fn.decorator_list)
+
+    def _erase_module_decorators(self, fn: ast.FunctionDef) -> None:
+        """Drop module-function decorators outside the closed set that do not
+        synthesize behavior, with the advisory PS3099 note (divergence 54,
+        issue #732).
+
+        A stack that carries a behavior-synthesizing decorator never takes
+        the erase: the whole stack lowers undecorated, so the synthesis
+        would be lost with it. The caller checks for that first and keeps
+        the fence; this helper only ever drops the members it may drop.
+        """
+        for dec in fn.decorator_list:
+            if self._is_method_synthesis_deco(dec):
+                continue
+            note = f"note: PS3099 ({fn.name}): {_MODULE_DECO_ERASED_MESSAGE}"
+            if note not in self.module_notes:
+                self.module_notes.append(note)
+        fn.decorator_list = []
+
+    def _erase_method_decorators(self, fn: ast.FunctionDef) -> None:
+        """Drop the decorators that are not in the closed set and are not
+        behavior-synthesizing, with the advisory PS3099 note (divergence 54,
+        issue #732). The method lowers as the plain kind the remaining
+        decorator selects.
+
+        A stack that carries a behavior-synthesizing decorator never takes
+        the erase: the method would lower undecorated and the synthesis
+        would be lost with it, so the caller keeps the fence instead.
+        """
+        for dec in fn.decorator_list:
+            if self._is_method_synthesis_deco(dec):
+                continue
+            note = f"note: PS3099 ({fn.name}): {_METHOD_DECO_ERASED_MESSAGE}"
+            if note not in self.module_notes:
+                self.module_notes.append(note)
+        fn.decorator_list = []
 
     def _is_dataclass_deco(self, dec: ast.expr) -> bool:
         target = dec
@@ -180,26 +280,72 @@ class ClassesMoreMixin:
 
     def _method_decorator(self, fn: ast.FunctionDef) -> str:
         # Erased typing decorators (`@abstractmethod`) drop out first, so
-        # `@property @abstractmethod` still resolves to a property.
+        # `@property @abstractmethod` still resolves to a property. A user
+        # or unknown decorator that does not synthesize behavior takes the
+        # advisory erase (divergence 54, issue #732); a synthesizing one
+        # keeps the fence.
         decos = [d for d in fn.decorator_list if self._erased_deco_name(d) is None]
         if not decos:
             return "method"
-        if len(decos) != 1:
-            self.fail(fn, "PS1201", "decorators are not lowered")
-        dec = decos[0]
-        target = dec
-        if isinstance(dec, ast.Call):
-            if dec.args or dec.keywords:
-                self.fail(fn, "PS1201", "decorators are not lowered")
-            target = dec.func
-        if isinstance(target, ast.Name) and target.id in {"property", "staticmethod", "classmethod"}:
-            return {"property": "property", "staticmethod": "static", "classmethod": "class"}[target.id]
         if self._is_contextmanager_deco(fn) and enabled():
             # `@contextmanager`: the coro pass owns it; the method still
-            # lowers as a plain method (the body is the resume body).
+            # lowers as a plain method (the body is the resume body). The
+            # check comes before the synthesis guard: the decorator is in
+            # the closed set, and it lowers as a context manager.
             return "method"
-        self.fail(fn, "PS1201", "decorators are not lowered")
-        raise AssertionError("unreachable")
+        if any(self._is_method_synthesis_deco(d) for d in decos):
+            self.fail(fn, "PS1201", "decorators are not lowered")
+        if any(self._is_descriptor_deco(d) for d in decos):
+            # A descriptor-style decorator (`@v.setter`, `@v.deleter`) does
+            # not wrap the function: it mutates the descriptor the getter
+            # made. Erasing it would leave the property half-written, so
+            # the stack keeps the fence.
+            self.fail(fn, "PS1201", "decorators are not lowered")
+        builtin = self._builtin_method_kind(decos)
+        if builtin is not None:
+            return builtin
+        if any(self._is_builtin_method_deco(d) for d in decos):
+            # A closed-set builtin (`property`, `staticmethod`,
+            # `classmethod`) in a stack with other members: the builtin
+            # selects the kind and the other member has no place in it.
+            self.fail(fn, "PS1201", "decorators are not lowered")
+        self._erase_method_decorators(fn)
+        return "method"
+
+    def _is_builtin_method_deco(self, dec: ast.expr) -> bool:
+        """True when the decorator names a closed-set builtin method kind."""
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        return isinstance(target, ast.Name) and target.id in {"property", "staticmethod", "classmethod"}
+
+    def _builtin_method_kind(self, decos: list[ast.expr]) -> str | None:
+        """The method kind a single closed-set builtin decorator selects.
+
+        `property`, `staticmethod` and `classmethod` name the builtin
+        kinds; a decorator that reads as one of them (`@v.setter`) is not
+        the builtin and selects nothing.
+        """
+        if len(decos) != 1:
+            return None
+        target = decos[0].func if isinstance(decos[0], ast.Call) else decos[0]
+        if isinstance(target, ast.Name) and target.id in {"property", "staticmethod", "classmethod"}:
+            return {"property": "property", "staticmethod": "static", "classmethod": "class"}[target.id]
+        return None
+
+    def _is_descriptor_deco(self, dec: ast.expr) -> bool:
+        """True when the decorator is a descriptor-style member access.
+
+        `@v.setter`, `@v.deleter` and `@v.getter` do not wrap the
+        function: they mutate the descriptor the getter made, and
+        CPython's class body keeps one attribute for the pair. The
+        spelling is the descriptor protocol's own member names, so the
+        module member spellings (`@functools.lru_cache`) do not match and
+        a user's own attribute decorator (`@register.filter`) keeps the
+        advisory erase.
+        """
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if not isinstance(target, ast.Attribute):
+            return False
+        return target.attr in {"setter", "deleter", "getter"}
 
     def _is_builtin_object(self, node: ast.expr) -> bool:
         if not isinstance(node, ast.Name) or node.id != "object":
