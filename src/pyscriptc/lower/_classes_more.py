@@ -90,6 +90,14 @@ _ERASED_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 _ERASED_DECORATORS = frozenset({"abstractmethod", "overload"})
 
 
+# The stdlib decorators that synthesize class behavior: they never take the
+# erase, they keep the fence (native) or the island route (fallback tier).
+_CLASS_SYNTHESIS_DECORATORS = {
+    ("dataclasses", "dataclass"),
+    ("functools", "total_ordering"),
+}
+
+
 _DECO_ERASED_MESSAGE = (
     "the class decorator is erased: the class lowers undecorated and the "
     "wrap never runs, where CPython applies the decorator to the class "
@@ -110,8 +118,17 @@ class ClassesMoreMixin:
         """
         if not node.decorator_list:
             return None
-        if len(node.decorator_list) == 1 and self._is_dataclass_deco(node.decorator_list[0]):
-            return "dataclass"
+        if len(node.decorator_list) == 1:
+            if self._is_dataclass_deco(node.decorator_list[0]):
+                return "dataclass"
+            # A stdlib decorator that synthesizes class behavior at runtime
+            # (`dataclasses.dataclass(order=...)`, `functools.total_ordering`)
+            # is not a user wrap: erasing it silently loses the ordering
+            # methods CPython attaches, so it keeps the #628 island route
+            # under the fallback tier and the PS1201 fence native, never
+            # the erase.
+            if self._is_class_synthesis_deco(node.decorator_list[0]):
+                self.fail(node, "PS1201", "decorators are not lowered")
         # The erase is advisory: the class lowers undecorated, so the wrap
         # never runs (divergence 52, issue #732). The note rides the
         # module's `_notes` and prints on stderr; the compile itself exits
@@ -139,6 +156,26 @@ class ClassesMoreMixin:
         if isinstance(target, ast.Attribute):
             resolved = self._resolve_module(target)
             return resolved is not None and resolved[1] == "dataclasses" and resolved[2] == "dataclass"
+        return False
+
+    def _is_class_synthesis_deco(self, dec: ast.expr) -> bool:
+        """A stdlib decorator whose call attaches methods to the class.
+
+        `dataclasses.dataclass` in any spelling (taken or not) and
+        `functools.total_ordering` synthesize dunders at runtime; erasing
+        them loses behavior, so they never take the erase.
+        """
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if isinstance(target, ast.Name):
+            binding = self.bindings.get(target.id)
+            if binding is None:
+                return False
+            return (binding.module, binding.attr) in _CLASS_SYNTHESIS_DECORATORS
+        if isinstance(target, ast.Attribute):
+            resolved = self._resolve_module(target)
+            if resolved is None:
+                return False
+            return (resolved[1], resolved[2]) in _CLASS_SYNTHESIS_DECORATORS
         return False
 
     def _method_decorator(self, fn: ast.FunctionDef) -> str:
