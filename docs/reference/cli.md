@@ -99,6 +99,7 @@ pyscriptc assess SOURCE [options]
 | ---- | ----- | ------ |
 | `--json` |  | print the assessment report as JSON |
 | `--all` |  | print the full report without capping refusals (default top-3 per root cause) |
+| `--island-engine ENGINE` | `ENGINE` | island engine to report the capability surface against (same syntax as compile --island-engine); when the engine carries a manifest, the report gains an engine capability section; also read from [tool.pyscriptc.island] engine |
 | `--bench` |  | time CPython against native binary on compilable entry points and print ratio |
 | `--verify` |  | run differential verify on compilable entry points and show receipt inline |
 | `--call FUNC` | `FUNC` | function to call on entry points, not the program entry |
@@ -159,6 +160,7 @@ pyscriptc imports SOURCE [options]
 | ---- | ----- | ------ |
 | `--json` |  | print the report as JSON |
 | `--reach FILE` | `FILE` | append the embedded-CPython reach share to a JSON file (the compat ledger reads it) |
+| `--island-engine ENGINE` | `ENGINE` | island engine to report the capability surface against (same syntax as compile --island-engine); when the engine carries a manifest, imports gain an engine availability note; also read from [tool.pyscriptc.island] engine |
 
 ### `reduce`
 
