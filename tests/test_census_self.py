@@ -44,6 +44,9 @@ def test_self_census_ballpark() -> None:
     # the emit/ package: 13 modules (emit/_ir.py, emit/llvm/_driver.py and the
     # eight area mixins, plus the two package inits) replace the one file.
     # zigshim.py (#291, the `pip install ziglang` PATH shim) adds 1 module.
+    # The win32 resolution (#1198): the wheel's zig.exe helper adds two
+    # fences (zigshim 9 -> 11); the wheel route on Windows is a direct path,
+    # not a shim, so the count is one import probe and one annotation.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 1 module and 5 fences.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 1 module and 5 fences.
     # restlower/_urllib.py (urlopen / Request, #225 #226) adds 1 module and 12 fences.

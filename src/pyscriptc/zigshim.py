@@ -5,10 +5,12 @@ The `ziglang` PyPI wheel ships upstream Zig, but its console script is
 install. This module closes that gap:
 
 1. If a real `zig` is on PATH, use it.
-2. Otherwise install a `zig` (and on Windows `zig.bat`) shim into
-   `~/.cache/pyscriptc/shim` that execs `python -m ziglang` with an
-   interpreter that has the `ziglang` package, and prepend that directory to
-   PATH for the current process, so the compiler and its children resolve
+2. On Windows, return the wheel's own `ziglang/zig.exe`: a Win32 executable
+   the compiler's subprocess calls can run directly.
+3. Otherwise install a `zig` (and on Windows also a `zig.bat` for shells)
+   shim into `~/.cache/pyscriptc/shim` that execs `python -m ziglang` with
+   an interpreter that has the `ziglang` package, and prepend that directory
+   to PATH for the current process, so the compiler and its children resolve
    `zig` by name.
 
 No zig toolchain is pinned or downloaded here: whatever `ziglang` (or the
@@ -90,6 +92,37 @@ def _bat_text(python: str) -> str:
     return f'@"{python}" -m ziglang %*\n'
 
 
+def _ziglang_package() -> Path | None:
+    """The directory of an importable `ziglang` package, if there is one.
+
+    The wheel ships the zig binary next to its `__init__.py`, so the package
+    directory is the anchor for both the Windows `zig.exe` and the POSIX
+    shim's interpreter probe.
+    """
+    try:
+        import ziglang  # noqa: PLC0415
+    except ImportError:
+        return None
+    return Path(ziglang.__file__).resolve().parent
+
+
+def _package_zig_exe() -> str | None:
+    """The zig binary inside an importable `ziglang` package (Windows).
+
+    The wheel ships `site-packages/ziglang/zig.exe`, a real Win32 executable.
+    On Windows the shim scripts are not subprocess-safe (`CreateProcess` runs
+    neither a `.bat` without `cmd.exe` nor an extensionless `#!/bin/sh`
+    script), so the compiler's own subprocess calls resolve this path
+    directly. The `.bat` shim stays for interactive shells, where PATHEXT
+    and `cmd.exe` do the dispatch.
+    """
+    package = _ziglang_package()
+    if package is None:
+        return None
+    exe: Path = package / "zig.exe"
+    return str(exe) if exe.is_file() else None
+
+
 def install_shim(python: str) -> Path:
     """Write the `zig` shim for `python` and make it executable."""
     directory = shim_dir()
@@ -106,11 +139,15 @@ def resolve_zig() -> str | None:
     """Path of a runnable `zig`, installing the PATH shim if needed.
 
     Returns the resolved path (a PATH hit or the installed shim), or None
-    when no zig is available at all.
+    when no zig is available at all. On Windows the returned path is the
+    wheel's own `zig.exe`: the shim scripts are for shells, not for
+    `subprocess`.
     """
     found = shutil.which("zig")
     if found:
         return found
+    if sys.platform == "win32":
+        return _package_zig_exe()
     existing = shim_dir() / "zig"
     if existing.exists() and _valid_shim(existing):
         return str(existing)
@@ -125,7 +162,8 @@ def ensure_on_path() -> bool:
 
     Installs the shim when needed and prepends its directory to PATH. A shim
     whose interpreter is gone is dropped from PATH and rebuilt, so a deleted
-    venv cannot leave a broken `zig` on the path.
+    venv cannot leave a broken `zig` on the path. On Windows the resolution
+    returns the wheel's own `zig.exe`, so the PATH stays untouched.
     Returns True when a zig is reachable afterwards.
     """
     directory = shim_dir()
@@ -133,11 +171,12 @@ def ensure_on_path() -> bool:
     if script.exists() and not _valid_shim(script):
         script.unlink(missing_ok=True)
     resolved = resolve_zig()
-    entries = [part for part in os.environ.get("PATH", "").split(os.pathsep) if part]
-    entries = [part for part in entries if Path(part).as_posix() != directory.as_posix()]
-    if resolved is not None and Path(resolved).parent.as_posix() == directory.as_posix():
-        entries.insert(0, str(directory))
-    os.environ["PATH"] = os.pathsep.join(entries)
+    if sys.platform != "win32":
+        entries = [part for part in os.environ.get("PATH", "").split(os.pathsep) if part]
+        entries = [part for part in entries if Path(part).as_posix() != directory.as_posix()]
+        if resolved is not None and Path(resolved).parent.as_posix() == directory.as_posix():
+            entries.insert(0, str(directory))
+        os.environ["PATH"] = os.pathsep.join(entries)
     return resolved is not None
 
 
@@ -148,13 +187,29 @@ def is_shim(path: str | None) -> bool:
     return Path(path).parent.as_posix() == shim_dir().as_posix()
 
 
+def is_wheel_zig(path: str | None) -> bool:
+    """True when `path` is the zig binary inside an installed `ziglang` wheel.
+
+    On Windows the wheel route resolves `ziglang/zig.exe` directly instead of
+    a PATH shim, so `doctor` reports it as the wheel's binary rather than as
+    a system zig.
+    """
+    if not path:
+        return False
+    resolved = Path(path).resolve()
+    if resolved.name != "zig.exe":
+        return False
+    package = _ziglang_package()
+    return package is not None and resolved.parent == package
+
+
 def install_hint() -> str:
     """The user-facing fix for a missing zig."""
     return (
-        "Install one of: `uv tool install \"pyscriptc[zig]\"` (or `pip install "
+        'Install one of: `uv tool install "pyscriptc[zig]"` (or `pip install '
         "pyscriptc[zig]`), which pulls the ziglang wheel and gives pyscriptc a "
         "`zig` PATH shim over it; `pip install ziglang` (the wheel ships zig and "
         "pyscriptc installs a `zig` PATH shim for it), `mise use -g zig`, "
         "`brew install zig`, `winget install zig`, or the download at "
         "https://ziglang.org/download/"
-    ) 
+    )
