@@ -16,6 +16,7 @@ from tests.test_gates import compile_run, oracle, run_cli, write_case
 
 from pyscriptc.coverage import build_report
 from pyscriptc.lower import lower_source
+from pyscriptc.lower._classes_more import _DECO_ERASED_MESSAGE
 
 
 def _fences(source: str) -> list[dict[str, str]]:
@@ -139,3 +140,73 @@ def test_non_constant_class_body_still_fences_the_compile(tmp_path: Path) -> Non
     got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "fenced.ll"))
     assert got.returncode == 3, got.stdout + got.stderr
     assert "PS1204" in got.stderr
+
+
+def test_a_user_class_decorator_is_erased() -> None:
+    module = lower_source(
+        "def deco(c: int) -> int:\n"
+        "    return c\n"
+        "\n"
+        "\n"
+        "print(deco(1))\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    def hi(self) -> str:\n"
+        '        return "hi"\n'
+        "\n"
+        "\n"
+        "@deco\n"
+        "class D(C):\n"
+        "    def __init__(self) -> None:\n"
+        "        pass\n"
+        "\n"
+        "\n"
+        "def probe() -> str:\n"
+        "    return D().hi()\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+    assert module.get("_notes") == [f"note: PS3099 (D): {_DECO_ERASED_MESSAGE}"], module.get("_notes")
+    names = {record["name"] for record in module["classes"]}
+    assert {"C", "D"} <= names, names
+    d = next(record for record in module["classes"] if record["name"] == "D")
+    assert d["fields"] == [], d
+    assert any(method["name"] == "__init__" for method in d["methods"]), d
+    c = next(record for record in module["classes"] if record["name"] == "C")
+    assert any(method["name"] == "hi" for method in c["methods"]), c
+    assert "deco" in {record["name"] for record in module["functions"]}
+
+
+def test_a_dataclass_keeps_lowering() -> None:
+    module = lower_source(
+        "from dataclasses import dataclass\n\n\n@dataclass\nclass P:\n    a: int\n    b: str = 'x'\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+
+
+def test_a_stacked_class_decorator_is_erased() -> None:
+    module = lower_source(
+        "def deco(c: int) -> int:\n    return c\n\n\n@deco\n@deco\nclass C:\n    a: int\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+    assert len(module.get("_notes", [])) == 1 and module["_notes"][0].startswith("note: PS3099 (C):"), module.get(
+        "_notes"
+    )
+
+
+def test_method_decorators_keep_the_closed_set() -> None:
+    module = lower_source(
+        "def deco(fn: int) -> int:\n"
+        "    return fn\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @deco\n"
+        "    def m(self) -> int:\n"
+        "        return 1\n",
+        "case.py",
+    )
+    assert any(fence["code"] == "PS1201" for fence in module["fences"]), module["fences"]

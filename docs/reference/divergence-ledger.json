@@ -875,6 +875,26 @@
       "status": "divergent"
     },
     {
+      "id": "D53",
+      "seam": "a class decorator other than @dataclass is erased: the wrap never runs (advisory PS3099 note)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#53",
+      "probe": "probes/divergences/d53_class_decorator_erased.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "registered\nbase\n10\nTrue\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "note: PS3099 (Thing): the class decorator is erased: the class lowers undecorated and the wrap never runs, where CPython applies the decorator to the class object (docs/reference/divergences.md #53, PS3099)\nprobes/divergences/d53_class_decorator_erased.py:14:9: PS2001: Thing.n is not a field\n          self.n = 3\n          ^\nprobes/divergences/d53_class_decorator_erased.py:17:16: PS2001: Thing.n is not a field\n          return self.n + 7\n                 ^\n"
+      },
+      "status": "fenced"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

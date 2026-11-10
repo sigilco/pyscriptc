@@ -1,12 +1,12 @@
 {
   "schema": "1",
   "generated": "2026-11-10",
-  "commit": "2aa037a122bbbf6517cf192e9ec4c89dbb14943c",
+  "commit": "1ae4abbf9926662c95543ae5511658fed71dd6c4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
     "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
-    "score": "nightly/visible-score.json"
+    "score": ""
   },
   "summary": {
     "builtins_full": 3,
@@ -18,8 +18,8 @@
     "packages_full": 2,
     "packages_partial": 8,
     "packages_none": 8,
-    "weighted_pass": 958.1,
-    "fences": 2614
+    "weighted_pass": 0.0,
+    "fences": 2618
   },
   "builtins": [
     {
@@ -1486,7 +1486,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 79
+          "count": 80
         },
         {
           "code": "PS1106",
@@ -1656,34 +1656,34 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "fences": 122,
+      "fences": 126,
       "definitions": 200,
-      "fenced_definitions": 106,
+      "fenced_definitions": 111,
       "top_families": [
         {
           "family": "param-inference",
-          "count": 78
+          "count": 82
         },
         {
           "family": "return-inference",
-          "count": 15
+          "count": 19
         },
         {
-          "family": "decorators",
+          "family": "class-body",
           "count": 7
         }
       ],
       "codes": [
         {
           "code": "PS1001",
-          "count": 93
+          "count": 101
         },
         {
           "code": "PS2002",
-          "count": 13
+          "count": 16
         },
         {
-          "code": "PS1201",
+          "code": "PS1204",
           "count": 7
         }
       ],
@@ -2028,90 +2028,7 @@
       "pypi": "https://pypi.org/project/zipp/"
     }
   ],
-  "language": [
-    {
-      "id": "lang",
-      "label": "language",
-      "probes": 440,
-      "outcomes": {
-        "fence": 108,
-        "pass": 332
-      },
-      "weighted_pass": 332.0,
-      "fence_codes": {
-        "PS2002": 60,
-        "PS1001": 16,
-        "PS2003": 11,
-        "PS1004": 10,
-        "PS2001": 6,
-        "PS2004": 3,
-        "PS1106": 2
-      }
-    },
-    {
-      "id": "builtins",
-      "label": "builtins",
-      "probes": 403,
-      "outcomes": {
-        "excluded": 2,
-        "fence": 233,
-        "pass": 168
-      },
-      "weighted_pass": 165.3,
-      "fence_codes": {
-        "PS1106": 108,
-        "PS2001": 56,
-        "PS2002": 33,
-        "PS2003": 23,
-        "PS1103": 9,
-        "PS1003": 3,
-        "PS1104": 1
-      }
-    },
-    {
-      "id": "stdlib",
-      "label": "stdlib modules",
-      "probes": 12849,
-      "outcomes": {
-        "build-error": 1,
-        "excluded": 1395,
-        "fence": 10314,
-        "pass": 1139
-      },
-      "weighted_pass": 402.8,
-      "fence_codes": {
-        "PS2002": 6489,
-        "PS1106": 2720,
-        "PS2001": 966,
-        "PS2003": 55,
-        "PS1001": 37,
-        "PS1003": 33,
-        "PS1104": 12,
-        "PS1103": 2
-      }
-    },
-    {
-      "id": "top100",
-      "label": "PyPI packages",
-      "probes": 86,
-      "outcomes": {
-        "build-error": 5,
-        "fence": 79,
-        "pass": 2
-      },
-      "weighted_pass": 10.0,
-      "fence_codes": {
-        "PS2002": 63,
-        "PS1001": 8,
-        "PS1106": 2,
-        "PS1201": 2,
-        "PS1101": 1,
-        "PS1103": 1,
-        "PS1104": 1,
-        "PS1203": 1
-      }
-    }
-  ],
+  "language": [],
   "ladder": {
     "corpus": "benchmarks/scripts_corpus",
     "rungs": [
@@ -2272,13 +2189,13 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1279,
+      "count": 1283,
       "packages": 16
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not supported",
-      "count": 301,
+      "count": 309,
       "packages": 13
     },
     {
@@ -2318,12 +2235,6 @@
       "packages": 7
     },
     {
-      "code": "PS1201",
-      "title": "decorator",
-      "count": 57,
-      "packages": 8
-    },
-    {
       "code": "PS1003",
       "title": "type mismatch",
       "count": 52,
@@ -2333,6 +2244,12 @@
       "code": "PS1104",
       "title": "dynamic or structural annotation",
       "count": 51,
+      "packages": 6
+    },
+    {
+      "code": "PS1201",
+      "title": "decorator",
+      "count": 49,
       "packages": 6
     },
     {
@@ -2380,103 +2297,13 @@
   ],
   "history": [
     {
-      "date": "2026-10-25",
-      "commit": "d4987c81acf466617b50738efce044cf4becab2c",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 6,
-      "packages_none": 10,
-      "fences": 2721
-    },
-    {
-      "date": "2026-10-26",
-      "commit": "9b915eea78b946eb946f8914b14e495d21cc5803",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
-    },
-    {
-      "date": "2026-10-27",
-      "commit": "95debbd232c8b3caebcd34907f4cfe161f914ec5",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
-    },
-    {
-      "date": "2026-10-28",
-      "commit": "0b108e1a50baec9381cf1b32152467178d934348",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2718
-    },
-    {
-      "date": "2026-11-03",
-      "commit": "c8c5742095e063277b3744ceae34bbef80e917d7",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2714
-    },
-    {
-      "date": "2026-11-04",
-      "commit": "eec9f7033db400b1c05f116bd1905aa99fe4bca3",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2704
-    },
-    {
-      "date": "2026-11-06",
-      "commit": "c99c0113efa109c365db93d953ba150c03a6590d",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 8,
-      "packages_none": 8,
-      "fences": 2676
-    },
-    {
-      "date": "2026-11-07",
-      "commit": "5c2c5e2fbcc09e4781c88b4df26d8cf12ff8cfb8",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 8,
-      "packages_none": 8,
-      "fences": 2670
-    },
-    {
-      "date": "2026-11-08",
-      "commit": "31e5ee7ec652ee1d743264ecd1b2e89011515a8f",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 8,
-      "packages_none": 8,
-      "fences": 2614
-    },
-    {
-      "date": "2026-11-09",
-      "commit": "0825ef48331517ccf5821c91dbe132161eb2a242",
-      "weighted_pass": 958.1,
-      "packages_full": 2,
-      "packages_partial": 8,
-      "packages_none": 8,
-      "fences": 2614
-    },
-    {
       "date": "2026-11-10",
-      "commit": "2aa037a122bbbf6517cf192e9ec4c89dbb14943c",
-      "weighted_pass": 958.1,
+      "commit": "1ae4abbf9926662c95543ae5511658fed71dd6c4",
+      "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2614
+      "fences": 2618
     }
   ]
 }

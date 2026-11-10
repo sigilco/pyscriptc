@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-10",
-  "commit": "2aa037a122bbbf6517cf192e9ec4c89dbb14943c",
+  "generated": "2026-11-09",
+  "commit": "1ae4abbf9926662c95543ae5511658fed71dd6c4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -810,9 +810,9 @@
       "name": "jmespath",
       "version": "1.1.0",
       "status": "\ud83d\udd34",
-      "ratio": "106/200",
-      "blocking": "param-inference (78), return-inference (15), decorators (7)",
-      "codes": "PS1001, PS2002, PS1201"
+      "ratio": "111/200",
+      "blocking": "param-inference (82), return-inference (19), class-body (7)",
+      "codes": "PS1001, PS2002, PS1204"
     },
     {
       "name": "pyjwt",

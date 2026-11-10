@@ -15,6 +15,7 @@ import argparse
 import datetime
 import json
 import os
+import re
 import subprocess
 import sys
 import tempfile
@@ -69,7 +70,13 @@ def probe(imports: list[str], snippet: str) -> list[tuple[str, str]]:
         path = Path(tmp) / "probe.py"
         path.write_text("\n".join(lines) + "\n", encoding="utf-8")
         module, _ = lower_file(str(path))
-    return sorted({(fence["code"], fence["message"]) for fence in module["fences"]})
+    codes = sorted({(fence["code"], fence["message"]) for fence in module["fences"]})
+    # Advisory notes (the erased class decorator, PS3099) are not fences:
+    # the compile succeeds, so the note's code counts with them.
+    for note in module.get("_notes", []):
+        for match in re.findall(r"PS\d{4}", note):
+            codes.append((match, note))
+    return sorted(codes)
 
 
 def status_of(ok: bool, no: bool) -> str:

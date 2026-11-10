@@ -374,6 +374,12 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#52",
     ),
     _row(
+        "D53",
+        "a class decorator other than @dataclass is erased: the wrap never runs (advisory PS3099 note)",
+        "d53_class_decorator_erased.py",
+        docs=f"{DOC}#53",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

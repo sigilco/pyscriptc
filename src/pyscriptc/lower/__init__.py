@@ -363,6 +363,11 @@ class Lowerer(
         # during `_split_entry`, so they bind after the sigs pass, in source
         # order.
         self.deferred_module: list[ast.stmt] = []
+        # Advisory notes the lowering wants on stderr (`note: ...`): the
+        # erased class decorators (divergence 52) and any future
+        # compile-and-run-anyway seam. The CLI prints them from
+        # `module["_notes"]` and they never gate the compile.
+        self.module_notes: list[str] = []
         # Re-entrancy guard: `_bind_module_assign` defers candidates unless a
         # deferred bind is replaying it.
         self._deferring = False

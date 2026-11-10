@@ -63,7 +63,10 @@ def test_must_fence_corpus_covers_all_tiers() -> None:
 def test_must_fence_case(case: dict[str, Any]) -> None:
     result = evaluate_case(case, timeout=60.0)
     assert result["held"] is True, f"Must-fence probe {case['id']} failed: {result['evidence']}"
-    assert result["outcome"] == "pass"
+    # The advisory note rows (the erased class decorator, divergence 52)
+    # compile and succeed: their outcome is the note, not a clean pass.
+    expected_outcome = "note" if case.get("expected") == "note" else "pass"
+    assert result["outcome"] == expected_outcome
 
 
 def test_deliberately_wrong_fixture_triggers_soundness_gate() -> None:
