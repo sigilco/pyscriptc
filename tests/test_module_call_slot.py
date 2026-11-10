@@ -55,17 +55,7 @@ def test_stdlib_call_at_module_scope(tmp_path: Path) -> None:
     differential(
         tmp_path,
         "stdlibcall.py",
-        (
-            "import math\n"
-            "y = math.sqrt(4)\n"
-            "\n"
-            "\n"
-            "def read() -> float:\n"
-            "    return y\n"
-            "\n"
-            "\n"
-            "print(f'{read():.1f}')\n"
-        ),
+        ("import math\ny = math.sqrt(4)\n\n\ndef read() -> float:\n    return y\n\n\nprint(f'{read():.1f}')\n"),
     )
 
 
@@ -144,16 +134,7 @@ def test_slot_identity_holds_across_reads(tmp_path: Path) -> None:
     differential(
         tmp_path,
         "identity.py",
-        (
-            "xs: list[int] = [1]\n"
-            "\n"
-            "\n"
-            "def get() -> list[int]:\n"
-            "    return xs\n"
-            "\n"
-            "\n"
-            "print(get() is get())\n"
-        ),
+        ("xs: list[int] = [1]\n\n\ndef get() -> list[int]:\n    return xs\n\n\nprint(get() is get())\n"),
     )
 
 
