@@ -36,6 +36,7 @@ import os
 import tomllib
 from dataclasses import dataclass, field
 from pathlib import Path
+from typing import Any
 
 SCHEMA_VERSION = 1
 #: The built-in engine: the embedded CPython the island tier already uses.
@@ -75,13 +76,16 @@ class EngineDescriptor:
         )
 
 
-@dataclass
 class EngineSummary:
     """The debug-summary form of an engine selection.
 
     Typed rather than a plain dict so `debug.py` can use attribute access
     instead of literal IR-key reads (see `tests/test_debug.py`); the JSON
-    summary serializes it with `dataclasses.asdict`.
+    summary serializes it with `as_dict`. Plain class, not `@dataclass`:
+    the self-compile of the entry module crashed `_setattr_target` with a
+    KeyError on `Debug` while the dataclass form was in place (class-body
+    annotation resolution, issue #732 territory), and the plain class
+    self-compiles.
     """
 
     name: str
@@ -90,6 +94,33 @@ class EngineSummary:
     capabilities: list[str]
     abi: dict[str, str]
     source: str
+
+    def __init__(
+        self,
+        name: str,
+        version: str,
+        kind: str,
+        capabilities: list[str],
+        abi: dict[str, str],
+        source: str,
+    ) -> None:
+        self.name = name
+        self.version = version
+        self.kind = kind
+        self.capabilities = capabilities
+        self.abi = abi
+        self.source = source
+
+    def as_dict(self) -> dict[str, Any]:
+        """The JSON-summary form (`asdict` equivalent)."""
+        return {
+            "name": self.name,
+            "version": self.version,
+            "kind": self.kind,
+            "capabilities": list(self.capabilities),
+            "abi": dict(self.abi),
+            "source": self.source,
+        }
 
 
 def builtin_descriptor() -> EngineDescriptor:

@@ -12,7 +12,6 @@ emitted text.
 
 from __future__ import annotations
 
-import dataclasses
 import json
 import os
 import resource
@@ -74,7 +73,7 @@ class Debug:
     mir_plan: dict[str, Any] | None
     # The island engine selection (issue #666): the validated descriptor
     # summary, or None when no engine was requested. Typed (attribute
-    # access, no literal IR-key reads); serialized with `dataclasses.asdict`.
+    # access, no literal IR-key reads); serialized with `EngineSummary.as_dict`.
     engine_info: EngineSummary | None
 
     def __init__(self, topics: set[str], debug_dir: Path | None) -> None:
@@ -281,7 +280,7 @@ class Debug:
             mir_records: list[dict[str, Any]] = mir_plan["records"]
             res["mirAdapter"] = mir_records
         if self.engine_info is not None:
-            res["islandEngine"] = dataclasses.asdict(self.engine_info)
+            res["islandEngine"] = self.engine_info.as_dict()
         # boxed:begin
         if module is not None and _has(module, "fallback"):
             fallback: dict[str, Any] = module["fallback"]
