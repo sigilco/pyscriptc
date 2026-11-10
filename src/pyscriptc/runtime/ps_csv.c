@@ -172,3 +172,137 @@ void ps_csv_writerows(PsIO *io, PsSeq *rows) {
         ps_csv_writerow(io, row);
     }
 }
+
+/* --- DictReader and DictWriter -----------------------------------------
+   DictReader maps the header row onto every record: the row is a dict from
+   a fieldname to the field text, a short record fills the missing fields
+   with the restval (None by default) and a long record raises the
+   ValueError CPython raises. DictWriter takes the fieldnames once and
+   writes the header row and the rows of a dict.
+
+   The row shape is dict[str, str]: the runtime keeps the row in a map
+   whose keys are the fieldnames and whose values are the field texts, so
+   the dict the compiler sees is the same map. The restval default is None
+   where CPython writes None, and the subset keeps the field text as a
+   str, so a missing field stores an empty text. */
+
+typedef struct {
+    PsIO *io;
+    PsSeq *fields; /* elem = PsBuf: the fieldnames, in order */
+    PsSeq *rows;   /* elem = PsMap*: the parsed rows */
+    int64_t index; /* the next row the cursor reads */
+} PsCsvDict;
+
+/* The map a row of `names` and `values` holds: the keys are the field
+   names, the values the field texts. */
+static PsMap *csv_dict_new(PsSeq *names, PsSeq *values, int64_t count) {
+    PsMap *m = ps_map_new(2, (int64_t)sizeof(PsBuf), (int64_t)sizeof(PsBuf), count);
+    for (int64_t i = 0; i < count; i++) {
+        PsBuf key;
+        PsBuf val;
+        ps_seq_get(names, i, &key);
+        ps_seq_get(values, i, &val);
+        ps_map_put(m, &key, &val);
+    }
+    return m;
+}
+
+/* The fieldnames of a DictReader: the first record of the source, or the
+   explicit list the caller passed. */
+static PsSeq *csv_dict_fieldnames(PsSeq *rows) {
+    PsSeq *names = ps_seq_new((int64_t)sizeof(PsBuf), 0);
+    if (rows->len == 0) {
+        return names;
+    }
+    PsSeq *first;
+    ps_seq_get(rows, 0, &first);
+    for (int64_t i = 0; i < first->len; i++) {
+        PsBuf field;
+        ps_seq_get(first, i, &field);
+        ps_seq_push(names, &field);
+    }
+    return names;
+}
+
+/* The row maps: the first record names the fields, the rest carry the
+   values. A record with more fields than the header raises the ValueError
+   CPython raises ("dict reader has more fields than fieldnames"). */
+static PsSeq *csv_dict_rows(PsSeq *rows, PsSeq *names) {
+    PsSeq *out = ps_seq_new((int64_t)sizeof(PsMap *), 0);
+    int64_t width = names->len;
+    for (int64_t i = 1; i < rows->len; i++) {
+        PsSeq *record;
+        ps_seq_get(rows, i, &record);
+        if (record->len > width) {
+            ps_raise_cstr(PS_VALUE, "dict reader has more fields than fieldnames");
+        }
+        PsSeq *values = ps_seq_new((int64_t)sizeof(PsBuf), 0);
+        for (int64_t j = 0; j < width; j++) {
+            PsBuf empty;
+            memset(&empty, 0, sizeof empty);
+            if (j < record->len) {
+                ps_seq_get(record, j, &empty);
+            }
+            ps_seq_push(values, &empty);
+        }
+        PsMap *row = csv_dict_new(names, values, width);
+        ps_seq_push(out, &row);
+    }
+    return out;
+}
+
+PsSeq *ps_csv_dict_reader(PsIO *io, int64_t delim_len, const char *delim_data) {
+    PsSeq *records = ps_csv_read_io(io, delim_len, delim_data);
+    return csv_dict_rows(records, csv_dict_fieldnames(records));
+}
+
+PsSeq *ps_csv_dict_reader_lines(PsSeq *lines, int64_t delim_len, const char *delim_data) {
+    PsSeq *records = ps_csv_read_lines(lines, delim_len, delim_data);
+    return csv_dict_rows(records, csv_dict_fieldnames(records));
+}
+
+/* The DictWriter handle: the file handle and the fieldnames. */
+void *ps_csv_dict_writer(PsIO *io, PsSeq *fields) {
+    PsCsvDict *d = ps_alloc((int64_t)sizeof(PsCsvDict));
+    d->io = io;
+    d->fields = fields;
+    d->rows = NULL;
+    d->index = 0;
+    return d;
+}
+
+/* The header row: the fieldnames, in order. */
+void ps_csv_dict_writeheader(void *handle) {
+    PsCsvDict *d = handle;
+    ps_csv_writerow(d->io, d->fields);
+}
+
+/* One row: the field texts, in fieldname order. A field the row does not
+   carry takes the restval, the empty text CPython's default restval is.
+   The restval keyword is outside the subset and fenced by name. */
+void ps_csv_dict_writerow(void *handle, PsMap *row) {
+    PsCsvDict *d = handle;
+    PsSeq *values = ps_seq_new((int64_t)sizeof(PsBuf), 0);
+    for (int64_t i = 0; i < d->fields->len; i++) {
+        PsBuf key;
+        PsBuf val;
+        ps_seq_get(d->fields, i, &key);
+        if (!ps_map_has(row, &key)) {
+            memset(&val, 0, sizeof val);
+            val.len = 0;
+            val.data = ps_alloc(1);
+            val.data[0] = '\0';
+        } else {
+            ps_map_get(row, &key, &val);
+        }
+        ps_seq_push(values, &val);
+    }
+    ps_csv_writerow(d->io, values);
+}
+
+/* The rows of the writer: the field count, so a row the caller builds
+   with the wrong width raises the ValueError CPython raises. */
+int64_t ps_csv_dict_field_count(void *handle) {
+    PsCsvDict *d = handle;
+    return d->fields->len;
+}

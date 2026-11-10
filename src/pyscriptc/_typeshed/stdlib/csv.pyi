@@ -21,10 +21,9 @@ if sys.version_info >= (3, 12):
     from _csv import QUOTE_NOTNULL as QUOTE_NOTNULL, QUOTE_STRINGS as QUOTE_STRINGS
 from _csv import Reader, Writer
 from _typeshed import SupportsWrite
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Iterable
 from types import GenericAlias
-from typing import Any, Generic, Literal, TypeVar, overload
-from typing_extensions import Self
+from typing import Any
 
 __all__ = [
     "QUOTE_MINIMAL",
@@ -52,8 +51,6 @@ if sys.version_info >= (3, 12):
 if sys.version_info < (3, 13):
     __all__ += ["__doc__", "__version__"]
 
-_T = TypeVar("_T")
-
 class Dialect:
     delimiter: str
     quotechar: str | None
@@ -69,81 +66,19 @@ class excel(Dialect): ...
 class excel_tab(excel): ...
 class unix_dialect(Dialect): ...
 
-class DictReader(Iterator[dict[_T | Any, str | Any]], Generic[_T]):
-    fieldnames: Sequence[_T] | None
-    restkey: _T | None
-    restval: str | Any | None
-    reader: Reader
-    dialect: _DialectLike
-    line_num: int
+def DictReader(f: Iterable[str], *, delimiter: str = ",") -> list[dict[str, str]]: ...
 
-    @overload
-    def __init__(
-        self,
-        f: Iterable[str],
-        fieldnames: Sequence[_T],
-        restkey: _T | None = None,
-        restval: str | Any | None = None,
-        dialect: _DialectLike = "excel",
-        *,
-        delimiter: str = ",",
-        quotechar: str | None = '"',
-        escapechar: str | None = None,
-        doublequote: bool = True,
-        skipinitialspace: bool = False,
-        lineterminator: str = "\r\n",
-        quoting: _QuotingType = 0,
-        strict: bool = False,
-    ) -> None: ...
-    @overload
-    def __init__(
-        self: DictReader[str],
-        f: Iterable[str],
-        fieldnames: Sequence[str] | None = None,
-        restkey: str | None = None,
-        restval: str | None = None,
-        dialect: _DialectLike = "excel",
-        *,
-        delimiter: str = ",",
-        quotechar: str | None = '"',
-        escapechar: str | None = None,
-        doublequote: bool = True,
-        skipinitialspace: bool = False,
-        lineterminator: str = "\r\n",
-        quoting: _QuotingType = 0,
-        strict: bool = False,
-    ) -> None: ...
-
-    def __iter__(self) -> Self: ...
-    def __next__(self) -> dict[_T | Any, str | Any]: ...
-    if sys.version_info >= (3, 12):
-        def __class_getitem__(cls, item: Any, /) -> GenericAlias: ...
-
-class DictWriter(Generic[_T]):
-    fieldnames: Collection[_T]
-    restval: Any | None
-    extrasaction: Literal["raise", "ignore"]
-    writer: Writer
+class DictWriter:
+    fieldnames: list[str]
     def __init__(
         self,
         f: SupportsWrite[str],
-        fieldnames: Collection[_T],
-        restval: Any | None = "",
-        extrasaction: Literal["raise", "ignore"] = "raise",
-        dialect: _DialectLike = "excel",
+        fieldnames: list[str],
         *,
         delimiter: str = ",",
-        quotechar: str | None = '"',
-        escapechar: str | None = None,
-        doublequote: bool = True,
-        skipinitialspace: bool = False,
-        lineterminator: str = "\r\n",
-        quoting: _QuotingType = 0,
-        strict: bool = False,
     ) -> None: ...
-    def writeheader(self) -> Any: ...
-    def writerow(self, rowdict: Mapping[_T, Any]) -> Any: ...
-    def writerows(self, rowdicts: Iterable[Mapping[_T, Any]]) -> None: ...
+    def writeheader(self) -> None: ...
+    def writerow(self, rowdict: dict[str, str]) -> None: ...
     if sys.version_info >= (3, 12):
         def __class_getitem__(cls, item: Any, /) -> GenericAlias: ...
 
