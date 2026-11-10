@@ -595,7 +595,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="write the inferred annotations to FILE as a sidecar the user can apply",
     )
     infer_parser.add_argument(
-        "--bridge", choices=("pyrefly",), default="pyrefly", help="checker to run (default: pyrefly)"
+        "--bridge", choices=("pyrefly", "own"), default="pyrefly", help="inference arm to run (default: pyrefly)"
     )
     config_parser: argparse.ArgumentParser = sub.add_parser(
         "config", help="show the resolved config for a source", parents=[common]
