@@ -1471,10 +1471,39 @@ class Lowerer(
         for name, rec in records.items():
             if name in bad:
                 continue
+            # An island-member alias (`global X; X = _X` where the import
+            # bound X to a module member riding the island lane) carries no
+            # lowered record for the name's own kind: a class member gives
+            # the promoted name a class annotation resolution with no
+            # `classes` entry, and the first attribute write on a value of
+            # that annotation crashes `_setattr_target` with a KeyError.
+            # The alias promotion is for binding writes (`X = _assess`
+            # installs the function binding); a name whose member is a
+            # class keeps the pre-promotion fences instead.
+            if rec["kind"] == "binding" and rec["binding"].kind == "island_member":
+                continue
             self.global_aliases[name] = rec
             if rec["kind"] == "binding":
                 want = rec["binding"]
                 self.bindings[name] = Binding(want.kind, want.module, want.attr, want.queued, want.type, want.rooted)
+                if want.kind == "island_floor_class":
+                    # A promoted cross-module island class takes the floor
+                    # record under the promoted name too: the annotation
+                    # resolves the alias to a plain class name, and the
+                    # setattr on a value of that annotation reads the floor
+                    # entry, not the source's `_`-prefixed one. The floor
+                    # dict keys by local, so find the entry this binding
+                    # came from: same owner module and class name.
+                    floor = next(
+                        (
+                            (owner, cls)
+                            for local, (owner, cls) in self.island_floor_classes.items()
+                            if owner == want.module and cls == want.attr
+                        ),
+                        None,
+                    )
+                    if floor is not None:
+                        self.island_floor_classes[name] = floor
                 if want.kind == "pyfunc" and rec.get("item") is not None:
                     self.pkg_funcs[name] = rec["item"]
                 self.declared.add(name)
