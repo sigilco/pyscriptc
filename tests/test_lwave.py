@@ -377,23 +377,6 @@ def test_lwave_fences(tmp_path: Path) -> None:
             "g expects 1 argument(s)",
         ),
         (
-            "userdeco.py",
-            "\n".join(
-                [
-                    "def deco(fn: int) -> int:",
-                    "    return fn",
-                    "class Box:",
-                    "    @deco",
-                    "    def n(self) -> int:",
-                    "        return 1",
-                    "def f() -> int:",
-                    "    return 1",
-                    "",
-                ]
-            ),
-            "decorators are not lowered",
-        ),
-        (
             "badset.py",
             "def f() -> int:\n    xs: set[float] = {1.0}\n    return len(xs)\n",
             "set elements are int or str",
@@ -424,3 +407,30 @@ def test_lwave_fences(tmp_path: Path) -> None:
         got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll"))
         assert got.returncode == 3, f"{name}\n{got.stderr}"
         assert text in got.stderr
+
+
+def test_a_user_method_decorator_takes_the_advisory_erase(tmp_path: Path) -> None:
+    # A user decorator outside the closed set compiles as erased with the
+    # advisory PS3099 note (divergence 54, issue #732): the method lowers
+    # undecorated and the wrap never runs.
+    path = write_case(
+        tmp_path,
+        "userdeco.py",
+        "\n".join(
+            [
+                "def deco(fn: int) -> int:",
+                "    return fn",
+                "class Box:",
+                "    @deco",
+                "    def n(self) -> int:",
+                "        return 1",
+                "def f() -> int:",
+                "    return 1",
+                "",
+            ]
+        ),
+    )
+    got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "userdeco.ll"))
+    assert got.returncode == 0, got.stderr
+    assert "PS3099" in got.stderr, got.stderr
+    assert "Traceback" not in got.stderr, got.stderr

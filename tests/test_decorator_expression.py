@@ -51,21 +51,43 @@ CASES: dict[str, list[str]] = {
 
 
 def test_decorator_expression_refuses_with_a_named_code(tmp_path: Path) -> None:
-    for name, lines in CASES.items():
-        path = write_case(tmp_path, name, "\n".join(lines))
-        got = run_cli(
-            "compile",
-            str(path),
-            "--skip-check",
-            "--emit",
-            "llvm",
-            "-o",
-            str(tmp_path / f"{name}.ll"),
-        )
-        assert got.returncode == 3, f"{name}\n{got.stderr}"
-        assert "PS2006" in got.stderr, f"{name}\n{got.stderr}"
-        assert "KeyError" not in got.stderr, f"{name}\n{got.stderr}"
-        assert "Traceback" not in got.stderr, f"{name}\n{got.stderr}"
+    # The nested def still fences (`PS2006` from `_apply_decorator`): a
+    # local wrap has no deferred module pass to take the advisory erase.
+    # The module-level case takes the advisory erase now (divergence 54,
+    # issue #732): it compiles with the PS3099 note and no traceback.
+    name, lines = "nested.py", CASES["nested.py"]
+    path = write_case(tmp_path, name, "\n".join(lines))
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / f"{name}.ll"),
+    )
+    assert got.returncode == 3, f"{name}\n{got.stderr}"
+    assert "PS2006" in got.stderr, f"{name}\n{got.stderr}"
+    assert "KeyError" not in got.stderr, f"{name}\n{got.stderr}"
+    assert "Traceback" not in got.stderr, f"{name}\n{got.stderr}"
+
+
+def test_module_decorator_expression_erases_with_a_note(tmp_path: Path) -> None:
+    name, lines = "module_level.py", CASES["module_level.py"]
+    path = write_case(tmp_path, name, "\n".join(lines))
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / f"{name}.ll"),
+    )
+    assert got.returncode == 0, f"{name}\n{got.stderr}"
+    assert "PS3099" in got.stderr, f"{name}\n{got.stderr}"
+    assert "KeyError" not in got.stderr, f"{name}\n{got.stderr}"
+    assert "Traceback" not in got.stderr, f"{name}\n{got.stderr}"
 
 
 def test_decorator_expression_routes_to_the_island(tmp_path: Path) -> None:

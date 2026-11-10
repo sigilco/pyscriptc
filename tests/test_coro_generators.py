@@ -712,6 +712,9 @@ def test_contextmanager_kill_switch_restores_the_old_fence(monkeypatch: pytest.M
 
 
 def test_contextmanager_decorator_must_resolve_to_the_stdlib() -> None:
+    # A local `contextmanager` is not the stdlib one: it never lowers as a
+    # context manager. The user decorator takes the advisory erase now
+    # (divergence 54, issue #732); the generator body's own fence stays.
     source = """\
 from typing import Iterator
 
@@ -725,8 +728,11 @@ def track(name: str) -> Iterator[str]:
     yield name
 """
     module = lower_source(source, "cm_local.py")
-    messages = [fence["message"] for fence in module["fences"]]
-    assert any("is not a lowered callable" in message for message in messages)
+    notes = module.get("_notes", [])
+    assert any(
+        "the method decorator is erased" in note or "the function decorator is erased" in note for note in notes
+    ), notes
+    assert not any("contextmanager" in note for note in notes), notes
 
 
 # --- try/except/finally (issue #164) ----------------------------------------
