@@ -32,6 +32,7 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 | `mise run bench:baseline` | The perf regression gate against `benchmarks/baseline/reference*.json` |
 | `mise run compat:json` | Rebuild `data/compat/compat.json` (append `--check` to compare) |
 | `mise run compat:ladder` | Rebuild `data/compat/ladder.json` |
+| `mise run compat:r0` | Add the R0 real-scripts point to `data/compat/ladder.json` |
 | `mise run compat:census` | Compat2 census over the visible corpus (append `--top N` to limit) |
 | `mise run support:table` | Regenerate the supported-API tables under `.agents/docs/support` (append `--check` to compare) |
 | `mise run boxed:cost` | The boxed ledger window, per `AGENTS.md` |

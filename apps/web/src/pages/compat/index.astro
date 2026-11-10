@@ -31,6 +31,10 @@ const stdlib = data.stdlib.map((row) => ({ ...row }));
 const packages = data.packages.map((row) => ({ ...row }));
 const rungs = data.ladder.rungs;
 const lanes = data.ladder.lanes;
+const r0 = data.ladder.r0;
+// The R0 rate with its denominator: the corpus size is the denominator of
+// the rate, so the site never shows a bare percentage.
+const r0Rate = r0 ? Math.round(r0.rate * 100) : null;
 const fenceRows = data.fences;
 const history = data.history;
 const supportRows = [...data.builtins, ...data.stdlib];
@@ -110,9 +114,78 @@ const supportRows = [...data.builtins, ...data.stdlib];
               <td>{rung.passed}</td>
             </tr>
           ))}
+          {r0 && (
+            <tr>
+              <th scope="row">
+                {r0.rung} — {r0.label}
+              </th>
+              <td>
+                <code>{r0.corpus}</code>
+              </td>
+              <td>{r0.total}</td>
+              <td>{r0.passed}</td>
+              <td>
+                {r0.passed} of {r0.total} ({r0Rate}%)
+              </td>
+            </tr>
+          )}
         </tbody>
       </table>
     </div>
+    {
+      r0 && (
+        <div class="lane-strip" data-r0-detail>
+          <div class="lane-card">
+            <span class="lane-name">{r0.rung} rate</span>
+            <span class="lane-share">{r0Rate}%</span>
+            <span class="lane-count">
+              {r0.passed} of {r0.total} vendored scripts lower with zero fences
+            </span>
+          </div>
+          <div class="lane-card">
+            <span class="lane-name">{r0.rung} fences</span>
+            <span class="lane-share">{r0.fences}</span>
+            <span class="lane-count">fences across the corpus</span>
+          </div>
+          {r0.rootCauses.slice(0, 3).map((cause) => (
+            <div class="lane-card">
+              <span class="lane-name">{cause.cause}</span>
+              <span class="lane-share">{cause.scriptsReleased}</span>
+              <span class="lane-count">scripts released</span>
+            </div>
+          ))}
+        </div>
+      )
+    }
+    {
+      r0 && r0.history.length > 1 && (
+        <div class="table-scroll">
+          <table class="compat-table">
+            <caption class="section-note">
+              {r0.rung} trend: the last {r0.history.length} nightly values.
+            </caption>
+            <thead>
+              <tr>
+                <th scope="col">Date</th>
+                <th scope="col">Passed</th>
+                <th scope="col">Corpus</th>
+                <th scope="col">Rate</th>
+              </tr>
+            </thead>
+            <tbody>
+              {r0.history.map((point) => (
+                <tr>
+                  <th scope="row">{point.date}</th>
+                  <td>{point.passed}</td>
+                  <td>{point.total}</td>
+                  <td>{Math.round(point.rate * 100)}%</td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )
+    }
     <div class="lane-strip">
       {lanes.map((lane) => (
         <div class="lane-card">

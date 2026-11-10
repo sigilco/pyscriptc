@@ -89,9 +89,18 @@ def plane_map(
         if owner is not None:
             fenced.add(owner)
         elif fence.get("code") in ("PS2001", "PS2002"):
-            top_import_fences += 1
-            if not top_fence_message:
-                top_fence_message = str(fence.get("message") or fence.get("code") or "")
+            message = str(fence.get("message") or "")
+            # Issue #678: an import outside the closed table island-binds
+            # under the fallback tier (`island_policy` default), so the
+            # lowerer's fence list never carries it and the compiler keeps
+            # the top level native. The coverage pass lowers without that
+            # policy and still reports the fence, so the inference must not
+            # read it as a top-level trigger. A refused import keeps its
+            # own PS2002 wording and still counts.
+            if fence.get("family") != "import-table" and "is not in the closed import table" not in message:
+                top_import_fences += 1
+                if not top_fence_message:
+                    top_fence_message = message or str(fence.get("code") or "")
 
     if not top_level_island and top_import_fences > 0:
         top_level_island = True

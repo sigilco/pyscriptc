@@ -1,9 +1,9 @@
 {
-  "compiler_hash": "9c5391b22100549015eeebf27e1f7f6051d81b762c1a70884b8789fa6fc537c8",
+  "compiler_hash": "51d4126d71f60e664cbf2a3cc5a9333bbb560e6cdbc9ff7f5aa894a7bfa96f88",
   "oracle": "2/cpython-3.14.9",
-  "wall_s": 465.183,
-  "compile_s": 2049.096,
-  "cache_hits": 1240,
+  "wall_s": 545.629,
+  "compile_s": 1917.58,
+  "cache_hits": 0,
   "weights": {
     "builtins.ArithmeticError": 1.0,
     "builtins.AssertionError": 1.0,

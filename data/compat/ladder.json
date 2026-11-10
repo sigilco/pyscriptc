@@ -55,5 +55,104 @@
         "share": 0.0
       }
     ]
+  },
+  "r0": {
+    "date": "2026-11-09",
+    "rung": "R0",
+    "label": "Vendored real script",
+    "corpus": "benchmarks/real_scripts/scripts",
+    "total": 39,
+    "compiled": 2,
+    "passed": 2,
+    "rate": 0.0513,
+    "fences": 294,
+    "blockers": [
+      {
+        "family": "keyword-args",
+        "rootCause": "call-table",
+        "scriptsBlocked": 2,
+        "scriptsAlone": 2
+      },
+      {
+        "family": "module-assign",
+        "rootCause": "statements",
+        "scriptsBlocked": 2,
+        "scriptsAlone": 1
+      },
+      {
+        "family": "dynamic-annotation",
+        "rootCause": "inference",
+        "scriptsBlocked": 1,
+        "scriptsAlone": 1
+      },
+      {
+        "family": "stdlib:os",
+        "rootCause": "stdlib-surface",
+        "scriptsBlocked": 2,
+        "scriptsAlone": 1
+      },
+      {
+        "family": "construct-other",
+        "rootCause": "statements",
+        "scriptsBlocked": 9,
+        "scriptsAlone": 2
+      },
+      {
+        "family": "annotation-other",
+        "rootCause": "inference",
+        "scriptsBlocked": 3,
+        "scriptsAlone": 0
+      },
+      {
+        "family": "call-arity",
+        "rootCause": "call-table",
+        "scriptsBlocked": 19,
+        "scriptsAlone": 0
+      },
+      {
+        "family": "field-lookup",
+        "rootCause": "classes",
+        "scriptsBlocked": 6,
+        "scriptsAlone": 0
+      },
+      {
+        "family": "forward-reference",
+        "rootCause": "inference",
+        "scriptsBlocked": 1,
+        "scriptsAlone": 0
+      },
+      {
+        "family": "generic-alias",
+        "rootCause": "inference",
+        "scriptsBlocked": 1,
+        "scriptsAlone": 0
+      }
+    ],
+    "rootCauses": [
+      {
+        "cause": "statements",
+        "scriptsReleased": 3
+      },
+      {
+        "cause": "call-table",
+        "scriptsReleased": 2
+      },
+      {
+        "cause": "inference",
+        "scriptsReleased": 2
+      },
+      {
+        "cause": "stdlib-surface",
+        "scriptsReleased": 1
+      }
+    ],
+    "history": [
+      {
+        "date": "2026-11-09",
+        "passed": 2,
+        "total": 39,
+        "rate": 0.0513
+      }
+    ]
   }
 }
