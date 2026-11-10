@@ -472,4 +472,6 @@ class ModuleDriverMixin:
         # boxed:end
         if self.global_inits:
             module["globals"] = self.global_inits
+        if self.module_notes:
+            module["_notes"] = [*module.get("_notes", []), *self.module_notes]
         return self._coro_finish(module)

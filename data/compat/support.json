@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-09",
-  "commit": "69ef4cf4f6ab619a26e5f4996cb6ca6462e9b27e",
+  "generated": "2026-11-10",
+  "commit": "b265b41db574a48f3c557a0b30938a2cbe811672",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -20,8 +20,8 @@
     },
     "packages": {
       "green": 2,
-      "yellow": 8,
-      "red": 8
+      "yellow": 7,
+      "red": 9
     }
   },
   "builtins": [
@@ -644,8 +644,8 @@
       "count": 1,
       "missing": "field(), asdict, order= and other options",
       "codes": [
-        "PS1201",
-        "PS2001"
+        "PS2001",
+        "PS3099"
       ]
     },
     {
@@ -784,8 +784,8 @@
       "name": "h11",
       "version": "0.16.0",
       "status": "\ud83d\udd34",
-      "ratio": "74/133",
-      "blocking": "unlowered-type-name (17), reflection (16), generic-alias (14)",
+      "ratio": "77/133",
+      "blocking": "unlowered-type-name (18), reflection (16), generic-alias (14)",
       "codes": "PS2002, PS1106, PS1203"
     },
     {
@@ -808,9 +808,9 @@
       "name": "jmespath",
       "version": "1.1.0",
       "status": "\ud83d\udd34",
-      "ratio": "106/200",
-      "blocking": "param-inference (78), return-inference (15), decorators (7)",
-      "codes": "PS1001, PS2002, PS1201"
+      "ratio": "111/200",
+      "blocking": "param-inference (82), return-inference (19), class-body (7)",
+      "codes": "PS1001, PS2002, PS1204"
     },
     {
       "name": "pyjwt",
@@ -831,10 +831,10 @@
     {
       "name": "packaging",
       "version": "26.3",
-      "status": "\ud83d\udfe1",
-      "ratio": "275/558",
-      "blocking": "unlowered-type-name (90), name-resolution (77), class-body (49)",
-      "codes": "PS2002, PS1106, PS1204"
+      "status": "\ud83d\udd34",
+      "ratio": "300/558",
+      "blocking": "name-resolution (147), unlowered-type-name (87), generic-alias (58)",
+      "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "pathspec",

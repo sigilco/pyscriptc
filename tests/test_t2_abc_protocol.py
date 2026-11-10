@@ -296,9 +296,12 @@ def test_t2_protocol_fences_stay(tmp_path: Path) -> None:
                     "",
                 ]
             ),
-            "decorators are not lowered",
         ),
     ]
+    # `runtime_checkable` on a Protocol class is the erased class decorator
+    # (divergence 52): the compile succeeds with the advisory PS3099 note
+    # on stderr instead of refusing, so it rides outside the fence loop.
+    cases = cases[:-1]
     for name, source, text in cases:
         path = write_case(tmp_path, name, source)
         got = run_cli(
@@ -312,3 +315,31 @@ def test_t2_protocol_fences_stay(tmp_path: Path) -> None:
         )
         assert got.returncode == 3, f"{name}\n{got.stderr}"
         assert text in got.stderr, f"{name}\n{got.stderr}"
+    runtime_checkable = write_case(
+        tmp_path,
+        "runtime_checkable.py",
+        "\n".join(
+            [
+                "from typing import Protocol, runtime_checkable",
+                "",
+                "@runtime_checkable",
+                "class Sized(Protocol):",
+                "    def size(self) -> int: ...",
+                "",
+                "def run() -> int:",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = run_cli(
+        "compile",
+        str(runtime_checkable),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / "runtime_checkable.ll"),
+    )
+    assert got.returncode == 0, got.stderr
+    assert "PS3099" in got.stderr, got.stderr

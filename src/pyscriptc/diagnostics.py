@@ -163,6 +163,19 @@ _ENTRIES = (
         "or use PEP 695 generics instead of metaclass synthesis.",
     ),
     Diagnostic(
+        "PS3099",
+        "class decorator erased",
+        (
+            "A class decorator other than `@dataclass` compiles as erased: the class lowers undecorated and "
+            "the wrap never runs, where CPython applies the decorator to the class object. The compile prints "
+            "a note and succeeds; the binary keeps the class's own behavior."
+        ),
+        (
+            "Remove the decorator, or apply what it does explicitly after the class definition. Under "
+            "`--fallback=cpython` the class runs through embedded CPython with the decorator applied."
+        ),
+    ),
+    Diagnostic(
         "PS1204",
         "class body statement",
         "A class body holds only annotated fields without values and method definitions.",

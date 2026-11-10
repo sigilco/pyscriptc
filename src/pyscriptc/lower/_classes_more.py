@@ -90,13 +90,37 @@ _ERASED_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 _ERASED_DECORATORS = frozenset({"abstractmethod", "overload"})
 
 
+_DECO_ERASED_MESSAGE = (
+    "the class decorator is erased: the class lowers undecorated and the "
+    "wrap never runs, where CPython applies the decorator to the class "
+    "object (docs/reference/divergences.md #52, PS3099)"
+)
+
+
 class ClassesMoreMixin:
     def _class_decorator(self, node: ast.ClassDef) -> str | None:
+        """The class's decorator kind: `"dataclass"` or None.
+
+        `@dataclass` (and only it) changes the class lowering. A user
+        decorator that cannot lower as a callable value (`deco(d)` would
+        lower, CPython runs it and drops the result) or any other spelling
+        desugars away before the def lowers: the class keeps its fields,
+        methods and constructor and the wrap is skipped (issue #732). The
+        divergence is the documented PS3099 seam (issue #745).
+        """
         if not node.decorator_list:
             return None
-        if len(node.decorator_list) != 1 or not self._is_dataclass_deco(node.decorator_list[0]):
-            self.fail(node, "PS1201", "decorators are not lowered")
-        return "dataclass"
+        if len(node.decorator_list) == 1 and self._is_dataclass_deco(node.decorator_list[0]):
+            return "dataclass"
+        # The erase is advisory: the class lowers undecorated, so the wrap
+        # never runs (divergence 52, issue #732). The note rides the
+        # module's `_notes` and prints on stderr; the compile itself exits
+        # 0 and the binary runs.
+        node.decorator_list = []
+        note = f"note: PS3099 ({node.name}): {_DECO_ERASED_MESSAGE}"
+        if note not in self.module_notes:
+            self.module_notes.append(note)
+        return None
 
     def _is_dataclass_deco(self, dec: ast.expr) -> bool:
         target = dec

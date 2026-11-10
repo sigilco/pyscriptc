@@ -1,12 +1,12 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "7ef796db91ad8b2113c135fc7bbee54322689128",
+  "commit": "b265b41db574a48f3c557a0b30938a2cbe811672",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
     "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
-    "score": "nightly/visible-score.json"
+    "score": ""
   },
   "summary": {
     "builtins_full": 3,
@@ -16,10 +16,10 @@
     "stdlib_partial": 59,
     "stdlib_none": 0,
     "packages_full": 2,
-    "packages_partial": 8,
-    "packages_none": 8,
-    "weighted_pass": 957.1,
-    "fences": 2614
+    "packages_partial": 7,
+    "packages_none": 9,
+    "weighted_pass": 0.0,
+    "fences": 2765
   },
   "builtins": [
     {
@@ -1152,10 +1152,10 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "mkstemp, TemporaryDirectory"
+        "TemporaryDirectory, mkstemp with suffix/prefix/dir/text"
       ],
       "fences": [
-        "PS2001"
+        "PS2003"
       ],
       "note": ""
     },
@@ -1223,8 +1223,8 @@
         "field(), asdict, order= and other options"
       ],
       "fences": [
-        "PS1201",
-        "PS2001"
+        "PS2001",
+        "PS3099"
       ],
       "note": ""
     },
@@ -1484,7 +1484,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 79
+          "count": 80
         },
         {
           "code": "PS1106",
@@ -1540,13 +1540,13 @@
       "import_name": "h11",
       "version": "0.16.0",
       "status": "none",
-      "fences": 190,
+      "fences": 195,
       "definitions": 133,
-      "fenced_definitions": 74,
+      "fenced_definitions": 77,
       "top_families": [
         {
           "family": "unlowered-type-name",
-          "count": 17
+          "count": 18
         },
         {
           "family": "reflection",
@@ -1560,11 +1560,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 106
+          "count": 107
         },
         {
           "code": "PS1106",
-          "count": 17
+          "count": 18
         },
         {
           "code": "PS1203",
@@ -1654,34 +1654,34 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "fences": 122,
+      "fences": 126,
       "definitions": 200,
-      "fenced_definitions": 106,
+      "fenced_definitions": 111,
       "top_families": [
         {
           "family": "param-inference",
-          "count": 78
+          "count": 82
         },
         {
           "family": "return-inference",
-          "count": 15
+          "count": 19
         },
         {
-          "family": "decorators",
+          "family": "class-body",
           "count": 7
         }
       ],
       "codes": [
         {
           "code": "PS1001",
-          "count": 93
+          "count": 101
         },
         {
           "code": "PS2002",
-          "count": 13
+          "count": 16
         },
         {
-          "code": "PS1201",
+          "code": "PS1204",
           "count": 7
         }
       ],
@@ -1767,36 +1767,36 @@
       "name": "packaging",
       "import_name": "packaging",
       "version": "26.3",
-      "status": "partial",
-      "fences": 546,
+      "status": "none",
+      "fences": 688,
       "definitions": 558,
-      "fenced_definitions": 275,
+      "fenced_definitions": 300,
       "top_families": [
         {
-          "family": "unlowered-type-name",
-          "count": 90
-        },
-        {
           "family": "name-resolution",
-          "count": 77
+          "count": 147
         },
         {
-          "family": "class-body",
-          "count": 49
+          "family": "unlowered-type-name",
+          "count": 87
+        },
+        {
+          "family": "generic-alias",
+          "count": 58
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 212
+          "count": 282
         },
         {
           "code": "PS1106",
-          "count": 90
+          "count": 87
         },
         {
-          "code": "PS1204",
-          "count": 49
+          "code": "PS2001",
+          "count": 73
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -2026,91 +2026,7 @@
       "pypi": "https://pypi.org/project/zipp/"
     }
   ],
-  "language": [
-    {
-      "id": "lang",
-      "label": "language",
-      "probes": 440,
-      "outcomes": {
-        "fence": 108,
-        "pass": 332
-      },
-      "weighted_pass": 332.0,
-      "fence_codes": {
-        "PS2002": 60,
-        "PS1001": 16,
-        "PS2003": 11,
-        "PS1004": 10,
-        "PS2001": 6,
-        "PS2004": 3,
-        "PS1106": 2
-      }
-    },
-    {
-      "id": "builtins",
-      "label": "builtins",
-      "probes": 403,
-      "outcomes": {
-        "excluded": 2,
-        "fence": 233,
-        "pass": 168
-      },
-      "weighted_pass": 165.3,
-      "fence_codes": {
-        "PS1106": 108,
-        "PS2001": 56,
-        "PS2002": 33,
-        "PS2003": 23,
-        "PS1103": 9,
-        "PS1003": 3,
-        "PS1104": 1
-      }
-    },
-    {
-      "id": "stdlib",
-      "label": "stdlib modules",
-      "probes": 12849,
-      "outcomes": {
-        "build-error": 1,
-        "excluded": 1395,
-        "fence": 10315,
-        "pass": 1138
-      },
-      "weighted_pass": 401.8,
-      "fence_codes": {
-        "PS2002": 6489,
-        "PS1106": 2720,
-        "PS2001": 967,
-        "PS2003": 55,
-        "PS1001": 37,
-        "PS1003": 33,
-        "PS1104": 12,
-        "PS1103": 2
-      }
-    },
-    {
-      "id": "top100",
-      "label": "PyPI packages",
-      "probes": 86,
-      "outcomes": {
-        "build-error": 5,
-        "fence": 78,
-        "pass": 2,
-        "timeout": 1
-      },
-      "weighted_pass": 10.0,
-      "fence_codes": {
-        "PS2002": 62,
-        "PS1001": 8,
-        "PS1106": 2,
-        "PS1201": 2,
-        "PS1101": 1,
-        "PS1103": 1,
-        "PS1104": 1,
-        "PS1203": 1
-      }
-    }
-  ],
+  "language": [],
   "ladder": {
     "corpus": "benchmarks/scripts_corpus",
     "rungs": [
@@ -2265,56 +2181,56 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1279,
+      "count": 1354,
       "packages": 16
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not supported",
-      "count": 301,
-      "packages": 13
-    },
-    {
-      "code": "PS1106",
-      "title": "annotation names a type the compiler does not take",
-      "count": 207,
-      "packages": 9
+      "count": 334,
+      "packages": 14
     },
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 187,
+      "count": 215,
       "packages": 14
+    },
+    {
+      "code": "PS1106",
+      "title": "annotation names a type the compiler does not take",
+      "count": 205,
+      "packages": 9
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 126,
+      "count": 153,
       "packages": 9
     },
     {
       "code": "PS1101",
       "title": "union annotation",
-      "count": 93,
+      "count": 98,
       "packages": 9
     },
     {
       "code": "PS2003",
       "title": "call arguments not supported",
-      "count": 87,
+      "count": 88,
       "packages": 10
     },
     {
       "code": "PS1204",
       "title": "class body statement",
-      "count": 71,
+      "count": 78,
       "packages": 7
     },
     {
-      "code": "PS1201",
-      "title": "decorator",
-      "count": 57,
-      "packages": 8
+      "code": "PS1104",
+      "title": "dynamic or structural annotation",
+      "count": 54,
+      "packages": 6
     },
     {
       "code": "PS1003",
@@ -2323,16 +2239,16 @@
       "packages": 8
     },
     {
-      "code": "PS1104",
-      "title": "dynamic or structural annotation",
-      "count": 51,
+      "code": "PS1102",
+      "title": "Optional annotation",
+      "count": 45,
       "packages": 6
     },
     {
-      "code": "PS1102",
-      "title": "Optional annotation",
-      "count": 44,
-      "packages": 6
+      "code": "PS1201",
+      "title": "decorator",
+      "count": 29,
+      "packages": 5
     },
     {
       "code": "PS1203",
@@ -2349,7 +2265,7 @@
     {
       "code": "PS2004",
       "title": "operator or operand not supported",
-      "count": 12,
+      "count": 13,
       "packages": 5
     },
     {
@@ -2455,12 +2371,12 @@
     },
     {
       "date": "2026-11-09",
-      "commit": "7ef796db91ad8b2113c135fc7bbee54322689128",
-      "weighted_pass": 957.1,
+      "commit": "b265b41db574a48f3c557a0b30938a2cbe811672",
+      "weighted_pass": 0.0,
       "packages_full": 2,
-      "packages_partial": 8,
-      "packages_none": 8,
-      "fences": 2614
+      "packages_partial": 7,
+      "packages_none": 9,
+      "fences": 2765
     }
   ]
 }

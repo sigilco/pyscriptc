@@ -529,7 +529,7 @@ y: dict[str, int] = dataclasses.asdict(D(1))''', "PS2001"], ["order= and other o
 class D:
     a: int
 @@
-y: int = 1''', "PS1201"]]
+y: int = 1''', "PS3099"]]
 
 [[stdlib]]
 names = ["random"]

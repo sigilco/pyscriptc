@@ -146,6 +146,46 @@ def evaluate_case(case: dict[str, Any], timeout: float = 60.0) -> dict[str, Any]
             "compile_s": spent,
         }
 
+    # expected_outcome == "note" (the advisory erase, divergence 52): the
+    # compile succeeds and the named code must appear on stderr as a note.
+    if expected_outcome == "note":
+        if proc.returncode == 0 and expected_code and expected_code in proc.stderr:
+            return {
+                "id": case["id"],
+                "tier": case.get("tier", "T0"),
+                "construct": case.get("construct", ""),
+                "expected": "note",
+                "expected_code": expected_code,
+                "outcome": "note",
+                "held": True,
+                "evidence": f"compiled with the advisory {expected_code} note",
+                "compile_s": spent,
+            }
+        if proc.returncode != 0:
+            observed = ",".join(found_codes) if found_codes else f"rc={proc.returncode}"
+            return {
+                "id": case["id"],
+                "tier": case.get("tier", "T0"),
+                "construct": case.get("construct", ""),
+                "expected": "note",
+                "expected_code": expected_code,
+                "outcome": "fence",
+                "held": False,
+                "evidence": f"refused ({observed}) where the advisory note compiles: {stderr_tail}",
+                "compile_s": spent,
+            }
+        return {
+            "id": case["id"],
+            "tier": case.get("tier", "T0"),
+            "construct": case.get("construct", ""),
+            "expected": "note",
+            "expected_code": expected_code,
+            "outcome": "silent",
+            "held": False,
+            "evidence": f"compiled cleanly with no {expected_code} note: {stderr_tail}",
+            "compile_s": spent,
+        }
+
     # expected_outcome == "pass" (e.g. T2 desugar, T1 island routing)
     if proc.returncode == 0:
         return {
