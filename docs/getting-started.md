@@ -58,6 +58,18 @@ The type checker ships inside the package, so there is nothing extra to install 
 
 You only need one of `clang` or `zig`. Run `pyscriptc doctor` after installing to see what was found.
 
+### No system zig? Install it as a wheel
+
+If the host has no zig and no clang, install pyscriptc with the `zig` extra:
+
+```sh
+uv tool install "pyscriptc[zig]"
+```
+
+The extra pulls the `ziglang` wheel, which ships the zig toolchain. The wheel registers only a `python-zig` console script, so pyscriptc installs a `zig` PATH shim over `python -m ziglang` and reports it as `zig: ... [PATH shim for pip install ziglang]` in `doctor`. With that in place `--driver zig` and cross-compilation (`--target`) work with no other setup.
+
+The same works with `pipx install "pyscriptc[zig]"` and `pip install "pyscriptc[zig]"`. The extra is the wheel route only: a system zig (`brew`, `winget`, `mise`, the distro package) is found directly and needs no shim.
+
 ## Install pyscriptc
 
 Install pyscriptc as a tool:
@@ -75,6 +87,8 @@ pyscriptc doctor
 ```
 
 `doctor` prints the pyscriptc version, the checker it found, the C compiler or zig it will link with, and the cache locations. If something is missing, fix it with the table above and run `doctor` again.
+
+For an automated check, `pyscriptc doctor --json` prints the same facts as JSON. The `zig.found` and `clang.found` fields answer whether this machine can compile a binary at all.
 
 ## First run
 

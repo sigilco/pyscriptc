@@ -67,7 +67,13 @@ then compile and run a hello world with it.
 uv tool install pyscriptc
 ```
 
-Building a binary needs a clang (or `zig`) on your PATH; `pyscriptc doctor` checks. See [Getting started](https://pyscriptc.pages.dev/getting-started/) for the full toolchain setup.
+Building a binary needs a clang (or `zig`) on your PATH; `pyscriptc doctor` checks. If the host has no zig, install the toolchain wheel with the `zig` extra and pyscriptc wires it up:
+
+```bash
+uv tool install "pyscriptc[zig]"
+```
+
+The extra pulls the `ziglang` wheel; pyscriptc installs a `zig` PATH shim over it, so `--driver zig` and cross-compilation work with no other setup. See [Getting started](https://pyscriptc.pages.dev/getting-started/) for the full toolchain setup.
 
 </details>
 

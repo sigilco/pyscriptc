@@ -151,7 +151,10 @@ def is_shim(path: str | None) -> bool:
 def install_hint() -> str:
     """The user-facing fix for a missing zig."""
     return (
-        "Install one of: `pip install ziglang` (the wheel ships zig and pyscriptc "
-        "installs a `zig` PATH shim for it), `mise use -g zig`, `brew install zig`, "
-        "`winget install zig`, or the download at https://ziglang.org/download/"
-    )
+        "Install one of: `uv tool install \"pyscriptc[zig]\"` (or `pip install "
+        "pyscriptc[zig]`), which pulls the ziglang wheel and gives pyscriptc a "
+        "`zig` PATH shim over it; `pip install ziglang` (the wheel ships zig and "
+        "pyscriptc installs a `zig` PATH shim for it), `mise use -g zig`, "
+        "`brew install zig`, `winget install zig`, or the download at "
+        "https://ziglang.org/download/"
+    ) 
