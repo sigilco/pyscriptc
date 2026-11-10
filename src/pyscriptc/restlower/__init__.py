@@ -49,7 +49,7 @@ from pyscriptc.restlower._dotenv import _dotenv_call
 from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
 from pyscriptc.restlower._functools import _reduce
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
-from pyscriptc.restlower._io import _input, _named_temp, _open, _print
+from pyscriptc.restlower._io import _input, _mkstemp, _named_temp, _open, _print
 from pyscriptc.restlower._iterators import (
     _enumerate_value,
     _filter,
@@ -151,6 +151,7 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("shutil", "which"): lambda lo, node, span, expect, attr: _shutil_which(lo, node, span),
     ("time", "strftime"): lambda lo, node, span, expect, attr: _strftime(lo, node, span),
     ("tempfile", "NamedTemporaryFile"): lambda lo, node, span, expect, attr: _named_temp(lo, node, span),
+    ("tempfile", "mkstemp"): lambda lo, node, span, expect, attr: _mkstemp(lo, node, span),
     ("functools", "partial"): lambda lo, node, span, expect, attr: lo._partial_callable(node, span),
     ("asyncio", "run"): _asyncio_run,
     ("asyncio", "sleep"): _asyncio_sleep,

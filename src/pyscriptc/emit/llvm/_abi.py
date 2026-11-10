@@ -750,6 +750,38 @@ class AbiMixin(EmitterBase):
             self._abi_decl(symbol, "ptr", types)
             return self._call_ret("ptr", symbol, rendered)
         if kind == "class":
+            if symbol == "ps_temp_mkstemp":
+                # The (fd, path) tuple: the runtime fills the fd slot and
+                # the path's 16-byte PsBuf prefix; the tuple record is the
+                # class allocation that stores them (field 0 the fd, field 1
+                # the path bytes).
+                needed = self.needed
+                needed.add("alloc")
+                fd_slot = self._alloca("i64")
+                path_slot = self._alloca("%ps.buf")
+                self._abi_decl("ps_temp_mkstemp", "void", ["ptr", "ptr"])
+                self._call_void("ps_temp_mkstemp", [f"ptr {fd_slot}", f"ptr {path_slot}"])
+                fd = self.tmp()
+                self.line(f"{fd} = load i64, ptr {fd_slot}")
+                path_len = self.tmp()
+                path_dat = self.tmp()
+                raw_ptr = self.tmp()
+                self.line(f"{path_len} = load i64, ptr {path_slot}")
+                self.line(f"{raw_ptr} = getelementptr %ps.buf, ptr {path_slot}, i32 0, i32 1")
+                self.line(f"{path_dat} = load ptr, ptr {raw_ptr}")
+                mem = self._alloc_class(_type_name(ret))
+                fd_field = self.tmp()
+                self.line(f"{fd_field} = getelementptr %cls.{_type_name(ret)}, ptr {mem}, i32 0, i32 0")
+                self.line(f"store i64 {fd}, ptr {fd_field}")
+                buf_field = self.tmp()
+                len_field = self.tmp()
+                dat_field = self.tmp()
+                self.line(f"{buf_field} = getelementptr %cls.{_type_name(ret)}, ptr {mem}, i32 0, i32 1")
+                self.line(f"{len_field} = getelementptr %ps.buf, ptr {buf_field}, i32 0, i32 0")
+                self.line(f"{dat_field} = getelementptr %ps.buf, ptr {buf_field}, i32 0, i32 1")
+                self.line(f"store i64 {path_len}, ptr {len_field}")
+                self.line(f"store ptr {path_dat}, ptr {dat_field}")
+                return mem
             if symbol == "ps_global_get_path":
                 # A Path module slot stores its bytes in the slot buffer
                 # (`ps_global_set_path`); the read copies them out through the

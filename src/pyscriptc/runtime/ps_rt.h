@@ -217,6 +217,10 @@ PsIO *ps_io_take_fd(int fd, const char *path, int64_t mode, int64_t keep);
 PsIO *ps_temp_named(int64_t mode, int64_t keep);
 void ps_io_read(PsIO *io, PsBuf *out);
 int64_t ps_io_write(PsIO *io, int64_t n, const char *s);
+/* tempfile.mkstemp: the (fd, path) pair the lowering unpacks into the
+   synthetic (int, str) tuple. The fd rides the int slot; the path rides
+   the 16-byte PsBuf prefix a str field stores. */
+void ps_temp_mkstemp(int64_t *fd, PsBuf *path);
 
 /* ps_path.c: abspath normalization, shared with the tempfile tempdir pick. */
 void ps_path_abs(int64_t n, const char *s, PsBuf *out);

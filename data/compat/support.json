@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-09",
-  "commit": "0825ef48331517ccf5821c91dbe132161eb2a242",
+  "generated": "2026-11-10",
+  "commit": "35f9f0ececfb376d5f1297eefc980cdc538a789e",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -608,9 +608,9 @@
       "label": "`tempfile`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "mkstemp, TemporaryDirectory",
+      "missing": "TemporaryDirectory, mkstemp with suffix/prefix/dir/text",
       "codes": [
-        "PS2001"
+        "PS2003"
       ]
     },
     {

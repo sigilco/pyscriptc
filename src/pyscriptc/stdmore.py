@@ -1902,7 +1902,7 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "importlib.resources" and member == "files":
         return True
-    if module == "tempfile" and member == "NamedTemporaryFile":
+    if module == "tempfile" and member in {"NamedTemporaryFile", "mkstemp"}:
         return True
     if module == "atexit" and member == "register":
         return True

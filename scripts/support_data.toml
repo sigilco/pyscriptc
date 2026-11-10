@@ -492,8 +492,8 @@ no = [["ucd_3_2_0 (also: Latin-1 only)", 'y: str = unicodedata.ucd_3_2_0', "PS20
 
 [[stdlib]]
 names = ["tempfile"]
-ok = ['y: str = tempfile.gettempdir()', 'y: str = tempfile.mkdtemp()', 'with tempfile.NamedTemporaryFile() as tf2: pass']
-no = [["mkstemp, TemporaryDirectory", 'y: str = tempfile.mkstemp()', "PS2001"]]
+ok = ['y: str = tempfile.gettempdir()', 'y: str = tempfile.mkdtemp()', 'with tempfile.NamedTemporaryFile() as tf2: pass', 'fd, path = tempfile.mkstemp()']
+no = [["TemporaryDirectory, mkstemp with suffix/prefix/dir/text", 'y: str = tempfile.mkstemp(suffix=".txt")', "PS2003"]]
 
 [[stdlib]]
 names = ["atexit"]
