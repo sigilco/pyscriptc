@@ -63,6 +63,58 @@ stable_abi = "no"
 - The run-cache key includes the selection, so a future engine that
   changes the linked output cannot collide with a cached default build.
 
+## Capability manifest (schema v1, issue #669)
+
+A descriptor may name an engine capability manifest: a JSON document the
+`probe` subcommand of `scripts/engine_manifest.py` produces *inside* the
+engine being described (identity, stdlib coverage, language features,
+platform). The descriptor's `[engine] manifest` key holds the path,
+relative to the descriptor file:
+
+```toml
+[engine]
+name = "pypy"
+version = "7.3.16"
+kind = "interpreter"
+manifest = "pypy-manifest.json"
+```
+
+The manifest shape (validated by `pyscriptc/engine_manifest.py`, class
+`EngineManifest`):
+
+```json
+{
+  "schema": 1,
+  "engine": {"name": "pypy", "version": "7.3.16", "language_level": "3.11",
+              "platform": "linux-x86_64", "free_threaded": false},
+  "stdlib": {"available": ["json"], "missing": ["annotationlib"]},
+  "features": {"walrus_pep572": true, "tstring_pep750": false}
+}
+```
+
+- `schema`: integer; a newer major version than the compiler supports is
+  rejected with a one-line diagnostic.
+- `stdlib.available` / `stdlib.missing`: disjoint lists of stdlib module
+  names the engine resolves or lacks.
+- `features`: object of booleans, one entry per probed language feature.
+- Unknown top-level keys are kept (`extra`) for forward compatibility.
+
+### Consumers
+
+- `pyscriptc imports --island-engine <descriptor>` (or the
+  `[tool.pyscriptc.island] engine` key): when the engine carries a
+  manifest, the JSON report gains an `engine` section and each import row
+  gains `engine.stdlib` (`available` / `missing` / `unknown`; third-party
+  imports are always `unknown` — existence in the manifest is not
+  loadability). The text report appends one `engine:` line.
+- `pyscriptc assess` with the same selection: the report gains an
+  `engine` capability section (`stdlibStatus` per import root) and the
+  text report appends one `engine:` line.
+- Without an engine (or with the built-in `cpython`, which has no
+  descriptor file and no manifest) both commands behave exactly as
+  before; the surface is additive only. A manifest that fails to parse
+  warns on stderr and falls back to the native-only report.
+
 ## Open questions (deferred to later embed issues)
 
 - Closed capability vocabulary and what each capability obligates the

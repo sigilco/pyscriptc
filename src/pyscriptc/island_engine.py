@@ -61,6 +61,10 @@ class EngineDescriptor:
     abi: dict[str, str] = field(default_factory=dict)
     #: Unknown top-level tables/keys, kept for forward compatibility.
     extra: dict[str, object] = field(default_factory=dict)
+    #: The `manifest` key of `[engine]` (issue #669): a JSON path, relative
+    #: to the descriptor file, naming the engine capability manifest. None
+    #: when the descriptor does not carry one.
+    manifest: str | None = None
     #: Where the descriptor was loaded from (None for the built-in one).
     path: Path | None = None
 
@@ -171,6 +175,10 @@ def parse_descriptor(data: object, *, source: Path | None = None) -> EngineDescr
         abi[key] = value
     known = {"schema_version", "engine", "capabilities", "abi"}
     extra = {key: value for key, value in data.items() if key not in known}
+    manifest_raw = engine.get("manifest")
+    manifest_ref: str | None = None
+    if manifest_raw is not None:
+        manifest_ref = _require_text("engine", "manifest", manifest_raw)
     return EngineDescriptor(
         name=name,
         version=version_text,
@@ -178,6 +186,7 @@ def parse_descriptor(data: object, *, source: Path | None = None) -> EngineDescr
         capabilities=list(capabilities_raw),
         abi=abi,
         extra=extra,
+        manifest=manifest_ref,
         path=source,
     )
 
