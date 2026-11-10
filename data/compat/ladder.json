@@ -57,7 +57,7 @@
     ]
   },
   "r0": {
-    "date": "2026-11-09",
+    "date": "2026-11-10",
     "rung": "R0",
     "label": "Vendored real script",
     "corpus": "benchmarks/real_scripts/scripts",
@@ -149,6 +149,12 @@
     "history": [
       {
         "date": "2026-11-09",
+        "passed": 2,
+        "total": 39,
+        "rate": 0.0513
+      },
+      {
+        "date": "2026-11-10",
         "passed": 2,
         "total": 39,
         "rate": 0.0513

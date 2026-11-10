@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-09",
-  "commit": "69ef4cf4f6ab619a26e5f4996cb6ca6462e9b27e",
+  "generated": "2026-11-10",
+  "commit": "2aa037a122bbbf6517cf192e9ec4c89dbb14943c",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -353,9 +353,11 @@
       "label": "`itertools`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "count, cycle (infinite), permutations, pairwise, batched, tee, dropwhile, compress",
+      "missing": "count, cycle (infinite), tee (returns a pair, not an iterator), permutations without a count",
       "codes": [
-        "PS2001"
+        "PS2001",
+        "PS2002",
+        "PS2003"
       ]
     },
     {

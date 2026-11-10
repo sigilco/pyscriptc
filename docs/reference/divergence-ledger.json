@@ -855,6 +855,26 @@
       "status": "divergent"
     },
     {
+      "id": "D52",
+      "seam": "itertools.tee returns eager list copies; batched yields lists, not tuples",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#52",
+      "probe": "probes/divergences/d52_itertools_tee_batched.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "[1, 2, 3]\n[1, 2, 3]\n[(1, 2), (3,)]\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "[1, 2, 3]\n[1, 2, 3]\n[[1, 2], [3]]\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

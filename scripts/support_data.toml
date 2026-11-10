@@ -310,8 +310,8 @@ no = [["reduce with a lambda", 'y: int = functools.reduce(lambda a, c: a + c, xs
 
 [[stdlib]]
 names = ["itertools"]
-ok = ['for v in itertools.chain(xs, xs): pass', 'y: list[int] = list(itertools.islice(xs, 2))', 'y: list[int] = list(itertools.accumulate(xs))', 'y: list[int] = list(itertools.takewhile(lambda v: v > 0, xs))']
-no = [["count, cycle (infinite)", 'y: list[int] = list(itertools.count())', "PS2001"], ["permutations, pairwise, batched, tee, dropwhile, compress", 'y: list[int] = list(itertools.permutations(xs))', "PS2001"]]
+ok = ['for v in itertools.chain(xs, xs): pass', 'y: list[int] = list(itertools.islice(xs, 2))', 'y: list[int] = list(itertools.accumulate(xs))', 'y: list[int] = list(itertools.takewhile(lambda v: v > 0, xs))', 'y: list[int] = list(itertools.dropwhile(lambda v: v > 0, xs))', 'y: list[int] = list(itertools.compress(xs, xs))', 'y: list[tuple[int, int]] = list(itertools.permutations(xs, 2))', 'y: list[tuple[int, int]] = list(itertools.pairwise(xs))', 'y: list[list[int]] = list(itertools.batched(xs, 2))']
+no = [["count, cycle (infinite)", 'y: list[int] = list(itertools.count())', "PS2001"], ["tee (returns a pair, not an iterator)", 'y: list[list[int]] = list(itertools.tee(xs))', "PS2002"], ["permutations without a count", 'y: list[int] = list(itertools.permutations(xs))', "PS2003"]]
 
 [[stdlib]]
 names = ["operator"]

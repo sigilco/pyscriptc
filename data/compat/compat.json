@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-09",
-  "commit": "7ef796db91ad8b2113c135fc7bbee54322689128",
+  "generated": "2026-11-10",
+  "commit": "2aa037a122bbbf6517cf192e9ec4c89dbb14943c",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages_full": 2,
     "packages_partial": 8,
     "packages_none": 8,
-    "weighted_pass": 957.1,
+    "weighted_pass": 958.1,
     "fences": 2614
   },
   "builtins": [
@@ -683,10 +683,12 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "count, cycle (infinite), permutations, pairwise, batched, tee, dropwhile, compress"
+        "count, cycle (infinite), tee (returns a pair, not an iterator), permutations without a count"
       ],
       "fences": [
-        "PS2001"
+        "PS2001",
+        "PS2002",
+        "PS2003"
       ],
       "note": ""
     },
@@ -1152,10 +1154,10 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "mkstemp, TemporaryDirectory"
+        "TemporaryDirectory, mkstemp with suffix/prefix/dir/text"
       ],
       "fences": [
-        "PS2001"
+        "PS2003"
       ],
       "note": ""
     },
@@ -2073,14 +2075,14 @@
       "outcomes": {
         "build-error": 1,
         "excluded": 1395,
-        "fence": 10315,
-        "pass": 1138
+        "fence": 10314,
+        "pass": 1139
       },
-      "weighted_pass": 401.8,
+      "weighted_pass": 402.8,
       "fence_codes": {
         "PS2002": 6489,
         "PS1106": 2720,
-        "PS2001": 967,
+        "PS2001": 966,
         "PS2003": 55,
         "PS1001": 37,
         "PS1003": 33,
@@ -2094,13 +2096,12 @@
       "probes": 86,
       "outcomes": {
         "build-error": 5,
-        "fence": 78,
-        "pass": 2,
-        "timeout": 1
+        "fence": 79,
+        "pass": 2
       },
       "weighted_pass": 10.0,
       "fence_codes": {
-        "PS2002": 62,
+        "PS2002": 63,
         "PS1001": 8,
         "PS1106": 2,
         "PS1201": 2,
@@ -2170,7 +2171,7 @@
       "passed": 2,
       "rate": 0.0513,
       "fences": 294,
-      "date": "2026-11-09",
+      "date": "2026-11-10",
       "blockers": [
         {
           "family": "keyword-args",
@@ -2254,6 +2255,12 @@
       "history": [
         {
           "date": "2026-11-09",
+          "passed": 2,
+          "total": 39,
+          "rate": 0.0513
+        },
+        {
+          "date": "2026-11-10",
           "passed": 2,
           "total": 39,
           "rate": 0.0513
@@ -2455,8 +2462,17 @@
     },
     {
       "date": "2026-11-09",
-      "commit": "7ef796db91ad8b2113c135fc7bbee54322689128",
-      "weighted_pass": 957.1,
+      "commit": "0825ef48331517ccf5821c91dbe132161eb2a242",
+      "weighted_pass": 958.1,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2614
+    },
+    {
+      "date": "2026-11-10",
+      "commit": "2aa037a122bbbf6517cf192e9ec4c89dbb14943c",
+      "weighted_pass": 958.1,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,

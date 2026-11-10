@@ -368,6 +368,12 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#51",
     ),
     _row(
+        "D52",
+        "itertools.tee returns eager list copies; batched yields lists, not tuples",
+        "d52_itertools_tee_batched.py",
+        docs=f"{DOC}#52",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

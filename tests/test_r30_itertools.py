@@ -385,8 +385,30 @@ def test_count_and_cycle_stay_fenced(tmp_path: Path) -> None:
     assert "infinite iterators are not lowered" in stderr
 
 
-def test_unlowered_itertools_fences(tmp_path: Path) -> None:
-    stderr = _fence(
+def test_pairwise(tmp_path: Path) -> None:
+    _oracle_diff(
+        tmp_path,
+        "r30_pairwise.py",
+        "\n".join(
+            [
+                "import itertools",
+                "",
+                "def probe() -> int:",
+                "    xs: list[int] = [1, 2, 3, 4]",
+                "    total: int = 0",
+                "    for a, b in itertools.pairwise(xs):",
+                "        total += a * 10 + b",
+                "    for a, b in itertools.pairwise([9]):",
+                "        total += 100",
+                "    return total",
+                "",
+            ]
+        ),
+    )
+
+
+def test_batched(tmp_path: Path) -> None:
+    _oracle_diff(
         tmp_path,
         "r30_batched.py",
         "\n".join(
@@ -394,14 +416,125 @@ def test_unlowered_itertools_fences(tmp_path: Path) -> None:
                 "import itertools",
                 "",
                 "def probe() -> int:",
+                "    xs: list[int] = [1, 2, 3, 4, 5]",
                 "    total: int = 0",
-                "    for x in itertools.batched([1, 2, 3], 2):",
+                "    for batch in itertools.batched(xs, 2):",
+                "        for x in batch:",
+                "            total = total * 10 + x",
+                "    return total",
+                "",
+            ]
+        ),
+    )
+
+
+def test_dropwhile(tmp_path: Path) -> None:
+    _oracle_diff(
+        tmp_path,
+        "r30_dropwhile.py",
+        "\n".join(
+            [
+                "import itertools",
+                "",
+                "def small(x: int) -> bool:",
+                "    return x < 3",
+                "",
+                "def probe() -> int:",
+                "    xs: list[int] = [1, 2, 3, 1, 1]",
+                "    total: int = 0",
+                "    for x in itertools.dropwhile(small, xs):",
+                "        total += x",
+                "    for x in itertools.dropwhile(lambda x: x <= 2, xs):",
+                "        total += x * 10",
+                "    return total",
+                "",
+            ]
+        ),
+    )
+
+
+def test_compress(tmp_path: Path) -> None:
+    _oracle_diff(
+        tmp_path,
+        "r30_compress.py",
+        "\n".join(
+            [
+                "import itertools",
+                "",
+                "def probe() -> int:",
+                "    xs: list[int] = [10, 20, 30, 40]",
+                "    sel: list[int] = [1, 0, 1, 1]",
+                "    total: int = 0",
+                "    for x in itertools.compress(xs, sel):",
+                "        total += x",
+                "    return total",
+                "",
+            ]
+        ),
+    )
+
+
+def test_tee_two_copies(tmp_path: Path) -> None:
+    _oracle_diff(
+        tmp_path,
+        "r30_tee.py",
+        "\n".join(
+            [
+                "import itertools",
+                "",
+                "def probe() -> int:",
+                "    xs: list[int] = [1, 2, 3]",
+                "    a, b = itertools.tee(xs)",
+                "    total: int = 0",
+                "    for x in a:",
+                "        total += x",
+                "    for x in b:",
+                "        total += x * 10",
+                "    return total",
+                "",
+            ]
+        ),
+    )
+
+
+def test_permutations(tmp_path: Path) -> None:
+    _oracle_diff(
+        tmp_path,
+        "r30_perm.py",
+        "\n".join(
+            [
+                "import itertools",
+                "",
+                "def probe() -> int:",
+                "    xs: list[int] = [1, 2, 3]",
+                "    total: int = 0",
+                "    for a, b in itertools.permutations(xs, 2):",
+                "        total += a * 10 + b",
+                "    return total",
+                "",
+            ]
+        ),
+    )
+
+
+def test_unlowered_itertools_fences(tmp_path: Path) -> None:
+    stderr = _fence(
+        tmp_path,
+        "r30_batched_n.py",
+        "\n".join(
+            [
+                "import itertools",
+                "",
+                "def probe() -> int:",
+                "    n: int = 2",
+                "    total: int = 0",
+                "    for x in itertools.batched([1, 2, 3], n):",
                 "        total += 1",
                 "    return total",
             ]
         ),
     )
-    assert "itertools.batched is not in the lowered subset of itertools" in stderr
+    assert "itertools.batched count is a literal positive int" in stderr
     stderr = _fence(
         tmp_path,
         "r30_starmap_builtin.py",
