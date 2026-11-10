@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-09",
-  "commit": "0825ef48331517ccf5821c91dbe132161eb2a242",
+  "generated": "2026-11-10",
+  "commit": "34c1a781145151fade126ad7d9e79a980da8cb8d",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1154,10 +1154,10 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "mkstemp, TemporaryDirectory"
+        "TemporaryDirectory, mkstemp with suffix/prefix/dir/text"
       ],
       "fences": [
-        "PS2001"
+        "PS2003"
       ],
       "note": ""
     },
@@ -2171,7 +2171,7 @@
       "passed": 2,
       "rate": 0.0513,
       "fences": 294,
-      "date": "2026-11-09",
+      "date": "2026-11-10",
       "blockers": [
         {
           "family": "keyword-args",
@@ -2255,6 +2255,12 @@
       "history": [
         {
           "date": "2026-11-09",
+          "passed": 2,
+          "total": 39,
+          "rate": 0.0513
+        },
+        {
+          "date": "2026-11-10",
           "passed": 2,
           "total": 39,
           "rate": 0.0513
@@ -2457,6 +2463,15 @@
     {
       "date": "2026-11-09",
       "commit": "0825ef48331517ccf5821c91dbe132161eb2a242",
+      "weighted_pass": 958.1,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2614
+    },
+    {
+      "date": "2026-11-10",
+      "commit": "34c1a781145151fade126ad7d9e79a980da8cb8d",
       "weighted_pass": 958.1,
       "packages_full": 2,
       "packages_partial": 8,

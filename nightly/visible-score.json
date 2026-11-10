@@ -1,8 +1,8 @@
 {
-  "compiler_hash": "51d4126d71f60e664cbf2a3cc5a9333bbb560e6cdbc9ff7f5aa894a7bfa96f88",
+  "compiler_hash": "74e152ba13928df0a4df66b10b2197a1c2ea873456cb92547f95f8548358e63b",
   "oracle": "2/cpython-3.14.9",
-  "wall_s": 545.629,
-  "compile_s": 1917.58,
+  "wall_s": 648.711,
+  "compile_s": 2274.553,
   "cache_hits": 0,
   "weights": {
     "builtins.ArithmeticError": 1.0,
@@ -133312,7 +133312,7 @@
       "outcome": "fence",
       "reachable": true,
       "code": "PS2001",
-      "evidence": "186:9: tempfile.mkstemp is not in the lowered subset of tempfile",
+      "evidence": "187:22: isinstance type is not in the lowered subset",
       "epic": ""
     },
     {
