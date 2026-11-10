@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-10",
-  "commit": "ccbefc9eaaa6d4ee16a09c775409fd250c14adec",
+  "commit": "167c088a60b5436094b8286ed14ea6868fe0a493",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2571
+    "fences": 2618
   },
   "builtins": [
     {
@@ -1770,9 +1770,9 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "partial",
-      "fences": 543,
+      "fences": 546,
       "definitions": 558,
-      "fenced_definitions": 272,
+      "fenced_definitions": 275,
       "top_families": [
         {
           "family": "unlowered-type-name",
@@ -1808,35 +1808,35 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 154,
+      "fences": 198,
       "definitions": 132,
-      "fenced_definitions": 73,
+      "fenced_definitions": 78,
       "top_families": [
         {
-          "family": "construct-other",
-          "count": 22
+          "family": "name-resolution",
+          "count": 30
         },
         {
           "family": "unlowered-type-name",
           "count": 19
         },
         {
-          "family": "class-body",
-          "count": 10
+          "family": "type-mismatch",
+          "count": 19
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 85
+          "count": 103
         },
         {
           "code": "PS1106",
           "count": 19
         },
         {
-          "code": "PS1204",
-          "count": 10
+          "code": "PS1003",
+          "count": 19
         }
       ],
       "pypi": "https://pypi.org/project/pathspec/"
@@ -1848,7 +1848,7 @@
       "status": "partial",
       "fences": 257,
       "definitions": 388,
-      "fenced_definitions": 152,
+      "fenced_definitions": 154,
       "top_families": [
         {
           "family": "construct-other",
@@ -1860,7 +1860,7 @@
         },
         {
           "family": "optional-types",
-          "count": 34
+          "count": 33
         }
       ],
       "codes": [
@@ -1870,11 +1870,11 @@
         },
         {
           "code": "PS1102",
-          "count": 34
+          "count": 33
         },
         {
           "code": "PS2001",
-          "count": 24
+          "count": 22
         }
       ],
       "pypi": "https://pypi.org/project/platformdirs/"
@@ -2189,13 +2189,13 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1268,
+      "count": 1286,
       "packages": 16
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not supported",
-      "count": 311,
+      "count": 315,
       "packages": 13
     },
     {
@@ -2207,7 +2207,7 @@
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 189,
+      "count": 188,
       "packages": 14
     },
     {
@@ -2235,6 +2235,12 @@
       "packages": 7
     },
     {
+      "code": "PS1003",
+      "title": "type mismatch",
+      "count": 54,
+      "packages": 8
+    },
+    {
       "code": "PS1104",
       "title": "dynamic or structural annotation",
       "count": 52,
@@ -2243,26 +2249,20 @@
     {
       "code": "PS1102",
       "title": "Optional annotation",
-      "count": 45,
+      "count": 44,
       "packages": 6
     },
     {
-      "code": "PS1003",
-      "title": "type mismatch",
-      "count": 38,
-      "packages": 8
+      "code": "PS1201",
+      "title": "decorator",
+      "count": 31,
+      "packages": 4
     },
     {
       "code": "PS1203",
       "title": "class header form",
       "count": 25,
       "packages": 5
-    },
-    {
-      "code": "PS1201",
-      "title": "decorator",
-      "count": 20,
-      "packages": 2
     },
     {
       "code": "PS1105",
@@ -2298,12 +2298,12 @@
   "history": [
     {
       "date": "2026-11-10",
-      "commit": "ccbefc9eaaa6d4ee16a09c775409fd250c14adec",
+      "commit": "167c088a60b5436094b8286ed14ea6868fe0a493",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2571
+      "fences": 2618
     }
   ]
 }
