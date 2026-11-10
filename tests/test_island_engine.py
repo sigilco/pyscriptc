@@ -128,3 +128,52 @@ def test_config_island_engine_rejects_non_string(tmp_path: Path) -> None:
 
 
 # boxed:end
+
+
+PYPY = """\
+schema_version = 1
+
+[engine]
+name = "pypy"
+version = "7.3.16"
+kind = "pypy-interpreter"
+
+[abi]
+libpython = "pypy-c"
+include = "include"
+"""
+
+
+def test_engine_defines_builtin_and_missing_emit_nothing() -> None:
+    assert island_engine.engine_defines(island_engine.builtin_descriptor()) == []
+
+
+def test_engine_defines_pypy_emits_define_and_include(tmp_path: Path) -> None:
+    path = tmp_path / "pypy.toml"
+    path.write_text(PYPY, encoding="utf-8")
+    defines = island_engine.engine_defines(island_engine.load_file(path))
+    assert defines[0] == "-DPS_ENGINE_PYPY"
+    assert defines[1] == "-I"
+    assert Path(defines[2]) == tmp_path / "include"
+
+
+def test_engine_defines_pypy_absolute_include_stays_absolute(tmp_path: Path) -> None:
+    text = PYPY.replace('include = "include"', 'include = "/opt/pypy/include"')
+    path = tmp_path / "pypy.toml"
+    path.write_text(text, encoding="utf-8")
+    defines = island_engine.engine_defines(island_engine.load_file(path))
+    assert Path(defines[2]) == Path("/opt/pypy/include")
+
+
+def test_engine_defines_pypy_without_include_refuses(tmp_path: Path) -> None:
+    text = PYPY.replace('include = "include"\n', "")
+    path = tmp_path / "pypy.toml"
+    path.write_text(text, encoding="utf-8")
+    with pytest.raises(island_engine.EngineError, match="abi include"):
+        island_engine.engine_defines(island_engine.load_file(path))
+
+
+def test_engine_defines_interpreter_kind_is_not_pypy(tmp_path: Path) -> None:
+    path = tmp_path / "other.toml"
+    path.write_text(PYPY.replace('kind = "pypy-interpreter"', 'kind = "interpreter"'), encoding="utf-8")
+    assert island_engine.engine_defines(island_engine.load_file(path)) == []

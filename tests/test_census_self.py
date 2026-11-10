@@ -291,6 +291,9 @@ def test_self_census_ballpark() -> None:
     # Capability manifest v1 (#669): engine_manifest.py plus the imports and
     # assess consumers in cli/_main.py, cli/_report.py and island_engine.py
     # add about 350 lines.
+    # The PyPy engine seam (#667): the PS_ENGINE_START branch in ps_island.c
+    # is not self-hosted, but the driver flag emission, the descriptor
+    # plumbing and the cli surface add about 70 lines.
     assert 11_000 <= census["lines"] <= 77_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
