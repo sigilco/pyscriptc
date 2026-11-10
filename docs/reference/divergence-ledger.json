@@ -895,6 +895,26 @@
       "status": "fenced"
     },
     {
+      "id": "D54",
+      "seam": "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#54",
+      "probe": "probes/divergences/d54_csv_dict_reader.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1 2\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "ValueError: dict reader has more fields than fieldnames\n"
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

@@ -228,15 +228,28 @@ static PsMap *csv_dict_new(PsSeq *names, PsSeq *cells, int64_t count) {
     return m;
 }
 
-/* The fieldnames of a DictReader: the first record of the source, or the
-   explicit list the caller passed. */
+/* The fieldnames of a DictReader: the first non-blank record of the
+   source (CPython skips the blank records the underlying reader yields
+   when it picks the header too). */
+static int64_t csv_dict_header(PsSeq *rows) {
+    for (int64_t i = 0; i < rows->len; i++) {
+        PsSeq *record;
+        ps_seq_get(rows, i, &record);
+        if (record->len > 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
 static PsSeq *csv_dict_fieldnames(PsSeq *rows) {
     PsSeq *names = ps_seq_new((int64_t)sizeof(PsBuf), 0);
-    if (rows->len == 0) {
+    int64_t head = csv_dict_header(rows);
+    if (head < 0) {
         return names;
     }
     PsSeq *first;
-    ps_seq_get(rows, 0, &first);
+    ps_seq_get(rows, head, &first);
     for (int64_t i = 0; i < first->len; i++) {
         PsBuf field;
         ps_seq_get(first, i, &field);
@@ -245,17 +258,25 @@ static PsSeq *csv_dict_fieldnames(PsSeq *rows) {
     return names;
 }
 
-/* The row maps: the first record names the fields, the rest carry the
-   values. A record with more fields than the header raises the ValueError
-   CPython raises; a record with fewer fills the missing fields with the
-   None cell (the restval default). */
+/* The row maps: the first non-blank record names the fields, the rest
+   carry the values. A record with more fields than the header raises the
+   ValueError the seam documents (CPython stores the extras under the None
+   restkey, which is outside the row dict's type); a record with fewer
+   fills the missing fields with the None cell (the restval default), and
+   a blank record is skipped, as CPython's DictReader skips it. */
 static PsSeq *csv_dict_rows(PsSeq *rows, PsSeq *names) {
     PsSeq *out = ps_seq_new((int64_t)sizeof(PsMap *), 0);
     int64_t width = names->len;
     void *none = csv_opt_none();
-    for (int64_t i = 1; i < rows->len; i++) {
+    int64_t head = csv_dict_header(rows);
+    for (int64_t i = head + 1; i < rows->len; i++) {
         PsSeq *record;
         ps_seq_get(rows, i, &record);
+        if (record->len == 0) {
+            /* CPython's DictReader skips the blank records the underlying
+               reader yields: a dict full of None values is not useful. */
+            continue;
+        }
         if (record->len > width) {
             ps_raise_cstr(PS_VALUE, "dict reader has more fields than fieldnames");
         }

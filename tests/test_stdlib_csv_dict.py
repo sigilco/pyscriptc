@@ -307,3 +307,29 @@ def test_dict_writer_keywords_fence_by_name() -> None:
 def test_csv_names_outside_the_subset_fence_naming_csv() -> None:
     _fence("import csv\ns = csv.Sniffer()\n", "PS2001", "csv.Sniffer is not in the lowered subset of csv")
     _fence("import csv\ns = csv.Dialect()\n", "PS2001", "csv.Dialect is not in the lowered subset of csv")
+
+
+def test_dict_reader_skips_blank_records(tmp_path: Path) -> None:
+    # CPython's DictReader skips the blank records the underlying reader
+    # yields, so they never reach the row loop.
+    _oracle(
+        tmp_path,
+        "reader_blank.py",
+        "\n".join(
+            [
+                "import csv",
+                "",
+                "def run() -> int:",
+                "    lines: list[str] = ['a,b', '', '1,2', '', '3,4']",
+                "    for row in csv.DictReader(lines):",
+                "        a: str | None = row['a']",
+                "        b: str | None = row['b']",
+                "        if a is None or b is None:",
+                "            print('missing')",
+                "        else:",
+                "            print(a, b)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
