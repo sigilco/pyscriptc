@@ -288,7 +288,10 @@ def test_self_census_ballpark() -> None:
     # The island group (#817, the plane split's cycle rule) and the master's
     # seed cache and code-cache work it rebase-merged with take the source
     # past 72k.
-    assert 11_000 <= census["lines"] <= 76_000
+    # The PyPy engine seam (#667): the PS_ENGINE_START branch in ps_island.c
+    # is not self-hosted, but the driver flag emission, the descriptor
+    # plumbing and the cli surface add about 70 lines.
+    assert 11_000 <= census["lines"] <= 77_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
