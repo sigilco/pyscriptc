@@ -8,13 +8,16 @@ from typing import Any
 from pyscriptc.reflection import kwargs_call_note
 from pyscriptc.reprspec import type_spec
 from pyscriptc.restlower._shared import (
+    _asg,
     _call_builtin,
     _call_module,
     _class,
     _const_int,
     _const_json,
     _const_text,
+    _field,
     _flag,
+    _nm,
     _node_span,
     _node_type,
     _node_type_kind,
@@ -181,6 +184,28 @@ def _named_temp(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
     cls = "BytesIO" if "b" in mode else "TextIO"
     args = [_const_json(code, span), _const_json(keep, span)]
     return lo._abi_call("tempfile", "NamedTemporaryFile", args, _class(cls), "ps_temp_named", span)
+
+
+def _mkstemp(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`tempfile.mkstemp()` returns the `(fd, path)` pair as the synthetic
+    tuple. Like the lowered `mkdtemp`, the file lands in the system temp
+    directory; CPython's `suffix`/`prefix`/`dir`/`text` arguments stay
+    fenced. The caller owns the fd and unlinks the file itself, so the
+    probe prints booleans (the path differs between runs).
+    """
+    if node.keywords:
+        lo.fail(node, "PS2003", "tempfile.mkstemp lowers the 0-argument form only")
+    if len(node.args) > 0:
+        lo.fail(node, "PS2003", "tempfile.mkstemp lowers the 0-argument form only")
+    record = lo._tuple_type([_t_leaf("int"), _t_leaf("str")], node)
+    call = lo._abi_call("tempfile", "mkstemp", [], record, "ps_temp_mkstemp", span)
+    box = lo._temp("mkst")
+    lo.locals[box] = record
+    lo.prelude.append(_asg(box, call, span))
+    rec = _nm(box, record, span)
+    fd = _field(rec, "_0", _t_leaf("int"), span)
+    path = _field(rec, "_1", _t_leaf("str"), span)
+    return lo._materialize_tuple([fd, path], span, node)
 
 
 def _open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
