@@ -446,6 +446,317 @@ def _takewhile(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     return _mk_iter(lo, _nm(out, lo.locals[out], span), node, span)
 
 
+def _dropwhile(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`dropwhile(p, xs)` skips the leading run while `p(x)` holds, then
+    keeps the rest. An iterator source is drained to the end: the eager
+    model materializes the tail up front."""
+
+    lo._reject_keywords(node)
+    if len(node.args) != 2:
+        lo.fail(node, "PS2003", "itertools.dropwhile takes a predicate and an iterable")
+    source = lo._expr(node.args[1])
+    typ = _node_type(source)
+    int_t = _t_leaf("int")
+    itn = None
+    if _type_kind(typ) == "class" and lo.classes.get(_type_name(typ), {}).get("iterator"):
+        itn = _pin(lo, source, span, "dw")
+        elem = typ["elem"]
+        list_t = _t_list(elem)
+        seq_r = _field(itn, "seq", list_t, span)
+        pool = _tname(lo, "dwp")
+        lo.locals[pool] = list_t
+        lo.prelude.append(
+            _asg(
+                pool,
+                lo._abi_call(
+                    "builtins",
+                    "list",
+                    [
+                        seq_r,
+                        _field(itn, "idx", int_t, span),
+                        _int(0, span),
+                        _int(1, span),
+                        _int(0, span),
+                        _int(1, span),
+                    ],
+                    list_t,
+                    "ps_seq_slice",
+                    span,
+                ),
+                span,
+            )
+        )
+    else:
+        pool_nm = _pool(lo, node, source, span, "dwp")
+        pool = _node_id(pool_nm)
+        elem = _node_type(pool_nm)["elem"]
+    out, i, n, v, skip = (_tname(lo, h) for h in ("dwo", "dwi", "dwn", "dwv", "dws"))
+    lo.locals[out] = _t_list(elem)
+    lo.locals[i] = int_t
+    lo.locals[n] = int_t
+    lo.locals[v] = elem
+    lo.locals[skip] = int_t
+    pre, test, post, saves = _fn_call(lo, node.args[0], [v], [elem], span, "dropwhile")
+    _emit(
+        lo,
+        node,
+        [
+            f"{out} = []",
+            f"{n} = len({pool})",
+            f"{i} = 0",
+            f"{skip} = 1",
+            f"while {i} < {n}:",
+            f"    {v} = {pool}[{i}]",
+            *[f"    {line}" for line in pre],
+            f"    if {skip} == 1:",
+            f"        if {test}:",
+            f"            {i} = {i} + 1",
+            "        else:",
+            f"            {skip} = 0",
+            f"            {out}.append({v})",
+            f"            {i} = {i} + 1",
+            "    else:",
+            f"        {out}.append({v})",
+            f"        {i} = {i} + 1",
+            *post,
+        ],
+        span,
+    )
+    _fn_restore(lo, saves)
+    if itn is not None:
+        seq_full = _field(itn, "seq", _t_list(elem), span)
+        lo.prelude.append(_set_field(itn, "idx", _len_of(seq_full, span), span))
+    return _mk_iter(lo, _nm(out, lo.locals[out], span), node, span)
+
+
+def _pairwise(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`pairwise(xs)` is `(xs[i], xs[i+1])` for each adjacent pair."""
+
+    lo._reject_keywords(node)
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", "itertools.pairwise takes one iterable")
+    pool = _pool(lo, node, lo._expr(node.args[0]), span, "pw")
+    n = _tname(lo, "pwn")
+    lo.locals[n] = _t_leaf("int")
+    lo.prelude.append(_asg(n, _len_of(pool, span), span))
+    i = lo._temp("pwi")
+    stop = ast.BinOp(left=ast.Name(id=n, ctx=ast.Load()), op=ast.Sub(), right=ast.Constant(value=1))
+    comp = ast.ListComp(
+        elt=ast.Tuple(
+            elts=[
+                ast.Subscript(
+                    value=ast.Name(id=_node_id(pool), ctx=ast.Load()),
+                    slice=ast.Name(id=i, ctx=ast.Load()),
+                    ctx=ast.Load(),
+                ),
+                ast.Subscript(
+                    value=ast.Name(id=_node_id(pool), ctx=ast.Load()),
+                    slice=ast.BinOp(left=ast.Name(id=i, ctx=ast.Load()), op=ast.Add(), right=ast.Constant(value=1)),
+                    ctx=ast.Load(),
+                ),
+            ],
+            ctx=ast.Load(),
+        ),
+        generators=[
+            ast.comprehension(
+                target=ast.Name(id=i, ctx=ast.Store()),
+                iter=ast.Call(func=ast.Name(id="range", ctx=ast.Load()), args=[stop], keywords=[]),
+                ifs=[],
+                is_async=False,
+            )
+        ],
+    )
+    return _mk_iter(lo, lo._comp(_span_to(node, comp), span, None), node, span)
+
+
+def _batched(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`batched(xs, n)` is an iterator of lists of length `n` (a short tail
+    when the length is not a multiple). CPython yields tuples; lists stand
+    in so a leftover of one element still has an IR type."""
+
+    for kw in node.keywords:
+        lo.fail(kw, "PS2003", "itertools.batched keywords are not lowered")
+    if len(node.args) != 2:
+        lo.fail(node, "PS2003", "itertools.batched takes an iterable and a count")
+    count = node.args[1]
+    if not isinstance(count, ast.Constant) or not isinstance(count.value, int) or count.value < 1:
+        lo.fail(count, "PS2003", "itertools.batched count is a literal positive int")
+    size = count.value
+    pool = _pool(lo, node, lo._expr(node.args[0]), span, "bt")
+    elem = _node_type(pool)["elem"]
+    batch_t = _t_list(elem)
+    out, i, n, j, b, v = (_tname(lo, h) for h in ("bto", "bti", "btn", "btj", "btb", "btv"))
+    lo.locals[out] = _t_list(batch_t)
+    lo.locals[i] = _t_leaf("int")
+    lo.locals[n] = _t_leaf("int")
+    lo.locals[j] = _t_leaf("int")
+    lo.locals[b] = batch_t
+    lo.locals[v] = elem
+    _emit(
+        lo,
+        node,
+        [
+            f"{out} = []",
+            f"{n} = len({_node_id(pool)})",
+            f"{i} = 0",
+            f"while {i} < {n}:",
+            f"    {b} = []",
+            f"    {j} = 0",
+            f"    while {j} < {size}:",
+            f"        if {i} < {n}:",
+            f"            {v} = {_node_id(pool)}[{i}]",
+            f"            {b}.append({v})",
+            f"            {i} = {i} + 1",
+            f"            {j} = {j} + 1",
+            "        else:",
+            "            break",
+            f"    {out}.append({b})",
+        ],
+        span,
+    )
+    return _mk_iter(lo, _nm(out, lo.locals[out], span), node, span)
+
+
+def _compress(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`compress(data, selectors)` keeps `data[i]` where `selectors[i]` is true."""
+
+    lo._reject_keywords(node)
+    if len(node.args) != 2:
+        lo.fail(node, "PS2003", "itertools.compress takes data and selectors")
+    data = _pool(lo, node, lo._expr(node.args[0]), span, "cd")
+    selectors = _pool(lo, node, lo._expr(node.args[1]), span, "cs")
+    elem = _node_type(data)["elem"]
+    sel_t = _type_kind(_node_type(selectors)["elem"])
+    if sel_t not in {"int", "bool"}:
+        lo.fail(node, "PS1003", "itertools.compress selectors are list[int] or list[bool]")
+    out, i, n, m, v, s = (_tname(lo, h) for h in ("cso", "csi", "csn", "csm", "csv", "css"))
+    lo.locals[out] = _t_list(elem)
+    lo.locals[i] = _t_leaf("int")
+    lo.locals[n] = _t_leaf("int")
+    lo.locals[m] = _t_leaf("int")
+    lo.locals[v] = elem
+    lo.locals[s] = _node_type(selectors)["elem"]
+    _emit(
+        lo,
+        node,
+        [
+            f"{out} = []",
+            f"{n} = len({_node_id(data)})",
+            f"{m} = len({_node_id(selectors)})",
+            f"{i} = 0",
+            f"while {i} < {n}:",
+            f"    if {i} < {m}:",
+            f"        {s} = {_node_id(selectors)}[{i}]",
+            f"        if {s}:",
+            f"            {v} = {_node_id(data)}[{i}]",
+            f"            {out}.append({v})",
+            f"        {i} = {i} + 1",
+            "    else:",
+            "        break",
+        ],
+        span,
+    )
+    return _mk_iter(lo, _nm(out, lo.locals[out], span), node, span)
+
+
+def _tee(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`tee(xs)` / `tee(xs, 2)` returns two eager copies of the materialized
+    source. CPython's pair is lazy iterators; the copies are lists."""
+
+    for kw in node.keywords:
+        lo.fail(kw, "PS2003", "itertools.tee keywords are not lowered")
+    if len(node.args) == 2:
+        count = node.args[1]
+        if not isinstance(count, ast.Constant) or count.value != 2:
+            lo.fail(count, "PS2003", "itertools.tee n is 2")
+    elif len(node.args) != 1:
+        lo.fail(node, "PS2003", "itertools.tee takes an iterable and optional n=2")
+    pool = _pool(lo, node, lo._expr(node.args[0]), span, "te")
+    elem = _node_type(pool)["elem"]
+    list_t = _t_list(elem)
+    left, right, i, bound, v = (_tname(lo, h) for h in ("tel", "ter", "tei", "ten", "tev"))
+    lo.locals[left] = list_t
+    lo.locals[right] = list_t
+    lo.locals[i] = _t_leaf("int")
+    lo.locals[bound] = _t_leaf("int")
+    lo.locals[v] = elem
+    _emit(
+        lo,
+        node,
+        [
+            f"{left} = []",
+            f"{right} = []",
+            f"{bound} = len({_node_id(pool)})",
+            f"{i} = 0",
+            f"while {i} < {bound}:",
+            f"    {v} = {_node_id(pool)}[{i}]",
+            f"    {left}.append({v})",
+            f"    {right}.append({v})",
+            f"    {i} = {i} + 1",
+        ],
+        span,
+    )
+    return lo._materialize_tuple([_nm(left, list_t, span), _nm(right, list_t, span)], span, node)
+
+
+def _permutations(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`permutations(xs, r)` is the nested-comprehension over distinct
+    indices of the materialized pool; `r` is a literal of 2 or more."""
+
+    lo._reject_keywords(node)
+    if len(node.args) != 2:
+        lo.fail(node, "PS2003", "itertools.permutations takes a pool and a count")
+    count = node.args[1]
+    if not isinstance(count, ast.Constant) or not isinstance(count.value, int) or count.value < 2:
+        lo.fail(count, "PS2003", "itertools.permutations count is a literal int of 2 or more")
+    r = count.value
+    pool = _pool(lo, node, lo._expr(node.args[0]), span, "pm")
+    n = _tname(lo, "pmn")
+    lo.locals[n] = _t_leaf("int")
+    lo.prelude.append(_asg(n, _len_of(pool, span), span))
+    idxs = [lo._temp("pi") for _ in range(r)]
+    gens = []
+    for k in range(r):
+        ifs = []
+        if k == r - 1:
+            for a in range(r):
+                for b in range(a + 1, r):
+                    ifs.append(
+                        ast.Compare(
+                            left=ast.Name(id=idxs[a], ctx=ast.Load()),
+                            ops=[ast.NotEq()],
+                            comparators=[ast.Name(id=idxs[b], ctx=ast.Load())],
+                        )
+                    )
+        gens.append(
+            ast.comprehension(
+                target=ast.Name(id=idxs[k], ctx=ast.Store()),
+                iter=ast.Call(
+                    func=ast.Name(id="range", ctx=ast.Load()),
+                    args=[ast.Name(id=n, ctx=ast.Load())],
+                    keywords=[],
+                ),
+                ifs=ifs,
+                is_async=False,
+            )
+        )
+    comp = ast.ListComp(
+        elt=ast.Tuple(
+            elts=[
+                ast.Subscript(
+                    value=ast.Name(id=_node_id(pool), ctx=ast.Load()),
+                    slice=ast.Name(id=i, ctx=ast.Load()),
+                    ctx=ast.Load(),
+                )
+                for i in idxs
+            ],
+            ctx=ast.Load(),
+        ),
+        generators=gens,
+    )
+    return _mk_iter(lo, lo._comp(_span_to(node, comp), span, None), node, span)
+
+
 def _groupby(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`groupby(xs[, key])` yields `(key, group)` pairs where the group is
     the materialized run of equal keys — a list standing in for CPython's
@@ -684,6 +995,18 @@ def _itertools(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict
         return _ziplongest(lo, node, span)
     if attr == "takewhile":
         return _takewhile(lo, node, span)
+    if attr == "dropwhile":
+        return _dropwhile(lo, node, span)
+    if attr == "pairwise":
+        return _pairwise(lo, node, span)
+    if attr == "batched":
+        return _batched(lo, node, span)
+    if attr == "compress":
+        return _compress(lo, node, span)
+    if attr == "tee":
+        return _tee(lo, node, span)
+    if attr == "permutations":
+        return _permutations(lo, node, span)
     if attr == "groupby":
         return _groupby(lo, node, span)
     lo.fail(node, "PS2001", f"itertools.{attr} is not in the lowered subset of itertools")

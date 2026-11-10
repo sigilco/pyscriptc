@@ -369,9 +369,15 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D52",
-        "a class decorator other than @dataclass is erased: the wrap never runs (advisory PS3099 note)",
-        "d52_class_decorator_erased.py",
+        "itertools.tee returns eager list copies; batched yields lists, not tuples",
+        "d52_itertools_tee_batched.py",
         docs=f"{DOC}#52",
+    ),
+    _row(
+        "D53",
+        "a class decorator other than @dataclass is erased: the wrap never runs (advisory PS3099 note)",
+        "d53_class_decorator_erased.py",
+        docs=f"{DOC}#53",
     ),
     _row(
         "AUDIT-D1",

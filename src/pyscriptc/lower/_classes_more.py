@@ -101,7 +101,7 @@ _CLASS_SYNTHESIS_DECORATORS = {
 _DECO_ERASED_MESSAGE = (
     "the class decorator is erased: the class lowers undecorated and the "
     "wrap never runs, where CPython applies the decorator to the class "
-    "object (docs/reference/divergences.md #52, PS3099)"
+    "object (docs/reference/divergences.md #53, PS3099)"
 )
 
 
@@ -130,7 +130,7 @@ class ClassesMoreMixin:
             if self._is_class_synthesis_deco(node.decorator_list[0]):
                 self.fail(node, "PS1201", "decorators are not lowered")
         # The erase is advisory: the class lowers undecorated, so the wrap
-        # never runs (divergence 52, issue #732). The note rides the
+        # never runs (divergence 53, issue #732). The note rides the
         # module's `_notes` and prints on stderr; the compile itself exits
         # 0 and the binary runs.
         node.decorator_list = []
