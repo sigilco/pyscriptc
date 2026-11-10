@@ -2212,6 +2212,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             link_flags=[flag for manifest in manifests for flag in manifest.link_flags()],
             include_dirs=[manifest.path.parent for manifest in manifests if manifest.sources],
             embed_mode=getattr(args, "embed_python", None),
+            engine_defines=(
+                island_engine.engine_defines(engine) if engine is not None and "ps_island_" in llvm_text else None
+            ),
         )
         dbg.end("link")
         await_check()
