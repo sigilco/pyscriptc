@@ -44,6 +44,13 @@ BUILTIN_NAME = "cpython"
 #: Directories `--island-engine <name>` searches, from this env var
 #: (`os.pathsep`-separated).
 SEARCH_PATH_ENV = "PYSC_ISLAND_ENGINES"
+#: The `kind` values that select the PyPy embedding path of the island
+#: runtime's engine seam (`PS_ENGINE_START`, issue #667).
+PYPY_KINDS = frozenset({"pypy-interpreter", "pypy"})
+#: The `[abi]` key whose value is the PyPy include directory (relative to
+#: the descriptor file or absolute), needed to compile `ps_island.c`
+#: against `libpypy-c`'s embedding headers.
+PYPY_INCLUDE_KEY = "include"
 
 
 class EngineError(Exception):
@@ -237,3 +244,28 @@ def load_file(path: Path) -> EngineDescriptor:
     except OSError as exc:
         raise EngineError(f"--island-engine: cannot read {path}: {exc}") from exc
     return parse_descriptor_text(text, source=path)
+
+
+def engine_defines(descriptor: EngineDescriptor) -> list[str]:
+    """The `-D` flags the island runtime compiles with for this engine.
+
+    A PyPy-kind descriptor emits `-DPS_ENGINE_PYPY` (the `PS_ENGINE_START`
+    seam in `ps_island.c`) plus `-I<path>` from the descriptor's abi
+    `include` entry; the path is resolved against the descriptor's own
+    directory when relative. Anything else (no engine, the built-in
+    `cpython`) emits nothing: the CPython path of the seam is unchanged.
+    """
+    if descriptor.kind not in PYPY_KINDS:
+        return []
+    raw = descriptor.abi.get(PYPY_INCLUDE_KEY)
+    if not isinstance(raw, str) or not raw.strip():
+        raise EngineError(
+            f"engine descriptor: the {descriptor.kind} engine needs an abi "
+            f'{PYPY_INCLUDE_KEY} = "<dir>" entry pointing at the PyPy '
+            "include directory (the headers rpython_startup_code and "
+            "pypy_setup_home come from)"
+        )
+    include = Path(raw)
+    if not include.is_absolute() and descriptor.path is not None:
+        include = descriptor.path.parent / include
+    return ["-DPS_ENGINE_PYPY", "-I", str(include)]

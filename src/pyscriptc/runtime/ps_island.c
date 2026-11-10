@@ -114,8 +114,37 @@ static void ps_island_run_exitfuncs(void) {
     PyGILState_Release(gstate);
 }
 
+/* The engine seam (issue #667). The default path is the embedded CPython:
+   `Py_InitializeEx(0)`, byte-identical behavior. With `-DPS_ENGINE_PYPY`
+   the same entry compiles against PyPy's embedding API instead: the
+   startup order below follows the PyPy embedding docs
+   (https://doc.pypy.org/embedding.html) — `rpython_startup_code` first
+   (it initializes the RPython GC and cannot fail), then
+   `pypy_setup_home` (NULL lets PyPy 5.5+ locate its home from the loaded
+   `libpypy-c.so`), then `pypy_init_threads` (must come after
+   `pypy_setup_home`; it is what makes `PyGILState_Ensure` safe from the
+   native threads the island entry points run on). Verified against the
+   docs, not against a live PyPy on this host: #668 owns the first real
+   PyPy run and may still need to adjust the order there. The home search
+   is verbose (1) so a missing stdlib reports itself instead of leaving
+   the island to fail later with no message. */
+#ifdef PS_ENGINE_PYPY
+extern void rpython_startup_code(void);
+extern int pypy_setup_home(char *home, int verbose);
+extern void pypy_init_threads(void);
+#endif
+
 static void ps_island_init(void) {
+#ifdef PS_ENGINE_PYPY
+    rpython_startup_code();
+    if (pypy_setup_home(NULL, 1) != 0) {
+        fprintf(stderr, "PyPy island failed to find its home directory\n");
+        abort();
+    }
+    pypy_init_threads();
+#else
     Py_InitializeEx(0);
+#endif
     if (!Py_IsInitialized()) {
         /* No exception state to report from here: abort loudly. */
         fprintf(stderr, "CPython island failed to initialize\n");
@@ -420,10 +449,22 @@ static void ps_island_fail(void) {
     }
     if (val != NULL) {
         if (PyErr_GivenExceptionMatches(val, PyExc_KeyError)) {
-            PyObject *args = PyException_GetArgs(val);
-            if (args != NULL && PyTuple_Check(args) && PyTuple_GET_SIZE(args) > 0) {
+            /* Issue #667: `PyObject_GetAttrString(val, "args")` instead of
+               `PyException_GetArgs` so the file compiles against PyPy's
+               cpyext too. On CPython the two are semantically identical:
+               after PyErr_NormalizeException `BaseException.args` always
+               exists, and the attribute fetch returns the same args tuple
+               object as the API call (a new reference either way — the
+               attribute never steals, GetArgs never steals). The
+               PyTuple_GET_ITEM borrow for PyObject_Str stays a borrow, and
+               the tuple is released once the message is built. */
+            PyObject *args = PyObject_GetAttrString(val, "args");
+            if (args == NULL) {
+                PyErr_Clear();
+            } else if (PyTuple_Check(args) && PyTuple_GET_SIZE(args) > 0) {
                 text = PyObject_Str(PyTuple_GET_ITEM(args, 0));
             }
+            Py_XDECREF(args);
         }
         if (text == NULL) {
             text = PyObject_Str(val);
