@@ -115,6 +115,49 @@ The manifest shape (validated by `pyscriptc/engine_manifest.py`, class
   before; the surface is additive only. A manifest that fails to parse
   warns on stderr and falls back to the native-only report.
 
+## Boundary: what pyscriptc does not own
+
+The engine contract splits responsibility at the descriptor:
+
+- **The engine owns** its descriptor file, its capability manifest
+  (produced inside the engine — `scripts/engine_manifest.py` is the
+  reference probe), its headers, and the library or binary the compiled
+  island links against. pyscriptc never installs, patches or relocates
+  an external engine.
+- **pyscriptc owns** descriptor schema v1 validation
+  (`src/pyscriptc/island_engine.py`), manifest schema v1 parsing and the
+  `imports`/`assess` consumers (`src/pyscriptc/engine_manifest.py`), the
+  engine seam in `src/pyscriptc/runtime/ps_island.c`
+  (`PS_ENGINE_START`, with `PS_ENGINE_PYPY` selecting the PyPy init
+  order), and the `-DPS_ENGINE_*` define emission in the LLVM driver.
+- **Manifest truth is the engine's claim.** pyscriptc parses and
+  reports the manifest; it does not verify at compile time that the
+  engine really resolves a listed stdlib module. Consumers degrade to
+  `unknown`/native-only on a missing or broken manifest rather than
+  trusting it blindly.
+
+### Unsupported engines
+
+- **GraalPy**: no C embedding path — `ps_island.c` hosts the runtime
+  through the C API, which GraalPy does not provide.
+- **MicroPython**: does not implement the CPython C API.
+- **`rpc` transport engines**: out of scope, tracked in #651.
+
+The descriptor loader does not reject these names (the schema is open
+by design); what is missing is a `PS_ENGINE_*` seam, so selecting them
+changes nothing in the emitted binary.
+
+### PyPy seam status
+
+Under `PS_ENGINE_PYPY`, `PS_ENGINE_START()` calls
+`rpython_startup_code()`, `pypy_setup_home(home, 1)` and
+`pypy_init_threads()` instead of `Py_InitializeEx(0)`. The init order is
+documented in the source as **assumed, not verified** — no PyPy SDK is
+available in CI, so the first real PyPy pack (#668) is the verification
+gate. Exception arguments are read with
+`PyObject_GetAttrString(val, "args")`, which is portable across both
+engines' C APIs. The CPython path is unchanged and fully tested.
+
 ## Open questions (deferred to later embed issues)
 
 - Closed capability vocabulary and what each capability obligates the
