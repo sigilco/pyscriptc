@@ -538,8 +538,8 @@ no = [["sample, gauss, Random", 'y: int = random.gauss(0.0, 1.0)', "PS2001"], ["
 
 [[stdlib]]
 names = ["csv"]
-ok = ['for row in csv.reader(ss): pass']
-no = [["DictReader, writer on a non-file", 'y: int = csv.DictReader(ss)', "PS2001"]]
+ok = ['for row in csv.reader(ss): pass', 'rows: list[dict[str, str | None]] = csv.DictReader(ss)', "w: csv.DictWriter = csv.DictWriter(open('f'), ['a', 'b'])"]
+no = [["restkey, restval, Sniffer", "rows = csv.DictReader(ss, restkey='r')", "PS2003"], ["Sniffer, Dialect", 's = csv.Sniffer()', "PS2001"]]
 
 [[stdlib]]
 names = ["textwrap"]

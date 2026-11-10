@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-10",
-  "commit": "1ae4abbf9926662c95543ae5511658fed71dd6c4",
+  "commit": "a2623cf7968e6505de2ce7e95cb31d1504ce6a18",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1258,10 +1258,11 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "DictReader, writer on a non-file"
+        "restkey, restval, Sniffer, Sniffer, Dialect"
       ],
       "fences": [
-        "PS2001"
+        "PS2001",
+        "PS2003"
       ],
       "note": ""
     },
@@ -2298,7 +2299,7 @@
   "history": [
     {
       "date": "2026-11-10",
-      "commit": "1ae4abbf9926662c95543ae5511658fed71dd6c4",
+      "commit": "a2623cf7968e6505de2ce7e95cb31d1504ce6a18",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

@@ -56,6 +56,7 @@ def test_dict_reader_over_lines_matches_cpython(tmp_path: Path) -> None:
 
 
 def test_dict_reader_over_a_file_matches_cpython(tmp_path: Path) -> None:
+    people = tmp_path / "people.csv"
     _oracle(
         tmp_path,
         "reader_file.py",
@@ -64,9 +65,9 @@ def test_dict_reader_over_a_file_matches_cpython(tmp_path: Path) -> None:
                 "import csv",
                 "",
                 "def run() -> int:",
-                "    with open('people.csv', 'w') as f:",
+                f"    with open(r'{people}', 'w') as f:",
                 "        f.write('name,age\\nada,36\\nalan,41\\n')",
-                "    with open('people.csv', 'r') as f:",
+                f"    with open(r'{people}', 'r') as f:",
                 "        for row in csv.DictReader(f):",
                 "            name: str | None = row['name']",
                 "            if name is None:",
@@ -210,6 +211,7 @@ def test_dict_writer_matches_cpython(tmp_path: Path) -> None:
 
 
 def test_dict_writer_over_a_file_matches_cpython(tmp_path: Path) -> None:
+    out = tmp_path / "out.csv"
     _oracle(
         tmp_path,
         "writer_file.py",
@@ -218,11 +220,11 @@ def test_dict_writer_over_a_file_matches_cpython(tmp_path: Path) -> None:
                 "import csv",
                 "",
                 "def run() -> int:",
-                "    with open('out.csv', 'w') as f:",
+                f"    with open(r'{out}', 'w') as f:",
                 "        wr: csv.DictWriter = csv.DictWriter(f, ['a', 'b'])",
                 "        wr.writeheader()",
                 "        wr.writerow({'a': '1', 'b': '2'})",
-                "    with open('out.csv', 'r') as f:",
+                f"    with open(r'{out}', 'r') as f:",
                 "        text: str = f.read()",
                 "    print(text)",
                 "    return 0",
