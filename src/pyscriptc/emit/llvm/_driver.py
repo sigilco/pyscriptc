@@ -253,6 +253,7 @@ def link_binary(
     include_dirs: list[Path] | None = None,
     shared: bool = False,
     embed_mode: str | None = None,
+    engine_defines: list[str] | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -340,6 +341,16 @@ def link_binary(
     # symbol references) exist only under the macro, so a no-curl link never
     # sees one. The define rides the per-unit flags, not the link line.
     curl_defines: list[str] = [f"-D{PS_HAVE_CURL_DEFINE}"] if curl_flags else []
+    # Engine defines (issue #667): the island runtime's engine seam
+    # (`PS_ENGINE_START` in ps_island.c) compiles the PyPy embedding path
+    # under `-DPS_ENGINE_PYPY`. The driver emits the define from the
+    # descriptor: a PyPy-kind engine (kind `pypy-interpreter` or abi
+    # `libpython=pypy-c`) gets the define plus the include path from the
+    # descriptor's abi `include` entry, a path relative to the descriptor
+    # file; a PyPy engine without one refuses with a clear error. The
+    # default (no engine or the built-in cpython) emits nothing and keeps
+    # the CPython path byte-identical.
+    defines: list[str] = [*curl_defines, *(engine_defines or [])]
     tail: list[str] = san_flags + ["-lm"] + curl_flags + ["-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
@@ -459,7 +470,7 @@ def link_binary(
     # the runtime exactly as it did before the FFI gate.
     for source in sources:
         src = Path(source)
-        flags: list[str] = ["-O2"] + pic_flags + wasm_flags + san_flags + curl_defines + target_flags
+        flags: list[str] = ["-O2"] + pic_flags + wasm_flags + san_flags + defines + target_flags
         extra_dirs: list[Path] = []
         if source in ffi_sources:
             flags.extend(ffi_include_flags)

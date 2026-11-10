@@ -19,6 +19,8 @@ from pyscriptc.log import get_logger, tail
 if TYPE_CHECKING:
     import argparse
 
+    from pyscriptc.engine_manifest import EngineManifest
+
 log = get_logger()
 
 
@@ -82,16 +84,14 @@ def _fence_deltas(base: dict[str, int], inferred: dict[str, int]) -> dict[str, d
 
 
 def infer_cmd(args: argparse.Namespace) -> int:
-    """`pyscriptc infer`: what the inference arm proves for a package, and what lowering gains.
+    """`pyscriptc infer`: what the checker proves for a package, and what lowering gains.
 
-    The command is a report first: it runs the chosen arm (`--bridge`,
-    pyrefly by default, `own` for the checker-free local engine) over the
-    tree, reduces the call sites to the pins every caller agrees on,
-    lowers with the pins and the bridge applied, and prints the per-lever
-    delta (native definitions with and without inference). `--overlay`
-    writes the accepted annotations as a sidecar; the report never edits
-    the source. Both arms print the same report shape, so their JSON
-    compares directly.
+    The command is a report first: it runs the checker over the tree,
+    reduces the call sites to the pins every caller agrees on, lowers
+    with the pins and the bridge applied, and prints the per-lever delta
+    (native definitions with and without inference). `--overlay` writes
+    the accepted annotations as a sidecar; the report never edits the
+    source.
     """
     from pyscriptc.coverage import build_report
     from pyscriptc.inferrunner import build_facts
@@ -219,13 +219,96 @@ def infer_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def _engine_selection(args: argparse.Namespace, config: Any) -> str | None:
+    """The engine selection for a report command: explicit flag, then config."""
+    flag = getattr(args, "island_engine", None)
+    if flag:
+        return flag
+    try:
+        return config.island_engine()
+    except Exception:
+        return None
+
+
+def _resolve_manifest(source: Path, engine: str | None) -> EngineManifest | None:
+    """The capability manifest of the selected engine, or None without one.
+
+    Reads the  key of the engine descriptor (a JSON path, relative
+    to the descriptor file); a bare  has no
+    descriptor file and therefore no manifest. An engine that does not
+    resolve is not a report failure (the manifest is additive); a manifest
+    that does not parse warns and falls back to native-only.
+    """
+    if not engine or engine == "cpython":
+        return None
+    from pyscriptc import engine_manifest, island_engine
+
+    try:
+        descriptor = island_engine.resolve(engine)
+    except island_engine.EngineError:
+        return None
+    manifest_ref = descriptor.manifest
+    if not isinstance(manifest_ref, str) or not manifest_ref.strip():
+        return None
+    manifest_path = Path(manifest_ref)
+    if not manifest_path.is_absolute() and descriptor.path is not None:
+        manifest_path = descriptor.path.parent / manifest_path
+    try:
+        return engine_manifest.load_manifest_file(manifest_path)
+    except engine_manifest.ManifestError as exc:
+        print(f"warning: {exc}", file=sys.stderr)
+        return None
+
+
+def _annotate_with_manifest(report: dict[str, Any], manifest: EngineManifest) -> None:
+    """Additive per-import engine availability against a manifest (issue #669).
+
+    Unknown stdlib names (third party) stay : existence in the
+    manifest is not loadability, packages need their own wheel/ABI check.
+    """
+    rows = report.get("imports")
+    if not isinstance(rows, list):
+        return
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        root = name.split(".")[0]
+        item["engine"] = {"stdlib": manifest.stdlib_status(root)}
+
+
+def _engine_note(manifest: EngineManifest) -> str:
+    """One-line engine capability note for text reports."""
+    stdlib = manifest.stdlib_available
+    missing = manifest.stdlib_missing
+    return (
+        f"engine: {manifest.name} {manifest.version} "
+        f"(python {manifest.language_level}, platform {manifest.platform}, "
+        f"stdlib {len(stdlib)} available, {len(missing)} missing)"
+    )
+
+
 def imports_cmd(args: argparse.Namespace) -> int:
     _cli()._load_compiler()
     source = Path(args.source)
     config = load_config(source)
+    engine = _engine_selection(args, config)
+    manifest = _resolve_manifest(source, engine)
     report = _cli().build_import_report(source, policy=config.imports)
+    if manifest is not None:
+        _annotate_with_manifest(report, manifest)
     log.info("imports.report", source=args.source)
-    print(json.dumps(report, indent=2) if args.json else _cli().render_import_text(report))
+    if args.json:
+        if manifest is not None:
+            report["engine"] = manifest.as_dict()
+        print(json.dumps(report, indent=2))
+    else:
+        text = _cli().render_import_text(report)
+        if manifest is not None:
+            text = text + "\n" + _engine_note(manifest)
+        print(text)
     if args.reach:
         payload = _cli().export_reach(report, Path(args.reach))
         share = payload["boxed_only_reach"][-1]
