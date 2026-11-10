@@ -132,18 +132,7 @@ pyscriptc infer SOURCE [options]
 | ---- | ----- | ------ |
 | `--json` |  | print the report as JSON |
 | `--overlay FILE` | `FILE` | write the inferred annotations to FILE as a sidecar the user can apply |
-| `--bridge BRIDGE` | `pyrefly\|own` | inference arm to run (default: pyrefly); `own` is the checker-free local engine |
-| `--overlay FILE` | `FILE` | write the inferred annotations to FILE as a sidecar the user can apply |
-
-The `--bridge` flag picks the inference arm. `pyrefly` (the default) runs
-the pyrefly checker over the tree; `own` runs pyscriptc's own local
-engine (`src/pyscriptc/owninfer.py`), which types unannotated defs from
-annotations, defaults, call sites and returns with no checker
-subprocess. `own` is much faster and covers a strict subset of what
-pyrefly proves — method calls on user classes, branch-sensitive flow and
-instance attributes stay fenced — while every fact it reports is provable
-from the package's own source. Both arms print the same report shape, so
-their `--json` output compares directly.
+| `--bridge BRIDGE` | `pyrefly\|own` | inference arm to run (default: pyrefly) (default `pyrefly`) |
 
 ### `config`
 
