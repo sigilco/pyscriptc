@@ -316,7 +316,7 @@ class Typer:
                     return TypeFacts(kind="float", runtime_repr="float")
                 if left.kind == "list" and right.kind == "list" and _same_shape(left, right):
                     return left
-            if isinstance(node.op, (ast.Sub, ast.FloorDiv, ast.Pow)):
+            if isinstance(node.op, (ast.Sub, ast.Mult, ast.FloorDiv, ast.Pow)):
                 if left.kind == right.kind and left.kind in {"int", "float"}:
                     return left
                 if {left.kind, right.kind} == {"int", "float"}:
