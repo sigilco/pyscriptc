@@ -288,6 +288,9 @@ def test_self_census_ballpark() -> None:
     # The island group (#817, the plane split's cycle rule) and the master's
     # seed cache and code-cache work it rebase-merged with take the source
     # past 72k.
+    # Capability manifest v1 (#669): engine_manifest.py plus the imports and
+    # assess consumers in cli/_main.py, cli/_report.py and island_engine.py
+    # add about 350 lines.
     # The PyPy engine seam (#667): the PS_ENGINE_START branch in ps_island.c
     # is not self-hosted, but the driver flag emission, the descriptor
     # plumbing and the cli surface add about 70 lines.

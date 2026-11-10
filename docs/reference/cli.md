@@ -27,7 +27,7 @@ pyscriptc compile SOURCE [options]
 | `--embed-python MODE` | `host\|bundle\|auto` | libpython embedded CPython links: host (the compiler interpreter), bundle (the pinned runtime pack, relocatable output) or auto (host when this interpreter has a shared libpython, bundle otherwise; the default). Also read from the `embed` key of [tool.pyscriptc.island] |
 | `--embed-stdlib TRIM` | `safe\|minimal` | stdlib trim of a bundle: safe (the default; everything except test, idlelib, tkinter, turtledemo, ensurepip, pydoc_data, __phello__) or minimal (an opt-in frozen closure plus allowlist). Also read from the `stdlib` key of [tool.pyscriptc.island] |
 | `--bundle-exclude ROOT` | `ROOT` | import root a bundle does not carry: the host must provide it (an optional or native-backed dependency); repeatable |
-| `--island-engine ENGINE` | `ENGINE` | island engine descriptor to use (a TOML path, a name searched in PYSC_ISLAND_ENGINES, or cpython for the built-in embedded-CPython engine); resolved, validated and recorded in the debug summary; a descriptor with kind `pypy` or `pypy-interpreter` compiles the island runtime's engine seam (`ps_island.c`) with `-DPS_ENGINE_PYPY` and the descriptor's abi `include` directory. Also read from the `engine` key of [tool.pyscriptc.island] |
+| `--island-engine ENGINE` | `ENGINE` | island engine descriptor to use (a TOML path, a name searched in PYSC_ISLAND_ENGINES, or cpython for the built-in embedded-CPython engine); resolved, validated and recorded in the debug summary. Also read from the `engine` key of [tool.pyscriptc.island] |
 | `--embed-headers` |  | stage the runtime pack's CPython headers into a bundle: a bundle that is itself a compiler (the self-compiled pyscriptc) needs Python.h to compile island programs at run time |
 | `--call FUNC` | `FUNC` | function the generated main calls |
 | `--args ARGS` | `ARGS` | Python literal list of arguments for --call, parsed with ast.literal_eval (default `[]`) |
@@ -99,6 +99,7 @@ pyscriptc assess SOURCE [options]
 | ---- | ----- | ------ |
 | `--json` |  | print the assessment report as JSON |
 | `--all` |  | print the full report without capping refusals (default top-3 per root cause) |
+| `--island-engine ENGINE` | `ENGINE` | island engine to report the capability surface against (same syntax as compile --island-engine); when the engine carries a manifest, the report gains an engine capability section; also read from [tool.pyscriptc.island] engine |
 | `--bench` |  | time CPython against native binary on compilable entry points and print ratio |
 | `--verify` |  | run differential verify on compilable entry points and show receipt inline |
 | `--call FUNC` | `FUNC` | function to call on entry points, not the program entry |
@@ -159,6 +160,7 @@ pyscriptc imports SOURCE [options]
 | ---- | ----- | ------ |
 | `--json` |  | print the report as JSON |
 | `--reach FILE` | `FILE` | append the embedded-CPython reach share to a JSON file (the compat ledger reads it) |
+| `--island-engine ENGINE` | `ENGINE` | island engine to report the capability surface against (same syntax as compile --island-engine); when the engine carries a manifest, imports gain an engine availability note; also read from [tool.pyscriptc.island] engine |
 
 ### `reduce`
 

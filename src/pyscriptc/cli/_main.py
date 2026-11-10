@@ -528,6 +528,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="print the full report without capping refusals (default top-3 per root cause)",
     )
     assess_parser.add_argument(
+        "--island-engine",
+        default=None,
+        metavar="ENGINE",
+        help="island engine to report the capability surface against (same syntax as "
+        "compile --island-engine); when the engine carries a manifest, the report gains "
+        "an engine capability section; also read from [tool.pyscriptc.island] engine",
+    )
+    assess_parser.add_argument(
         "--bench",
         action="store_true",
         help="time CPython against native binary on compilable entry points and print ratio",
@@ -615,6 +623,14 @@ def build_parser() -> argparse.ArgumentParser:
         "--reach",
         metavar="FILE",
         help="append the embedded-CPython reach share to a JSON file (the compat ledger reads it)",
+    )
+    imports_parser.add_argument(
+        "--island-engine",
+        default=None,
+        metavar="ENGINE",
+        help="island engine to report the capability surface against (same syntax as "
+        "compile --island-engine); when the engine carries a manifest, imports gain "
+        "an engine availability note; also read from [tool.pyscriptc.island] engine",
     )
     reduce_parser: argparse.ArgumentParser = sub.add_parser(
         "reduce", help="delta-debug a source to a minimal reproducer of a refusal or crash", parents=[common]
@@ -1205,6 +1221,72 @@ def verify_cmd(args: argparse.Namespace) -> int:
     return 0 if receipt.match else 1
 
 
+def _engine_capability_note(section: dict[str, Any]) -> str:
+    """One-line engine capability note for the assess text report."""
+    missing = section["stdlib"]["missing"]
+    return (
+        f"engine: {section['name']} {section['version']} "
+        f"(python {section['languageLevel']}, platform {section['platform']}, "
+        f"stdlib {len(section['stdlib']['available'])} available, {len(missing)} missing)"
+    )
+
+
+def _assess_manifest(args: argparse.Namespace, source: Path, report: dict[str, Any]) -> dict[str, Any] | None:
+    """The engine capability section of `assess` (issue #669).
+
+    Reports against the selected island engine when it carries a manifest;
+    without an engine the report keeps its native-lane shape. A broken
+    manifest warns and falls back to native-only instead of failing the run.
+    """
+    from pyscriptc import engine_manifest
+
+    engine = getattr(args, "island_engine", None)
+    if not engine:
+        try:
+            engine = load_config(source).island_engine()
+        except Exception:
+            engine = None
+    if not engine or engine == "cpython":
+        return None
+    try:
+        descriptor = island_engine.resolve(engine)
+    except island_engine.EngineError as exc:
+        print(f"warning: {exc}", file=sys.stderr)
+        return None
+    manifest_ref = descriptor.manifest
+    if not isinstance(manifest_ref, str) or not manifest_ref.strip():
+        return None
+    manifest_path = Path(manifest_ref)
+    if not manifest_path.is_absolute() and descriptor.path is not None:
+        manifest_path = descriptor.path.parent / manifest_path
+    try:
+        manifest = engine_manifest.load_manifest_file(manifest_path)
+    except engine_manifest.ManifestError as exc:
+        print(f"warning: {exc}", file=sys.stderr)
+        return None
+    section: dict[str, Any] = {
+        "name": manifest.name,
+        "version": manifest.version,
+        "languageLevel": manifest.language_level,
+        "platform": manifest.platform,
+        "stdlib": {
+            "available": list(manifest.stdlib_available),
+            "missing": list(manifest.stdlib_missing),
+        },
+        "features": dict(manifest.features),
+        "stdlibStatus": {},
+    }
+    # Per import root the report already classified: available, missing or
+    # unknown (third party is not the stdlib manifest's call).
+    seen: dict[str, str] = {}
+    for item in report["imports"]:
+        name = item.get("name") if isinstance(item, dict) else None
+        if isinstance(name, str) and name:
+            seen[name.split(".")[0]] = manifest.stdlib_status(name.split(".")[0])
+    section["stdlibStatus"] = seen
+    return section
+
+
 def assess_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc assess PATH`: throw pyscriptc at any script, library or app."""
     _load_compiler()
@@ -1224,10 +1306,16 @@ def assess_cmd(args: argparse.Namespace) -> int:
         timeout=args.timeout,
         compile_args=args,
     )
+    engine_section = _assess_manifest(args, source, report)
+    if engine_section is not None:
+        report["engine"] = engine_section
     if args.json:
         print(json.dumps(report, indent=2))
     else:
-        print(assess.render_text(report, show_all=args.all))
+        text = assess.render_text(report, show_all=args.all)
+        if engine_section is not None:
+            text = text + "\n" + _engine_capability_note(engine_section)
+        print(text)
 
     if args.verify and report.get("verify"):
         for rec in report["verify"]:
