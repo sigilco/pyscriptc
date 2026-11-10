@@ -294,7 +294,11 @@ def test_self_census_ballpark() -> None:
     # The PyPy engine seam (#667): the PS_ENGINE_START branch in ps_island.c
     # is not self-hosted, but the driver flag emission, the descriptor
     # plumbing and the cli surface add about 70 lines.
-    assert 11_000 <= census["lines"] <= 77_000
+    # The typed TIR hasher (#830 P2): tirhash.py adds about 1k lines
+    # (the typed walk, the per-kind schema field order and the four
+    # canonicity rules the typed serializer now owns), minus the JSON
+    # escape primitive it shares with tirserde.
+    assert 11_000 <= census["lines"] <= 78_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.

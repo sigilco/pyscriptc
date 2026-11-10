@@ -53,6 +53,10 @@ from pyscriptc._irnode import (
 )
 from pyscriptc.canonical import CANONICAL_SCHEMA_VERSION
 
+# The JSON escape primitive is shared with the dict serializer: both byte
+# streams must spell strings identically.
+from pyscriptc.tirserde import write_json_str as _write_str
+
 # Schema/2: environment-derived absolute paths reaching IR string constants
 # are replaced with this placeholder so the digest cannot depend on the
 # checkout or venv location (canonical.py, decision 2026-10-16). The rule
@@ -982,44 +986,6 @@ def _write_scalar(write, value: Any) -> None:
         write(repr(value).encode("ascii"))
     else:
         raise TypeError(f"the canonical IR carries a {type(value).__name__}; json.dumps would refuse it")
-
-
-# json.dumps short escapes for the C0 controls it does not write as \uXXXX.
-_SHORT_ESCAPES = {
-    0x08: "\\b",
-    0x09: "\\t",
-    0x0A: "\\n",
-    0x0C: "\\f",
-    0x0D: "\\r",
-}
-
-_HEX = "0123456789abcdef"
-
-
-def _write_str(write, text: str) -> None:
-    """A JSON string: UTF-8 with json's ensure_ascii=False escaping."""
-    write(b'"')
-    start = 0
-    for index, char in enumerate(text):
-        code = ord(char)
-        if code == 0x22:
-            escape = '\\"'
-        elif code == 0x5C:
-            escape = "\\\\"
-        elif code < 0x20:
-            escape = _SHORT_ESCAPES.get(code)
-            if escape is None:
-                # json's \\u%04x form, lower case hex digits.
-                escape = "\\u" + _HEX[code >> 12] + _HEX[(code >> 8) & 0xF] + _HEX[(code >> 4) & 0xF] + _HEX[code & 0xF]
-        else:
-            continue
-        if start < index:
-            write(text[start:index].encode("utf-8"))
-        write(escape.encode("ascii"))
-        start = index + 1
-    if start < len(text):
-        write(text[start:].encode("utf-8"))
-    write(b'"')
 
 
 # --- the path scrub ------------------------------------------------------

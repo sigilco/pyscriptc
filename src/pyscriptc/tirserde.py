@@ -105,6 +105,37 @@ _HEX = "0123456789abcdef"
 _EMPTY_PARAMS: list[T] = []
 
 
+def write_json_str(write: Any, text: str) -> None:
+    """A JSON string: UTF-8 with json's ensure_ascii=False escaping.
+
+    The shared escape primitive of the dict serializer and the typed
+    walker (`pyscriptc.tirhash`); both byte streams must spell strings
+    identically.
+    """
+    write(b'"')
+    start = 0
+    for index, char in enumerate(text):
+        code = ord(char)
+        if code == 0x22:
+            escape = '\\"'
+        elif code == 0x5C:
+            escape = "\\\\"
+        elif code < 0x20:
+            escape = _SHORT_ESCAPES.get(code)
+            if escape is None:
+                # json's \\u%04x form, lower case hex digits.
+                escape = "\\u" + _HEX[code >> 12] + _HEX[(code >> 8) & 0xF] + _HEX[(code >> 4) & 0xF] + _HEX[code & 0xF]
+        else:
+            continue
+        if start < index:
+            write(text[start:index].encode("utf-8"))
+        write(escape.encode("ascii"))
+        start = index + 1
+    if start < len(text):
+        write(text[start:].encode("utf-8"))
+    write(b'"')
+
+
 class Serializer:
     """Feeds one canonical payload into a sink (hashlib or bytearray).
 
@@ -167,30 +198,7 @@ class Serializer:
         self._write(b"]")
 
     def write_str(self, text: str) -> None:
-        self._write(b'"')
-        start = 0
-        for index, char in enumerate(text):
-            code = ord(char)
-            if code == 0x22:
-                escape = '\\"'
-            elif code == 0x5C:
-                escape = "\\\\"
-            elif code < 0x20:
-                escape = _SHORT_ESCAPES.get(code)
-                if escape is None:
-                    # json's \\u%04x form, lower case hex digits.
-                    escape = (
-                        "\\u" + _HEX[code >> 12] + _HEX[(code >> 8) & 0xF] + _HEX[(code >> 4) & 0xF] + _HEX[code & 0xF]
-                    )
-            else:
-                continue
-            if start < index:
-                self._write(text[start:index].encode("utf-8"))
-            self._write(escape.encode("ascii"))
-            start = index + 1
-        if start < len(text):
-            self._write(text[start:].encode("utf-8"))
-        self._write(b'"')
+        write_json_str(self._write, text)
 
 
 def payload_bytes(module: dict[str, Any]) -> bytes:
