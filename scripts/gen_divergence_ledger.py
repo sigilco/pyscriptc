@@ -380,6 +380,13 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#53",
     ),
     _row(
+        "D54",
+        "a method or function decorator outside the closed set that does not synthesize behavior "
+        "is erased: the wrap never runs (advisory PS3099 note)",
+        "d54_method_decorator_erased.py",
+        docs=f"{DOC}#54",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
