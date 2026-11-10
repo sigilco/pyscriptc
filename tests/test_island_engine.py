@@ -76,7 +76,7 @@ def test_builtin_descriptor() -> None:
     d = island_engine.builtin_descriptor()
     assert d.name == island_engine.BUILTIN_NAME
     assert d.path is None
-    assert d.as_summary()["source"] == "builtin"
+    assert d.as_summary().source == "builtin"
 
 
 def test_resolve_by_path(tmp_path: Path) -> None:

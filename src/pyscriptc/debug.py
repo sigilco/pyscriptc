@@ -12,6 +12,7 @@ emitted text.
 
 from __future__ import annotations
 
+import dataclasses
 import json
 import os
 import resource
@@ -30,6 +31,7 @@ from pyscriptc.emit._ir import (
     _opt_str,
     _opt_str_or_none,
 )
+from pyscriptc.island_engine import EngineSummary
 
 _TOPICS = {"stages", "fences", "cc", "paths", "verify", "mir", "all"}
 
@@ -71,8 +73,9 @@ class Debug:
     # not lower, so `__init__` assigns a plain `None`.
     mir_plan: dict[str, Any] | None
     # The island engine selection (issue #666): the validated descriptor
-    # summary, or None when no engine was requested. Inert in this slice.
-    engine_info: dict[str, Any] | None
+    # summary, or None when no engine was requested. Typed (attribute
+    # access, no literal IR-key reads); serialized with `dataclasses.asdict`.
+    engine_info: EngineSummary | None
 
     def __init__(self, topics: set[str], debug_dir: Path | None) -> None:
         self.topics = topics
@@ -241,10 +244,10 @@ class Debug:
             )
         if self.engine_info is not None and self.wants("stages"):
             info = self.engine_info
-            caps = ",".join(str(c) for c in info.get("capabilities", [])) or "-"
+            caps = ",".join(info.capabilities) or "-"
             lines.append(
-                f"[debug] island-engine: {info.get('name')} {info.get('version')} "
-                f"kind={info.get('kind')} capabilities={caps} source={info.get('source')}"
+                f"[debug] island-engine: {info.name} {info.version} "
+                f"kind={info.kind} capabilities={caps} source={info.source}"
             )
         return "\n".join(lines)
 
@@ -278,7 +281,7 @@ class Debug:
             mir_records: list[dict[str, Any]] = mir_plan["records"]
             res["mirAdapter"] = mir_records
         if self.engine_info is not None:
-            res["islandEngine"] = self.engine_info
+            res["islandEngine"] = dataclasses.asdict(self.engine_info)
         # boxed:begin
         if module is not None and _has(module, "fallback"):
             fallback: dict[str, Any] = module["fallback"]

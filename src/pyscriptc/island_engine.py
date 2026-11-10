@@ -63,16 +63,33 @@ class EngineDescriptor:
     #: Where the descriptor was loaded from (None for the built-in one).
     path: Path | None = None
 
-    def as_summary(self) -> dict[str, object]:
+    def as_summary(self) -> EngineSummary:
         """The debug-summary form of the selection."""
-        return {
-            "name": self.name,
-            "version": self.version,
-            "kind": self.kind,
-            "capabilities": list(self.capabilities),
-            "abi": dict(self.abi),
-            "source": str(self.path) if self.path is not None else "builtin",
-        }
+        return EngineSummary(
+            name=self.name,
+            version=self.version,
+            kind=self.kind,
+            capabilities=list(self.capabilities),
+            abi=dict(self.abi),
+            source=str(self.path) if self.path is not None else "builtin",
+        )
+
+
+@dataclass
+class EngineSummary:
+    """The debug-summary form of an engine selection.
+
+    Typed rather than a plain dict so `debug.py` can use attribute access
+    instead of literal IR-key reads (see `tests/test_debug.py`); the JSON
+    summary serializes it with `dataclasses.asdict`.
+    """
+
+    name: str
+    version: str
+    kind: str
+    capabilities: list[str]
+    abi: dict[str, str]
+    source: str
 
 
 def builtin_descriptor() -> EngineDescriptor:
