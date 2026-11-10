@@ -211,14 +211,20 @@ class _tsp_server:
 def build_facts(root: Path, provider: str = "pyrefly") -> InferFacts:
     """The package-wide inference facts for a tree.
 
-    Raises `CheckFailed` when the provider is not wired; a file the
-    checker cannot read contributes no call sites, which simply means its
-    callees keep their fences.
+    The `own` provider runs the local checker-free engine
+    (`owninfer.build_own_result`); `pyrefly` runs the pyrefly `tsp`
+    server. Raises `CheckFailed` when the provider is not wired; a file
+    the engine or the checker cannot read contributes no call sites,
+    which simply means its callees keep their fences.
     """
 
     root = root.resolve()
+    if provider == "own":
+        from pyscriptc.owninfer import build_own_result
+
+        return build_own_result(root).facts
     if provider != "pyrefly":
-        raise CheckFailed(f"the infer runner supports pyrefly only, not {provider!r}")
+        raise CheckFailed(f"the infer runner supports pyrefly and own, not {provider!r}")
     facts = InferFacts(provider=provider)
     signatures = _qualified_signatures(root)
     with _tsp_server() as adapter:
