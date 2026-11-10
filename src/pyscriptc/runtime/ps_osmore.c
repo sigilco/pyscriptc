@@ -891,6 +891,32 @@ void ps_shutil_which_get(int64_t n, const char *s, PsBuf *out) {
     ps_shutil_walk(n, s, out);
 }
 
+/* mkstemp: the (fd, path) pair the lowering unpacks into the synthetic
+   (int, str) tuple. The fd rides the int slot; the path rides the 16-byte
+   PsBuf prefix a str field stores. The caller owns the fd and the path
+   bytes, like CPython's mkstemp. */
+void ps_temp_mkstemp(int64_t *fd_out, PsBuf *path_out) {
+    char dir[4096];
+    char path[4200];
+    int fd;
+    int wrote;
+    ps_copy_tempdir(dir, sizeof dir);
+    wrote = snprintf(path, sizeof path, "%s/tmpXXXXXX", dir);
+    if (wrote < 0 || (size_t)wrote >= sizeof path) {
+        ps_os_fail("mkstemp failed");
+    }
+    /* wasi-libc declares no mkstemp (TODO(zig-0.18): still true upstream),
+       so the portable ps_mkstemp opens with O_CREAT|O_EXCL on a randomized
+       suffix: the same unique-file guarantee, and mode 0600 matches musl's
+       mkstemp. */
+    fd = ps_mkstemp(path);
+    if (fd < 0) {
+        ps_os_fail("mkstemp failed");
+    }
+    *fd_out = fd;
+    ps_buf_copy(path_out, path, (int64_t)strlen(path));
+}
+
 PsIO *ps_temp_named(int64_t mode, int64_t keep) {
     char dir[4096];
     char path[4200];
