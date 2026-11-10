@@ -288,7 +288,10 @@ def test_self_census_ballpark() -> None:
     # The island group (#817, the plane split's cycle rule) and the master's
     # seed cache and code-cache work it rebase-merged with take the source
     # past 72k.
-    assert 11_000 <= census["lines"] <= 76_000
+    # Capability manifest v1 (#669): engine_manifest.py plus the imports and
+    # assess consumers in cli/_main.py, cli/_report.py and island_engine.py
+    # add about 350 lines.
+    assert 11_000 <= census["lines"] <= 77_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.

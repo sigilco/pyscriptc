@@ -97,8 +97,17 @@ def infer_cmd(args: argparse.Namespace) -> int:
     from pyscriptc.inferrunner import build_facts
 
     source = Path(args.source)
+    own = args.bridge == "own"
     started = time.perf_counter()
-    facts = build_facts(source)
+    if own:
+        from pyscriptc.owninfer import build_own_result
+
+        result = build_own_result(source)
+        facts = result.facts
+        facts_by_file = result.per_file
+        pinned_seconds = 0.0
+    else:
+        facts = build_facts(source)
     fact_seconds = time.perf_counter() - started
 
     # Baseline: the package as it lowers today, no inference.
@@ -117,23 +126,27 @@ def infer_cmd(args: argparse.Namespace) -> int:
     from pyscriptc.lower import _record_kind
 
     pin_map = facts_as_pins(facts)
-    started = time.perf_counter()
-    facts_by_file = pinned_facts(source, facts)
-    pinned_seconds = time.perf_counter() - started
+    if own:
+        provider = BridgeProvider("own", strict=False, pins=pin_map, pinned=facts_by_file)
+    else:
+        started = time.perf_counter()
+        facts_by_file = pinned_facts(source, facts)
+        pinned_seconds = time.perf_counter() - started
 
-    class _ProviderWithPins(BridgeProvider):
-        def for_file(self, path: Path):  # noqa: ANN202 - matches the base shape
-            found = facts_by_file.get(path.resolve())
-            if found is not None:
-                bridge = CheckerBridge(found, provider.records)
-            else:
-                bridge = super().for_file(path)
-            bridge.call_site_facts = pin_map
-            return bridge
+        class _ProviderWithPins(BridgeProvider):
+            def for_file(self, path: Path):  # noqa: ANN202 - matches the base shape
+                found = facts_by_file.get(path.resolve())
+                if found is not None:
+                    bridge = CheckerBridge(found, provider.records)
+                else:
+                    bridge = super().for_file(path)
+                bridge.call_site_facts = pin_map
+                return bridge
 
-    provider = _ProviderWithPins(args.bridge, strict=False)
-    # One `pyrefly tsp` server serves the whole tree: the per-file bridge
-    # builds reuse it instead of spawning a server per file.
+        provider = _ProviderWithPins(args.bridge, strict=False)
+    # The pyrefly arm's shared `tsp` server serves the whole tree: the
+    # per-file bridge builds reuse it instead of spawning a server per
+    # file. The own arm has no server; `open` is a no-op there.
     provider.open()
     try:
         started = time.perf_counter()
