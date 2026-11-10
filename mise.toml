@@ -205,6 +205,10 @@ run = "uv run python benchmarks/compat2/boxed_cost.py --window-commits 10"
 description = "Canonical IR hash compare against the committed baseline (linux oracle)"
 run = "uv run python -m benchmarks.compat2.irscore benchmarks/compat2/probes --baseline benchmarks/compat2/probes/IR_HASHES.json"
 
+[tasks."tir:hashes"]
+description = "Streaming TIR hash compare against the committed baseline (linux oracle, #830 P1)"
+run = "uv run python -m benchmarks.compat2.tirscore benchmarks/compat2/probes --baseline benchmarks/compat2/probes/TIR_HASHES.json"
+
 [tasks.compile]
 description = "pyscriptc compile, extra args pass through (mise run compile examples/hello.py --emit bin)"
 run = "uv run pyscriptc compile"
