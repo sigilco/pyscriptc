@@ -602,15 +602,28 @@ def _callee_or_record(value: Any) -> Any:
 def payload_bytes_node(module: Any) -> bytes:
     """The canonical payload bytes of a typed-node module.
 
-    Byte-identical to payload_bytes over the equivalent dict IR: the
-    typed nodes reconstruct the exact dicts before the stream sees them.
+    The typed walker (`pyscriptc.tirhash`) emits the schema field order
+    of each record, so the bytes are NOT the `sort_keys` bytes of the
+    equivalent dict IR: field order replaces `sort_keys` as the
+    canonicity mechanism (the typed-IR contract, ir-canonicity.md
+    section 7). The trees agree; the key order is the schema order.
     """
-    return payload_bytes(node_to_dict(module))
+    from pyscriptc.tirhash import payload_bytes_node as typed_payload
+
+    return typed_payload(module)
 
 
 def hash_module_node(module: Any) -> str:
-    """SHA-256 hex of the canonical payload of a typed-node module."""
-    return hash_module(node_to_dict(module))
+    """SHA-256 hex of the canonical payload of a typed-node module.
+
+    Hashed from the typed records in schema field order, without the
+    `node_to_dict` reconstruction and without `canonicalize`: the typed
+    serializer owns the path scrub, the class order, the handler `codes`
+    order and the fence total order (recorded decision #830, P2).
+    """
+    from pyscriptc.tirhash import hash_module_node as typed_hash
+
+    return typed_hash(module)
 
 
 # --- dict-IR admission ---------------------------------------------------
