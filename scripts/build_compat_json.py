@@ -334,13 +334,58 @@ def _ladder_rows(path: Path | None) -> dict[str, Any]:
     The section is empty when there is no ladder document, so the site
     renders "no ladder data yet" instead of failing.
     """
-    empty: dict[str, Any] = {"corpus": "", "rungs": [], "lanes": []}
+    empty: dict[str, Any] = {"corpus": "", "rungs": [], "lanes": [], "r0": {}}
+
+    def _r0(document: dict[str, Any] | None) -> dict[str, Any]:
+        """The R0 section: the vendored real-script rate plus the 30-point trend."""
+        if not document:
+            return {}
+        r0 = document.get("r0")
+        if not isinstance(r0, dict):
+            return {}
+        return {
+            "rung": r0.get("rung", "R0"),
+            "label": r0.get("label", ""),
+            "corpus": r0.get("corpus", ""),
+            "total": r0.get("total", 0),
+            "passed": r0.get("passed", 0),
+            "rate": r0.get("rate", 0.0),
+            "fences": r0.get("fences", 0),
+            "date": r0.get("date", ""),
+            "blockers": [
+                {
+                    "family": row.get("family", ""),
+                    "rootCause": row.get("rootCause", ""),
+                    "scriptsBlocked": row.get("scriptsBlocked", 0),
+                    "scriptsAlone": row.get("scriptsAlone", 0),
+                }
+                for row in r0.get("blockers", [])
+            ],
+            "rootCauses": [
+                {
+                    "cause": row.get("cause", ""),
+                    "scriptsReleased": row.get("scriptsReleased", 0),
+                }
+                for row in r0.get("rootCauses", [])
+            ],
+            "history": [
+                {
+                    "date": row.get("date", ""),
+                    "passed": row.get("passed", 0),
+                    "total": row.get("total", 0),
+                    "rate": row.get("rate", 0.0),
+                }
+                for row in r0.get("history", [])
+            ],
+        }
+
     document = _load_previous(path) if path else None
     if not document:
         return empty
     rungs = document.get("rungs", [])
     r4 = document.get("r4", {})
     lanes = r4.get("lanes", [])
+    r0 = _r0(document)
     return {
         "corpus": "benchmarks/scripts_corpus",
         "rungs": [
@@ -365,6 +410,7 @@ def _ladder_rows(path: Path | None) -> dict[str, Any]:
         ],
         "selfContainedShare": r4.get("selfContainedShare", 0.0),
         "trees": r4.get("trees", 0),
+        "r0": r0,
     }
 
 
