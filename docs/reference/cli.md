@@ -133,7 +133,7 @@ pyscriptc infer SOURCE [options]
 | ---- | ----- | ------ |
 | `--json` |  | print the report as JSON |
 | `--overlay FILE` | `FILE` | write the inferred annotations to FILE as a sidecar the user can apply |
-| `--bridge BRIDGE` | `pyrefly` | checker to run (default: pyrefly) (default `pyrefly`) |
+| `--bridge BRIDGE` | `pyrefly\|own` | inference arm to run (default: pyrefly) (default `pyrefly`) |
 
 ### `config`
 
