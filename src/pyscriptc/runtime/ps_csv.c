@@ -180,11 +180,11 @@ void ps_csv_writerows(PsIO *io, PsSeq *rows) {
    ValueError CPython raises. DictWriter takes the fieldnames once and
    writes the header row and the rows of a dict.
 
-   The row shape is dict[str, str]: the runtime keeps the row in a map
-   whose keys are the fieldnames and whose values are the field texts, so
-   the dict the compiler sees is the same map. The restval default is None
-   where CPython writes None, and the subset keeps the field text as a
-   str, so a missing field stores an empty text. */
+   The row shape is dict[str, str | None]: the values ride the tagged
+   opt-str cell the compiler spells for `str | None` ({ i1 tag, %ps.buf
+   val }, the cell pointer is the map slot), so a short record stores the
+   None cell where CPython stores None. DictWriter's row dict is plain
+   dict[str, str] (its restval default is the empty text). */
 
 typedef struct {
     PsIO *io;
@@ -193,16 +193,37 @@ typedef struct {
     int64_t index; /* the next row the cursor reads */
 } PsCsvDict;
 
+/* The layout of the opt-str cell the compiler spells for `str | None`:
+   { i1 tag, %ps.buf val }. */
+enum { CSV_OPT_SIZE = 24, CSV_OPT_VAL = 8 };
+
+/* The None cell: the tag stays clear. */
+static void *csv_opt_none(void) {
+    void *cell = ps_alloc(CSV_OPT_SIZE);
+    memset(cell, 0, CSV_OPT_SIZE);
+    return cell;
+}
+
+/* The str cell: the tag set, the text in the val buffer. */
+static void *csv_opt_str(PsBuf val) {
+    void *cell = ps_alloc(CSV_OPT_SIZE);
+    memset(cell, 0, CSV_OPT_SIZE);
+    *(unsigned char *)cell = 1;
+    PsBuf *slot = (PsBuf *)((char *)cell + CSV_OPT_VAL);
+    *slot = val;
+    return cell;
+}
+
 /* The map a row of `names` and `values` holds: the keys are the field
-   names, the values the field texts. */
-static PsMap *csv_dict_new(PsSeq *names, PsSeq *values, int64_t count) {
-    PsMap *m = ps_map_new(2, (int64_t)sizeof(PsBuf), (int64_t)sizeof(PsBuf), count);
+   names, the values the tagged cells (one pointer per slot). */
+static PsMap *csv_dict_new(PsSeq *names, PsSeq *cells, int64_t count) {
+    PsMap *m = ps_map_new(2, (int64_t)sizeof(PsBuf), (int64_t)sizeof(void *), count);
     for (int64_t i = 0; i < count; i++) {
         PsBuf key;
-        PsBuf val;
+        void *cell;
         ps_seq_get(names, i, &key);
-        ps_seq_get(values, i, &val);
-        ps_map_put(m, &key, &val);
+        ps_seq_get(cells, i, &cell);
+        ps_map_put(m, &key, &cell);
     }
     return m;
 }
@@ -226,26 +247,29 @@ static PsSeq *csv_dict_fieldnames(PsSeq *rows) {
 
 /* The row maps: the first record names the fields, the rest carry the
    values. A record with more fields than the header raises the ValueError
-   CPython raises ("dict reader has more fields than fieldnames"). */
+   CPython raises; a record with fewer fills the missing fields with the
+   None cell (the restval default). */
 static PsSeq *csv_dict_rows(PsSeq *rows, PsSeq *names) {
     PsSeq *out = ps_seq_new((int64_t)sizeof(PsMap *), 0);
     int64_t width = names->len;
+    void *none = csv_opt_none();
     for (int64_t i = 1; i < rows->len; i++) {
         PsSeq *record;
         ps_seq_get(rows, i, &record);
         if (record->len > width) {
             ps_raise_cstr(PS_VALUE, "dict reader has more fields than fieldnames");
         }
-        PsSeq *values = ps_seq_new((int64_t)sizeof(PsBuf), 0);
+        PsSeq *cells = ps_seq_new((int64_t)sizeof(void *), 0);
         for (int64_t j = 0; j < width; j++) {
-            PsBuf empty;
-            memset(&empty, 0, sizeof empty);
+            void *cell = none;
             if (j < record->len) {
-                ps_seq_get(record, j, &empty);
+                PsBuf field;
+                ps_seq_get(record, j, &field);
+                cell = csv_opt_str(field);
             }
-            ps_seq_push(values, &empty);
+            ps_seq_push(cells, &cell);
         }
-        PsMap *row = csv_dict_new(names, values, width);
+        PsMap *row = csv_dict_new(names, cells, width);
         ps_seq_push(out, &row);
     }
     return out;

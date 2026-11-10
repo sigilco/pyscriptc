@@ -18,8 +18,13 @@ from pyscriptc.restlower._shared import (
     _type_name,
 )
 
-# The row of a DictReader: a dict from a fieldname to the field text.
-_ROW: dict[str, Any] = _t_dict(_t_leaf("str"), _t_leaf("str"))
+
+# The row of a DictReader: a dict from a fieldname to the field text. The
+# text is optional because a short record takes the restval, and CPython's
+# reader restval default is None.
+def _row_type(lo: Any, node: ast.AST) -> dict[str, Any]:
+    opt = lo._opt_type(_t_leaf("str"), node)
+    return _t_dict(_t_leaf("str"), opt)
 
 
 def _csv_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
@@ -97,7 +102,7 @@ def _dict_reader(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
         lo.fail(node, "PS2003", "csv.DictReader expects 1 argument(s)")
     arg = lo._expr(node.args[0])
     typ = _node_type(arg)
-    rows: dict[str, Any] = _t_list(_ROW)
+    rows: dict[str, Any] = _t_list(_row_type(lo, node))
     if _type_kind(typ) == "list" and _type_kind(typ["elem"]) == "str":
         return lo._abi_call("csv", "DictReader", [arg, delim], rows, "ps_csv_dict_reader_lines", span)
     if _type_kind(typ) == "class" and _type_name(typ) == "TextIO":
