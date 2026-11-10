@@ -1115,8 +1115,22 @@ class StdlibDispatchMixin(StdlibBindMixin):
                     self._annotation(stmt.annotation)  # a bare declaration binds nothing
                     return
                 typ = self._annotation(stmt.annotation)
+                is_call = isinstance(stmt.value, ast.Call)
+                shape = stmt.value.func if is_call else None
+                is_pattern_call = (
+                    is_call
+                    and isinstance(shape, ast.Attribute)
+                    and shape.attr == "compile"
+                    and isinstance(shape.value, ast.Name)
+                    and shape.value.id == "re"
+                    and len(stmt.value.args) in {1, 2}
+                    and not stmt.value.keywords
+                    and all(isinstance(a, ast.Constant) for a in stmt.value.args[1:])
+                )
                 hoists = self._script_line is None or stmt.lineno < self._script_line
-                if (typ["kind"] == "func" or (isinstance(stmt.value, ast.Call) and hoists)) and not self._deferring:
+                if (
+                    typ["kind"] == "func" or (isinstance(stmt.value, ast.Call) and hoists and not is_pattern_call)
+                ) and not self._deferring:
                     # A Callable-annotated module name may bind a function
                     # value, and a call result takes a global slot (#502):
                     # signatures do not exist yet, so binding waits for the
@@ -1191,10 +1205,22 @@ class StdlibDispatchMixin(StdlibBindMixin):
                         f"{target} = {name} copies the module-scope constant {name}: a copy-on-alias "
                         f"is not representable — {_one_identity_note(name, typ)}",
                     )
+                shape2 = stmt.value.func if isinstance(stmt.value, ast.Call) else None
+                is_pattern_call2 = (
+                    shape2 is not None
+                    and isinstance(shape2, ast.Attribute)
+                    and shape2.attr == "compile"
+                    and isinstance(shape2.value, ast.Name)
+                    and shape2.value.id == "re"
+                    and len(stmt.value.args) in {1, 2}
+                    and not stmt.value.keywords
+                    and all(isinstance(a, ast.Constant) for a in stmt.value.args[1:])
+                )
                 hoists = self._script_line is None or stmt.lineno < self._script_line
                 if (
                     not self._deferring
                     and hoists
+                    and not is_pattern_call2
                     and isinstance(
                         stmt.value,
                         (ast.Name, ast.Lambda, ast.Call, ast.Attribute, ast.Subscript, ast.IfExp),

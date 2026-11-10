@@ -96,8 +96,11 @@ class ModuleDriverMixin:
         imported_slots = {k: v for k, v in self.global_slots.items() if v.get("foreign_key")}
         self.global_slots = self._scan_global_slots(live)
         self.global_slots.update(imported_slots)
-        self._scan_module_call_assigns(live)
+        # `_split_entry` computes `_script_line` from the same statements;
+        # the call-assign scan needs it to know which assigns hoist, so it
+        # runs there instead, after the line is known.
         entry_stmts = self._split_entry(live, functions, class_nodes, fences)
+        self._scan_module_call_assigns(live)
         # boxed:end
         entry_fn = self._entry_function(entry_stmts, functions)
         entry_name = entry_fn[0].name if entry_fn else None
