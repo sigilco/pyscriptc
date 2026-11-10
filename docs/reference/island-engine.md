@@ -4,9 +4,12 @@ Issue #666. An island engine descriptor is a TOML document describing a
 pluggable engine behind the boxed island tier. The built-in engine is the
 embedded CPython the island tier already links (`--island-engine cpython`,
 always resolvable); issue #668 targets PyPy as the first external engine.
-In this slice the selection is inert: `--island-engine` resolves and
-validates the descriptor and records it in the debug summary — no lowering
-or link behavior changes.
+The selection resolves and validates the descriptor, records it in the
+debug summary, and, for a PyPy-kind descriptor (`kind =
+"pypy-interpreter"` or `[abi] libpython = "pypy-c"`), emits
+`-DPS_ENGINE_PYPY` into the island runtime compile (#667). No external
+engine pack ships yet, so end to end the CPython path is still the only
+one exercised.
 
 ## Format
 
@@ -120,7 +123,7 @@ The manifest shape (validated by `pyscriptc/engine_manifest.py`, class
 The engine contract splits responsibility at the descriptor:
 
 - **The engine owns** its descriptor file, its capability manifest
-  (produced inside the engine — `scripts/engine_manifest.py` is the
+  (produced inside the engine; `scripts/engine_manifest.py` is the
   reference probe), its headers, and the library or binary the compiled
   island links against. pyscriptc never installs, patches or relocates
   an external engine.
@@ -138,7 +141,7 @@ The engine contract splits responsibility at the descriptor:
 
 ### Unsupported engines
 
-- **GraalPy**: no C embedding path — `ps_island.c` hosts the runtime
+- **GraalPy**: no C embedding path. `ps_island.c` hosts the runtime
   through the C API, which GraalPy does not provide.
 - **MicroPython**: does not implement the CPython C API.
 - **`rpc` transport engines**: out of scope, tracked in #651.
@@ -152,7 +155,7 @@ changes nothing in the emitted binary.
 Under `PS_ENGINE_PYPY`, `PS_ENGINE_START()` calls
 `rpython_startup_code()`, `pypy_setup_home(home, 1)` and
 `pypy_init_threads()` instead of `Py_InitializeEx(0)`. The init order is
-documented in the source as **assumed, not verified** — no PyPy SDK is
+documented in the source as **assumed, not verified**: no PyPy SDK is
 available in CI, so the first real PyPy pack (#668) is the verification
 gate. Exception arguments are read with
 `PyObject_GetAttrString(val, "args")`, which is portable across both
