@@ -1326,6 +1326,14 @@ PsNd *ps_nd_stack(PsNd *a, PsNd *b) {
     if (a->dtype != b->dtype) {
         ps_raise_cstr(PS_VALUE, "stack: dtypes do not match");
     }
+    if (a->ndim != b->ndim || a->count != b->count) {
+        ps_raise_cstr(PS_VALUE, "stack: shapes do not match");
+    }
+    for (i = 0; i < a->ndim; i++) {
+        if (a->shape[i] != b->shape[i]) {
+            ps_raise_cstr(PS_VALUE, "stack: shapes do not match");
+        }
+    }
     out = ps_nd_alloc(cols * 2, a->width, a->dtype, a->ndim + 1);
     out->shape[0] = 2;
     for (i = 0; i < a->ndim; i++) {

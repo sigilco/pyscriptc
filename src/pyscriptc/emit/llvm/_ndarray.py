@@ -74,7 +74,7 @@ class NdArrayMixin:
         if symbol == "ps_nd_getitem":
             return self._nd_getitem(expr, values)
         if symbol == "ps_nd_setitem":
-            return self._nd_setitem(values)
+            return self._nd_setitem(expr, values)
         if symbol == "ps_nd_boolean_index":
             return self._nd_plain(symbol, values, ["ptr", "ptr"])
         if symbol == "ps_nd_slice":
@@ -113,7 +113,7 @@ class NdArrayMixin:
             "ps_nd_gt_s",
             "ps_nd_ge_s",
         }:
-            return self._nd_plain(symbol, values, ["ptr", "double"])
+            return self._nd_scalar_op(expr, values, symbol)
         if symbol in {
             "ps_nd_add_f",
             "ps_nd_sub_f",
@@ -128,8 +128,15 @@ class NdArrayMixin:
             "ps_nd_gt_f",
             "ps_nd_ge_f",
         }:
-            return self._nd_plain(symbol, values, ["ptr", "double"])
+            return self._nd_scalar_op(expr, values, symbol)
         raise IRError(f"no pyscriptc_ndarray emission for {symbol}")
+
+    def _nd_scalar_op(self, expr: dict[str, Any], values: list[str], symbol: str) -> str:
+        """The array-with-scalar ops: the scalar rides as a double, so an
+        int literal widens before the call."""
+        scalar = self._to_double(expr, 1, values[1])
+        self._abi_decl(symbol, "ptr", ["ptr", "double"])
+        return self._call_ret("ptr", symbol, [f"ptr {values[0]}", f"double {scalar}"])
 
     def _nd_plain(self, symbol: str, values: list[str], params: list[str]) -> str:
         """A call whose arguments map one to one onto the runtime params."""
@@ -271,11 +278,12 @@ class NdArrayMixin:
         self._abi_decl("ps_nd_element_i64", "i64", ["ptr", "i64"])
         return self._call_ret("i64", "ps_nd_element_i64", [f"ptr {values[0]}", f"i64 {values[1]}"])
 
-    def _nd_setitem(self, values: list[str]) -> str:
+    def _nd_setitem(self, expr: dict[str, Any], values: list[str]) -> str:
         """`a[i] = v`: the element write. The runtime takes the value as a
-        double and converts it to the array's dtype."""
+        double, so an int literal widens before the call."""
+        value = self._to_double(expr, 2, values[2])
         self._abi_decl("ps_nd_setitem", "void", ["ptr", "i64", "double"])
-        self._call_void("ps_nd_setitem", [f"ptr {values[0]}", f"i64 {values[1]}", f"double {values[2]}"])
+        self._call_void("ps_nd_setitem", [f"ptr {values[0]}", f"i64 {values[1]}", f"double {value}"])
         return ""
 
     def _nd_getitem(self, expr: dict[str, Any], values: list[str]) -> str:

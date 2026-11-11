@@ -476,7 +476,11 @@ def _astype(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any])
         lo.fail(node, "PS2003", "pyscriptc_ndarray.astype expects one dtype")
     dtype = _dtype_arg(lo, node, node.args[0], "float64")
     args = [recv, {"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span}]
-    return lo._abi_call("pyscriptc_ndarray", "astype", args, _nd_type(dtype), "ps_nd_astype", span)
+    # The cast changes the dtype, not the rank: the result keeps the
+    # receiver's shape.
+    return lo._abi_call(
+        "pyscriptc_ndarray", "astype", args, _nd_type(dtype, _ndim_of(recv["type"])), "ps_nd_astype", span
+    )
 
 
 def _tolist(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], dtype: str) -> dict[str, Any]:
