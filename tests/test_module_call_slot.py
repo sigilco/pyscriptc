@@ -169,12 +169,7 @@ def test_entry_only_call_assign_stays_in_the_entry(tmp_path: Path) -> None:
     differential(
         tmp_path,
         "entryonly.py",
-        (
-            "def make(n: int) -> int:\n"
-            "    return n * 2\n"
-            "x = make(21)\n"
-            "print('side', x)\n"
-        ),
+        ("def make(n: int) -> int:\n    return n * 2\nx = make(21)\nprint('side', x)\n"),
     )
 
 
@@ -183,17 +178,7 @@ def test_entry_only_call_assign_runs_once(tmp_path: Path) -> None:
     differential(
         tmp_path,
         "entryonce.py",
-        (
-            "calls = 0\n"
-            "\n"
-            "\n"
-            "def make(n: int) -> int:\n"
-            "    return n * 2\n"
-            "\n"
-            "\n"
-            "x = make(21)\n"
-            "print(x, x)\n"
-        ),
+        ("calls = 0\n\n\ndef make(n: int) -> int:\n    return n * 2\n\n\nx = make(21)\nprint(x, x)\n"),
     )
 
 
