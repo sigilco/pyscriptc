@@ -995,6 +995,17 @@
       "status": "fenced"
     },
     {
+      "id": "D59",
+      "seam": "the island plan is conservative past the module that forced it: untyped imports demote the whole module top level and, transitively through calls, every function naming them",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#59",
+      "probe": null,
+      "note": "needs a multi-module package shape, which single-file probes do not cover",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

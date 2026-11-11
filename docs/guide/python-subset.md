@@ -23,7 +23,7 @@ A compiled program has two execution planes and every definition lands on one of
 Definitions inside the subset lower to native machine code.
 Everything else either stops the build with a `PSxxxx` code, or, when fallback mode is on, runs inside the embedded CPython island (see [Libraries and fallback mode](libraries.md)).
 
-The split is decided per module and then propagates: a module whose top level imports something the subset cannot compile has its whole top level planned for the island, and functions in that module that name island-planned imports or unannotated values reaching them are planned there too, transitively through calls (divergence 48).
+The split is decided per module and then propagates: a module whose top level imports something the subset cannot compile has its whole top level planned for the island, and functions in that module that name island-planned imports or unannotated values reaching them are planned there too, transitively through calls (divergence 59).
 On a framework-heavy app this compounds fast: on one measured Flask-plus-LLM backend, 41% of the definitions passed the per-definition check in isolation, yet the run-time plane routed 100% of them to the island because untyped framework imports sat at the module top level of every file.
 A definition that "compiles in isolation" is not a definition that runs native.
 

@@ -139,7 +139,7 @@ Limits to know:
 - Cross-compiling a libpython-linked binary to a foreign target is refused (divergence 31); fallback mode needs the host libpython and its installed packages.
 - Uncaught exceptions from the embedded side print the type and message but not a traceback (divergences 12 and 42).
 - Unsupported module-level statements plan the whole module top level for the embedded interpreter (divergence 42).
-- The island plan propagates through calls: a native-eligible function that names an island-planned import or an unannotated value reaching one is routed there too (divergence 48). On one measured Flask-plus-LLM backend this took the run-time native share from 41% (definitions passing in isolation) to 0% (functions planned island).
+- The island plan propagates through calls: a native-eligible function that names an island-planned import or an unannotated value reaching one is routed there too (divergence 59). On one measured Flask-plus-LLM backend this took the run-time native share from 41% (definitions passing in isolation) to 0% (functions planned island).
 
 The complete crossing rules and numbered divergences: [Divergences from CPython](../reference/divergences.md).
 Per-module and per-library support status: the [compat site]({{PYSC_COMPAT_URL}}).
