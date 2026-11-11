@@ -37,7 +37,9 @@ def _zig_tool() -> dict[str, Any]:
     """Zig entry for doctor: like `_tool`, but the `ziglang` wheel counts.
 
     A wheel-only install (`pip install ziglang`) has no `zig` on PATH; the
-    shim installed here makes `which("zig")` succeed afterwards.
+    shim installed here makes `which("zig")` succeed afterwards. On Windows
+    the resolution is the wheel's own `zig.exe`, so the wheel counts there
+    too.
     """
     path = shutil.which("zig")
     if path is None:
@@ -49,6 +51,7 @@ def _zig_tool() -> dict[str, Any]:
         "path": path,
         "version": _version([path], "version") if path else None,
         "via_shim": zigshim.is_shim(path),
+        "via_wheel": zigshim.is_wheel_zig(path),
     }
 
 
@@ -127,6 +130,8 @@ def render(info: dict[str, Any]) -> str:
         text = tool(entry)
         if _flag_of(entry, "via_shim"):
             text += " [PATH shim for `pip install ziglang`]"
+        elif _flag_of(entry, "via_wheel"):
+            text += " [ziglang wheel]"
         return text
 
     checker: dict[str, Any] = info["checker"]

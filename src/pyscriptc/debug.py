@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import os
-import resource
 import time
 from pathlib import Path
 from typing import Any
@@ -313,7 +312,17 @@ class Debug:
 
 
 def _rss_kb() -> int:
-    """Peak resident set size of this process so far, in KiB."""
+    """Peak resident set size of this process so far, in KiB.
+
+    `resource` is a Unix module, so it is imported here and not at module
+    scope: the CLI has to start on Windows, where the import would fail
+    before `main()` ever runs.
+    """
+
+    try:
+        import resource
+    except ImportError:
+        return 0
 
     try:
         return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)

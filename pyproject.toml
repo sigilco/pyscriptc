@@ -24,6 +24,12 @@ dependencies = [
 # cross-checking (.agents/docs/spec/external-oracles.md). Not needed for a normal compile.
 oracle-mypy = ["mypy>=2.4,<2.5"]
 oracle-pyright = ["pyright>=1.1.400"]
+# The C toolchain, as a wheel: `uv tool install "pyscriptc[zig]"` gives a host
+# with no system zig a working driver in one command. The wheel ships the zig
+# binary but only the `python-zig` console script, so pyscriptc installs a
+# `zig` PATH shim over `python -m ziglang` (src/pyscriptc/zigshim.py). The
+# range is the CI-verified one (packaging/TOOLCHAIN.md).
+zig = ["ziglang>=0.16,<0.18"]
 
 [project.urls]
 Homepage = "https://github.com/sigilco/pyscriptc"
