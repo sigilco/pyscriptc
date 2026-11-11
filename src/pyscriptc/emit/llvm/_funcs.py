@@ -20,7 +20,6 @@ from pyscriptc.emit._ir import (
     _llvm_type,
     _memory_type,
     _name_list,
-    _node_kind,
     _none_type,
     _opt_default,
     _opt_int,
@@ -191,7 +190,7 @@ class FuncsMixin(EmitterBase):
         filled: list[Any] = list(args)
         for param in params[len(args) :]:
             default: dict[str, Any] | None = _opt_default(param)
-            if default is None or _node_kind(default) != "const":
+            if default is None or self._kind_of(dict_to_node(default)) != "const":
                 raise FitError(f"{name} expects {len(params)} argument(s), got {len(args)}")
             default_type: dict[str, Any] = _type_of(default)
             if self._type_kind(default_type) == "bool":
