@@ -298,7 +298,9 @@ def test_self_census_ballpark() -> None:
     # (the typed walk, the per-kind schema field order and the four
     # canonicity rules the typed serializer now owns), minus the JSON
     # escape primitive it shares with tirserde.
-    assert 11_000 <= census["lines"] <= 78_000
+    # csv DictReader/DictWriter (#488): the dict-io lowering and probes
+    # add about 130 lines over the previous ceiling.
+    assert 11_000 <= census["lines"] <= 79_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
