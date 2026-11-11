@@ -486,7 +486,7 @@ class OwnEngine:
         for path in sorted(self.root.rglob("*.py")):
             try:
                 source = path.read_text(encoding="utf-8")
-            except OSError, UnicodeDecodeError:
+            except (OSError, UnicodeDecodeError):
                 continue
             try:
                 state = ModuleState(path, source, _module_name(path, self.root))

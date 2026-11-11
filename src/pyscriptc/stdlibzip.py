@@ -46,6 +46,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from pyscriptc.target import TARGET_MINOR
+
 STDLIB_MODES = ["safe", "minimal"]
 DEFAULT_MODE = "safe"
 
@@ -273,9 +275,18 @@ def _import_names_relative(source: str, package: str) -> set[str]:
 
 
 def _stdlib_available() -> Path:
-    """A stdlib tree to read sources from: the running interpreter's."""
+    """A stdlib tree to read sources from: the target's, else the host's.
+
+    The closure is a 3.14 answer ("the compiler host and the pack share the
+    3.14 stdlib layout"), so the target's tree is the right one. The host's
+    tree is the fallback for a machine that has no 3.14 installed, which is
+    the common case for a 3.11 or 3.15 tool host.
+    """
+    candidate: Path = Path(sys.base_prefix) / "lib" / f"python{TARGET_MINOR}"
+    if candidate.is_dir():
+        return candidate
     version_parts = platform.python_version().split(".")
-    candidate: Path = Path(sys.base_prefix) / "lib" / f"python{version_parts[0]}.{version_parts[1]}"
+    candidate = Path(sys.base_prefix) / "lib" / f"python{version_parts[0]}.{version_parts[1]}"
     if candidate.is_dir():
         return candidate
     for entry in sys.path:

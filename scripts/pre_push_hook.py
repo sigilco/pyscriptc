@@ -154,7 +154,7 @@ def main() -> int:
             continue
         try:
             text = full.read_text(encoding="utf-8", errors="strict")
-        except UnicodeDecodeError, OSError:
+        except (UnicodeDecodeError, OSError):
             continue
         for i, ln in enumerate(text.splitlines(), 1):
             if CONFLICT.match(ln):

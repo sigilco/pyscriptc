@@ -92,7 +92,7 @@ def _git(*args: str) -> str:
             text=True,
             check=True,
         )
-    except OSError, subprocess.CalledProcessError:
+    except (OSError, subprocess.CalledProcessError):
         return ""
     return proc.stdout.strip()
 

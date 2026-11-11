@@ -30,7 +30,6 @@ import hashlib
 import io
 import json
 import os
-import platform
 import re
 import shutil
 import stat
@@ -45,6 +44,7 @@ from typing import Any, Dict
 from pyscriptc.config import ConfigError, read_pep723
 from pyscriptc.errors import SpikeError
 from pyscriptc.log import emit_event
+from pyscriptc.target import TARGET_MINOR
 
 DEPS_CODE = "PS3101"
 LOCK_TOOL_KEY = "pyscriptc"
@@ -246,11 +246,16 @@ class LockedPackage:
 
 
 def host_python() -> str:
-    # `sys.version_info` is outside the lowered subset of `sys`, so the
-    # host minor is the first two fields of `platform.python_version`, the
-    # same runtime answer.
-    parts = platform.python_version().split(".")
-    return parts[0] + "." + parts[1]
+    """The Python minor the dependency resolution runs for ('3.14').
+
+    `sys.version_info` is outside the lowered subset of `sys`, so the
+    answer used to be the host's `platform.python_version`. That leaks the
+    tool host into the resolution: a 3.11 host would ask uv for 3.11-only
+    wheels and lock a different dependency set than the target needs. The
+    declared target (`target.json`) is the answer, so every host resolves
+    the same dependency set.
+    """
+    return TARGET_MINOR
 
 
 def input_digest(spec: DepSpec, python: str) -> str:
@@ -842,7 +847,7 @@ def _top_level_names(zf: zipfile.ZipFile, names: list[str], dist_info: str) -> t
     if top_level in names:
         try:
             body = zf.read(top_level).decode("utf-8")
-        except UnicodeDecodeError, zipfile.BadZipFile:
+        except (UnicodeDecodeError, zipfile.BadZipFile):
             body = ""
         return tuple(line.strip() for line in body.splitlines() if line.strip() and not line.strip().startswith("#"))
     found: list[str] = []

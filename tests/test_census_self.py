@@ -302,9 +302,11 @@ def test_self_census_ballpark() -> None:
     # canonicity rules the typed serializer now owns), minus the JSON
     # escape primitive it shares with tirserde.
     # The ceiling was already 39 lines short on master (78,039 measured
-    # against a 78,000 cap, from the typed TIR hasher), so the win32
-    # resolution here (doctor.py and zigshim.py grow by about 70 lines)
-    # takes it to 78,111 and the cap moves to 79k.
+    # against a 78,000 cap, from the typed TIR hasher), so it moves to 79k:
+    # the win32 resolution (#1198) takes it to 78,111 and the host floor
+    # (#1202) to 78,140 (the version helpers in ir.py, the target
+    # sys.version bake in stdmore.py and the target lookups in deps.py,
+    # stdlibzip.py and embed.py).
     assert 11_000 <= census["lines"] <= 79_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
@@ -365,6 +367,14 @@ def test_self_census_ballpark() -> None:
     # Since refs #817 the fence pins live per module in tests/census_pins/
     # (regenerate with `uv run python scripts/repin_census.py`), so a PR that
     # moves fences in one module no longer conflicts with every other PR.
+    # The host-floor PR (#1202) adds two target-derivation helpers to
+    # stdmore.py, each with an `ast.Call` annotation like every method in the
+    # file: stdmore 32 -> 35. ir.py retires three fences with the floor-check
+    # rewrite (the version-parsing helpers are plain strings): ir 29 -> 26.
+    # The target-pinning of lower/_entry.py (_cmp_version reads
+    # TARGET_VERSION_INFO now), sigregistry.py and stubs.py moves one fence
+    # each: the added import carries the same dynamic-annotation row the
+    # replaced `sys.version_info` read did.
     # The total is asserted only as an upper bound against the pins ceiling.
     # The census labels packages with bare stems, so join them with the
     # discovered units to get fully qualified module names for the pins keys.

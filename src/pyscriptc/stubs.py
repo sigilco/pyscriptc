@@ -38,6 +38,7 @@ from functools import cache
 from pathlib import Path
 
 from pyscriptc.stdlib_queue import QUEUE
+from pyscriptc.target import TARGET_MINOR_INFO
 from pyscriptc.typefacts import _MISSING as _MISSING_DEFAULT
 from pyscriptc.typefacts import (
     CallableFacts,
@@ -164,7 +165,7 @@ def find_stub(
     Stdlib names only resolve from typeshed roots. `internal=True` lifts the
     typeshed allowlist; the registry uses it to follow re-exports.
     """
-    version = version or sys.version_info[:2]
+    version = version or TARGET_MINOR_INFO
     stdlib = is_stdlib(module)
     for root in roots:
         if stdlib != (root.kind == "typeshed"):
@@ -231,7 +232,7 @@ def load_stub(
     module: str, path: Path, origin: str, version: Version | None = None, platform: str | None = None
 ) -> StubModule:
     """Parse one `.pyi` into a `StubModule` for the target version and platform."""
-    version = version or sys.version_info[:2]
+    version = version or TARGET_MINOR_INFO
     platform = platform or sys.platform
     text = path.read_text(encoding="utf-8")
     tree = ast.parse(text, filename=str(path), type_comments=True)

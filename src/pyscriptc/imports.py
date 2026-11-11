@@ -247,7 +247,7 @@ def collect_imports(target: Path) -> list[dict[str, Any]]:
         try:
             text = path.read_text(encoding="utf-8")
             tree = ast.parse(text, filename=str(path))
-        except OSError, SyntaxError, UnicodeDecodeError:
+        except (OSError, SyntaxError, UnicodeDecodeError):
             continue
         lines = text.splitlines()
         for node in ast.walk(tree):
@@ -325,7 +325,7 @@ def _read_wheel_record(path: Path) -> list[str] | None:
         # non-record is not read as a one-file wheel.
         try:
             body = path.read_text(encoding="utf-8")
-        except OSError, UnicodeDecodeError:
+        except (OSError, UnicodeDecodeError):
             return None
         files: list[str] = []
         for line in body.splitlines():
@@ -344,7 +344,7 @@ def _read_wheel_record(path: Path) -> list[str] | None:
     try:
         with zipfile.ZipFile(path) as archive:
             names: list[str] = archive.namelist()
-    except OSError, Exception:
+    except (OSError, Exception):
         return None
     record = ""
     for item in names:
@@ -357,7 +357,7 @@ def _read_wheel_record(path: Path) -> list[str] | None:
         with zipfile.ZipFile(path) as archive:
             raw: bytes = archive.read(record)
             body: str = raw.decode("utf-8")
-    except OSError, KeyError, Exception:
+    except (OSError, KeyError, Exception):
         return names
     files: list[str] = []
     for line in body.splitlines():
@@ -401,7 +401,7 @@ def _metadata_of_tree(root: Path) -> dict[str, Any]:
             continue
         try:
             body = meta.read_text(encoding="utf-8")
-        except OSError, UnicodeDecodeError:
+        except (OSError, UnicodeDecodeError):
             continue
         for line in body.splitlines():
             if line.lower().startswith("name:"):

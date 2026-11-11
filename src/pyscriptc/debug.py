@@ -326,7 +326,7 @@ def _rss_kb() -> int:
 
     try:
         return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-    except OSError, ValueError:
+    except (OSError, ValueError):
         return 0
 
 

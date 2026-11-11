@@ -40,7 +40,8 @@ Pass `--yes` (or `-Yes` on Windows) to let the script install `uv` and `zig` too
 
 You need two things:
 
-- CPython 3.14 or later, to run the compiler. On an older CPython, `uv tool install --python 3.14 pyscriptc` fetches a suitable interpreter.
+- CPython 3.11 or later, to run the compiler. On an older CPython, `uv tool install --python 3.14 pyscriptc` fetches a suitable interpreter.
+- The compiled program always targets CPython 3.14 semantics, whatever host runs the compiler. A source the host cannot parse (syntax newer than the host) is a syntax error before the compiler sees it; see [Divergences](reference/divergences.md).
 - A C toolchain on PATH, to link compiled programs. `zig` also enables cross-compilation.
 
 The type checker ships inside the package, so there is nothing extra to install for it.

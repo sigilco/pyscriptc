@@ -44,6 +44,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from pyscriptc import licenses, sitedeps, stdlibzip
+from pyscriptc.target import TARGET_MINOR
 
 MODES = ("host", "bundle", "auto")
 DEFAULT_MODE = "auto"
@@ -439,13 +440,18 @@ def host_has_shared_libpython() -> bool:
     `sysconfig` is not in the closed import table, so the same base directory
     comes from `sys.base_prefix` (the base interpreter of the running venv,
     which is where `sysconfig` reads LIBDIR from too) and the version from
-    `platform.python_version`. A prefix whose include tree or libpython is
-    missing answers False, the same refusal the sysconfig reads produced.
+    the running interpreter's own `platform.python_version`. A prefix whose
+    include tree or libpython is missing answers False, the same refusal the
+    sysconfig reads produced.
+
+    The version here is the *host's*, unlike `python_version()`: this probe
+    asks what the machine that runs the compiler can link against, and a
+    3.11 host has 3.11 headers, not 3.14 ones.
     """
     base = sys.base_prefix
     if base == "":
         return False
-    version = _python_version()
+    version = ".".join(platform.python_version().split(".")[:2])
     include = Path(base) / "include" / f"python{version}"
     if not include.is_dir():
         return False
@@ -612,17 +618,19 @@ def stage_bundle(
 
 
 def _python_version() -> str:
-    """The CPython version the compiler targets ('3.14').
+    """The CPython minor the emitted program claims ('3.14').
 
     `sysconfig` (the sysconfig `VERSION` config var the pre-typed code read)
     is not in the closed import table and `sys.version_info` is not in the
-    lowered subset of `sys`, so the version is the first two fields of
-    `platform.python_version`, the same runtime answer.
+    lowered subset of `sys`, so the version used to be the host's
+    `platform.python_version`. That leaks the tool host into the program: a
+    3.11 host would look for `python3.11` inside the pinned 3.14 pack. The
+    answer is the declared target (`target.json`), which is the same value
+    the runtime lock pins (`cpython = "3.14.9"`).
     """
-    parts = platform.python_version().split(".")
-    return parts[0] + "." + parts[1]
+    return TARGET_MINOR
 
 
 def python_version() -> str:
-    """The CPython version the compiler targets ('3.14')."""
+    """The CPython minor the emitted program claims ('3.14')."""
     return _python_version()

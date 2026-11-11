@@ -305,7 +305,7 @@ def issue_states() -> list[str]:
                 check=True,
                 timeout=20,
             ).stdout.strip()
-        except subprocess.SubprocessError, OSError:
+        except (subprocess.SubprocessError, OSError):
             line = f"#{n} unknown"
         out.append(line.replace("#0 ", f"#{n} "))
     return out

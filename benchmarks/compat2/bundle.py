@@ -291,7 +291,7 @@ def _fences(
 
     try:
         fences = json.loads(ir_path.read_text(encoding="utf-8"))["fences"]
-    except OSError, ValueError, KeyError:
+    except (OSError, ValueError, KeyError):
         return None
     shared: list[tuple[int, str, str]] = []
     own: dict[int, list[tuple[int, str, str]]] = defaultdict(list)

@@ -52,7 +52,7 @@ def _mypy_api():
         return None
     try:
         parsed = tuple(int(part) for part in mypy_version.__version__.split(".")[:2])
-    except AttributeError, ValueError:
+    except (AttributeError, ValueError):
         return None
     if not _MYPY_MIN <= parsed < _MYPY_MAX:
         return None

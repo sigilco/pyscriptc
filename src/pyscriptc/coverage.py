@@ -262,7 +262,7 @@ def _read(path: str, cache: dict[str, str | None]) -> str | None:
     if path not in cache:
         try:
             cache[path] = Path(path).read_text(encoding="utf-8")
-        except OSError, UnicodeDecodeError:
+        except (OSError, UnicodeDecodeError):
             cache[path] = None
     return cache[path]
 
