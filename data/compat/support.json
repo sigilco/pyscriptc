@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-09",
-  "commit": "1ae4abbf9926662c95543ae5511658fed71dd6c4",
+  "generated": "2026-11-10",
+  "commit": "ccbefc9eaaa6d4ee16a09c775409fd250c14adec",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -779,7 +779,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "233/641",
-      "blocking": "name-resolution (149), construct-other (90), generic-alias (55)",
+      "blocking": "name-resolution (149), construct-other (90), generic-alias (61)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -842,8 +842,8 @@
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "84/132",
-      "blocking": "name-resolution (27), unlowered-type-name (19), type-mismatch (17)",
+      "ratio": "78/132",
+      "blocking": "name-resolution (30), unlowered-type-name (19), type-mismatch (19)",
       "codes": "PS2002, PS1106, PS1003"
     },
     {
@@ -891,7 +891,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udd34",
       "ratio": "57/75",
-      "blocking": "param-inference (32), return-inference (18), module-value (3)",
+      "blocking": "param-inference (34), return-inference (18), module-value (3)",
       "codes": "PS1001, PS2002, PS2001"
     }
   ]

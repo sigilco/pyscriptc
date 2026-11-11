@@ -292,13 +292,16 @@ def test_stacked_user_decorators(tmp_path: Path) -> None:
     )
 
 
-def test_stacked_unlowerable_decorator_stays_fenced(tmp_path: Path) -> None:
-    _fence(
+def test_stacked_unlowerable_decorator_erases_with_a_note(tmp_path: Path) -> None:
+    # A stack the wrap pass cannot apply takes the advisory erase now
+    # (divergence 54, issue #732): it compiles with the PS3099 note, never
+    # a traceback.
+    path = write_case(
         tmp_path,
         "r23_stacked.py",
         "\n".join(
             [
-                "def dec(f):",
+                "def dec(f: int) -> int:",
                 "    return f",
                 "",
                 "@dec",
@@ -308,12 +311,25 @@ def test_stacked_unlowerable_decorator_stays_fenced(tmp_path: Path) -> None:
                 "",
             ]
         ),
-        "decorator dec is not a lowered callable",
     )
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / "r23_stacked.ll"),
+    )
+    assert got.returncode == 0, got.stderr
+    assert "PS3099" in got.stderr, got.stderr
+    assert "Traceback" not in got.stderr, got.stderr
 
 
-def test_mismatched_decorator_stays_fenced(tmp_path: Path) -> None:
-    _fence(
+def test_mismatched_decorator_erases_with_a_note(tmp_path: Path) -> None:
+    # A decorator whose signature does not match the wrap's parameter list
+    # takes the advisory erase now (divergence 54, issue #732).
+    path = write_case(
         tmp_path,
         "r23_bad_dec.py",
         "\n".join(
@@ -327,5 +343,16 @@ def test_mismatched_decorator_stays_fenced(tmp_path: Path) -> None:
                 "",
             ]
         ),
-        "user decorators are not lowered",
     )
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / "r23_bad_dec.ll"),
+    )
+    assert got.returncode == 0, got.stderr
+    assert "PS3099" in got.stderr, got.stderr
+    assert "Traceback" not in got.stderr, got.stderr

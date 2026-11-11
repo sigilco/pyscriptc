@@ -40,26 +40,19 @@ def main() -> int:
 
 # A class instance used as a decorator refuses at PS2006 (#626). It used to
 # crash lowering with `KeyError: 'params'`, which the crash-mode tests below
-# stood on; they inject the error now instead.
-FENCED_DECORATOR = """import os
+# stood on; they inject the error now instead. A module-level stack takes
+# the advisory erase now (divergence 54, issue #732), so the fixture sits on
+# a nested def: a behavior-synthesizing stdlib member keeps its fence.
+FENCED_DECORATOR = """import functools
 
 
-class A:
-    def __call__(self) -> int:
-        return 1
-
-
-@A()
+@functools.lru_cache(maxsize=8)
 def beta(y: int) -> int:
     return y
 
 
-def gamma(z: int) -> int:
-    return z * 3
-
-
 def main() -> int:
-    return gamma(2)
+    return beta(2)
 """
 
 
@@ -99,7 +92,7 @@ def test_crash_reduction_keeps_the_failing_construct(tmp_path: Path, monkeypatch
     original = reduce_module.lower_source
 
     def injected(text: str, *args, **kwargs):
-        if "A()" in text:
+        if "lru_cache" in text:
             raise KeyError("params")
         return original(text, *args, **kwargs)
 

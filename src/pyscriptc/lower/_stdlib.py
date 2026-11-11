@@ -210,7 +210,10 @@ class StdlibDispatchMixin(StdlibBindMixin):
             if fn.decorator_list and not self._is_module_staticmethod(fn):
                 # A user decorator wraps the function after the signature
                 # pass: the def lowers normally, the wrap binds as a
-                # callable global in the deferred pass.
+                # callable global in the deferred pass. A decorator the wrap
+                # pass cannot apply takes the advisory erase there
+                # (divergence 54, issue #732); a synthesizing one keeps its
+                # fence or its island route.
                 self.deferred_module.append(fn)
             return True
         fences.append(Fence("PS2002", message, span_of(fn, self.filename), fn.name))

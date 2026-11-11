@@ -11,12 +11,6 @@ def test_scripting_stacks_stay_fenced(tmp_path: Path) -> None:
     cases = [
         ("click.py", "import click\n\ndef main() -> int:\n    return 0\n", "PS2002", "click"),
         (
-            "deco.py",
-            "def deco(fn):\n    return fn\n\n@deco\ndef main() -> int:\n    return 0\n",
-            "PS2006",
-            "decorator deco is not a lowered callable",
-        ),
-        (
             "kw.py",
             "import math\n\ndef main() -> float:\n    return math.sqrt(x=4.0)\n",
             "PS2003",
@@ -50,3 +44,26 @@ def test_scripting_stacks_stay_fenced(tmp_path: Path) -> None:
         assert got.returncode == 3, f"{name}\n{got.stderr}"
         assert code in got.stderr
         assert text in got.stderr
+
+
+def test_a_user_decorator_takes_the_advisory_erase(tmp_path: Path) -> None:
+    # A user decorator outside the closed set compiles as erased with the
+    # advisory PS3099 note (divergence 54, issue #732): the def lowers
+    # undecorated and the wrap never runs.
+    path = write_case(
+        tmp_path,
+        "deco.py",
+        "def deco(fn: int) -> int:\n    return fn\n\n@deco\ndef main() -> int:\n    return 0\n",
+    )
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / "deco.ll"),
+    )
+    assert got.returncode == 0, got.stderr
+    assert "PS3099" in got.stderr, got.stderr
+    assert "Traceback" not in got.stderr, got.stderr

@@ -269,6 +269,20 @@ class CoroMixin:
     """Lower-time hooks. `Lowerer.module` calls `_coro_signature`,
     `_coro_body_sig` and `_coro_finish`; `_stmt_core` is extended here."""
 
+    def _is_coro_contextmanager(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        """True when the function carries the stdlib `@contextmanager`.
+
+        The name alone is not enough: a local function named
+        `contextmanager` is not the stdlib one. The lowerer's
+        `_is_contextmanager_deco` resolves the import binding, so it is
+        the check that counts; the name-only helper is the fallback for
+        the plain AST use.
+        """
+        check = getattr(self, "_is_contextmanager_deco", None)
+        if check is not None:
+            return bool(check(fn))
+        return is_contextmanager(fn)
+
     def _coro_plans(self) -> dict[str, FramePlan]:
         return self.__dict__.setdefault("_coro_plan_table", {})
 
@@ -279,7 +293,7 @@ class CoroMixin:
         other function (the caller then uses `_signature` as before)."""
         if not enabled():
             return None
-        manager = not fn.decorator_list or is_contextmanager(fn)
+        manager = not fn.decorator_list or self._is_coro_contextmanager(fn)
         if not manager or fn.decorator_list and len(fn.decorator_list) > 1:
             return None
         if self.cataloguing and not (is_generator(fn) or isinstance(fn, ast.AsyncFunctionDef)):
@@ -332,7 +346,7 @@ class CoroMixin:
         self.known_classes.add(frame)
         manager = ""
         outward = frame_t
-        if is_contextmanager(fn):
+        if self._is_coro_contextmanager(fn):
             # `@contextmanager`: the function returns a context manager, not
             # the generator frame. The wrapper allocates the frame, hands it
             # to a `cm.<name>` object, and the `with` statement drives that
@@ -439,7 +453,7 @@ class CoroMixin:
         the outward type is the `cm.<C>.<m>` wrapper.
         """
         coroutine = isinstance(fn, ast.AsyncFunctionDef)
-        if fn.decorator_list and (coroutine or not is_contextmanager(fn)):
+        if fn.decorator_list and (coroutine or not self._is_coro_contextmanager(fn)):
             return None
         if not enabled() or not (is_generator(fn) or coroutine):
             return None
@@ -491,7 +505,7 @@ class CoroMixin:
         key = f"{class_name}.{fn.name}"
         manager = ""
         outward = frame_t
-        if not coroutine and is_contextmanager(fn):
+        if not coroutine and self._is_coro_contextmanager(fn):
             manager = f"cm.{frame}"
             outward = {"kind": "class", "name": manager}
             opt_str = self._opt_type({"kind": "str"}, fn)

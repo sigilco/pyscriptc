@@ -895,6 +895,26 @@
       "status": "fenced"
     },
     {
+      "id": "D54",
+      "seam": "a method or function decorator outside the closed set that does not synthesize behavior is erased: the wrap never runs (advisory PS3099 note)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#54",
+      "probe": "probes/divergences/d54_method_decorator_erased.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "wrapped method\nwrapped\n3\n8\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "wrapped\n3\n8\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
