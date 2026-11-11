@@ -842,7 +842,8 @@ class ExprMixin(ExprCompareMixin):
                 return {**const, "span": span}
             runtime = self._class_runtime_attr(class_name, node.attr)
             if runtime is not None:
-                return self._class_attr_read(class_name, node.attr, runtime, span)
+                owner, attr_type = runtime
+                return self._class_attr_read(owner, node.attr, attr_type, span)
         value = self._expr(node.value)
         read = path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
         if isinstance(node.value, ast.Name):

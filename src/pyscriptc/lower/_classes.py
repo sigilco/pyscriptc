@@ -1370,7 +1370,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         # lives in the class's slot, not in the instance's field table.
         runtime = self._class_runtime_attr(class_name, name)
         if runtime is not None:
-            return self._class_attr_read(class_name, name, runtime, span)
+            owner, attr_type = runtime
+            return self._class_attr_read(owner, name, attr_type, span)
         if info.get("method_kind", {}).get(name) == "property":
             sig = info["methods"][name]
             owner = self._emit_owner(class_name, name)

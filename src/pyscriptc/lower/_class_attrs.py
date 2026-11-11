@@ -87,6 +87,11 @@ def get_symbol(typ: dict[str, Any]) -> str:
     return "ps_global_get_ptr"
 
 
+def _names_in(value: ast.expr) -> set[str]:
+    """Every plain name a value expression reads, including comprehension terms."""
+    return {n.id for n in ast.walk(value) if isinstance(n, ast.Name) and isinstance(n.ctx, ast.Load)}
+
+
 class ClassAttrsMixin:
     """The class-attribute runtime path: the values, the slots, the reads.
 
@@ -104,6 +109,24 @@ class ClassAttrsMixin:
         if not isinstance(stmt, ast.AnnAssign):
             return None
         return self._annotation(stmt.annotation)
+
+    def _class_body_names(self, node: ast.ClassDef) -> set[str]:
+        """The names the class body binds.
+
+        A class body's names are not locals: they live in the class
+        dictionary. A value that reads one of them (`b = a + 1` under
+        `a = f()`) would need the class dictionary's own evaluation order,
+        which the compile-time class has no room for, so it fences.
+        """
+        names: set[str] = set()
+        for stmt in node.body:
+            if isinstance(stmt, ast.Assign):
+                for target in stmt.targets:
+                    if isinstance(target, ast.Name):
+                        names.add(target.id)
+            elif isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                names.add(stmt.target.id)
+        return names
 
     def _lower_class_attrs(self, class_nodes: list[ast.ClassDef], fences: list[Fence]) -> list[dict[str, Any]]:
         """Lower every class's runtime attributes into its initializer.
@@ -126,9 +149,22 @@ class ClassAttrsMixin:
             runtime_attrs = info.get("runtime_attrs")
             if not runtime_attrs:
                 continue
+            mark = len(fences)
             record = self._lower_class_attr_init(node, runtime_attrs, fences)
             if record is not None:
                 inits.append(record)
+                continue
+            # boxed:begin
+            # Issue #628: a class whose runtime attributes fence routes to
+            # the island, and its fences drop with it: the island seed
+            # defines the class in CPython with the real values. The
+            # planner re-runs so a compiled caller of the now-island class
+            # demotes with it.
+            if self.fallback_definitions:
+                self._boxed_island_class(node)
+                del fences[mark:]
+                self._boxed_replan(fences)
+            # boxed:end
         return inits
 
     def _lower_class_attr_init(
@@ -172,6 +208,10 @@ class ClassAttrsMixin:
                     continue
                 want = self._class_attr_value_type(stmt)
                 try:
+                    local = self._class_body_names(node)
+                    for used in sorted(_names_in(value_node)):
+                        if used in local:
+                            self.fail(stmt, "PS1204", f"a class body value reads the class-local name {used}")
                     value = self._expr(value_node, want)
                     if want is not None:
                         self._expect(stmt, value["type"], want, attr)
@@ -236,11 +276,16 @@ class ClassAttrsMixin:
 
         return _function_call(name, [], {"kind": "none"}, span)
 
-    def _class_attr_read(self, class_name: str, attr: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
-        """The read of a class attribute through its runtime slot."""
+    def _class_attr_read(self, owner: str, attr: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """The read of a class attribute through its runtime slot.
+
+        The key is the *defining* class's: a subclass inherits the
+        attribute, and the slot holds one value under the name of the
+        class whose body bound it.
+        """
         from pyscriptc.lower import _text_ir
 
-        key = _text_ir(attr_slot_key(class_name, attr), "str", span)
+        key = _text_ir(attr_slot_key(owner, attr), "str", span)
         return self._abi_call(
             "builtins",
             "global_get",
@@ -250,13 +295,14 @@ class ClassAttrsMixin:
             span,
         )
 
-    def _class_runtime_attr(self, class_name: str, attr: str) -> dict[str, Any] | None:
-        """The type of a class's runtime attribute `attr`, or None.
+    def _class_runtime_attr(self, class_name: str, attr: str) -> tuple[str, dict[str, Any]] | None:
+        """The (definer, type) of a class's runtime attribute `attr`, or None.
 
         The lookup follows the MRO the class dictionary does: the nearest
-        ancestor that defines the attribute wins. A method defined on the
-        class itself keeps precedence over an attribute of the same name,
-        the class dictionary's own-name rule.
+        ancestor that defines the attribute wins, and the definer's name is
+        the slot key's class part. A method defined on the class itself
+        keeps precedence over an attribute of the same name, the class
+        dictionary's own-name rule.
         """
         info = self.classes.get(class_name)
         if info is None:
@@ -270,5 +316,5 @@ class ClassAttrsMixin:
                 continue
             found = (ancestor_info.get("runtime_attr_types") or {}).get(attr)
             if found is not None:
-                return found
+                return ancestor, found
         return None
