@@ -612,7 +612,31 @@ jobs:
           sudo tar -xJf "/tmp/zig-$version.tar.xz" -C /usr/local
           echo "/usr/local/zig-x86_64-linux-$version" >> "$GITHUB_PATH"
       - name: Install qemu-user-static (run aarch64/riscv64 musl binaries)
-        run: sudo apt-get update && sudo apt-get install -y qemu-user-static
+        run: |
+          set -uo pipefail
+          # The runner's apt mirror can be unreachable (the Azure-hosted
+          # Ubuntu mirror failed to resolve for hours on 2026-11-11, on
+          # every runner of this pool). The smoke script already treats a
+          # missing qemu as compile-only, so the step retries, then falls
+          # back to the canonical archive, and only degrades to
+          # compile-only when every mirror is unreachable. The note is
+          # loud: a run without qemu covers fewer targets.
+          install_qemu() {
+            sudo apt-get update -o Acquire::Retries=3 && \
+              sudo apt-get install -y --no-install-recommends qemu-user-static
+          }
+          if install_qemu; then
+            echo "qemu-user-static installed"
+          else
+            echo "note: the default mirror is unreachable, retrying archive.ubuntu.com" >&2
+            sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' \
+              /etc/apt/apt-mirrors.txt 2>/dev/null || true
+            if install_qemu; then
+              echo "qemu-user-static installed from archive.ubuntu.com"
+            else
+              echo "note: qemu-user-static is unavailable; the aarch64/riscv64 musl binaries are compile-only" >&2
+            fi
+          fi
       - run: packaging/zig/smoke.sh
 
   # The `pip install ziglang` path: the wheel ships the zig binary but only

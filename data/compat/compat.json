@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-10",
-  "commit": "167c088a60b5436094b8286ed14ea6868fe0a493",
+  "generated": "2026-11-11",
+  "commit": "7e098f561e9959e8d946ca0bac88d1ee2fd52015",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2618
+    "fences": 2620
   },
   "builtins": [
     {
@@ -1514,7 +1514,7 @@
         },
         {
           "family": "construct-other",
-          "count": 90
+          "count": 91
         },
         {
           "family": "generic-alias",
@@ -1732,7 +1732,7 @@
       "import_name": "mdurl",
       "version": "0.1.2",
       "status": "partial",
-      "fences": 21,
+      "fences": 22,
       "definitions": 12,
       "fenced_definitions": 6,
       "top_families": [
@@ -1741,18 +1741,18 @@
           "count": 5
         },
         {
-          "family": "unlowered-call",
+          "family": "construct-other",
           "count": 3
         },
         {
-          "family": "construct-other",
-          "count": 2
+          "family": "unlowered-call",
+          "count": 3
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 14
+          "count": 15
         },
         {
           "code": "PS2003",
@@ -1884,7 +1884,7 @@
       "import_name": "pytz",
       "version": "2026.5",
       "status": "partial",
-      "fences": 51,
+      "fences": 52,
       "definitions": 102,
       "fenced_definitions": 32,
       "top_families": [
@@ -1904,7 +1904,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 30
+          "count": 31
         },
         {
           "code": "PS1001",
@@ -2189,7 +2189,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1286,
+      "count": 1288,
       "packages": 16
     },
     {
@@ -2304,6 +2304,15 @@
       "packages_partial": 8,
       "packages_none": 8,
       "fences": 2618
+    },
+    {
+      "date": "2026-11-11",
+      "commit": "7e098f561e9959e8d946ca0bac88d1ee2fd52015",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2620
     }
   ]
 }

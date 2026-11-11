@@ -663,6 +663,7 @@ typedef struct PsGlobal {
     int is_int;
     int is_ptr;
     int64_t ival;
+    double dval;
     void *pval;
     PsBuf buf;
 } PsGlobal;
@@ -753,6 +754,31 @@ void ps_global_set_i64(int64_t n, const char *name, int64_t value) {
     slot->is_ptr = 0;
     slot->set = 1;
     pthread_mutex_unlock(&ps_global_lock);
+}
+
+void ps_global_set_f64(int64_t n, const char *name, double value) {
+    PsGlobal *slot = ps_global_slot(n, name, 1);
+    pthread_mutex_lock(&ps_global_lock);
+    slot->dval = value;
+    slot->is_int = 1;
+    slot->is_ptr = 0;
+    slot->set = 1;
+    pthread_mutex_unlock(&ps_global_lock);
+}
+
+double ps_global_get_f64(int64_t n, const char *name) {
+    PsGlobal *slot = ps_global_slot(n, name, 0);
+    if (slot == NULL) {
+        ps_raise_cstr(PS_RUNTIME, "global is unset");
+    }
+    pthread_mutex_lock(&ps_global_lock);
+    double value = slot->dval;
+    int ok = slot->set && slot->is_int && !slot->is_ptr;
+    pthread_mutex_unlock(&ps_global_lock);
+    if (!ok) {
+        ps_raise_cstr(PS_RUNTIME, "global is unset");
+    }
+    return value;
 }
 
 int64_t ps_global_get_i64(int64_t n, const char *name) {

@@ -45,6 +45,11 @@ class EntryMixin:
         )
         scriptish = self._script_line is not None
         divert = self._diverted_literals(live) if scriptish else set()
+        # The call-assign scan must precede the assign binds: its `call`
+        # slot markers are the deferral gate in `_bind_module_assign`, and
+        # `_script_line` here is the input the scan needs. The slot itself
+        # still binds in the deferred pass; this only names it.
+        self._scan_module_call_assigns(live)
         for stmt in live:
             if isinstance(stmt, (ast.Import, ast.ImportFrom, ast.Pass)):
                 continue
@@ -277,7 +282,13 @@ class EntryMixin:
                     # C3: the canonical guard's body is live script text. It joins
                     # the entry in source order; an `else` under a `__name__` test
                     # never runs as `__main__`, so it stays dropped.
-                    live.extend(self._live_statements(list(stmt.body), fences, rebound))
+                    guard_live = self._live_statements(list(stmt.body), fences, rebound)
+                    # The guard body's own statements carry the flag: the
+                    # call-assign scan runs after `_split_entry`, whose
+                    # `_script_line` heuristic cannot see a guard whose
+                    # body is the module's only non-definition text.
+                    self._guard_stmts.update(id(s) for s in guard_live)
+                    live.extend(guard_live)
                     continue
                 # An imported module is not `__main__`: the guard body never
                 # runs there, and the `else` branch does.
