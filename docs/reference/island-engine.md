@@ -7,9 +7,11 @@ always resolvable); issue #668 targets PyPy as the first external engine.
 The selection resolves and validates the descriptor, records it in the
 debug summary, and, for a PyPy-kind descriptor (`kind =
 "pypy-interpreter"` or `[abi] libpython = "pypy-c"`), emits
-`-DPS_ENGINE_PYPY` into the island runtime compile (#667). No external
-engine pack ships yet, so end to end the CPython path is still the only
-one exercised.
+`-DPS_ENGINE_PYPY` into the island runtime compile (#667). A PyPy-kind
+descriptor may instead name the pinned PyPy **runtime pack**
+(`[abi] pack = "pypy"`, issue #668): the compiler fetches the pack,
+compiles `ps_island.c` against its headers, links its `libpypy<lang>-c`
+and stages a relocatable bundle with the engine's own runtime.
 
 ## Format
 
@@ -154,12 +156,21 @@ changes nothing in the emitted binary.
 
 Under `PS_ENGINE_PYPY`, `PS_ENGINE_START()` calls
 `rpython_startup_code()`, `pypy_setup_home(home, 1)` and
-`pypy_init_threads()` instead of `Py_InitializeEx(0)`. The init order is
-documented in the source as **assumed, not verified**: no PyPy SDK is
-available in CI, so the first real PyPy pack (#668) is the verification
-gate. Exception arguments are read with
-`PyObject_GetAttrString(val, "args")`, which is portable across both
-engines' C APIs. The CPython path is unchanged and fully tested.
+`pypy_init_threads()` instead of `Py_InitializeEx(0)`. The order is
+verified against the real PyPy 7.3.23 pack (issue #668): the fractions
+program of the acceptance test runs through it. Exception arguments are
+read with `PyObject_GetAttrString(val, "args")`, which is portable
+across both engines' C APIs. The CPython path is unchanged and fully
+tested.
+
+The GIL discipline is engine-specific and lives entirely in the
+`ps_island_acquire` / `ps_island_release` seam (see the source comment
+for the measured disagreement on every step: `PyEval_SaveThread` aborts
+under PyPy, `PyGILState_Ensure` on the main thread segfaults on the next
+Python call; a foreign thread registers with `pypy_thread_attach`).
+`PyImport_AddModuleObject` does not exist in cpyext; the seam calls the
+byte-name `PyImport_AddModule` entry under PyPy.
+
 
 ## Open questions (deferred to later embed issues)
 

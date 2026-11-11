@@ -100,10 +100,11 @@ static PyObject *ps_island_add_module(PyObject *name_obj) {
    `PyGILState_Ensure` safe there. The helpers below are the seam: they
    are the only place the two disciplines meet.
 
-   `ps_island_attach_thread` is called by every native thread that
-   reaches the island; on CPython it is a no-op (the CPython discipline
-   is `PyGILState_Ensure`, which creates the thread state itself), on
-   PyPy it registers the thread with the GC. */
+   `ps_island_attach_thread` is called by `ps_island_acquire`, which
+   every native thread that reaches the island goes through; on CPython
+   it is a no-op (the CPython discipline is `PyGILState_Ensure`, which
+   creates the thread state itself), on PyPy it registers the thread
+   with the GC. */
 static void ps_island_attach_thread(void) {
 #ifdef PS_ENGINE_PYPY
     pypy_thread_attach();
@@ -132,8 +133,8 @@ static void ps_island_release(PyGILState_STATE gstate) {
 }
 
 static PyGILState_STATE ps_island_acquire(void) {
+    ps_island_attach_thread();
 #ifdef PS_ENGINE_PYPY
-    pypy_thread_attach();
     return PyGILState_UNLOCKED;
 #else
     return PyGILState_Ensure();
