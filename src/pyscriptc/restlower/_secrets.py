@@ -17,7 +17,9 @@ from typing import Any
 from pyscriptc.restlower._shared import _const_int
 
 
-def _count_arg(lo: Any, node: ast.Call, slots: list[ast.expr | None], what: str, span: dict[str, Any]) -> dict[str, Any]:
+def _count_arg(
+    lo: Any, node: ast.Call, slots: list[ast.expr | None], what: str, span: dict[str, Any]
+) -> dict[str, Any]:
     """The byte count: a constant int, or the CPython default of 32."""
     if slots[0] is None:
         return _const_int(32, span)

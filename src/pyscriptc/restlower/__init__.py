@@ -26,6 +26,7 @@ from pyscriptc.restlower._asyncio_sync import (
     _prim_call,
     _to_thread,
 )
+from pyscriptc.restlower._binascii import _binascii_call
 from pyscriptc.restlower._builtins import (
     _abs,
     _base_repr,
@@ -70,6 +71,8 @@ from pyscriptc.restlower._ospath import _os_open, _os_read, _relpath, _walk
 from pyscriptc.restlower._pathlib import _buffer, _one
 from pyscriptc.restlower._queue import _queue_call, _queue_method
 from pyscriptc.restlower._random import _random_call
+from pyscriptc.restlower._secrets import _secrets_call
+from pyscriptc.restlower._shlex import _shlex_call
 from pyscriptc.restlower._subprocess import _call as _sub_call
 from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
 from pyscriptc.restlower._subprocess import _run as _sub_run
@@ -85,9 +88,6 @@ from pyscriptc.restlower._system import (
 from pyscriptc.restlower._textwrap import _textwrap_call
 from pyscriptc.restlower._threading import _lock_method, _thread_method, _threading_call
 from pyscriptc.restlower._time import _clock, _sleep, _strftime
-from pyscriptc.restlower._binascii import _binascii_call
-from pyscriptc.restlower._secrets import _secrets_call
-from pyscriptc.restlower._shlex import _shlex_call
 from pyscriptc.restlower._tomllib import _tomllib_call
 from pyscriptc.restlower._urllib import _urllib_request_call
 from pyscriptc.restlower._uuid import _uuid_call, _uuid_construct

@@ -36,9 +36,9 @@ from pyscriptc.lower._core import (
 )
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.reflection import annotation_note, metaclass_note
-from pyscriptc.restlower._uuid import uuid_hex_attr
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower import path_attr
+from pyscriptc.restlower._uuid import uuid_hex_attr
 from pyscriptc.sigrec import T, type_to_dict
 from pyscriptc.stdmore import (
     ALWAYS_CLASSES,
