@@ -156,7 +156,8 @@ def test_quote_quotes_a_non_ascii_word(tmp_path: Path) -> None:
             "",
         ]
     )
-    expected = f"{len(py_shlex.quote('\u00fcn\u00efcode'))}\nTrue\n0\n"
+    quoted = py_shlex.quote("\u00fcn\u00efcode")
+    expected = f"{len(quoted)}\nTrue\n0\n"
     assert _run(tmp_path, "unicode.py", source) == expected
 
 
