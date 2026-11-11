@@ -36,7 +36,7 @@ def dump(path: str) -> int:
     # The reader over a file handle: the bytes round-trip, and the writer
     # output matches CPython's excel dialect (\r\n line terminator,
     # minimal quoting, the empty-text restval for a missing field).
-    with open(path, "r") as f:
+    with open(path) as f:
         for row in csv.DictReader(f):
             name: str | None = row["name"]
             age: str | None = row["age"]
