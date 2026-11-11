@@ -37,6 +37,7 @@ from pyscriptc.emit._ir import (
     _type_of,
 )
 from pyscriptc.emit.llvm._base import EmitterBase
+from pyscriptc.emit.llvm._stmts import dict_to_dict
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.tirserde import dict_to_type
 
@@ -461,15 +462,16 @@ class FuncsMixin(EmitterBase):
                 f"  call void @llvm.dbg.value(metadata {value}, metadata !{var}, metadata !DIExpression()), !dbg !{loc}"
             )
 
-    def emit_body(self, body: list[dict[str, Any]]) -> None:
+    def emit_body(self, body: list[Any]) -> None:
         dwarf = self.dwarf
         for stmt in body:
             if self.terminated:
                 break
             saved: dict[str, Any] | None = self.span
-            stmt_span: dict[str, Any] | None = _opt_span(stmt)
+            stmt_dict: dict[str, Any] = dict_to_dict(stmt)
+            stmt_span: dict[str, Any] | None = _opt_span(stmt_dict)
             self.span = stmt_span if dwarf is not None else None
-            self.emit_stmt(stmt)
+            self.emit_stmt(stmt_dict)
             self.span = saved
 
     def _emit_return(self, stmt: dict[str, Any]) -> None:

@@ -9,34 +9,14 @@ from typing import Any
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.emit._ir import (
     _field_type,
-    _flag_of,
-    _handler_codes,
-    _handler_exc,
     _has,
     _items,
     _llvm_field_type,
     _maybe_node_kind,
-    _maybe_node_type_kind,
-    _node_body,
-    _node_cond,
-    _node_container,
-    _node_else,
-    _node_exc,
-    _node_expr,
-    _node_handlers,
     _node_id,
-    _node_index,
-    _node_kind,
-    _node_name,
-    _node_object,
     _node_target,
-    _node_then,
-    _node_type_kind,
-    _node_value_node,
     _opt_excslot,
-    _opt_node_cause,
     _opt_node_code,
-    _opt_node_message,
     _opt_str,
     _opt_str_or_none,
     _span_of,
@@ -44,7 +24,55 @@ from pyscriptc.emit._ir import (
 )
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import IRError
-from pyscriptc.tirserde import dict_to_type
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
+
+
+def dict_to_dict(value: Any) -> dict[str, Any]:
+    """The dict IR one typed value spells, or the mapping itself when it is
+    already a plain dict (`node_to_dict` narrowed to the record case).
+
+    This is the transitional boundary of the mixin's MIR migration
+    (#829): statement-level reads go through the typed `_irnode` record,
+    while the child paths that still speak dict IR (the sibling mixins'
+    `emit_expr`, the try outline and handler records, `_used_names`) take
+    the record's dict spelling back.
+    """
+    if isinstance(value, dict):
+        return value
+    if hasattr(value, "codes"):
+        # A Handler is a kindless record: `node_to_dict` refuses it at the
+        # top level (a list of handlers is the only shape it travels in).
+        from pyscriptc.tirserde import _handler_dict
+
+        out_handler: dict[str, Any] = _handler_dict(value)
+        return out_handler
+    out: Any = node_to_dict(value)
+    return out
+
+
+def _child_view(node: Any) -> tuple[str, str | None]:
+    """The `(kind, type kind)` pair of a typed child, or of the plain dict
+    the escape hatch kept whole (a call with payload keys the typed record
+    has no slot for — print's `sep`/`end`, the island call's slots)."""
+    if isinstance(node, dict):
+        return _dict_child_view(node)
+    t: Any = node.type
+    tk: str | None = t.kind if t is not None else None
+    k: Any = node.kind
+    return (k if isinstance(k, str) else ""), tk
+
+
+_DICT_VIEW_KEYS = ("type", "kind")
+
+
+def _dict_child_view(node: dict[str, Any]) -> tuple[str, str | None]:
+    """The `(kind, type kind)` pair of the plain dict the escape hatch kept
+    whole (a call with payload keys the typed record has no slot for —
+    print's `sep`/`end`, the island call's slots)."""
+    t: Any = node[_DICT_VIEW_KEYS[0]]
+    tk: str | None = t[_DICT_VIEW_KEYS[1]] if isinstance(t, dict) else None
+    k: Any = node[_DICT_VIEW_KEYS[1]]
+    return (k if isinstance(k, str) else ""), tk
 
 
 def _is_exit_status(node: dict[str, Any] | None) -> bool:
@@ -55,25 +83,35 @@ def _is_exit_status(node: dict[str, Any] | None) -> bool:
     """
     if node is None:
         return False
-    kind = _maybe_node_type_kind(node)
-    return kind in {"int", "bool"}
+    n: Any = dict_to_node(node)
+    t: Any = n.type
+    if t is None:
+        return False
+    return t.kind in {"int", "bool"}
 
 
 class StmtsMixin(EmitterBase):
     def emit_stmt(self, stmt: dict[str, Any]) -> None:
-        kind = _node_kind(stmt)
+        node: Any = dict_to_node(stmt)
+        kind: str = node.kind
         if kind == "assign":
-            value_node: dict[str, Any] = _node_value_node(stmt)
-            if _node_type_kind(value_node) == "none":
-                if _node_kind(value_node) != "const":
-                    self.emit_expr(value_node)
+            value_node: Any = node.value
+            vkind: str
+            vtyp_kind: str | None
+            vkind, vtyp_kind = _child_view(value_node)
+            if vtyp_kind == "none":
+                if vkind != "const":
+                    self.emit_expr(dict_to_dict(value_node))
                 return
-            self.store(_node_target(stmt), self.emit_expr(value_node))
+            self.store(node.target, self.emit_expr(dict_to_dict(value_node)))
         elif kind == "expr":
-            expr_node: dict[str, Any] = _node_expr(stmt)
-            if _node_kind(expr_node) == "const" and _node_type_kind(expr_node) == "none":
+            expr_node: Any = node.expr
+            ekind: str
+            etyp_kind: str | None
+            ekind, etyp_kind = _child_view(expr_node)
+            if ekind == "const" and etyp_kind == "none":
                 return
-            self.emit_expr(expr_node)
+            self.emit_expr(dict_to_dict(expr_node))
         elif kind == "return":
             self._emit_return(stmt)
         elif kind == "pass":
@@ -95,20 +133,25 @@ class StmtsMixin(EmitterBase):
             raise IRError(f"cannot emit statement {kind}")
 
     def emit_if(self, stmt: dict[str, Any]) -> None:
-        cond = self.emit_expr(_node_cond(stmt))
+        node: Any = dict_to_node(stmt)
+        cond = self.emit_expr(dict_to_dict(node.cond))
         then_l = self.fresh("then")
         else_l = self.fresh("else")
         merge_l = self.fresh("merge")
         self.line(f"br i1 {cond}, label %{then_l}, label %{else_l}")
         self.terminated = True
         self.block(then_l)
-        self.emit_body(_node_then(stmt))
+        # The arms read from the original dict, not the typed record: a
+        # suspension return inside an arm carries the dict-only `suspend`
+        # marker coro.py stamps after the node is built, and the record
+        # round trip drops it (see `emit/_ir._items`).
+        self.emit_body(_items(stmt, "then"))
         then_dead = self.terminated
         if not then_dead:
             self.line(f"br label %{merge_l}")
             self.terminated = True
         self.block(else_l)
-        self.emit_body(_node_else(stmt))
+        self.emit_body(_items(stmt, "else"))
         else_dead = self.terminated
         if not else_dead:
             self.line(f"br label %{merge_l}")
@@ -119,17 +162,18 @@ class StmtsMixin(EmitterBase):
         self.block(merge_l)
 
     def emit_while(self, stmt: dict[str, Any]) -> None:
+        node: Any = dict_to_node(stmt)
         cond_l = self.fresh("while.cond")
         body_l = self.fresh("while.body")
         end_l = self.fresh("while.end")
         self.line(f"br label %{cond_l}")
         self.terminated = True
         self.block(cond_l)
-        cond = self.emit_expr(_node_cond(stmt))
+        cond = self.emit_expr(dict_to_dict(node.cond))
         self.line(f"br i1 {cond}, label %{body_l}, label %{end_l}")
         self.terminated = True
         self.block(body_l)
-        self.emit_body(_node_body(stmt))
+        self.emit_body(_items(stmt, "body"))
         if not self.terminated:
             self.line(f"br label %{cond_l}")
             self.terminated = True
@@ -137,14 +181,20 @@ class StmtsMixin(EmitterBase):
 
     def emit_try(self, stmt: dict[str, Any]) -> None:
         self.needed.add("exc")
+        # The child lists read from the original dict, not the typed record:
+        # the `return` statements inside a try body carry the dict-only
+        # `suspend` marker coro.py stamps after the node is built (the
+        # `_restamp` owner decision), and the record round trip drops it, so
+        # a suspension would emit as a return and the finally would run
+        # before the resume (see `emit/_ir._items`).
         finalbody: list[dict[str, Any]] = _items(stmt, "finalbody")
         if finalbody:
             # E2 desugar: body+handlers+else become an inner try inside one
             # outline; the callsite runs `finalbody` on every outcome.
-            inner = {
+            inner: dict[str, Any] = {
                 "kind": "try",
-                "body": _node_body(stmt),
-                "handlers": _node_handlers(stmt),
+                "body": _items(stmt, "body"),
+                "handlers": _items(stmt, "handlers"),
                 "span": _span_of(stmt),
             }
             orelse: list[dict[str, Any]] = _items(stmt, "orelse")
@@ -208,7 +258,7 @@ class StmtsMixin(EmitterBase):
                 self.terminated = True
             self.block(merge_l)
             return
-        outline, env_order = self._emit_outline(_node_body(stmt))
+        outline, env_order = self._emit_outline(_items(stmt, "body"))
         env = self._pack_env(env_order)
         if self.flow_ptr is None:
             raise IRError("try has no flow slot")
@@ -223,10 +273,10 @@ class StmtsMixin(EmitterBase):
         merge_l = self.fresh("try.merge")
         ret_l = self.fresh("try.ret")
         ecode = self._call_ret("i32", "ps_exc_code", [])
-        for index, handler in enumerate(_node_handlers(stmt)):
+        for index, handler in enumerate(_items(stmt, "handlers")):
             take_l = self.fresh(f"try.h{index}")
             miss_l = self.fresh("try.miss")
-            cond = self._exc_match(ecode, handler)
+            cond = self._exc_match(ecode, dict_to_dict(handler))
             self.line(f"br i1 {cond}, label %{take_l}, label %{miss_l}")
             self.terminated = True
             self.block(take_l)
@@ -242,7 +292,7 @@ class StmtsMixin(EmitterBase):
                 self._abi_decl("ps_exc_current", "ptr", [])
                 current = self._call_ret("ptr", "ps_exc_current", [])
                 self.line(f"store ptr {current}, ptr {self.slots[slot][0]}")
-            self.emit_body(_node_body(handler))
+            self.emit_body(_items(handler, "body"))
             if not self.terminated:
                 self.line(f"br label %{merge_l}")
                 self.terminated = True
@@ -409,10 +459,13 @@ class StmtsMixin(EmitterBase):
 
     def emit_raise(self, stmt: dict[str, Any]) -> None:
         self.needed.add("exc")
+        node: Any = dict_to_node(stmt)
         stmt_code: int | None = _opt_node_code(stmt)
-        code = stmt_code if stmt_code is not None else EXCEPTIONS[_node_exc(stmt)]
-        raise_message: dict[str, Any] | None = _opt_node_message(stmt)
-        if _flag_of(stmt, "reraise"):
+        code = stmt_code if stmt_code is not None else EXCEPTIONS[node.exc]
+        raise_message: dict[str, Any] | None = None
+        if node.message is not None:
+            raise_message = dict_to_dict(node.message)
+        if node.flags & 8:  # F_RERAISE
             slot = _opt_excslot(stmt)
             if slot is not None:
                 value = self.load(slot)
@@ -420,7 +473,7 @@ class StmtsMixin(EmitterBase):
                 self.line(f"call void @ps_raise_exc(ptr {value}) noreturn")
             else:
                 self.line("call void @ps_reraise() noreturn")
-        elif _opt_node_cause(stmt) is not None:
+        elif node.cause is not None:
             # `raise E(args) from cause`: build the record, link the cause
             # (an excmake or bound `except ... as e` local), then raise.
             self._abi_decl("ps_exc_make", "ptr", ["i32", "i64", "ptr"])
@@ -431,31 +484,29 @@ class StmtsMixin(EmitterBase):
                 msg = self.emit_expr(raise_message)
                 mlen, mptr = self._buf_parts(msg)
                 made = self._call_ret("ptr", "ps_exc_make", [f"i32 {code}", f"i64 {mlen}", f"ptr {mptr}"])
-            cause = _opt_node_cause(stmt)
-            if cause is None:
-                raise IRError("raise cause must be a name or excmake")
-            if _node_kind(cause) == "excmake":
-                cause_code: int | None = _opt_node_code(cause)
-                ccode = cause_code if cause_code is not None else EXCEPTIONS[_node_exc(cause)]
+            cause: Any = node.cause
+            if cause.kind == "excmake":
+                cause_code: int | None = _opt_node_code(dict_to_dict(cause))
+                ccode = cause_code if cause_code is not None else EXCEPTIONS[cause.exc]
                 cause_value = self._call_ret("ptr", "ps_exc_make", [f"i32 {ccode}", "i64 0", "ptr null"])
-                cause_message: dict[str, Any] | None = _opt_node_message(cause)
-                if cause_message is not None:
-                    cmsg = self.emit_expr(cause_message)
+                if cause.message is not None:
+                    cmsg = self.emit_expr(dict_to_dict(cause.message))
                     clen, cptr = self._buf_parts(cmsg)
                     cause_value = self._call_ret("ptr", "ps_exc_make", [f"i32 {ccode}", f"i64 {clen}", f"ptr {cptr}"])
-            elif _node_kind(cause) == "name":
-                cause_value = self.load(_node_id(cause))
+            elif cause.kind == "name":
+                cause_value = self.load(cause.id)
             else:
                 raise IRError("raise cause must be a name or excmake")
             self._call_void("ps_exc_set_cause", [f"ptr {made}", f"ptr {cause_value}"])
             self.line(f"call void @ps_raise_exc(ptr {made}) noreturn")
-        elif _node_exc(stmt) == "SystemExit" and _is_exit_status(raise_message):
+        elif node.exc == "SystemExit" and _is_exit_status(raise_message):
             # `raise SystemExit(3)` keeps its value typed: ps_raise_system_exit
             # stores it as the process status for the uncaught handler (#603).
             if raise_message is None:
                 raise IRError("SystemExit status is missing")
             value = self.emit_expr(raise_message)
-            if _node_type_kind(raise_message) == "bool":
+            rtyp = dict_to_type(_type_of(raise_message)).kind
+            if rtyp == "bool":
                 wide = self.tmp()
                 self.line(f"{wide} = zext i1 {value} to i64")
                 value = wide
@@ -470,13 +521,14 @@ class StmtsMixin(EmitterBase):
         self.line("unreachable")
 
     def emit_setitem(self, stmt: dict[str, Any]) -> None:
-        container_node: dict[str, Any] = _node_container(stmt)
-        index_node: dict[str, Any] = _node_index(stmt)
-        value_node: dict[str, Any] = _node_value_node(stmt)
+        node: Any = dict_to_node(stmt)
+        container_node: dict[str, Any] = dict_to_dict(node.object)
+        index_node: dict[str, Any] = dict_to_dict(node.index)
+        value_node: dict[str, Any] = dict_to_dict(node.value)
         container = self.emit_expr(container_node)
         index = self.emit_expr(index_node)
         value = self.emit_expr(value_node)
-        kind = _node_type_kind(container_node)
+        kind: str = dict_to_type(_type_of(container_node)).kind
         if kind == "list":
             self.needed.add("seq")
             slot = self._stash_cell(_type_of(value_node), value)
@@ -494,12 +546,13 @@ class StmtsMixin(EmitterBase):
         raise IRError(f"cannot assign into {kind}")
 
     def emit_setattr(self, stmt: dict[str, Any]) -> None:
-        object_node: dict[str, Any] = _node_object(stmt)
-        value_node: dict[str, Any] = _node_value_node(stmt)
+        node: Any = dict_to_node(stmt)
+        object_node: dict[str, Any] = dict_to_dict(node.object)
+        value_node: dict[str, Any] = dict_to_dict(node.value)
         obj = self.emit_expr(object_node)
         value = self.emit_expr(value_node)
         class_name: str = dict_to_type(_type_of(object_node)).name
-        field = self._field(class_name, _node_name(stmt))
+        field = self._field(class_name, node.name)
         slot = self._field_ptr(class_name, obj, field)
         field_type: dict[str, Any] = _field_type(field)
         field_kind: str = dict_to_type(field_type).kind
@@ -522,9 +575,10 @@ class StmtsMixin(EmitterBase):
         self.line(f"store {_llvm_field_type(field_type)} {value}, ptr {slot}")
 
     def _exc_match(self, code: str, handler: dict[str, Any] | list[str]) -> str:
-        if isinstance(handler, dict) and _flag_of(handler, "bare"):
+        h: Any = dict_to_node(handler) if isinstance(handler, dict) else None
+        if h is not None and h.flags & 16:  # F_BARE
             return "true"
-        names = handler if isinstance(handler, list) else _handler_exc(handler)
+        names = handler if isinstance(handler, list) else h.exc
         checks: list[str] = []
         for name in names:
             wanted = EXCEPTIONS.get(name)
@@ -534,7 +588,7 @@ class StmtsMixin(EmitterBase):
                 continue
             call = self._call_ret("i32", "ps_exc_isa", [f"i32 {code}", f"i32 {wanted}"])
             checks.append(self._flag(call))
-        numbers = _handler_codes(handler) if isinstance(handler, dict) else []
+        numbers = list(h.codes) if h is not None and h.codes is not None else []
         if not numbers:
             numbers = [EXCEPTIONS[name] for name in names if name in EXCEPTIONS]
         for number in numbers:
