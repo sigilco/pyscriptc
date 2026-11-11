@@ -120,6 +120,10 @@ extend-exclude = [
 "benchmarks/compat2/corpus/spec.py" = "py314"
 "benchmarks/compat2/coverage_map.py" = "py314"
 "benchmarks/compat2/score.py" = "py314"
+# The probe corpus runs against the pinned 3.14 oracle, so it may use
+# constructs the oracle knows that a 3.11 host does not (PEP 649 deferred
+# annotations in a class body, for example). Lint at the oracle's floor.
+"probes/**" = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]

@@ -555,9 +555,14 @@ jobs:
               main()
           PY
           uv run pyscriptc compile /tmp/floor/zdi.py --emit ir --skip-check -o /tmp/floor/zdi-this.ll
-          uv run pyscriptc compile /tmp/floor/zdi.py --emit bin --skip-check --driver zig -o /tmp/floor/zdi-bin
+          # clang is the default driver and the runner's toolchain; zig has
+          # its own lanes. The point of this lane is the host, not the
+          # toolchain.
+          uv run pyscriptc compile /tmp/floor/zdi.py --emit bin --skip-check -o /tmp/floor/zdi-bin
           out="$(/tmp/floor/zdi-bin)"
           echo "$out"
+          # The 3.14 wording, not the 3.11 one: the emitted semantics follow
+          # the declared target, whatever host lowers the source.
           [ "$out" = "caught: division by zero" ]
       - name: The emitted IR matches the 3.14 host modulo the stamp
         run: |
