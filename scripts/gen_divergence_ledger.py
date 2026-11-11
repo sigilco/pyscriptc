@@ -387,6 +387,15 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#54",
     ),
     _row(
+        "D55",
+        "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view",
+        None,
+        docs=f"{DOC}#55",
+        note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
+        "the byte comparison runs in the differential lane instead "
+        "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

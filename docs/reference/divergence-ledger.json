@@ -594,10 +594,10 @@
       "pyscriptc": {
         "stage": "run",
         "exit": 0,
-        "stdout": "1e+01\n1e+02\n0.5\n",
+        "stdout": "10.0\n100.0\n0.5\n",
         "stderr": ""
       },
-      "status": "divergent"
+      "status": "identical"
     },
     {
       "id": "D37",
@@ -913,6 +913,17 @@
         "stderr": ""
       },
       "status": "divergent"
+    },
+    {
+      "id": "D55",
+      "seam": "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#55",
+      "probe": null,
+      "note": "the CPython side is real numpy, which the pinned oracle interpreter does not carry; the byte comparison runs in the differential lane instead (probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
     },
     {
       "id": "AUDIT-D1",

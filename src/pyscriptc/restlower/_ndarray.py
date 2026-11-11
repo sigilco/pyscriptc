@@ -161,6 +161,9 @@ def _array(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if data["type"]["kind"] != "list" or data["type"]["elem"]["kind"] not in {"int", "float"}:
         lo.fail(node, "PS1003", "pyscriptc_ndarray.array data is a flat list of numbers")
     is_int = data["type"]["elem"]["kind"] == "int"
+    if dtype_node is None and is_int:
+        # numpy's inference: a list of Python ints is an int64 array.
+        dtype = "int64"
     symbol = "ps_nd_from_seq"
     args = [
         {"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span},
