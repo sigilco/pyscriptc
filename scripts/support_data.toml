@@ -471,6 +471,11 @@ ok = ['y: int = bisect.bisect_left(xs, n)', 'y: int = bisect.bisect_right(xs, n)
 no = [["key=, lo=, hi=", 'bisect.insort(xs, n, key=lambda v: v)', "PS2001"]]
 
 [[stdlib]]
+names = ["heapq"]
+ok = ['heapq.heapify(xs)', 'heapq.heappush(xs, n)', 'y: int = heapq.heappop(xs)', 'y: int = heapq.heappushpop(xs, n)', 'y: int = heapq.heapreplace(xs, n)', 'y: list[int] = heapq.nlargest(2, xs)', 'y: list[int] = heapq.nsmallest(2, xs)', 'heapq.heapify(ss)', 'y: str = heapq.heappop(ss)', 'y: list[str] = heapq.nlargest(2, ss)']
+no = [["merge, the *_max family, key=", 'y: list[int] = heapq.merge(xs, xs)', "PS2001"], ["key= keyword", 'y: list[int] = heapq.nsmallest(2, xs, key=abs)', "PS2003"], ["tuple elements", 'y: list[tuple[int, int]] = heapq.nsmallest(2, [(1, 2)])', "PS1003"]]
+
+[[stdlib]]
 names = ["errno"]
 ok = ['y: int = errno.ENOENT', 'y: int = errno.ECONNREFUSED']
 no = [["errorcode", 'y: str = errno.errorcode', "PS2001"]]
