@@ -603,7 +603,7 @@ jobs:
       - name: The extra resolves zig through the shim and compiles
         run: |
           set -euo pipefail
-          tool="$(uv tool dir)/bin/pyscriptc"
+          tool="$(uv tool dir --bin)/pyscriptc"
           "$tool" doctor --json > /tmp/doctor.json
           python3 - <<'PY'
           import json
@@ -650,8 +650,7 @@ jobs:
         shell: pwsh
         run: |
           $ErrorActionPreference = "Stop"
-          $tool = "$(uv tool dir)\pyscriptc\bin\pyscriptc.exe"
-          if (-not (Test-Path $tool)) { $tool = "$(uv tool dir)\pyscriptc\bin\pyscriptc" }
+          $tool = "$(uv tool dir --bin)\pyscriptc.exe"
           $doctor = & $tool doctor --json | ConvertFrom-Json
           Write-Host "zig found: $($doctor.zig.found) path: $($doctor.zig.path)"
           if (-not $doctor.zig.found) { throw "zig did not resolve from the ziglang wheel" }
