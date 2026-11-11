@@ -367,7 +367,7 @@ def test_self_census_ballpark() -> None:
     # Since refs #817 the fence pins live per module in tests/census_pins/
     # (regenerate with `uv run python scripts/repin_census.py`), so a PR that
     # moves fences in one module no longer conflicts with every other PR.
-    # The host-floor PR (#1200) adds two target-derivation helpers to
+    # The host-floor PR (#1202) adds two target-derivation helpers to
     # stdmore.py, each with an `ast.Call` annotation like every method in the
     # file: stdmore 32 -> 35. ir.py retires three fences with the floor-check
     # rewrite (the version-parsing helpers are plain strings): ir 29 -> 26.
