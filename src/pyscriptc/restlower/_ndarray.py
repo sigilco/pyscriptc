@@ -69,6 +69,8 @@ def _ndarray_call(
         return _pair(lo, node, span, "concatenate", "ps_nd_concatenate")
     if attr == "stack":
         return _pair(lo, node, span, "stack", "ps_nd_stack")
+    if attr == "fromlist":
+        return _fromlist(lo, node, span)
     lo.fail(node, "PS2001", f"pyscriptc_ndarray.{attr} is not in the lowered subset of pyscriptc_ndarray")
     raise AssertionError("unreachable")
 
@@ -194,11 +196,12 @@ def _full(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
 
 def _arange(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """`arange(start, stop, step)` or `arange(stop)`: the dtype keyword is
-    optional and defaults to float64."""
-    dtype = "float64"
+    optional and defaults to numpy's rule, int64 for all-integer arguments
+    and float64 when any argument is a float."""
+    dtype: str | None = None
     for keyword in node.keywords:
         if keyword.arg == "dtype":
-            dtype = _dtype_arg(lo, node, keyword.value, dtype)
+            dtype = _dtype_arg(lo, node, keyword.value, "int64")
         else:
             lo.fail(node, "PS2003", f"pyscriptc_ndarray.arange keyword {keyword.arg} is not lowered")
     args = [lo._expr(arg) for arg in node.args]
@@ -215,6 +218,9 @@ def _arange(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     for arg in (start, stop, step):
         if arg["type"]["kind"] not in {"int", "float"}:
             lo.fail(node, "PS1003", "pyscriptc_ndarray.arange arguments are numbers")
+    if dtype is None:
+        # numpy's default: a float argument anywhere floats the range.
+        dtype = "float64" if any(arg["type"]["kind"] == "float" for arg in (start, stop, step)) else "int64"
     call_args = [
         {"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span},
         start,
@@ -242,18 +248,62 @@ def _linspace(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     return lo._abi_call("pyscriptc_ndarray", "linspace", call_args, _nd_type(dtype), "ps_nd_linspace", span)
 
 
+def _fromlist(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`fromlist(data, dtype)`: a new array from a flat list of numbers.
+    The dtype keyword is optional and defaults to float64."""
+    dtype = "float64"
+    args_nodes = list(node.args)
+    for keyword in node.keywords:
+        if keyword.arg == "dtype":
+            dtype = _dtype_arg(lo, node, keyword.value, dtype)
+        else:
+            lo.fail(node, "PS2003", f"pyscriptc_ndarray.fromlist keyword {keyword.arg} is not lowered")
+    if not args_nodes:
+        lo.fail(node, "PS2003", "pyscriptc_ndarray.fromlist expects a list")
+    data = lo._expr(args_nodes[0])
+    if data["type"]["kind"] != "list" or data["type"]["elem"]["kind"] not in {"int", "float"}:
+        lo.fail(node, "PS1003", "pyscriptc_ndarray.fromlist data is a flat list of numbers")
+    is_int = data["type"]["elem"]["kind"] == "int"
+    args = [
+        {"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span},
+        data,
+        {"kind": "const", "value": "1" if is_int else "0", "type": {"kind": "int"}, "span": span},
+    ]
+    return lo._abi_call("pyscriptc_ndarray", "fromlist", args, _nd_type(dtype), "ps_nd_from_seq", span)
+
+
 def _pair(lo: Any, node: ast.Call, span: dict[str, Any], what: str, symbol: str) -> dict[str, Any]:
-    """`concatenate(a, b)` and `stack(a, b)`: two arrays whose dtypes and
-    trailing shapes match."""
+    """`concatenate(a, b)` and `stack(a, b)`: numpy's spelling is a list of
+    the arrays, so the list form lowers (two arrays: the runtime's shape),
+    and the direct two-array form lowers too. The arrays need one dtype and
+    matching trailing shapes (checked at runtime)."""
+    if len(node.args) != 1 or node.keywords:
+        return _pair_direct(lo, node, span, what, symbol)
+    arg = node.args[0]
+    if not isinstance(arg, ast.List) or len(arg.elts) != 2:
+        return _pair_direct(lo, node, span, what, symbol)
+    left = lo._expr(arg.elts[0])
+    right = lo._expr(arg.elts[1])
+    if not _is_nd(left["type"]) or not _is_nd(right["type"]):
+        lo.fail(node, "PS1003", f"pyscriptc_ndarray.{what} arguments are arrays")
+    if _dtype_of(left["type"]) != _dtype_of(right["type"]):
+        lo.fail(node, "PS1003", f"pyscriptc_ndarray.{what} arrays have different dtypes")
+    out = left["type"] if what == "concatenate" else _nd_type(_dtype_of(left["type"]))
+    return lo._abi_call("pyscriptc_ndarray", what, [left, right], out, symbol, span)
+
+
+def _pair_direct(lo: Any, node: ast.Call, span: dict[str, Any], what: str, symbol: str) -> dict[str, Any]:
+    """`concatenate(a, b)` and `stack(a, b)` in the direct two-array form."""
     if len(node.args) != 2 or node.keywords:
-        lo.fail(node, "PS2003", f"pyscriptc_ndarray.{what} expects two arrays")
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.{what} expects a list of two arrays")
     left = lo._expr(node.args[0])
     right = lo._expr(node.args[1])
     if not _is_nd(left["type"]) or not _is_nd(right["type"]):
         lo.fail(node, "PS1003", f"pyscriptc_ndarray.{what} arguments are arrays")
     if _dtype_of(left["type"]) != _dtype_of(right["type"]):
         lo.fail(node, "PS1003", f"pyscriptc_ndarray.{what} arrays have different dtypes")
-    return lo._abi_call("pyscriptc_ndarray", what, [left, right], left["type"], symbol, span)
+    out = left["type"] if what == "concatenate" else _nd_type(_dtype_of(left["type"]))
+    return lo._abi_call("pyscriptc_ndarray", what, [left, right], out, symbol, span)
 
 
 # ---------------------------------------------------------------------

@@ -54,6 +54,7 @@ from pyscriptc.lower._expr import ExprMixin
 from pyscriptc.lower._infer import TypeInferMixin
 from pyscriptc.lower._misc_emit import MiscEmitMixin
 from pyscriptc.lower._module_driver import ModuleDriverMixin
+from pyscriptc.lower._ndarray import _is_ndarray as _nd_is_ndarray
 from pyscriptc.lower._stdlib import StdlibDispatchMixin
 from pyscriptc.lower._stmt import (
     StmtMixin,

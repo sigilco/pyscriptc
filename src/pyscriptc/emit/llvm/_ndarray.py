@@ -63,6 +63,8 @@ class NdArrayMixin:
             return self._nd_element_i64(expr, values)
         if symbol == "ps_nd_getitem":
             return self._nd_getitem(expr, values)
+        if symbol == "ps_nd_setitem":
+            return self._nd_setitem(values)
         if symbol == "ps_nd_boolean_index":
             return self._nd_plain(symbol, values, ["ptr", "ptr"])
         if symbol == "ps_nd_slice":
@@ -229,6 +231,13 @@ class NdArrayMixin:
         """`a[i]` on an integer array: the element as an int."""
         self._abi_decl("ps_nd_element_i64", "i64", ["ptr", "i64"])
         return self._call_ret("i64", "ps_nd_element_i64", [f"ptr {values[0]}", f"i64 {values[1]}"])
+
+    def _nd_setitem(self, values: list[str]) -> str:
+        """`a[i] = v`: the element write. The runtime takes the value as a
+        double and converts it to the array's dtype."""
+        self._abi_decl("ps_nd_setitem", "void", ["ptr", "i64", "double"])
+        self._call_void("ps_nd_setitem", [f"ptr {values[0]}", f"i64 {values[1]}", f"double {values[2]}"])
+        return ""
 
     def _nd_getitem(self, expr: dict[str, Any], values: list[str]) -> str:
         """`a[i]` as an array: the zero-dimensional result."""

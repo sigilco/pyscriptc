@@ -1180,10 +1180,11 @@ void ps_nd_setitem(PsNd *a, int64_t index, double value) {
 /* ------------------------------------------------------------------ */
 
 /* One tolist cell: push element `at` of `a` onto `out`, converted to the
-   value type its dtype spells. */
+   value type its dtype spells. Every cell is 8 bytes wide, so each value
+   is widened to the int64 or the double before it is pushed. */
 static void ps_nd_tolist_cell(PsSeq *out, const PsNd *a, int64_t at) {
     if (a->dtype == PS_ND_BOOL) {
-        uint8_t v = ((const uint8_t *)a->data)[at] ? 1 : 0;
+        int64_t v = ((const uint8_t *)a->data)[at] ? 1 : 0;
         ps_seq_push(out, &v);
         return;
     }
@@ -1205,13 +1206,45 @@ static void ps_nd_tolist_cell(PsSeq *out, const PsNd *a, int64_t at) {
 
    The list cells are 8 bytes wide, the width the emitter's list reads
    assume, and each cell holds the value in the shape its element type
-   wants: an int cell holds the int64, a float cell the double, and a bool
-   cell the widened byte. The float32 values widen to double the way
-   numpy's tolist does: a float32 0.1 becomes the double
-   0.10000000149011612. */
+   wants: an int cell holds the int64, a float cell the double. The float32
+   values widen to double the way numpy's tolist does: a float32 0.1
+   becomes the double 0.10000000149011612.
+
+   The bool dtype is the exception: a bool list cell is one byte wide (the
+   emitter's list layout), so the bool array's tolist builds a one-byte
+   seq. */
 PsSeq *ps_nd_tolist(PsNd *a) {
     PsSeq *out;
     int64_t i;
+    if (a->dtype == PS_ND_BOOL) {
+        /* A bool cell is one byte: the sequence is byte wide, and the
+           cells hold 0 or 1. */
+        if (a->ndim <= 1) {
+            out = ps_seq_new(1, a->count);
+            for (i = 0; i < a->count; i++) {
+                uint8_t v = ((const uint8_t *)a->data)[i] ? 1 : 0;
+                ps_seq_push(out, &v);
+            }
+            return out;
+        }
+        if (a->ndim == 2) {
+            int64_t rows = a->shape[0];
+            int64_t cols = a->shape[1];
+            int64_t r;
+            out = ps_seq_new((int64_t)sizeof(PsSeq *), rows);
+            for (r = 0; r < rows; r++) {
+                PsSeq *row = ps_seq_new(1, cols);
+                for (i = 0; i < cols; i++) {
+                    uint8_t v = ((const uint8_t *)a->data)[r * cols + i] ? 1 : 0;
+                    ps_seq_push(row, &v);
+                }
+                ps_seq_push(out, &row);
+            }
+            return out;
+        }
+        ps_raise_cstr(PS_VALUE, "tolist is lowered for 1-D and 2-D arrays");
+        return NULL;
+    }
     if (a->ndim <= 1) {
         out = ps_seq_new(8, a->count);
         for (i = 0; i < a->count; i++) {
