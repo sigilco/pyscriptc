@@ -6,10 +6,11 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc._irnode import IrNode
+from pyscriptc._irnode import Handler, IrNode
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.emit._ir import (
     _field_type,
+    _items,
     _llvm_field_type,
     _opt_excslot,
     _opt_node_code,
@@ -136,13 +137,17 @@ class StmtsMixin(EmitterBase):
         self.line(f"br i1 {cond}, label %{then_l}, label %{else_l}")
         self.terminated = True
         self.block(then_l)
-        self.emit_body(node.then or [])
+        # The arms read from the original dict, not the typed record: a
+        # suspension return inside an arm carries the dict-only `suspend`
+        # marker coro.py stamps after the node is built, and the record
+        # round trip drops it (see `emit/_ir._items`).
+        self.emit_body(_items(stmt, "then"))
         then_dead = self.terminated
         if not then_dead:
             self.line(f"br label %{merge_l}")
             self.terminated = True
         self.block(else_l)
-        self.emit_body(node.else_ or [])
+        self.emit_body(_items(stmt, "else"))
         else_dead = self.terminated
         if not else_dead:
             self.line(f"br label %{merge_l}")
@@ -164,7 +169,7 @@ class StmtsMixin(EmitterBase):
         self.line(f"br i1 {cond}, label %{body_l}, label %{end_l}")
         self.terminated = True
         self.block(body_l)
-        self.emit_body(node.body or [])
+        self.emit_body(_items(stmt, "body"))
         if not self.terminated:
             self.line(f"br label %{cond_l}")
             self.terminated = True
@@ -172,18 +177,23 @@ class StmtsMixin(EmitterBase):
 
     def emit_try(self, stmt: dict[str, Any]) -> None:
         self.needed.add("exc")
-        node: Any = dict_to_node(stmt)
-        finalbody: list[dict[str, Any]] = [dict_to_dict(item) for item in (node.finalbody or [])]
+        # The child lists read from the original dict, not the typed record:
+        # the `return` statements inside a try body carry the dict-only
+        # `suspend` marker coro.py stamps after the node is built (the
+        # `_restamp` owner decision), and the record round trip drops it, so
+        # a suspension would emit as a return and the finally would run
+        # before the resume (see `emit/_ir._items`).
+        finalbody: list[dict[str, Any]] = _items(stmt, "finalbody")
         if finalbody:
             # E2 desugar: body+handlers+else become an inner try inside one
             # outline; the callsite runs `finalbody` on every outcome.
             inner: dict[str, Any] = {
                 "kind": "try",
-                "body": [dict_to_dict(item) for item in (node.body or [])],
-                "handlers": [dict_to_dict(item) for item in (node.handlers or [])],
+                "body": _items(stmt, "body"),
+                "handlers": _items(stmt, "handlers"),
                 "span": _span_of(stmt),
             }
-            orelse: list[dict[str, Any]] = [dict_to_dict(item) for item in (node.orelse or [])]
+            orelse: list[dict[str, Any]] = _items(stmt, "orelse")
             if orelse:
                 inner["orelse"] = orelse
                 for flag in ["brk", "cont"]:
@@ -244,7 +254,7 @@ class StmtsMixin(EmitterBase):
                 self.terminated = True
             self.block(merge_l)
             return
-        outline, env_order = self._emit_outline([dict_to_dict(item) for item in (node.body or [])])
+        outline, env_order = self._emit_outline(_items(stmt, "body"))
         env = self._pack_env(env_order)
         if self.flow_ptr is None:
             raise IRError("try has no flow slot")
@@ -259,14 +269,14 @@ class StmtsMixin(EmitterBase):
         merge_l = self.fresh("try.merge")
         ret_l = self.fresh("try.ret")
         ecode = self._call_ret("i32", "ps_exc_code", [])
-        for index, handler in enumerate(node.handlers or []):
+        for index, handler in enumerate(_items(stmt, "handlers")):
             take_l = self.fresh(f"try.h{index}")
             miss_l = self.fresh("try.miss")
             cond = self._exc_match(ecode, dict_to_dict(handler))
             self.line(f"br i1 {cond}, label %{take_l}, label %{miss_l}")
             self.terminated = True
             self.block(take_l)
-            slot = _opt_excslot(dict_to_dict(handler))
+            slot = _opt_excslot(handler)
             if slot is not None:
                 if slot not in self.slots:
                     # A slot the outline never packed: the compile must
@@ -278,7 +288,7 @@ class StmtsMixin(EmitterBase):
                 self._abi_decl("ps_exc_current", "ptr", [])
                 current = self._call_ret("ptr", "ps_exc_current", [])
                 self.line(f"store ptr {current}, ptr {self.slots[slot][0]}")
-            self.emit_body([dict_to_dict(item) for item in (handler.body or [])])
+            self.emit_body(_items(handler, "body"))
             if not self.terminated:
                 self.line(f"br label %{merge_l}")
                 self.terminated = True
@@ -308,7 +318,7 @@ class StmtsMixin(EmitterBase):
         # The suspension carries the value (the yield's element or the resume
         # status): the outline stored it in the return slot.
         self._emit_propagated_suspend()
-        orelse_body: list[dict[str, Any]] = [dict_to_dict(item) for item in (node.orelse or [])]
+        orelse_body: list[dict[str, Any]] = _items(stmt, "orelse")
         if orelse_body:
             else_l = self.fresh("try.else")
             self.block(fell_l)
@@ -615,7 +625,30 @@ def _used_names(body: list[dict[str, Any]]) -> set[str]:
         if isinstance(item, list):
             stack.extend(item)
             continue
-        node: Any = item
+        if isinstance(item, dict):
+            # A dict that the converter answers whole (the escape-hatch call
+            # dicts: json_flags, print's sep/end) or refuses (a span or type
+            # spelling): walk its children so the names they read still pack.
+            try:
+                converted: Any = dict_to_node(item)
+            except TypeError:
+                converted = item
+            if isinstance(converted, dict):
+                stack.extend(value for value in converted.values() if isinstance(value, (dict, list)))
+                continue
+            node: Any = converted
+        else:
+            node: Any = item
+        if isinstance(item, Handler):
+            # An except handler record has no `kind`: walk its body (the
+            # names it reads must travel in the try outline's env array)
+            # and keep its excslot: it stores the bound record before the
+            # body emits beside the try's callsite, so the slot must be
+            # packed even when no statement names it (#530).
+            if item.excslot:
+                names.add(item.excslot)
+            stack.extend(item.body)
+            continue
         if not hasattr(node, "kind"):
             continue
         kind: str = node.kind
