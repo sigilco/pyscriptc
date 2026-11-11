@@ -52,6 +52,7 @@ from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
+from pyscriptc.restlower._ndarray import _ndarray_method
 from pyscriptc.tirserde import dict_to_node, node_to_dict
 
 # In-place methods per container family: the calls a module-constant
@@ -388,6 +389,17 @@ class CallAttrMixin:
             return _prim_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Queue":
             return _queue_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "ndarray":
+            # The ndarray method surface (issue #496): the handler answers
+            # the names in the subset and refuses the rest by name.
+            called = _ndarray_method(self, node, span, receiver, node.func.attr)
+            if called is not None:
+                return called
+            self.fail(
+                node,
+                "PS2001",
+                f"pyscriptc_ndarray.{node.func.attr} is not in the lowered subset of pyscriptc_ndarray",
+            )
         if kind == "class" and synth_method(receiver["type"]["name"], node.func.attr) is not None:
             return self._synth_call(node, span, receiver)
         if kind == "dict" and node.func.attr == "keys":

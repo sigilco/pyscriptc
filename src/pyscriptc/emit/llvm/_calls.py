@@ -350,6 +350,10 @@ class CallsMixin(EmitterBase):
             if symbol == "ps_island_unmarshal":
                 return self._emit_island_unmarshal(expr, values)
             # boxed:end
+            if module == "pyscriptc_ndarray":
+                # The ndarray surface (issue #496): every call here carries
+                # the runtime symbol the lowering attached.
+                return self._nd_emit(expr, values)
             return self._emit_abi(expr, values)
         if module == "math":
             return self._emit_math(name, values)

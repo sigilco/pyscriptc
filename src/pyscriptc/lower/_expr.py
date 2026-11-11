@@ -61,7 +61,7 @@ from pyscriptc.lower._expr_compare import (
 )
 from pyscriptc.lower._ndarray import _dtype_of as _nd_dtype_of
 from pyscriptc.lower._ndarray import _is_ndarray as _nd_is_ndarray
-from pyscriptc.lower._ndarray import _ndarray_binary, _ndarray_compare
+from pyscriptc.lower._ndarray import _ndarray_binary
 from pyscriptc.reflection import inspect_note, typing_note
 from pyscriptc.restlower._argparse import path_attribute
 from pyscriptc.sigrec import type_to_dict
@@ -512,6 +512,8 @@ class ExprMixin(ExprCompareMixin):
         if left_kind == right_kind and left_kind in {"str", "bytes"} and isinstance(node.op, ast.Add):
             return _binary_node("+", left, right, {"kind": left_kind}, span)
         if left_kind == "class" or right_kind == "class":
+            if _nd_is_ndarray(left["type"]) or _nd_is_ndarray(right["type"]):
+                return _ndarray_binary(self, node, left, right, span)
             return self._class_binary(node, left, right, span)
         joined = _const_list_concat(left, right, span)
         if joined is not None and isinstance(node.op, ast.Add):
@@ -678,6 +680,8 @@ class ExprMixin(ExprCompareMixin):
             return self._tuple_subscript(node, value, span)
         if kind == "list" and value["type"].get("set"):
             self.fail(node, "PS2002", "a set has no subscript")
+        if _nd_is_ndarray(value["type"]):
+            return self._ndarray_subscript(node, value, index, span, expect)
         if kind == "list":
             if index["type"]["kind"] != "int":
                 self.fail(node, "PS1003", "a list index is int")
@@ -1285,6 +1289,8 @@ class ExprMixin(ExprCompareMixin):
         kind = value["type"]["kind"]
         if kind == "list" and value["type"].get("set"):
             self.fail(node, "PS2002", "a set has no subscript")
+        if _nd_is_ndarray(value["type"]):
+            return self._ndarray_slice(node, slc, value, span)
         if kind not in {"str", "bytes", "list"}:
             self.fail(node, "PS2002", "slices are lowered for str, bytes, and list")
         start, has_start = self._slice_bound(slc.lower, span)
