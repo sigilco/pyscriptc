@@ -808,14 +808,7 @@ jobs:
     runs-on: ubuntu-24.04
     needs: changes
     if: needs.changes.outputs.compiler == 'true'
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        # 3.14 is the reference host; 3.11 and 3.13 are the host-floor and
-        # the first-run-trap minors (a 3.11-3.13 pip resolver used to pick
-        # 0.4.1, which is fatally broken on those hosts).
-        python: ["3.14", "3.11", "3.13"]
+    timeout-minutes: 40
     steps:
       - uses: actions/checkout@v5
 
@@ -823,7 +816,7 @@ jobs:
         with:
           version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
           enable-cache: true
-          python-version: ${{ matrix.python }}
+          python-version: "3.14"
 
       - name: Stamp PostHog token
         env:
@@ -838,25 +831,35 @@ jobs:
           set -euo pipefail
           command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang; }
 
+      - name: Install the host interpreters
+        run: uv python install 3.11 3.13
+
       - name: Fresh venv, install wheel, compile and run fixture
+        # The installed wheel is our own traffic and CI must stay silent
+        # (env -i below strips CI; PYSC_INTERNAL passes through).
         env:
-          WORK: ${{ runner.temp }}/wheel-smoke-${{ matrix.python }}
-          # The installed wheel is our own traffic and CI must stay silent
-          # (env -i below strips CI; PYSC_INTERNAL passes through).
           PYSC_INTERNAL: "1"
         run: |
           set -euo pipefail
-          mkdir -p "$WORK"
+          # 3.14 is the reference host; 3.11 and 3.13 are the host-floor and
+          # the first-run-trap minors (a 3.11-3.13 pip resolver used to pick
+          # 0.4.1, which is fatally broken on those hosts). The job name is a
+          # required check context, so it stays one job and loops the minors
+          # instead of becoming a matrix (a matrix renames the context).
           wheel="$(ls dist/pyscriptc-*-any.whl)"
-          uv venv --python ${{ matrix.python }} "$WORK/venv"
-          uv pip install --python "$WORK/venv/bin/python" "$wheel"
-          printf 'def main() -> None:\n    print("hello")\n' > "$WORK/hello.py"
-          # Repo venv and pyrefly dirs are off PATH on purpose.
-          env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/local/bin \
-            "$WORK/venv/bin/pyscriptc" compile "$WORK/hello.py" --emit bin -o "$WORK/hello-bin"
-          out="$("$WORK/hello-bin")"
-          echo "$out"
-          [ "$out" = "hello" ]
+          for py in 3.14 3.11 3.13; do
+            WORK="$RUNNER_TEMP/wheel-smoke-$py"
+            mkdir -p "$WORK"
+            uv venv --python "$py" "$WORK/venv"
+            uv pip install --python "$WORK/venv/bin/python" "$wheel"
+            printf 'def main() -> None:\n    print("hello")\n' > "$WORK/hello.py"
+            # Repo venv and pyrefly dirs are off PATH on purpose.
+            env -i HOME="$HOME" PATH=/usr/bin:/bin:/usr/local/bin \
+              "$WORK/venv/bin/pyscriptc" compile "$WORK/hello.py" --emit bin -o "$WORK/hello-bin"
+            out="$("$WORK/hello-bin")"
+            echo "$py: $out"
+            [ "$out" = "hello" ]
+          done
 
   # ASan+UBSan smoke: compile a small program with --sanitize=address,undefined
   # and run it. The sanitizer runtime must stay silent: any reported error or
