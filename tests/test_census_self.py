@@ -302,9 +302,11 @@ def test_self_census_ballpark() -> None:
     # canonicity rules the typed serializer now owns), minus the JSON
     # escape primitive it shares with tirserde.
     # The ceiling was already 39 lines short on master (78,039 measured
-    # against a 78,000 cap, from the typed TIR hasher), so the win32
-    # resolution here (doctor.py and zigshim.py grow by about 70 lines)
-    # takes it to 78,111 and the cap moves to 79k.
+    # against a 78,000 cap, from the typed TIR hasher), so it moves to 79k:
+    # the win32 resolution (#1198) takes it to 78,111 and the host floor
+    # (#1202) to 78,140 (the version helpers in ir.py, the target
+    # sys.version bake in stdmore.py and the target lookups in deps.py,
+    # stdlibzip.py and embed.py).
     assert 11_000 <= census["lines"] <= 79_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
