@@ -98,6 +98,14 @@ def _ndarray_call(
     raise AssertionError("unreachable")
 
 
+def _is_dtype_spelling(node: ast.expr) -> bool:
+    """A dtype name in the issue's spelling: a string constant or an
+    attribute such as `np.float64`."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value in _DTYPES
+    return isinstance(node, ast.Attribute)
+
+
 def _dtype_arg(lo: Any, node: ast.Call, value: ast.expr, default: str) -> str:
     """The `dtype=` argument: one of the four names, as a constant."""
     if isinstance(value, ast.Constant) and isinstance(value.value, str):
@@ -117,12 +125,39 @@ def _dtype_arg(lo: Any, node: ast.Call, value: ast.expr, default: str) -> str:
 
 
 def _array(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
-    """`array(dtype, data)`: the dtype is the first argument, the data is a
-    flat list of numbers."""
-    if len(node.args) != 2 or node.keywords:
-        lo.fail(node, "PS2003", "pyscriptc_ndarray.array expects (dtype, data)")
-    dtype = _dtype_arg(lo, node, node.args[0], "float64")
-    data = lo._expr(node.args[1])
+    """`array(dtype, data)` and numpy's own `array(data, dtype=...)`.
+
+    The issue's spelling puts the dtype first; numpy's puts the data
+    first. Both lower, and the choice is the first argument's kind: a
+    dtype name (a string or a `np.int32` attribute) means the dtype
+    comes first, a list means the data does. A dtype keyword wins over
+    the data-first reading."""
+    dtype = "float64"
+    data_node: ast.expr | None = None
+    dtype_node: ast.expr | None = None
+    for keyword in node.keywords:
+        if keyword.arg == "dtype":
+            dtype_node = keyword.value
+        else:
+            lo.fail(node, "PS2003", f"pyscriptc_ndarray.array keyword {keyword.arg} is not lowered")
+    args_nodes = list(node.args)
+    if len(args_nodes) == 2:
+        if _is_dtype_spelling(args_nodes[0]):
+            dtype_node = dtype_node if dtype_node is not None else args_nodes[0]
+            data_node = args_nodes[1]
+        else:
+            data_node = args_nodes[0]
+            if dtype_node is None:
+                dtype_node = args_nodes[1]
+    elif len(args_nodes) == 1:
+        data_node = args_nodes[0]
+    else:
+        lo.fail(node, "PS2003", "pyscriptc_ndarray.array expects (dtype, data) or (data, dtype)")
+    if data_node is None:
+        lo.fail(node, "PS2003", "pyscriptc_ndarray.array expects a data list")
+    if dtype_node is not None:
+        dtype = _dtype_arg(lo, node, dtype_node, dtype)
+    data = lo._expr(data_node)
     if data["type"]["kind"] != "list" or data["type"]["elem"]["kind"] not in {"int", "float"}:
         lo.fail(node, "PS1003", "pyscriptc_ndarray.array data is a flat list of numbers")
     is_int = data["type"]["elem"]["kind"] == "int"

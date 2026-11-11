@@ -213,7 +213,7 @@ SPECIAL_FUNCTIONS: dict[str, frozenset[str]] = {
 # Curated distribution packages (pyscriptc-jwt, pyscriptc-orjson) kept as narrow
 # exceptions under explicit alias imports (packs track dropped per 2026-10-25 decision).
 # The calls lower onto the curated runtime symbols, not onto a stdlib module.
-PACK_MODULES: frozenset[str] = frozenset({"jwt", "orjson", "pyscriptc_ndarray"})
+PACK_MODULES: frozenset[str] = frozenset({"jwt", "orjson", "pyscriptc_ndarray", "numpy"})
 
 
 def math_function(name: str) -> dict[str, object] | None:
