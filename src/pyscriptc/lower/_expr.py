@@ -475,8 +475,11 @@ class ExprMixin(ExprCompareMixin):
         if isinstance(node.op, ast.Pow):
             return self._pow(node, left, right, span)
         if isinstance(node.op, ast.Mod) and (left_kind not in _NUMERIC or right_kind not in _NUMERIC):
-            # Anything but a numeric `%` stays on the format-string path.
-            return self._percent(node, span)
+            if not (_nd_is_ndarray(left["type"]) or _nd_is_ndarray(right["type"])):
+                # Anything but a numeric `%` stays on the format-string path.
+                # An array operand is the array's elementwise modulo, which
+                # the ndarray path lowers.
+                return self._percent(node, span)
         if isinstance(node.op, ast.BitOr):
             which = "union"
         elif isinstance(node.op, ast.BitAnd):
@@ -1409,7 +1412,7 @@ class ExprMixin(ExprCompareMixin):
         return self._abi_call(
             "pyscriptc_ndarray",
             "slice",
-            [value, start, stop, step],
+            [value, start, stop, _const_int(has_start, span), _const_int(has_stop, span), step],
             value["type"],
             "ps_nd_slice",
             span,

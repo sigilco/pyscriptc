@@ -288,6 +288,10 @@ def _fromlist(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
             lo.fail(node, "PS2003", f"pyscriptc_ndarray.fromlist keyword {keyword.arg} is not lowered")
     if not args_nodes:
         lo.fail(node, "PS2003", "pyscriptc_ndarray.fromlist expects a list")
+    if len(args_nodes) > 2:
+        lo.fail(node, "PS2003", "pyscriptc_ndarray.fromlist expects (data, dtype)")
+    if len(args_nodes) == 2:
+        dtype = _dtype_arg(lo, node, args_nodes[1], dtype)
     data = lo._expr(args_nodes[0])
     if data["type"]["kind"] != "list" or data["type"]["elem"]["kind"] not in {"int", "float"}:
         lo.fail(node, "PS1003", "pyscriptc_ndarray.fromlist data is a flat list of numbers")
@@ -438,15 +442,30 @@ def _reduce(
         if axis["type"]["kind"] != "int":
             lo.fail(node, "PS1003", f"pyscriptc_ndarray.{attr} axis is an int")
         args = [recv, axis, {"kind": "const", "value": "1", "type": {"kind": "int"}, "span": span}]
-    # The result type is the scalar the reduction produces. The runtime
-    # computes it in the same dtype (the reduction dtype rules live in the
-    # runtime), so the emitter reads the value out with the same width.
+    # The result type is the scalar the whole-array reduction produces, or
+    # the array of the remaining dimension when an axis drops. The runtime
+    # computes the value; the emitter reads the number only when the
+    # lowering named a scalar.
+    scalar: dict[str, Any]
     if attr == "sum":
-        out = {"kind": "int"} if dtype in {"int32", "int64"} else {"kind": "float"}
+        scalar = {"kind": "int"} if dtype in {"int32", "int64"} else {"kind": "float"}
     elif attr in {"mean", "std", "var"}:
-        out = {"kind": "float"}
+        scalar = {"kind": "float"}
     else:
-        out = {"kind": "int"} if dtype in {"int32", "int64"} else {"kind": "float"}
+        scalar = {"kind": "int"} if dtype in {"int32", "int64"} else {"kind": "float"}
+    out: dict[str, Any]
+    if axis is None:
+        out = scalar
+    else:
+        if _ndim_of(recv["type"]) < 2:
+            lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} axis needs an array of two dimensions or more")
+        if attr in {"mean", "std", "var"}:
+            reduce_dtype = "float64"
+        elif attr == "sum" and dtype in {"int32", "int64"}:
+            reduce_dtype = "int64"
+        else:
+            reduce_dtype = dtype
+        out = _nd_type(reduce_dtype, _ndim_of(recv["type"]) - 1)
     return lo._abi_call("pyscriptc_ndarray", attr, args, out, f"ps_nd_{attr}", span)
 
 

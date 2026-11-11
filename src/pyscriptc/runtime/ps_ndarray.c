@@ -176,9 +176,10 @@ static PsNd *ps_nd_binop_scalar(int64_t op, const PsNd *left, double scalar, int
         out_dtype = PS_ND_BOOL;
     } else {
         out_dtype = ps_nd_result_dtype_scalar(op, left->dtype);
-        if (is_float && out_dtype == PS_ND_INT32) {
+        if (is_float && (out_dtype == PS_ND_INT32 || out_dtype == PS_ND_INT64)) {
             /* A Python float with an integer array: the int dtypes lift to
-               float64 (numpy: `int32 + 2.5` is float64). */
+               float64 (numpy: `int32 + 2.5` and `int64 * 1.5` are both
+               float64). */
             out_dtype = PS_ND_FLOAT64;
         }
     }

@@ -78,7 +78,7 @@ class NdArrayMixin:
         if symbol == "ps_nd_boolean_index":
             return self._nd_plain(symbol, values, ["ptr", "ptr"])
         if symbol == "ps_nd_slice":
-            return self._nd_plain(symbol, values, ["ptr", "i64", "i64", "i64"])
+            return self._nd_plain(symbol, values, ["ptr", "i64", "i64", "i64", "i64", "i64"])
         if symbol == "ps_nd_reshape":
             return self._nd_reshape(expr, values)
         if symbol in {"ps_nd_zeros", "ps_nd_ones", "ps_nd_full"}:
@@ -243,11 +243,14 @@ class NdArrayMixin:
         emitter reads the number out of it. A whole-array reduction is a
         zero-dimensional array, so the value is the single element.
 
-        The result type the lowering named (numpy's rules: `sum` widens the
-        integer dtypes, the mean trio floats them) decides the read: an int
-        reduction reads the int64, a float one the double."""
+        The result type the lowering named decides the read: a scalar type
+        (the whole-array reduction) reads the single element out of the
+        zero-dimensional array, an ndarray type (the axis reduction) passes
+        the array through."""
         self._abi_decl(symbol, "ptr", ["ptr", "i64", "i64"])
         arr = self._call_ret("ptr", symbol, [f"ptr {values[0]}", f"i64 {values[1]}", f"i64 {values[2]}"])
+        if expr["type"]["kind"] == "class":
+            return arr
         if expr["type"]["kind"] == "int":
             self._abi_decl("ps_nd_scalar_i64", "i64", ["ptr"])
             return self._call_ret("i64", "ps_nd_scalar_i64", [f"ptr {arr}"])

@@ -529,13 +529,22 @@ PsNd *ps_nd_boolean_index(PsNd *a, PsNd *mask) {
 
 /* `arr[start:stop:step]`: the step slice. A negative step is not part of
    the M1 subset and is refused by the lowering. */
-PsNd *ps_nd_slice(PsNd *a, int64_t start, int64_t stop, int64_t step) {
+PsNd *ps_nd_slice(PsNd *a, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step) {
     int64_t count = 0;
     int64_t i;
     int64_t j;
     PsNd *out;
     if (step <= 0) {
         ps_raise_cstr(PS_VALUE, "slice step must be positive");
+    }
+    /* A missing bound is the array's own end, the way Python's slice
+       reads it: `a[::2]` runs to the end and `a[2:]` starts at 2. The
+       flags say which bound the source left out. */
+    if (!has_start) {
+        start = 0;
+    }
+    if (!has_stop) {
+        stop = a->shape[0];
     }
     if (start < 0) {
         start = 0;
