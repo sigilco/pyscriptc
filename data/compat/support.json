@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-10",
-  "commit": "ccbefc9eaaa6d4ee16a09c775409fd250c14adec",
+  "generated": "2026-11-11",
+  "commit": "b5e8c30065e05078c14f23487e8bbc8b3c7ba335",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -763,7 +763,7 @@
       "version": "0.4.6",
       "status": "\ud83d\udd34",
       "ratio": "43/77",
-      "blocking": "param-inference (29), construct-other (13), name-resolution (8)",
+      "blocking": "param-inference (29), construct-other (17), name-resolution (8)",
       "codes": "PS2002, PS1001, PS2003"
     },
     {
@@ -771,7 +771,7 @@
       "version": "1.2.4",
       "status": "\ud83d\udd34",
       "ratio": "42/75",
-      "blocking": "unlowered-call (25), name-resolution (17), construct-other (17)",
+      "blocking": "unlowered-call (25), construct-other (18), name-resolution (17)",
       "codes": "PS2002, PS1106, PS1001"
     },
     {
@@ -779,7 +779,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "233/641",
-      "blocking": "name-resolution (149), construct-other (90), generic-alias (61)",
+      "blocking": "name-resolution (149), construct-other (91), generic-alias (61)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -827,7 +827,7 @@
       "version": "0.1.2",
       "status": "\ud83d\udfe1",
       "ratio": "6/12",
-      "blocking": "name-resolution (5), unlowered-call (3), construct-other (2)",
+      "blocking": "name-resolution (5), construct-other (3), unlowered-call (3)",
       "codes": "PS2002, PS2003, PS2001"
     },
     {
@@ -859,7 +859,7 @@
       "version": "2026.5",
       "status": "\ud83d\udfe1",
       "ratio": "32/102",
-      "blocking": "param-inference (16), return-inference (2), stdlib:datetime (2)",
+      "blocking": "param-inference (16), return-inference (2), construct-other (2)",
       "codes": "PS2002, PS1001, PS2001"
     },
     {
