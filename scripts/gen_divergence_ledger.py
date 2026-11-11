@@ -381,9 +381,16 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D54",
-        "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
-        "d54_csv_dict_reader.py",
+        "a method or function decorator outside the closed set that does not synthesize behavior "
+        "is erased: the wrap never runs (advisory PS3099 note)",
+        "d54_method_decorator_erased.py",
         docs=f"{DOC}#54",
+    ),
+    _row(
+        "D55",
+        "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
+        "d55_csv_dict_reader.py",
+        docs=f"{DOC}#55",
     ),
     _row(
         "AUDIT-D1",

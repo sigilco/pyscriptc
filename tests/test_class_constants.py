@@ -197,6 +197,141 @@ def test_a_stacked_class_decorator_is_erased() -> None:
     )
 
 
+def test_a_user_method_decorator_is_erased() -> None:
+    module = lower_source(
+        "def deco(fn: int) -> int:\n"
+        "    print('wrapped')\n"
+        "    return fn\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @deco\n"
+        "    def m(self) -> int:\n"
+        "        return 1\n"
+        "\n"
+        "    @staticmethod\n"
+        "    def s() -> int:\n"
+        "        return 2\n"
+        "\n"
+        "    @classmethod\n"
+        "    def c(cls) -> int:\n"
+        "        return 3\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+    notes = module.get("_notes", [])
+    assert len(notes) == 1 and notes[0].startswith("note: PS3099 (m): the method decorator is erased"), notes
+    c = next(record for record in module["classes"] if record["name"] == "C")
+    kinds = {method["name"] for method in c["methods"]}
+    assert {"m", "s", "c"} <= kinds, kinds
+
+
+def test_a_stacked_method_decorator_is_erased() -> None:
+    source = (
+        "def deco(fn: int) -> int:\n"
+        "    return fn\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @deco\n"
+        "    @deco\n"
+        "    def m(self) -> int:\n"
+        "        return 1\n"
+    )
+    module = lower_source(source, "case.py")
+    assert module["fences"] == [], module["fences"]
+    assert len(module.get("_notes", [])) == 1 and module["_notes"][0].startswith("note: PS3099 (m):"), module.get(
+        "_notes"
+    )
+
+
+def test_a_synthesizing_method_decorator_keeps_the_fence() -> None:
+    module = lower_source(
+        "import functools\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @functools.lru_cache(maxsize=8)\n"
+        "    def m(self, n: int) -> int:\n"
+        "        return n + 1\n",
+        "case.py",
+    )
+    assert any(fence["code"] == "PS1201" for fence in module["fences"]), module["fences"]
+    assert not module.get("_notes"), module.get("_notes")
+
+
+def test_a_stacked_synthesizing_method_decorator_keeps_the_fence() -> None:
+    # The stack would lower undecorated, so the memoization would be lost
+    # with it: the whole stack keeps the fence, no erase.
+    module = lower_source(
+        "import functools\n"
+        "\n"
+        "\n"
+        "def deco(fn: int) -> int:\n"
+        "    return fn\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @deco\n"
+        "    @functools.lru_cache(maxsize=8)\n"
+        "    def m(self, n: int) -> int:\n"
+        "        return n + 1\n",
+        "case.py",
+    )
+    assert any(fence["code"] == "PS1201" for fence in module["fences"]), module["fences"]
+    assert not module.get("_notes"), module.get("_notes")
+
+
+def test_a_user_module_function_decorator_is_erased() -> None:
+    module = lower_source(
+        "def deco(fn: int) -> int:\n    print('wrapped')\n    return fn\n\n\n@deco\ndef g() -> int:\n    return 7\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+    notes = module.get("_notes", [])
+    assert len(notes) == 1 and notes[0].startswith("note: PS3099 (g): the function decorator is erased"), notes
+    assert "g" in {record["name"] for record in module["functions"]}
+
+
+def test_a_stacked_synthesizing_module_decorator_keeps_the_fence() -> None:
+    # The module stack would lower undecorated, so the memoization would
+    # be lost with it: the stack keeps its fence, no erase.
+    module = lower_source(
+        "import functools\n"
+        "\n"
+        "\n"
+        "def deco(fn: int) -> int:\n"
+        "    return fn\n"
+        "\n"
+        "\n"
+        "@deco\n"
+        "@functools.lru_cache(maxsize=8)\n"
+        "def g(n: int) -> int:\n"
+        "    return n + 1\n",
+        "case.py",
+    )
+    assert module["fences"], module["fences"]
+    assert not module.get("_notes"), module.get("_notes")
+
+
+def test_a_from_imported_synthesizing_decorator_keeps_the_fence() -> None:
+    # `from functools import lru_cache` names the stdlib member even though
+    # the member is outside the lowered subset (the import fences): the
+    # decorator must not take the erase.
+    module = lower_source(
+        "from functools import lru_cache\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @lru_cache(maxsize=8)\n"
+        "    def m(self, n: int) -> int:\n"
+        "        return n + 1\n",
+        "case.py",
+    )
+    assert any(fence["code"] == "PS1201" for fence in module["fences"]), module["fences"]
+    assert not module.get("_notes"), module.get("_notes")
+
+
 def test_method_decorators_keep_the_closed_set() -> None:
     module = lower_source(
         "def deco(fn: int) -> int:\n"
@@ -209,4 +344,4 @@ def test_method_decorators_keep_the_closed_set() -> None:
         "        return 1\n",
         "case.py",
     )
-    assert any(fence["code"] == "PS1201" for fence in module["fences"]), module["fences"]
+    assert not any(fence["code"] == "PS1201" for fence in module["fences"]), module["fences"]

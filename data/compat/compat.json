@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-10",
-  "commit": "a2623cf7968e6505de2ce7e95cb31d1504ce6a18",
+  "commit": "167c088a60b5436094b8286ed14ea6868fe0a493",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1258,11 +1258,10 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "restkey, restval, Sniffer, Sniffer, Dialect"
+        "DictReader, writer on a non-file"
       ],
       "fences": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ],
       "note": ""
     },
@@ -1519,7 +1518,7 @@
         },
         {
           "family": "generic-alias",
-          "count": 55
+          "count": 61
         }
       ],
       "codes": [
@@ -1533,7 +1532,7 @@
         },
         {
           "code": "PS1103",
-          "count": 55
+          "count": 61
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1811,11 +1810,11 @@
       "status": "none",
       "fences": 198,
       "definitions": 132,
-      "fenced_definitions": 84,
+      "fenced_definitions": 78,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 27
+          "count": 30
         },
         {
           "family": "unlowered-type-name",
@@ -1823,13 +1822,13 @@
         },
         {
           "family": "type-mismatch",
-          "count": 17
+          "count": 19
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 100
+          "count": 103
         },
         {
           "code": "PS1106",
@@ -1837,7 +1836,7 @@
         },
         {
           "code": "PS1003",
-          "count": 17
+          "count": 19
         }
       ],
       "pypi": "https://pypi.org/project/pathspec/"
@@ -2001,7 +2000,7 @@
       "top_families": [
         {
           "family": "param-inference",
-          "count": 32
+          "count": 34
         },
         {
           "family": "return-inference",
@@ -2015,7 +2014,7 @@
       "codes": [
         {
           "code": "PS1001",
-          "count": 50
+          "count": 52
         },
         {
           "code": "PS2002",
@@ -2190,13 +2189,13 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1283,
+      "count": 1286,
       "packages": 16
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not supported",
-      "count": 309,
+      "count": 315,
       "packages": 13
     },
     {
@@ -2208,13 +2207,13 @@
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 187,
+      "count": 188,
       "packages": 14
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 126,
+      "count": 132,
       "packages": 9
     },
     {
@@ -2238,19 +2237,13 @@
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 52,
+      "count": 54,
       "packages": 8
     },
     {
       "code": "PS1104",
       "title": "dynamic or structural annotation",
-      "count": 51,
-      "packages": 6
-    },
-    {
-      "code": "PS1201",
-      "title": "decorator",
-      "count": 49,
+      "count": 52,
       "packages": 6
     },
     {
@@ -2258,6 +2251,12 @@
       "title": "Optional annotation",
       "count": 44,
       "packages": 6
+    },
+    {
+      "code": "PS1201",
+      "title": "decorator",
+      "count": 31,
+      "packages": 4
     },
     {
       "code": "PS1203",
@@ -2280,8 +2279,8 @@
     {
       "code": "PS2006",
       "title": "decorator expression is not a typed callable",
-      "count": 6,
-      "packages": 3
+      "count": 5,
+      "packages": 2
     },
     {
       "code": "PS4203",
@@ -2299,7 +2298,7 @@
   "history": [
     {
       "date": "2026-11-10",
-      "commit": "a2623cf7968e6505de2ce7e95cb31d1504ce6a18",
+      "commit": "167c088a60b5436094b8286ed14ea6868fe0a493",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

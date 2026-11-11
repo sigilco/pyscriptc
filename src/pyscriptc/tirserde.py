@@ -105,6 +105,37 @@ _HEX = "0123456789abcdef"
 _EMPTY_PARAMS: list[T] = []
 
 
+def write_json_str(write: Any, text: str) -> None:
+    """A JSON string: UTF-8 with json's ensure_ascii=False escaping.
+
+    The shared escape primitive of the dict serializer and the typed
+    walker (`pyscriptc.tirhash`); both byte streams must spell strings
+    identically.
+    """
+    write(b'"')
+    start = 0
+    for index, char in enumerate(text):
+        code = ord(char)
+        if code == 0x22:
+            escape = '\\"'
+        elif code == 0x5C:
+            escape = "\\\\"
+        elif code < 0x20:
+            escape = _SHORT_ESCAPES.get(code)
+            if escape is None:
+                # json's \\u%04x form, lower case hex digits.
+                escape = "\\u" + _HEX[code >> 12] + _HEX[(code >> 8) & 0xF] + _HEX[(code >> 4) & 0xF] + _HEX[code & 0xF]
+        else:
+            continue
+        if start < index:
+            write(text[start:index].encode("utf-8"))
+        write(escape.encode("ascii"))
+        start = index + 1
+    if start < len(text):
+        write(text[start:].encode("utf-8"))
+    write(b'"')
+
+
 class Serializer:
     """Feeds one canonical payload into a sink (hashlib or bytearray).
 
@@ -167,30 +198,7 @@ class Serializer:
         self._write(b"]")
 
     def write_str(self, text: str) -> None:
-        self._write(b'"')
-        start = 0
-        for index, char in enumerate(text):
-            code = ord(char)
-            if code == 0x22:
-                escape = '\\"'
-            elif code == 0x5C:
-                escape = "\\\\"
-            elif code < 0x20:
-                escape = _SHORT_ESCAPES.get(code)
-                if escape is None:
-                    # json's \\u%04x form, lower case hex digits.
-                    escape = (
-                        "\\u" + _HEX[code >> 12] + _HEX[(code >> 8) & 0xF] + _HEX[(code >> 4) & 0xF] + _HEX[code & 0xF]
-                    )
-            else:
-                continue
-            if start < index:
-                self._write(text[start:index].encode("utf-8"))
-            self._write(escape.encode("ascii"))
-            start = index + 1
-        if start < len(text):
-            self._write(text[start:].encode("utf-8"))
-        self._write(b'"')
+        write_json_str(self._write, text)
 
 
 def payload_bytes(module: dict[str, Any]) -> bytes:
@@ -602,15 +610,28 @@ def _callee_or_record(value: Any) -> Any:
 def payload_bytes_node(module: Any) -> bytes:
     """The canonical payload bytes of a typed-node module.
 
-    Byte-identical to payload_bytes over the equivalent dict IR: the
-    typed nodes reconstruct the exact dicts before the stream sees them.
+    The typed walker (`pyscriptc.tirhash`) emits the schema field order
+    of each record, so the bytes are NOT the `sort_keys` bytes of the
+    equivalent dict IR: field order replaces `sort_keys` as the
+    canonicity mechanism (the typed-IR contract, ir-canonicity.md
+    section 7). The trees agree; the key order is the schema order.
     """
-    return payload_bytes(node_to_dict(module))
+    from pyscriptc.tirhash import payload_bytes_node as typed_payload
+
+    return typed_payload(module)
 
 
 def hash_module_node(module: Any) -> str:
-    """SHA-256 hex of the canonical payload of a typed-node module."""
-    return hash_module(node_to_dict(module))
+    """SHA-256 hex of the canonical payload of a typed-node module.
+
+    Hashed from the typed records in schema field order, without the
+    `node_to_dict` reconstruction and without `canonicalize`: the typed
+    serializer owns the path scrub, the class order, the handler `codes`
+    order and the fence total order (recorded decision #830, P2).
+    """
+    from pyscriptc.tirhash import hash_module_node as typed_hash
+
+    return typed_hash(module)
 
 
 # --- dict-IR admission ---------------------------------------------------

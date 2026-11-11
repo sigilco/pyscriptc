@@ -97,7 +97,17 @@ def test_the_compiler_ir_module_itself_compiles_clean(tmp_path: Path) -> None:
     assert report["fences"] == [], report["fences"]
 
 
-def test_the_typed_nodes_round_trip_the_canonical_bytes(tmp_path: Path) -> None:
+def test_the_typed_nodes_hash_in_schema_field_order(tmp_path: Path) -> None:
+    """The typed hash walks the typed records in schema field order.
+
+    Recorded decision #830, P2: the typed serializer replaces
+    `node_to_dict` + `canonicalize`, and field order replaces
+    `sort_keys` as the canonicity mechanism (ir-canonicity.md section
+    7). The canonical trees therefore agree while the bytes differ: the
+    typed payload spells the node id first and the schema field order
+    after it, where the `sort_keys` payload spells the keys in Python
+    string sort order.
+    """
     import json
 
     from pyscriptc import tirserde
@@ -118,7 +128,7 @@ def test_the_typed_nodes_round_trip_the_canonical_bytes(tmp_path: Path) -> None:
           "kind": "return",
           "value": {"kind": "name", "id": "x", "type": {"kind": "int"},
                     "span": {"file": "m.py", "line": 1, "col": 1, "endLine": 1, "endCol": 9}},
-          "span": {"file": "m.py", "line": 1, "col": 5, "endLine": 1, "endCol": 13}
+          "span": {"file": "m.py", "line": 5, "col": 5, "endLine": 1, "endCol": 13}
         }
       ]
     }
@@ -141,7 +151,14 @@ def test_the_typed_nodes_round_trip_the_canonical_bytes(tmp_path: Path) -> None:
             Span_of("m.py", 1, 5, 1, 13),
         )
     ]
-    assert tirserde.hash_module_node(typed) == tirserde.hash_module(dict_module)
+    # The trees agree: the typed walk carries every canonical field.
+    assert json.loads(tirserde.payload_bytes_node(typed)) == json.loads(tirserde.payload_bytes(dict_module))
+    # The bytes differ: the typed payload spells the node id first.
+    assert tirserde.payload_bytes_node(typed) != tirserde.payload_bytes(dict_module)
+    assert b'"kind":"return"' in tirserde.payload_bytes_node(typed)
+    # The typed hash is stable and does not go through the dict path.
+    assert tirserde.hash_module_node(typed) == tirserde.hash_module_node(typed)
+    assert tirserde.hash_module_node(typed) != tirserde.hash_module(dict_module)
 
 
 def Span_of(file: str = "m.py", line: int = 1, col: int = 1, end_line: int = 1, end_col: int = 9):

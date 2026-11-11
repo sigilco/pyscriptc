@@ -164,15 +164,18 @@ _ENTRIES = (
     ),
     Diagnostic(
         "PS3099",
-        "class decorator erased",
+        "decorator erased",
         (
-            "A class decorator other than `@dataclass` compiles as erased: the class lowers undecorated and "
-            "the wrap never runs, where CPython applies the decorator to the class object. The compile prints "
-            "a note and succeeds; the binary keeps the class's own behavior."
+            "A class decorator other than `@dataclass`, or a method/function decorator outside the closed set "
+            "that does not synthesize behavior, compiles as erased: the definition lowers undecorated and the "
+            "wrap never runs, where CPython applies the decorator to the object (or replaces the name). The "
+            "compile prints a note and succeeds; the binary keeps the definition's own behavior. A decorator "
+            "stack that carries a behavior-synthesizing member (`functools.lru_cache`, `cache`, `wraps`, "
+            "`singledispatchmethod`) keeps its fence instead: the erase would drop the synthesis with it."
         ),
         (
-            "Remove the decorator, or apply what it does explicitly after the class definition. Under "
-            "`--fallback=cpython` the class runs through embedded CPython with the decorator applied."
+            "Remove the decorator, or apply what it does explicitly after the definition. Under "
+            "`--fallback=cpython` the decorated definition runs through embedded CPython with the decorator applied."
         ),
     ),
     Diagnostic(

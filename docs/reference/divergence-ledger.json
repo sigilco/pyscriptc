@@ -896,10 +896,30 @@
     },
     {
       "id": "D54",
-      "seam": "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
+      "seam": "a method or function decorator outside the closed set that does not synthesize behavior is erased: the wrap never runs (advisory PS3099 note)",
       "listed": true,
       "docs": "docs/reference/divergences.md#54",
-      "probe": "probes/divergences/d54_csv_dict_reader.py",
+      "probe": "probes/divergences/d54_method_decorator_erased.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "wrapped method\nwrapped\n3\n8\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "wrapped\n3\n8\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D55",
+      "seam": "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#55",
+      "probe": "probes/divergences/d55_csv_dict_reader.py",
       "cpython": {
         "stage": "run",
         "exit": 0,

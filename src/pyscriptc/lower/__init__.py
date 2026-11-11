@@ -194,6 +194,11 @@ class Lowerer(
         self.sigs: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
         self.locals: dict[str, dict[str, Any]] = {}
         self.bindings: dict[str, Binding] = {}
+        # The stdlib members a `from <module> import <name>` brought in that
+        # the compiler does not lower as a value (issue #732). A decorator
+        # spelled that way still names the stdlib member, so the
+        # behavior-synthesizing guard can see it.
+        self.stdlib_imports: dict[str, tuple[str, str]] = {}
         self.classes: dict[str, dict[str, Any]] = {}
         self.declared: set[str] = set()
         self.known_classes: set[str] = set()
@@ -1189,8 +1194,27 @@ class Lowerer(
                 # which the island seed plans for the decorator.
                 if self.fallback_definitions:
                     exc.function = stmt.name
+                    self.caught.append(exc)
+                elif self._has_synthesis_deco(stmt):
+                    # A stack that carries a behavior-synthesizing decorator
+                    # (`functools.lru_cache`, `cache`, `wraps`,
+                    # `singledispatchmethod`) never takes the erase: the def
+                    # lowers undecorated, so the synthesis would be lost with
+                    # it. The fence stands.
+                    exc.function = stmt.name
+                    self.caught.append(exc)
+                else:
+                    # A decorator the wrap pass cannot apply takes the
+                    # advisory erase (divergence 54, issue #732): the def
+                    # lowers undecorated and the wrap never runs. A wrap
+                    # that applies (a typed callable returning a callable)
+                    # keeps lowering as before.
+                    self.caught = []
+                    self._erase_module_decorators(stmt)
+                    value = _closure_node(self._ir_name(stmt.name), params, ret, span)
+                    self._bind_callable_slot(target, value, span, stmt)
+                    return
                 # boxed:end
-                self.caught.append(exc)
             if self.caught:
                 fences.extend(self.caught)
                 self.caught = []
