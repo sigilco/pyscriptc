@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-10",
-  "commit": "167c088a60b5436094b8286ed14ea6868fe0a493",
+  "generated": "2026-11-11",
+  "commit": "066de1d0e5df88beaf46612b9e47108ab5b41d7e",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2618
+    "fences": 2626
   },
   "builtins": [
     {
@@ -1438,7 +1438,7 @@
         },
         {
           "family": "construct-other",
-          "count": 13
+          "count": 17
         },
         {
           "family": "name-resolution",
@@ -1475,11 +1475,11 @@
           "count": 25
         },
         {
-          "family": "name-resolution",
-          "count": 17
+          "family": "construct-other",
+          "count": 18
         },
         {
-          "family": "construct-other",
+          "family": "name-resolution",
           "count": 17
         }
       ],
@@ -1504,7 +1504,7 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 670,
+      "fences": 672,
       "definitions": 641,
       "fenced_definitions": 233,
       "top_families": [
@@ -1514,7 +1514,7 @@
         },
         {
           "family": "construct-other",
-          "count": 90
+          "count": 91
         },
         {
           "family": "generic-alias",
@@ -1524,7 +1524,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 400
+          "count": 402
         },
         {
           "code": "PS2001",
@@ -1732,7 +1732,7 @@
       "import_name": "mdurl",
       "version": "0.1.2",
       "status": "partial",
-      "fences": 21,
+      "fences": 22,
       "definitions": 12,
       "fenced_definitions": 6,
       "top_families": [
@@ -1741,18 +1741,18 @@
           "count": 5
         },
         {
-          "family": "unlowered-call",
+          "family": "construct-other",
           "count": 3
         },
         {
-          "family": "construct-other",
-          "count": 2
+          "family": "unlowered-call",
+          "count": 3
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 14
+          "count": 15
         },
         {
           "code": "PS2003",
@@ -1770,7 +1770,7 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "partial",
-      "fences": 546,
+      "fences": 549,
       "definitions": 558,
       "fenced_definitions": 275,
       "top_families": [
@@ -1790,7 +1790,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 212
+          "count": 215
         },
         {
           "code": "PS1106",
@@ -1884,7 +1884,7 @@
       "import_name": "pytz",
       "version": "2026.5",
       "status": "partial",
-      "fences": 51,
+      "fences": 52,
       "definitions": 102,
       "fenced_definitions": 32,
       "top_families": [
@@ -1897,14 +1897,14 @@
           "count": 2
         },
         {
-          "family": "stdlib:datetime",
+          "family": "construct-other",
           "count": 2
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 30
+          "count": 31
         },
         {
           "code": "PS1001",
@@ -1922,7 +1922,7 @@
       "import_name": "shellingham",
       "version": "1.5.4",
       "status": "none",
-      "fences": 46,
+      "fences": 47,
       "definitions": 25,
       "fenced_definitions": 19,
       "top_families": [
@@ -1942,7 +1942,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 27
+          "count": 28
         },
         {
           "code": "PS1001",
@@ -2189,7 +2189,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1286,
+      "count": 1294,
       "packages": 16
     },
     {
@@ -2304,6 +2304,15 @@
       "packages_partial": 8,
       "packages_none": 8,
       "fences": 2618
+    },
+    {
+      "date": "2026-11-11",
+      "commit": "066de1d0e5df88beaf46612b9e47108ab5b41d7e",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2626
     }
   ]
 }
