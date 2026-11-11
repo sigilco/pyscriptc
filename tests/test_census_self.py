@@ -301,7 +301,11 @@ def test_self_census_ballpark() -> None:
     # (the typed walk, the per-kind schema field order and the four
     # canonicity rules the typed serializer now owns), minus the JSON
     # escape primitive it shares with tirserde.
-    assert 11_000 <= census["lines"] <= 78_000
+    # The ceiling was already 39 lines short on master (78,039 measured
+    # against a 78,000 cap, from the typed TIR hasher), so the win32
+    # resolution here (doctor.py and zigshim.py grow by about 70 lines)
+    # takes it to 78,111 and the cap moves to 79k.
+    assert 11_000 <= census["lines"] <= 79_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
