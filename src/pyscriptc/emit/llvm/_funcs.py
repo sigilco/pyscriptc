@@ -21,7 +21,6 @@ from pyscriptc.emit._ir import (
     _memory_type,
     _name_list,
     _node_kind,
-    _node_value_node,
     _none_type,
     _opt_default,
     _opt_int,
@@ -39,13 +38,70 @@ from pyscriptc.emit._ir import (
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.emit.llvm._stmts import dict_to_dict
 from pyscriptc.errors import FitError, IRError
-from pyscriptc.tirserde import dict_to_type
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
 
 class FuncsMixin(EmitterBase):
+    def _type_kind(self, typ: Any) -> str:
+        """The kind tag of a type record, read through the typed `T` record.
+
+        The `T` record is the typed spelling of a type dict: `dict_to_type`
+        turns the dict into the record and the record's `kind` field is the
+        tag the `_llvm_type` family dispatches on. The parameter is `Any` so
+        the record (not the dict) crosses the boundary: the shape lives in
+        the record, never in a raw `["kind"]` read here.
+
+        A method, not a module-level function: the subset lowers a method
+        call on a lowered class but not a call to a module-level function
+        whose signature it cannot prove, so a module-level helper would
+        fence every call site.
+        """
+        record: Any = dict_to_type(typ)
+        kind: str = record.kind
+        return kind
+
+    def _type_flags(self, typ: Any) -> int:
+        """The marker bits of a type record (the island and handle flags).
+
+        The `T` record carries the extra keys a type dict can spell as bits
+        in its `flags` word; the reader returns the word so the caller can
+        mask it. A method for the reason `_type_kind` documents.
+        """
+        record: Any = dict_to_type(typ)
+        flags: int = record.flags
+        return flags
+
+    def _type_dict(self, typ: Any) -> dict[str, Any]:
+        """The type dict a `T` record spells, for the `_llvm_type` family.
+
+        The ABI helpers still read the dict spelling; the shape lives in
+        the serializer round trip, never in a raw `["type"]` read here. A
+        method for the reason `_type_kind` documents.
+        """
+        out: Any = node_to_dict(dict_to_type(typ))
+        return out
+
+    def _kind_of(self, node: Any) -> str:
+        """The kind tag of a typed node, or of the plain dict the escape
+        hatch kept whole (a call with payload keys the typed record has no
+        slot for — print's `sep`/`end`, the island call's slots, sys.exit's
+        `exitMessage`).
+
+        The dict form is the documented escape hatch: `tirserde.dict_to_node`
+        keeps such a call whole so the round trip stays lossless, so the
+        typed record genuinely cannot carry its payload. Its `kind` still
+        reads here, because the tag itself is the one shape both spellings
+        agree on. A method for the reason `_type_kind` documents.
+        """
+        if isinstance(node, dict):
+            kind: Any = node["kind"]
+            return kind if isinstance(kind, str) else ""
+        kind_tag: str = node.kind
+        return kind_tag
+
     def emit_function(self, fn: dict[str, Any]) -> None:
         return_type: dict[str, Any] = _return_type(fn)
-        ret_kind: str = dict_to_type(return_type).kind
+        ret_kind: str = self._type_kind(return_type)
         ret: str = _llvm_type(return_type)
         # Env-first functions (nested defs and lambdas) take the caller's env
         # cell array as a leading `ptr %env` and bind those slots by pointer.
@@ -79,7 +135,7 @@ class FuncsMixin(EmitterBase):
         for local in _items(fn, "locals"):
             local_name: str = _opt_str(local, "name")
             local_type: dict[str, Any] = _type_of(local)
-            if dict_to_type(local_type).kind == "none":
+            if self._type_kind(local_type) == "none":
                 # None is not a runtime value. The local is the singleton, so it has no slot.
                 self.slots[local_name] = ("", local_type)
                 continue
@@ -92,7 +148,7 @@ class FuncsMixin(EmitterBase):
                 ptr = self.tmp()
                 self.line(f"{ptr} = alloca {_memory_type(local_type)}")
                 # boxed:begin
-                if dict_to_type(local_type).flags & (_ir.F_TMARK_ISLAND | _ir.F_TMARK_HANDLE):
+                if self._type_flags(local_type) & (_ir.F_TMARK_ISLAND | _ir.F_TMARK_HANDLE):
                     self.line(f"store ptr null, ptr {ptr}")
                 # boxed:end
             self.slots[local_name] = (ptr, local_type)
@@ -138,7 +194,7 @@ class FuncsMixin(EmitterBase):
             if default is None or _node_kind(default) != "const":
                 raise FitError(f"{name} expects {len(params)} argument(s), got {len(args)}")
             default_type: dict[str, Any] = _type_of(default)
-            if dict_to_type(default_type).kind == "bool":
+            if self._type_kind(default_type) == "bool":
                 filled.append(_ir_const_value(_type_of(param), _const_bool(default)))
             else:
                 filled.append(_ir_const_value(_type_of(param), _const_text(default)))
@@ -216,7 +272,7 @@ class FuncsMixin(EmitterBase):
             values.append(self.materialize_arg(_type_of(param), value))
         result: str = self.call_function(fn, values)
         return_type: dict[str, Any] = _return_type(fn)
-        if dict_to_type(return_type).kind != "none":
+        if self._type_kind(return_type) != "none":
             self.print_value(return_type, result)
         self.line("ret i32 0")
         self._flush_allocas()
@@ -451,7 +507,7 @@ class FuncsMixin(EmitterBase):
         for index in range(len(params)):
             param: dict[str, Any] = params[index]
             param_type: dict[str, Any] = _type_of(param)
-            param_kind: str = dict_to_type(param_type).kind
+            param_kind: str = self._type_kind(param_type)
             if param_kind == "none":
                 continue
             param_name: str = _opt_str(param, "name")
@@ -475,31 +531,45 @@ class FuncsMixin(EmitterBase):
             self.span = saved
 
     def _emit_return(self, stmt: dict[str, Any]) -> None:
-        expr: dict[str, Any] = _node_value_node(stmt)
-        expr_type: dict[str, Any] = _type_of(expr)
-        kind: str = dict_to_type(expr_type).kind
+        node: Any = dict_to_node(stmt)
+        expr_node: Any = node.value
+        expr_type: dict[str, Any]
+        if isinstance(expr_node, dict):
+            # A node the typed record has no slot for keeps its dict whole
+            # (the escape hatch): a suspension return carries the dict-only
+            # `suspend` marker coro.py stamps after the node is built, and
+            # the record round trip drops it, so its child reads as a dict.
+            expr_type = expr_node["type"]
+        else:
+            expr_type = self._type_dict(expr_node.type)
+        kind: str = self._type_kind(expr_type)
         if self.outline_depth:
             if kind != "none":
-                value: str = self.emit_expr(expr)
+                value: str = self.emit_expr(dict_to_dict(expr_node))
                 if self.ret_ptr is None or self.ret_llvm is None:
                     raise IRError("return inside try has no slot")
                 self.line(f"store {self.ret_llvm} {value}, ptr {self.ret_ptr}")
-            elif _node_kind(expr) != "const":
-                self.emit_expr(expr)
+            elif self._kind_of(expr_node) != "const":
+                self.emit_expr(dict_to_dict(expr_node))
             if self.terminated:
                 return
             # Flow 1 is a return out of the try body; flow 2 is a suspension
             # (a yield inside the try). The try callsite tells them apart: a
             # suspension skips the finally, a return runs it.
+            #
+            # The `suspend` marker reads from the original dict, not the
+            # typed record: coro.py stamps it onto the node after the node is
+            # built, and the record round trip drops it (see
+            # `emit/_ir._items`).
             self.line(f"ret i32 {2 if _flag_of(stmt, 'suspend') else 1}")
         elif kind == "none":
-            if _node_kind(expr) != "const":
-                self.emit_expr(expr)
+            if self._kind_of(expr_node) != "const":
+                self.emit_expr(dict_to_dict(expr_node))
             if self.terminated:
                 return
             self.line("ret void")
         else:
-            value = self.emit_expr(expr)
+            value = self.emit_expr(dict_to_dict(expr_node))
             self.line(f"ret {_llvm_type(expr_type)} {value}")
         self.terminated = True
 
