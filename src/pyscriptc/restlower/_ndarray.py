@@ -25,15 +25,24 @@ _DTYPES: dict[str, int] = {
     "float64": 3,
 }
 
+
 # The IR type of an ndarray value: the class carrier the emitter rides as a
 # ptr, with the dtype in the type so the lowering can type-check two arrays
 # without a runtime check.
+#
+# The dtype rides in the type's `label`, not in a `dtype` key: the dict IR
+# round trip (`tirserde`) keeps the label and drops the extra key, so a dtype
+# in its own key would be lost between the lowering and the emitter, and a
+# float32 array would then arithmetic in float64.
 def _nd_type(dtype: str) -> dict[str, Any]:
-    return {"kind": "class", "name": "ndarray", "dtype": dtype}
+    return {"kind": "class", "name": "ndarray", "label": f"ndarray[{dtype}]"}
 
 
 def _dtype_of(typ: dict[str, Any]) -> str:
-    return str(typ.get("dtype", "float64"))
+    label = str(typ.get("label", ""))
+    if label.startswith("ndarray[") and label.endswith("]"):
+        return label[len("ndarray[") : -1]
+    return "float64"
 
 
 def _is_nd(typ: dict[str, Any]) -> bool:
@@ -124,7 +133,6 @@ def _filled(lo: Any, node: ast.Call, span: dict[str, Any], what: str, value: flo
     """`zeros(shape...)` and `ones(shape...)`: the dtype keyword is
     optional and defaults to float64."""
     dtype = "float64"
-    args_nodes = list(node.args)
     for keyword in node.keywords:
         if keyword.arg == "dtype":
             dtype = _dtype_arg(lo, node, keyword.value, dtype)
@@ -132,15 +140,17 @@ def _filled(lo: Any, node: ast.Call, span: dict[str, Any], what: str, value: flo
             lo.fail(node, "PS2003", f"pyscriptc_ndarray.{what} keyword {keyword.arg} is not lowered")
     dims = _shape_args(lo, node, span, what)
     ndim = len(dims)
-    call_args = [{"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span},
-                 {"kind": "const", "value": str(ndim), "type": {"kind": "int"}, "span": span}]
+    call_args = [
+        {"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span},
+        {"kind": "const", "value": str(ndim), "type": {"kind": "int"}, "span": span},
+    ]
     call_args.extend(dims)
     # The runtime reads the shape through a pointer, so the emitter takes a
     # stack slot: the shape rides as ndim plus a pointer to the extents.
-    # The lowering marks the call so the emitter synthesizes the slot.
-    expr = lo._abi_call("pyscriptc_ndarray", what, call_args, _nd_type(dtype), f"ps_nd_{what}", span)
-    expr["nd_shape"] = ndim
-    return expr
+    # The arg count is the contract (the dtype, the ndim, then one arg per
+    # extent), because the dict IR round trip keeps no extra key on the
+    # call for the emitter to read the ndim off.
+    return lo._abi_call("pyscriptc_ndarray", what, call_args, _nd_type(dtype), f"ps_nd_{what}", span)
 
 
 def _full(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -156,15 +166,13 @@ def _full(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     fill = lo._expr(node.args[1])
     if fill["type"]["kind"] not in {"int", "float"}:
         lo.fail(node, "PS1003", "pyscriptc_ndarray.full value is a number")
-    fill_node = node.args[1]
     # A shape literal is a list of ints; the value is the last argument.
-    args_nodes = [node.args[0]]
     if isinstance(node.args[0], ast.List):
         dims = [lo._expr(elt) for elt in node.args[0].elts]
     else:
         # The one-argument-per-dimension spelling needs the fill value to
         # be the last argument, so every argument but the last is a dim.
-        dims = [lo._expr(arg) for arg in args_nodes[:-1]]
+        dims = [lo._expr(arg) for arg in node.args[:-1]]
         if not dims:
             lo.fail(node, "PS2003", "pyscriptc_ndarray.full needs a shape")
     if len(dims) > 4:
@@ -173,13 +181,15 @@ def _full(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if dim["type"]["kind"] != "int":
             lo.fail(node, "PS1003", "pyscriptc_ndarray.full shape is a list of ints")
     ndim = len(dims)
-    call_args = [{"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span},
-                 {"kind": "const", "value": str(ndim), "type": {"kind": "int"}, "span": span}]
+    call_args = [
+        {"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span},
+        {"kind": "const", "value": str(ndim), "type": {"kind": "int"}, "span": span},
+    ]
     call_args.extend(dims)
     call_args.append(fill)
-    expr = lo._abi_call("pyscriptc_ndarray", "full", call_args, _nd_type(dtype), "ps_nd_full", span)
-    expr["nd_shape"] = ndim
-    return expr
+    # The arg count is the contract (the dtype, the ndim, one arg per
+    # extent, then the fill value); see `_filled`.
+    return lo._abi_call("pyscriptc_ndarray", "full", call_args, _nd_type(dtype), "ps_nd_full", span)
 
 
 def _arange(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -205,8 +215,12 @@ def _arange(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     for arg in (start, stop, step):
         if arg["type"]["kind"] not in {"int", "float"}:
             lo.fail(node, "PS1003", "pyscriptc_ndarray.arange arguments are numbers")
-    call_args = [{"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span},
-                 start, stop, step]
+    call_args = [
+        {"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span},
+        start,
+        stop,
+        step,
+    ]
     return lo._abi_call("pyscriptc_ndarray", "arange", call_args, _nd_type(dtype), "ps_nd_arange", span)
 
 
@@ -246,6 +260,7 @@ def _pair(lo: Any, node: ast.Call, span: dict[str, Any], what: str, symbol: str)
 # the method surface
 # ---------------------------------------------------------------------
 
+
 def _ndarray_method(
     lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], attr: str
 ) -> dict[str, Any] | None:
@@ -282,17 +297,15 @@ _METHODS = frozenset(
 )
 
 
-def _method(
-    lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], attr: str
-) -> dict[str, Any]:
+def _method(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], attr: str) -> dict[str, Any]:
     """The ndarray method calls."""
     dtype = _dtype_of(recv["type"])
     if attr in {"sum", "min", "max", "mean", "std", "var"}:
         return _reduce(lo, node, span, recv, attr, dtype)
     if attr == "argmin":
-        return lo._abi_call("pyscriptc_ndarray", "argmin", [recv], _nd_type("int64"), "ps_nd_argmin", span)
+        return lo._abi_call("pyscriptc_ndarray", "argmin", [recv], {"kind": "int"}, "ps_nd_argmin", span)
     if attr == "argmax":
-        return lo._abi_call("pyscriptc_ndarray", "argmax", [recv], _nd_type("int64"), "ps_nd_argmax", span)
+        return lo._abi_call("pyscriptc_ndarray", "argmax", [recv], {"kind": "int"}, "ps_nd_argmax", span)
     if attr == "copy":
         return lo._abi_call("pyscriptc_ndarray", "copy", [recv], recv["type"], "ps_nd_copy", span)
     if attr == "ravel":
@@ -307,16 +320,21 @@ def _method(
     if attr == "tolist":
         return _tolist(lo, node, span, recv, dtype)
     if attr == "tobytes":
-        return lo._abi_call(
-            "pyscriptc_ndarray", "tobytes", [recv], {"kind": "bytes"}, "ps_nd_tobytes", span
-        )
+        return lo._abi_call("pyscriptc_ndarray", "tobytes", [recv], {"kind": "bytes"}, "ps_nd_tobytes", span)
     return None
 
 
-def _reduce(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], attr: str, dtype: str) -> dict[str, Any]:
+def _reduce(
+    lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], attr: str, dtype: str
+) -> dict[str, Any]:
     """`sum`/`min`/`max`/`mean`/`std`/`var` over the whole array, or over
     one axis. The result of a whole-array reduction is a 0-d array; the
-    result of an axis reduction drops the axis."""
+    result of an axis reduction drops the axis.
+
+    The reduction's result dtype follows numpy: `sum` widens the integer
+    dtypes to int64, `mean`/`var`/`std` float the integer dtypes, and
+    `min`/`max` keep the array's dtype. The runtime computes the value; the
+    lowering names the result type so the emitter reads the right one."""
     axis = None
     args_nodes = list(node.args)
     for keyword in node.keywords:
@@ -329,13 +347,25 @@ def _reduce(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any],
             lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} takes the axis once")
         axis = lo._expr(args_nodes[0])
     if axis is None:
-        args = [recv, {"kind": "const", "value": "0", "type": {"kind": "int"}, "span": span},
-                {"kind": "const", "value": "0", "type": {"kind": "int"}, "span": span}]
+        args = [
+            recv,
+            {"kind": "const", "value": "0", "type": {"kind": "int"}, "span": span},
+            {"kind": "const", "value": "0", "type": {"kind": "int"}, "span": span},
+        ]
     else:
         if axis["type"]["kind"] != "int":
             lo.fail(node, "PS1003", f"pyscriptc_ndarray.{attr} axis is an int")
         args = [recv, axis, {"kind": "const", "value": "1", "type": {"kind": "int"}, "span": span}]
-    return lo._abi_call("pyscriptc_ndarray", attr, args, recv["type"], f"ps_nd_{attr}", span)
+    # The result type is the scalar the reduction produces. The runtime
+    # computes it in the same dtype (the reduction dtype rules live in the
+    # runtime), so the emitter reads the value out with the same width.
+    if attr == "sum":
+        out = {"kind": "int"} if dtype in {"int32", "int64"} else {"kind": "float"}
+    elif attr in {"mean", "std", "var"}:
+        out = {"kind": "float"}
+    else:
+        out = {"kind": "int"} if dtype in {"int32", "int64"} else {"kind": "float"}
+    return lo._abi_call("pyscriptc_ndarray", attr, args, out, f"ps_nd_{attr}", span)
 
 
 def _reshape(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], dtype: str) -> dict[str, Any]:
@@ -352,9 +382,9 @@ def _reshape(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any]
         if dim["type"]["kind"] != "int":
             lo.fail(node, "PS1003", "pyscriptc_ndarray.reshape shape is a list of ints")
     args = [recv, {"kind": "const", "value": str(len(dims)), "type": {"kind": "int"}, "span": span}, *dims]
-    expr = lo._abi_call("pyscriptc_ndarray", "reshape", args, recv["type"], "ps_nd_reshape", span)
-    expr["nd_shape"] = len(dims)
-    return expr
+    # The arg count is the contract (the array, the ndim, one arg per
+    # extent); see `_filled`.
+    return lo._abi_call("pyscriptc_ndarray", "reshape", args, recv["type"], "ps_nd_reshape", span)
 
 
 def _astype(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any]) -> dict[str, Any]:

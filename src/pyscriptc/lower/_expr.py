@@ -59,6 +59,9 @@ from pyscriptc.lower._expr_compare import (
     _unary_node,
     _while_node,
 )
+from pyscriptc.lower._ndarray import _dtype_of as _nd_dtype_of
+from pyscriptc.lower._ndarray import _is_ndarray as _nd_is_ndarray
+from pyscriptc.lower._ndarray import _ndarray_binary, _ndarray_compare
 from pyscriptc.reflection import inspect_note, typing_note
 from pyscriptc.restlower._argparse import path_attribute
 from pyscriptc.sigrec import type_to_dict
@@ -1334,3 +1337,72 @@ class ExprMixin(ExprCompareMixin):
         self.locals[temp] = {"kind": "int"}
         self.prelude.append(_assign_node(temp, expr, span))
         return _name(temp, {"kind": "int"}, span)
+
+    def _ndarray_subscript(
+        self,
+        node: ast.Subscript,
+        value: dict[str, Any],
+        index: dict[str, Any],
+        span: dict[str, Any],
+        expect: dict[str, Any] | None,
+    ) -> dict[str, Any]:
+        """`arr[i]` and `arr[mask]` on an ndarray.
+
+        An int index reads one element: the value is the element itself,
+        the Python scalar numpy would return (an int for the integer
+        dtypes, a float for the float dtypes). A bool array index selects
+        the elements the mask marks, and the result is an array.
+        """
+        dtype = _nd_dtype_of(value["type"])
+        if _nd_is_ndarray(index["type"]):
+            if _nd_dtype_of(index["type"]) != "bool":
+                self.fail(node, "PS1003", "an ndarray index is an int or a bool array")
+            return self._abi_call(
+                "pyscriptc_ndarray",
+                "boolean_index",
+                [value, index],
+                value["type"],
+                "ps_nd_boolean_index",
+                span,
+            )
+        if index["type"]["kind"] != "int":
+            self.fail(node, "PS1003", "an ndarray index is an int or a bool array")
+        if dtype in {"int32", "int64"}:
+            return self._abi_call(
+                "pyscriptc_ndarray",
+                "element",
+                [value, index],
+                {"kind": "int"},
+                "ps_nd_element_i64",
+                span,
+            )
+        return self._abi_call(
+            "pyscriptc_ndarray",
+            "element",
+            [value, index],
+            {"kind": "float"},
+            "ps_nd_element",
+            span,
+        )
+
+    def _ndarray_slice(
+        self, node: ast.Subscript, slc: ast.Slice, value: dict[str, Any], span: dict[str, Any]
+    ) -> dict[str, Any]:
+        """`arr[start:stop:step]` on an ndarray: the step slice. The
+        negative step is not in the M1 subset and fences."""
+        start, has_start = self._slice_bound(slc.lower, span)
+        stop, has_stop = self._slice_bound(slc.upper, span)
+        step = self._slice_step(slc.step, span)
+        if step["kind"] == "const" and step.get("value") is not None and int(step["value"]) < 0:
+            self.fail(node, "PS2001", "a negative slice step is not in the lowered subset of pyscriptc_ndarray")
+        start = self._pin_slice_int(start, span)
+        stop = self._pin_slice_int(stop, span)
+        step = self._pin_slice_int(step, span)
+        return self._abi_call(
+            "pyscriptc_ndarray",
+            "slice",
+            [value, start, stop, step],
+            value["type"],
+            "ps_nd_slice",
+            span,
+        )

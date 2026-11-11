@@ -25,6 +25,7 @@ from pyscriptc.lower._classes_more import ClassesMoreMixin
 from pyscriptc.lower._core import (
     Fence,
     _assign,
+    _const_str,
     _has_typevar,
     _mk_span,
     _mk_type,
@@ -34,6 +35,7 @@ from pyscriptc.lower._core import (
     _sig_typevars,
     _subst_type,
 )
+from pyscriptc.lower._ndarray import _dtype_of as _nd_dtype_of
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.reflection import annotation_note, metaclass_note
 from pyscriptc.restlower import method_spec as synth_method
@@ -1277,9 +1279,7 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
         self.fail(node, "PS2004", f"{op.__name__} on {left_name} and {right_name} is not lowered")
         raise AssertionError("unreachable")
 
-    def _ndarray_attr(
-        self, obj: dict[str, Any], name: str, span: dict[str, Any], node: ast.AST
-    ) -> dict[str, Any]:
+    def _ndarray_attr(self, obj: dict[str, Any], name: str, span: dict[str, Any], node: ast.AST) -> dict[str, Any]:
         """The ndarray attribute surface (issue #496): the metadata reads
         call the runtime, and any other name fences by name."""
         if name == "ndim":
@@ -1289,7 +1289,10 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
         if name == "nbytes":
             return self._abi_call("pyscriptc_ndarray", "nbytes", [obj], {"kind": "int"}, "ps_nd_nbytes", span)
         if name == "dtype":
-            return self._abi_call("pyscriptc_ndarray", "dtype", [obj], {"kind": "str"}, "ps_nd_dtype", span)
+            # The dtype is static: it rides on the array's IR type, so the
+            # attribute is the name, not a runtime read. numpy spells the
+            # dtype as a type object, but the subset gives the name.
+            return _const_str(_nd_dtype_of(obj["type"]), span)
         if name == "shape":
             return self._abi_call(
                 "pyscriptc_ndarray", "shape", [obj], {"kind": "list", "elem": {"kind": "int"}}, "ps_nd_shape", span

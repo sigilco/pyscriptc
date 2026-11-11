@@ -1,25 +1,40 @@
 """The pyscriptc_ndarray emission (issue #496, M1).
 
 An ndarray value is the pointer to the runtime's `PsNd` record. The
-lowering hands the emitter the symbol of the runtime call and the shape
-(the extents ride as a stack slot the runtime reads through a pointer), so
-this module only has to render the call and the few reads that are not a
-plain call: the attribute reads, the scalar reductions and the indexed
-element reads.
+lowering hands the emitter the symbol of the runtime call, so this module
+only has to render the call and the few reads that are not a plain call:
+the shape slot, the scalar reductions and the indexed element reads.
+
+The dtype rides on the IR type's `label` (`ndarray[float64]`), because the
+label is the one part of a class type the dict IR round trip keeps: the
+`dtype` key of a type dict does not survive it, and a silent loss here
+would make a float32 array arithmetic in float64.
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _memory_type
+from pyscriptc.errors import IRError
 
 # The dtype codes, the order the runtime's enum spells.
 _DTYPE_CODES = {"int32": 0, "int64": 1, "float32": 2, "float64": 3}
 
+# The dtype names, in the code order: the emitter renders the name for
+# the `dtype` attribute out of the code the runtime returns.
+_DTYPE_NAMES = ["int32", "int64", "float32", "float64"]
+
+
+def _nd_dtype_of(typ: dict[str, Any]) -> str:
+    """The dtype an ndarray IR type carries, read back from its label."""
+    label = str(typ.get("label", ""))
+    if label.startswith("ndarray[") and label.endswith("]"):
+        return label[len("ndarray[") : -1]
+    return "float64"
+
 
 def _nd_dtype_code(typ: dict[str, Any]) -> int:
-    return _DTYPE_CODES.get(str(typ.get("dtype", "float64")), 3)
+    return _DTYPE_CODES.get(_nd_dtype_of(typ), 3)
 
 
 class NdArrayMixin:
@@ -28,7 +43,6 @@ class NdArrayMixin:
     def _nd_emit(self, expr: dict[str, Any], values: list[str]) -> str:
         """The module-level and method calls that are not a plain ABI call."""
         symbol = expr.get("symbol", "")
-        name = expr["callee"]["name"]
         if symbol == "ps_nd_tobytes":
             return self._nd_tobytes(values)
         if symbol in {"ps_nd_sum", "ps_nd_min", "ps_nd_max", "ps_nd_mean", "ps_nd_std", "ps_nd_var"}:
@@ -55,35 +69,55 @@ class NdArrayMixin:
             return self._nd_plain(symbol, values, ["ptr", "i64", "i64", "i64"])
         if symbol == "ps_nd_reshape":
             return self._nd_reshape(expr, values)
-        if symbol == "ps_nd_zeros" or symbol == "ps_nd_ones" or symbol == "ps_nd_full":
+        if symbol in {"ps_nd_zeros", "ps_nd_ones", "ps_nd_full"}:
             return self._nd_filled(expr, values, symbol)
         if symbol == "ps_nd_from_seq":
             return self._nd_from_seq(expr, values)
-        if symbol in {"ps_nd_arange", "ps_nd_linspace"}:
-            return self._nd_plain(symbol, values, self._nd_plain_params(symbol))
+        if symbol == "ps_nd_arange":
+            return self._nd_plain(symbol, values, ["i64", "double", "double", "double"])
+        if symbol == "ps_nd_linspace":
+            return self._nd_plain(symbol, values, ["i64", "double", "double", "i64"])
         if symbol in {"ps_nd_concatenate", "ps_nd_stack"}:
             return self._nd_plain(symbol, values, ["ptr", "ptr"])
-        if symbol in {"ps_nd_copy", "ps_nd_ravel", "ps_nd_astype", "ps_nd_transpose"}:
+        if symbol == "ps_nd_copy" or symbol == "ps_nd_ravel" or symbol == "ps_nd_transpose":
+            return self._nd_plain(symbol, values, ["ptr"])
+        if symbol == "ps_nd_astype":
             return self._nd_plain(symbol, values, ["ptr", "i64"])
         if symbol in {"ps_nd_add", "ps_nd_sub", "ps_nd_mul", "ps_nd_div", "ps_nd_floordiv", "ps_nd_mod"}:
             return self._nd_plain(symbol, values, ["ptr", "ptr"])
         if symbol in {"ps_nd_eq", "ps_nd_ne", "ps_nd_lt", "ps_nd_le", "ps_nd_gt", "ps_nd_ge"}:
             return self._nd_plain(symbol, values, ["ptr", "ptr"])
-        if symbol in {"ps_nd_add_s", "ps_nd_sub_s", "ps_nd_mul_s", "ps_nd_div_s",
-                      "ps_nd_floordiv_s", "ps_nd_mod_s", "ps_nd_eq_s", "ps_nd_ne_s",
-                      "ps_nd_lt_s", "ps_nd_le_s", "ps_nd_gt_s", "ps_nd_ge_s"}:
+        if symbol in {
+            "ps_nd_add_s",
+            "ps_nd_sub_s",
+            "ps_nd_mul_s",
+            "ps_nd_div_s",
+            "ps_nd_floordiv_s",
+            "ps_nd_mod_s",
+            "ps_nd_eq_s",
+            "ps_nd_ne_s",
+            "ps_nd_lt_s",
+            "ps_nd_le_s",
+            "ps_nd_gt_s",
+            "ps_nd_ge_s",
+        }:
             return self._nd_plain(symbol, values, ["ptr", "double"])
-        if symbol in {"ps_nd_add_f", "ps_nd_sub_f", "ps_nd_mul_f", "ps_nd_div_f",
-                      "ps_nd_floordiv_f", "ps_nd_mod_f", "ps_nd_eq_f", "ps_nd_ne_f",
-                      "ps_nd_lt_f", "ps_nd_le_f", "ps_nd_gt_f", "ps_nd_ge_f"}:
+        if symbol in {
+            "ps_nd_add_f",
+            "ps_nd_sub_f",
+            "ps_nd_mul_f",
+            "ps_nd_div_f",
+            "ps_nd_floordiv_f",
+            "ps_nd_mod_f",
+            "ps_nd_eq_f",
+            "ps_nd_ne_f",
+            "ps_nd_lt_f",
+            "ps_nd_le_f",
+            "ps_nd_gt_f",
+            "ps_nd_ge_f",
+        }:
             return self._nd_plain(symbol, values, ["ptr", "double"])
-        return self._nd_plain(symbol, values, ["ptr"])
-        raise AssertionError("unreachable")
-
-    def _nd_plain_params(self, symbol: str) -> list[str]:
-        if symbol == "ps_nd_arange":
-            return ["i64", "double", "double", "double"]
-        return ["i64", "double", "double", "i64"]
+        raise IRError(f"no pyscriptc_ndarray emission for {symbol}")
 
     def _nd_plain(self, symbol: str, values: list[str], params: list[str]) -> str:
         """A call whose arguments map one to one onto the runtime params."""
@@ -93,15 +127,27 @@ class NdArrayMixin:
         self._abi_decl(symbol, "ptr", params)
         return self._call_ret("ptr", symbol, rendered)
 
-    def _nd_filled(self, expr: dict[str, Any], values: list[str], symbol: str) -> str:
-        """`zeros`, `ones` and `full`: the shape rides as a stack slot the
-        runtime reads through a pointer, after the dtype and the ndim."""
-        ndim = int(expr.get("nd_shape", 0))
+    def _nd_shape_slot(self, values: list[str], ndim: int) -> str:
+        """The shape extents as a stack slot the runtime reads."""
         slot = self._alloca(f"[{max(ndim, 1)} x i64]")
         for index in range(ndim):
             base = self.tmp()
             self.line(f"{base} = getelementptr [{max(ndim, 1)} x i64], ptr {slot}, i64 0, i64 {index}")
-            self.line(f"store i64 {values[2 + index]}, ptr {base}")
+            self.line(f"store i64 {values[index]}, ptr {base}")
+        return slot
+
+    def _nd_filled(self, expr: dict[str, Any], values: list[str], symbol: str) -> str:
+        """`zeros`, `ones` and `full`: the shape rides as a stack slot the
+        runtime reads through a pointer, after the dtype and the ndim.
+
+        The ndim is the arg count: the dtype, the ndim, then one arg per
+        extent (`full` adds the fill value at the end). The lowering spells
+        the same shape, so the count is the contract.
+        """
+        ndim = len(values) - 2
+        if symbol == "ps_nd_full":
+            ndim -= 1
+        slot = self._nd_shape_slot(values[2:], ndim)
         params = ["i64", "i64", "ptr"]
         rendered = [f"i64 {values[0]}", f"i64 {values[1]}", f"ptr {slot}"]
         if symbol == "ps_nd_full":
@@ -111,13 +157,10 @@ class NdArrayMixin:
         return self._call_ret("ptr", symbol, rendered)
 
     def _nd_reshape(self, expr: dict[str, Any], values: list[str]) -> str:
-        """`reshape`: the new shape rides as a stack slot."""
-        ndim = int(expr.get("nd_shape", 0))
-        slot = self._alloca(f"[{max(ndim, 1)} x i64]")
-        for index in range(ndim):
-            base = self.tmp()
-            self.line(f"{base} = getelementptr [{max(ndim, 1)} x i64], ptr {slot}, i64 0, i64 {index}")
-            self.line(f"store i64 {values[2 + index]}, ptr {base}")
+        """`reshape`: the new shape rides as a stack slot. The arg count is
+        the array, the ndim, then one arg per extent."""
+        ndim = len(values) - 2
+        slot = self._nd_shape_slot(values[2:], ndim)
         self._abi_decl("ps_nd_reshape", "ptr", ["ptr", "i64", "ptr"])
         return self._call_ret("ptr", "ps_nd_reshape", [f"ptr {values[0]}", f"i64 {values[1]}", f"ptr {slot}"])
 
@@ -150,11 +193,14 @@ class NdArrayMixin:
     def _nd_reduce(self, expr: dict[str, Any], values: list[str], symbol: str) -> str:
         """The reductions: the runtime returns the reduced array, and the
         emitter reads the number out of it. A whole-array reduction is a
-        zero-dimensional array, so the value is the single element."""
+        zero-dimensional array, so the value is the single element.
+
+        The result type the lowering named (numpy's rules: `sum` widens the
+        integer dtypes, the mean trio floats them) decides the read: an int
+        reduction reads the int64, a float one the double."""
         self._abi_decl(symbol, "ptr", ["ptr", "i64", "i64"])
         arr = self._call_ret("ptr", symbol, [f"ptr {values[0]}", f"i64 {values[1]}", f"i64 {values[2]}"])
-        dtype = str(expr["type"].get("dtype", "float64"))
-        if dtype in {"int32", "int64"}:
+        if expr["type"]["kind"] == "int":
             self._abi_decl("ps_nd_scalar_i64", "i64", ["ptr"])
             return self._call_ret("i64", "ps_nd_scalar_i64", [f"ptr {arr}"])
         self._abi_decl("ps_nd_scalar", "double", ["ptr"])
