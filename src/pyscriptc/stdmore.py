@@ -1685,7 +1685,7 @@ REST_MODULES = frozenset(
         "ctypes",
         "string",
         "bisect",
-    "heapq",
+        "heapq",
         "errno",
         "importlib.resources",
         "hmac",

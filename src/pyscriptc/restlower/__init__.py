@@ -43,12 +43,12 @@ from pyscriptc.restlower._builtins import (
 from pyscriptc.restlower._collections import _counter, _defaultdict, _deque, _ordered
 from pyscriptc.restlower._copy import _copy_call
 from pyscriptc.restlower._csv import _csv_call
-from pyscriptc.restlower._heapq import _heapq_call
 from pyscriptc.restlower._ctypes import _sizeof
 from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
 from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
 from pyscriptc.restlower._functools import _reduce
+from pyscriptc.restlower._heapq import _heapq_call
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
 from pyscriptc.restlower._io import _input, _mkstemp, _named_temp, _open, _print
 from pyscriptc.restlower._iterators import (

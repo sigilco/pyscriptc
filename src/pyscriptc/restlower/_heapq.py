@@ -20,7 +20,7 @@ import ast
 from typing import Any
 
 from pyscriptc import _irnode as _ir
-from pyscriptc.restlower._shared import _asg, _emit, _mk_span, _node_type, _nm, _t_leaf, _t_list, _tname
+from pyscriptc.restlower._shared import _asg, _emit, _mk_span, _nm, _node_type, _t_leaf, _t_list, _tname
 from pyscriptc.tirserde import node_to_dict
 
 _HEAP_ELEM = {"int", "float", "str"}
@@ -56,9 +56,7 @@ def _heap_pin(lo: Any, value: dict[str, Any], span: dict[str, Any], hint: str) -
     return name
 
 
-def _siftdown(
-    pid: str, start: str, pos: str, parent: str, newitem: str, indent: str, maxheap: bool
-) -> list[str]:
+def _siftdown(pid: str, start: str, pos: str, parent: str, newitem: str, indent: str, maxheap: bool) -> list[str]:
     """CPython's `_siftdown`: move the held cell up toward the root until it
     fits, shifting parents down. `start` is the root of the subtree,
     `newitem` names the local holding the cell and `maxheap` picks the
@@ -194,7 +192,7 @@ def _heappop(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         [
             f"{n} = len({pid})",
             f"if {n} <= 0:",
-            f"    raise IndexError(\"index out of range\")",
+            '    raise IndexError("index out of range")',
             f"{out} = {pid}[0]",
             f"{n} = {n} - 1",
             f"if {n} > 0:",
@@ -202,7 +200,7 @@ def _heappop(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
             f"    {pid}.pop()",
             f"    {pos} = 0",
             *_siftup(pid, n, pos, newitem, child, right, parent, start, "    ", False),
-            f"else:",
+            "else:",
             f"    {pid}.pop()",
         ],
         span,
@@ -274,7 +272,7 @@ def _heapreplace(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any
         [
             f"{n} = len({pid})",
             f"if {n} <= 0:",
-            f"    raise IndexError(\"index out of range\")",
+            '    raise IndexError("index out of range")',
             f"{out} = {pid}[0]",
             f"{pid}[0] = {item_id}",
             f"{pos} = 0",
@@ -301,8 +299,7 @@ def _nlargest_nsmallest(lo: Any, node: ast.Call, span: dict[str, Any], attr: str
     pid = _heap_pin(lo, pool, span, "hq")
     count_id = _heap_pin(lo, count, span, "hqn")
     out, copy, k, i, pos, newitem, child, right, parent, start, top, n = (
-        _tname(lo, h)
-        for h in ("hqo", "hqh", "hqk", "hqi", "hqp", "hqw", "hqc", "hqr", "hqpa", "hqs", "hqt", "hqn2")
+        _tname(lo, h) for h in ("hqo", "hqh", "hqk", "hqi", "hqp", "hqw", "hqc", "hqr", "hqpa", "hqs", "hqt", "hqn2")
     )
     lo.locals[out] = _t_list(elem)
     lo.locals[copy] = _t_list(elem)
@@ -333,7 +330,7 @@ def _nlargest_nsmallest(lo: Any, node: ast.Call, span: dict[str, Any], attr: str
             f"        {n} = len({copy}) - 1",
             f"        if {n} <= 0:",
             f"            {copy}.pop()",
-            f"        else:",
+            "        else:",
             f"            {copy}[0] = {copy}[{n}]",
             f"            {copy}.pop()",
             f"            {pos} = 0",
