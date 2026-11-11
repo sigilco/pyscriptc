@@ -1295,9 +1295,11 @@ print(isinstance(probe, property), probe.fget())
 
 
 def test_fallback_module_assignment_island_routes_to_island(tmp_path: Path) -> None:
-    """A module-level `Path(os.environ.get(...))` fences native (PS2002, "a
-    module assignment must be a constant") and runs island-side under the
-    fallback tier (issue #641 comment). The native tier keeps refusing."""
+    """A module-level `Path(os.environ.get(...))` with a body reader binds a
+    module slot (#502): the call lowers once at init and `where()` reads the
+    same Path object. A module whose call result no definition reads still
+    fences native (PS2002, "a module assignment must be a constant") and runs
+    island-side under the fallback tier (issue #641 comment)."""
     header = """import os
 from pathlib import Path
 
@@ -1307,15 +1309,23 @@ CONFIG_PATH = Path(os.environ.get("PYSC_FB641", ".")).expanduser()
 def where() -> str:
     return str(CONFIG_PATH)
 """
-    # The native tier refuses: the assignment is not a constant.
+    # The body read turns the assign into a #502 slot: the native tier now
+    # compiles the header, and the value is one Path for the process.
     native_src = tmp_path / "mod_assign_native.py"
     native_src.write_text(header, encoding="utf-8")
     native = _run_cli("compile", str(native_src), "--emit", "ir", "-o", str(tmp_path / "native.ir.json"))
-    assert native.returncode == 3, native.stderr
-    assert "PS2002: a module assignment must be a constant" in native.stderr
+    assert native.returncode == 0, native.stderr
 
-    # The fallback tier routes the assignment to the island: the seed execs
-    # the real statement, so the value is CPython's own.
+    # No definition reads the name: the ordinary constant path still fences,
+    # and the fallback tier routes the assignment to the island - the seed
+    # execs the real statement, so the value is CPython's own.
+    orphan = header.replace("def where() -> str:\n    return str(CONFIG_PATH)\n", "def probe() -> int:\n    return 0\n")
+    orphan_src = tmp_path / "mod_assign_orphan.py"
+    orphan_src.write_text(orphan, encoding="utf-8")
+    orphan_native = _run_cli("compile", str(orphan_src), "--emit", "ir", "-o", str(tmp_path / "orphan.ir.json"))
+    assert orphan_native.returncode == 3, orphan_native.stderr
+    assert "PS2002: a module assignment must be a constant" in orphan_native.stderr
+
     src = tmp_path / "mod_assign.py"
     src.write_text(header + "\n\nprint(where())\n", encoding="utf-8")
     binary = tmp_path / "mod_assign_bin"

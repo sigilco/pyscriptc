@@ -382,6 +382,11 @@ class Lowerer(
         # Line of the first true script statement; global inits before it may
         # hoist, later ones lower inside the entry to keep source order.
         self._script_line: int | None = None
+        # Ids of the live statements that came out of a `__main__` guard of
+        # the main module: their assigns are script text even when
+        # `_script_line` stays None (a guard whose body is the module's only
+        # non-definition text). Populated by `_live_statements`.
+        self._guard_stmts: set[int] = set()
         # Name of the synthesized entry function (`main`/`__entry__`), if any.
         self.entry_fn_name: str | None = None
         # `global` declarations per function body, cached by body-list identity:
@@ -1037,6 +1042,11 @@ class Lowerer(
                 self.fail(node, "PS2002", f"global {name} is already bound")
             slot["type"] = typ
         self._activate_slot(name, node)
+        # A folded frozenset literal keeps its frozen marker on the slot
+        # read: `.add`/`.remove` on the name must stay fenced (#1183
+        # follow-up), and the marker lives on the stored value.
+        if value.get("frozen"):
+            slot["frozen"] = True
         init = self._global_set(name, value, span_of(node, self.filename))
         self.global_inits.append(init["expr"])
 
@@ -1256,7 +1266,18 @@ class Lowerer(
                     self._expect(stmt, value["type"], expect, target)
                 else:
                     value = self._expr(stmt.value)
-                if isinstance(stmt, ast.Assign) and isinstance(stmt.value, ast.Call) and not self.prelude:
+                if (
+                    isinstance(stmt, ast.Assign)
+                    and isinstance(stmt.value, ast.Call)
+                    and not self.prelude
+                    # Under the fallback tier the island seed owns the call:
+                    # lowering it here would marshal its arguments the
+                    # native way and fence what the seed runs fine
+                    # (`pickle.dumps(square)` carrying a func). The
+                    # constant-binding replay below keeps the fence set the
+                    # island plan consumes.
+                    and not self.fallback_definitions
+                ):
                     # A definition-only module call result keeps one object
                     # for the process through the slot (#502): a stored
                     # constant would re-run the call at every read.
@@ -1387,6 +1408,12 @@ class Lowerer(
         resolution even when the slot lands later in the deferred pass.
         Naming the slot here lets a function body read it through
         `ps_global_get_*`; the slot itself binds in the deferred pass.
+
+        The scan marks an assign only when a definition body reads the
+        name: that read is what a module slot serves (one object for the
+        process, #502). An entry-only call assign - the E1 script shape -
+        keeps master's path untouched: the assign joins the entry with
+        every other reader in source order, no slot and no deferral.
         """
         script_line = self._script_line
         for stmt in statements:
@@ -1395,16 +1422,56 @@ class Lowerer(
             target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
             if not isinstance(target, ast.Name) or not isinstance(stmt.value, ast.Call):
                 continue
-            if script_line is not None and stmt.lineno >= script_line:
+            if (script_line is not None and stmt.lineno >= script_line) or id(stmt) in self._guard_stmts:
                 # The assignment lowers inside the entry like any script
-                # statement at or after the first one; no module slot exists.
+                # statement: a `__main__` guard's body is script text of the
+                # main module even when no other script statement exists,
+                # and any statement at or after the first script one keeps
+                # source order inside the entry. No module slot exists.
+                continue
+            if not self._call_assign_has_body_read(target.id, statements):
+                # Entry-only readers: the assign lowers inside the entry
+                # (E1) and every read sees it in source order. Deferring it
+                # would move its fences behind `_split_entry`'s retraction
+                # window and break the script rollback.
+                continue
+            if _is_re_compile_pattern(stmt.value):
+                # `PAT = re.compile(...)` binds a stored Pattern constant,
+                # re-emitted at each read (the R16 engine). It is not a
+                # runtime slot: the Pattern has no runtime state, and the
+                # constant path already carries it.
                 continue
             name = target.id
             slot = self.global_slots.get(name)
             if slot is None:
-                self.global_slots[name] = {"type": None, "active": False}
+                # The `call` marker tells the ordinary binding path that
+                # this slot belongs to a module call assign: the slot is
+                # filled by the deferred pass, so the `global`-slot branch
+                # (which only accepts a str or int constant) must not
+                # claim it.
+                self.global_slots[name] = {"type": None, "active": False, "call": True}
             elif not slot.get("type"):
                 slot["call"] = True
+
+    def _call_assign_has_body_read(self, name: str, statements: list[ast.stmt]) -> bool:
+        """True when a function or class body reads `name` (loaded, not stored).
+
+        The `call` marker and the slot only exist for those readers: a
+        definition body read of a module call result is the #502 case, and
+        the slot gives it one object for the process. A script whose reads
+        all sit in the entry keeps the E1 path: the assign lowers there
+        with its readers in source order.
+        """
+        for stmt in statements:
+            if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            for node in ast.walk(stmt):
+                if isinstance(node, ast.Name) and node.id == name:
+                    if isinstance(node.ctx, ast.Load):
+                        return True
+                    if isinstance(node.ctx, (ast.Store, ast.Del)):
+                        return False
+        return False
 
     def _scan_global_slots(self, statements: list[ast.stmt]) -> dict[str, dict[str, Any]]:
         slots: dict[str, dict[str, Any]] = {}
@@ -2053,3 +2120,22 @@ def _plain_const_kind(node: ast.expr) -> str | None:
     if isinstance(node.value, int):
         return "int"
     return None
+
+
+def _is_re_compile_pattern(node: ast.expr) -> bool:
+    """True for `re.compile(<pattern>, <flags?>)` the constant path serves.
+
+    That call binds a stored Pattern constant, re-emitted at each read
+    (the R16 engine; R27 folds the flag argument before it lands). It is
+    not a runtime slot: the Pattern carries no runtime state, and the
+    constant path already holds it.
+    """
+    if not isinstance(node, ast.Call) or len(node.args) not in {1, 2} or node.keywords:
+        return False
+    func = node.func
+    return (
+        isinstance(func, ast.Attribute)
+        and func.attr == "compile"
+        and isinstance(func.value, ast.Name)
+        and func.value.id == "re"
+    )

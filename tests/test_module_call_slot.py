@@ -156,3 +156,64 @@ def test_call_order_with_script_statements(tmp_path: Path) -> None:
             "print(read())\n"
         ),
     )
+
+
+def test_entry_only_call_assign_stays_in_the_entry(tmp_path: Path) -> None:
+    """A call result no definition reads keeps the E1 script shape.
+
+    The slot serves a definition body read (one object for the process).
+    With only entry readers, the assign lowers inside the entry with its
+    readers in source order, so the call runs once at that point and the
+    script keeps its order.
+    """
+    differential(
+        tmp_path,
+        "entryonly.py",
+        (
+            "def make(n: int) -> int:\n"
+            "    return n * 2\n"
+            "x = make(21)\n"
+            "print('side', x)\n"
+        ),
+    )
+
+
+def test_entry_only_call_assign_runs_once(tmp_path: Path) -> None:
+    """The entry-only call runs once: a second read sees the same value."""
+    differential(
+        tmp_path,
+        "entryonce.py",
+        (
+            "calls = 0\n"
+            "\n"
+            "\n"
+            "def make(n: int) -> int:\n"
+            "    return n * 2\n"
+            "\n"
+            "\n"
+            "x = make(21)\n"
+            "print(x, x)\n"
+        ),
+    )
+
+
+def test_call_result_read_by_a_definition_takes_the_slot(tmp_path: Path) -> None:
+    """A definition body read is the #502 case: the slot holds one object."""
+    differential(
+        tmp_path,
+        "slotread.py",
+        (
+            "def make(n: int) -> list[int]:\n"
+            "    return [n]\n"
+            "\n"
+            "\n"
+            "x = make(21)\n"
+            "\n"
+            "\n"
+            "def read() -> list[int]:\n"
+            "    return x\n"
+            "\n"
+            "\n"
+            "print(read() is x)\n"
+        ),
+    )

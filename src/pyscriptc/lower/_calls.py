@@ -1027,7 +1027,13 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             if node.id in self.frozen_names:
                 return True
             found = self.constants.get(node.id)
-            return isinstance(found, dict) and bool(found.get("frozen"))
+            if isinstance(found, dict) and bool(found.get("frozen")):
+                return True
+            # A module-scope call result binds a slot (#502) instead of a
+            # constant, so the frozen marker of a folded frozenset lives on
+            # the slot. `.add`/`.remove` on the name must stay fenced.
+            slot = self.global_slots.get(node.id)
+            return isinstance(slot, dict) and bool(slot.get("frozen"))
         if isinstance(node, ast.IfExp):
             return self._binding_is_frozen(node.body) or self._binding_is_frozen(node.orelse)
         if isinstance(node, ast.BoolOp):

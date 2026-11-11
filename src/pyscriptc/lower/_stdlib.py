@@ -1127,9 +1127,22 @@ class StdlibDispatchMixin(StdlibBindMixin):
                     and not stmt.value.keywords
                     and all(isinstance(a, ast.Constant) for a in stmt.value.args[1:])
                 )
-                hoists = self._script_line is None or stmt.lineno < self._script_line
+                hoists = (self._script_line is None or stmt.lineno < self._script_line) and id(
+                    stmt
+                ) not in self._guard_stmts
                 if (
-                    typ["kind"] == "func" or (isinstance(stmt.value, ast.Call) and hoists and not is_pattern_call)
+                    typ["kind"] == "func"
+                    or (
+                        isinstance(stmt.value, ast.Call)
+                        and hoists
+                        and not is_pattern_call
+                        # A call result takes a module slot only when a
+                        # definition body reads the name (the #502 case).
+                        # The scan marked that slot; an entry-only call
+                        # assign keeps master's path: it lowers inside the
+                        # entry with its readers in source order (E1).
+                        and self.global_slots.get(stmt.target.id, {}).get("call")
+                    )
                 ) and not self._deferring:
                     # A Callable-annotated module name may bind a function
                     # value, and a call result takes a global slot (#502):
@@ -1216,11 +1229,30 @@ class StdlibDispatchMixin(StdlibBindMixin):
                     and not stmt.value.keywords
                     and all(isinstance(a, ast.Constant) for a in stmt.value.args[1:])
                 )
-                hoists = self._script_line is None or stmt.lineno < self._script_line
+                hoists = (self._script_line is None or stmt.lineno < self._script_line) and id(
+                    stmt
+                ) not in self._guard_stmts
+                is_call = isinstance(stmt.value, ast.Call)
+                # A call result takes a module slot when a definition body
+                # reads the name (the #502 case). The scan marked that slot;
+                # an entry-only call assign keeps master's path: it lowers
+                # inside the entry with its readers in source order (E1).
+                call_slot = is_call and self.global_slots.get(target, {}).get("call")
                 if (
                     not self._deferring
-                    and hoists
                     and not is_pattern_call2
+                    # Under the fallback tier the island seed owns a call
+                    # assign: deferring it would lower the call native-side
+                    # and marshal its arguments (`pickle.dumps(square)`
+                    # fences on the func the seed runs fine). The ordinary
+                    # path below keeps the fence set the island plan reads.
+                    and not (self.fallback_definitions and is_call)
+                    # The call-assign case widens the rule to a scriptish
+                    # module: the assign may precede the first script
+                    # statement and still take a slot. Every other value
+                    # keeps master's rule (a definition-only module), so
+                    # a script's other assigns lower inside the entry.
+                    and (call_slot if is_call else self._script_line is None)
                     and isinstance(
                         stmt.value,
                         (ast.Name, ast.Lambda, ast.Call, ast.Attribute, ast.Subscript, ast.IfExp),
@@ -1237,7 +1269,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 if target in self.global_slots and _is_none_expr(stmt.value):
                     self._activate_slot(target, stmt)
                     return
-                if target in self.global_slots:
+                if target in self.global_slots and not self.global_slots[target].get("call"):
                     # `count = 0` under a `global count` declaration: the slot
                     # activates and the constant is emitted as a ps_global_set_*
                     # initializer at the top of main. In a script, only an
