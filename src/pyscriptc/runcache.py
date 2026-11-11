@@ -89,7 +89,7 @@ def compiler_digest() -> str:
                 _MEM_STAMP = stamp
                 _MEM_DIGEST = digest
                 return str(digest)
-        except OSError, ValueError, KeyError:
+        except (OSError, ValueError, KeyError):
             pass
 
     digest = _full_compiler_digest(root)

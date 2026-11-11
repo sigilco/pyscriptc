@@ -11,11 +11,11 @@ code that lived in `lower.__init__`, unchanged.
 from __future__ import annotations
 
 import ast
-import sys
 
 from pyscriptc.lower._core import _CMP, Fence
 from pyscriptc.lower._stdlib_shared import _ERASED_MODULES, _module_assigned, _release_erased_import
 from pyscriptc.lower._stmt import _is_docstring, _is_main_guard
+from pyscriptc.target import TARGET_VERSION_INFO
 
 
 class EntryMixin:
@@ -370,7 +370,14 @@ def _is_int_const(node: ast.expr) -> bool:
 
 
 def _cmp_version(op: str, parts: tuple[int, ...]) -> bool:
-    current: tuple[int, ...] = sys.version_info
+    """Fold a `sys.version_info` compare against the declared target.
+
+    The compare describes the program's world, which is `target.json`'s
+    CPython, not the interpreter that happens to run the compiler: a 3.11
+    tool host folds `sys.version_info >= (3, 12)` the same way the 3.14
+    oracle would.
+    """
+    current: tuple[int, ...] = TARGET_VERSION_INFO
     if op == ">=":
         return current >= parts
     if op == ">":

@@ -129,7 +129,7 @@ def _install_id() -> str:
         existing = path.read_text(encoding="utf-8").strip()
         if existing:
             return str(uuid.UUID(existing))
-    except OSError, ValueError:
+    except (OSError, ValueError):
         pass
     new_id = str(uuid.uuid4())
     try:
@@ -240,7 +240,7 @@ def maybe_print_notice() -> None:
 def _stderr_tty() -> bool:
     try:
         return bool(sys.stderr.isatty())
-    except AttributeError, ValueError:
+    except (AttributeError, ValueError):
         return False
 
 

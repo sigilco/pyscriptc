@@ -114,7 +114,7 @@ class CommandPredicate(Predicate):
                 )
             except subprocess.TimeoutExpired:
                 return Verdict(False, "timeout")
-            except OSError, subprocess.SubprocessError:
+            except (OSError, subprocess.SubprocessError):
                 return Verdict(False, "command error")
         finally:
             path.unlink(missing_ok=True)

@@ -1450,7 +1450,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
                                 if isinstance(lv, int) and isinstance(rv, int) and rv >= 0:
                                     return _const_int(res, span)
                                 return _const_float(float(res), span)
-                            except OverflowError, ValueError:
+                            except (OverflowError, ValueError):
                                 pass
                     elif isinstance(node.op, (ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift)):
                         if isinstance(lv, int) and isinstance(rv, int):

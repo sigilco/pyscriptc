@@ -57,7 +57,7 @@ SIGNATURE = (
 def _git(*args: str) -> str:
     try:
         return subprocess.check_output(["git", *args], cwd=ROOT, text=True, stderr=subprocess.DEVNULL).strip()
-    except subprocess.CalledProcessError, FileNotFoundError:
+    except (subprocess.CalledProcessError, FileNotFoundError):
         return ""
 
 

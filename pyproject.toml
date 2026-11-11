@@ -3,7 +3,7 @@ name = "pyscriptc"
 version = "0.9.0"
 description = "Lower a typed subset of Python to LLVM, with CPython as the island."
 readme = "README.md"
-requires-python = ">=3.14"
+requires-python = ">=3.11"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
 authors = [{ name = "Joaquin Terrasa" }]
@@ -12,7 +12,11 @@ classifiers = [
     "Intended Audience :: Developers",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
     "Programming Language :: Python :: 3.14",
+    "Programming Language :: Python :: 3.15",
     "Topic :: Software Development :: Compilers",
 ]
 dependencies = [
@@ -87,7 +91,7 @@ markers = [
 ]
 
 [tool.ruff]
-target-version = "py314"
+target-version = "py311"
 line-length = 120
 src = ["src", "tests", "benchmarks"]
 extend-exclude = [
@@ -103,6 +107,19 @@ extend-exclude = [
     "src/pyscriptc/_pyright_stubs",
     "src/pyscriptc/_typeshed",
 ]
+
+[tool.ruff.per-file-target-version]
+# The frozen v2 scorer files keep their 3.12+ syntax (tag gates-v2; changes
+# need a recorded decision first), so they lint against their own floor
+# while the tool host stays 3.11+. The two that also carry unparenthesized
+# 3.14 except lists are out of the format check (same list as the
+# `ruff and compat2` job in ci.yml), because the py314 formatter would
+# un-parenthesize what the py311 lint tolerates only at py314.
+"benchmarks/compat2/bundle.py" = "py314"
+"benchmarks/compat2/cache.py" = "py314"
+"benchmarks/compat2/corpus/spec.py" = "py314"
+"benchmarks/compat2/coverage_map.py" = "py314"
+"benchmarks/compat2/score.py" = "py314"
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
@@ -130,3 +147,10 @@ known-first-party = ["pyscriptc"]
 
 [tool.ruff.format]
 quote-style = "double"
+# The frozen v2 files carry unparenthesized 3.14 except lists; the py314
+# formatter would un-parenthesize what the py311 lint only tolerates at
+# py314. Same list as the `ruff and compat2` job in ci.yml.
+exclude = [
+    "benchmarks/compat2/bundle.py",
+    "benchmarks/compat2/corpus/spec.py",
+]

@@ -502,6 +502,74 @@ jobs:
       # pytest-split shards by recorded durations (tests/.test_durations), xdist parallelises inside a shard.
       # Refresh with: uv run pytest -n 6 -m "not linux_container" --store-durations --durations-path tests/.test_durations
       - run: uv run pytest -q tests --ignore=tests/compat2 -m "not linux_container" -n auto --splits 3 --group ${{ matrix.group }} --durations-path tests/.test_durations
+  host-floor:
+    # The tool host may be CPython 3.11 through 3.15 while emission targets
+    # the declared 3.14 (docs/reference/divergences.md, the host-floor
+    # decision). This lane proves both halves on real hosts: the suite's
+    # floor tests parse the tree at the floor, the compiler runs on the
+    # host, and the emitted IR of a version-sensitive program is
+    # byte-identical to the 3.14 host's modulo the cpython stamp line (the
+    # stamp names the lowering interpreter by design; canonical.py strips
+    # it, so the IR hash gates are unaffected).
+    name: host floor (${{ matrix.python }})
+    runs-on: ubuntu-24.04
+    needs: changes
+    if: needs.changes.outputs.compiler == 'true'
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        python: ["3.11", "3.15"]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: ${{ matrix.python }}
+      - name: Install clang (the C toolchain these hosts may not carry)
+        run: |
+          set -euo pipefail
+          command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang; }
+      - run: uv sync --frozen
+      - name: The declared floor matches the tool and this host parses it
+        run: |
+          set -euo pipefail
+          uv run python -c "from pyscriptc.ir import HOST_FLOOR; assert HOST_FLOOR == '3.11', HOST_FLOOR"
+          uv run pytest -q tests/test_python_floor.py tests/test_target.py -m "not linux_container"
+      - name: A version-sensitive program compiles and matches the 3.14 host
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/floor
+          cat > /tmp/floor/zdi.py <<'PY'
+          def main() -> None:
+              x: int = 1
+              y: int = 0
+              try:
+                  x = x // y
+              except ZeroDivisionError as exc:
+                  print("caught:", exc)
+
+
+          if __name__ == "__main__":
+              main()
+          PY
+          uv run pyscriptc compile /tmp/floor/zdi.py --emit ir --skip-check -o /tmp/floor/zdi-this.ll
+          uv run pyscriptc compile /tmp/floor/zdi.py --emit bin --skip-check --driver zig -o /tmp/floor/zdi-bin
+          out="$(/tmp/floor/zdi-bin)"
+          echo "$out"
+          [ "$out" = "caught: division by zero" ]
+      - name: The emitted IR matches the 3.14 host modulo the stamp
+        run: |
+          set -euo pipefail
+          # The 3.14 reference IR is produced on this runner by the ruff and
+          # compat2 lane's interpreter; here a plain venv does it.
+          uv venv --python 3.14 /tmp/floor/refvenv
+          uv pip install --python /tmp/floor/refvenv/bin/python -e .
+          /tmp/floor/refvenv/bin/pyscriptc compile /tmp/floor/zdi.py --emit ir --skip-check -o /tmp/floor/zdi-ref.ll
+          # The only expected difference is the cpython stamp line.
+          diff <(grep -v '"cpython"' /tmp/floor/zdi-this.ll) \
+               <(grep -v '"cpython"' /tmp/floor/zdi-ref.ll)
   zig-smoke:
     # The real zig lane. The name carries the zig version, so it never
     # matches the required context `zig cc emitted-IR smoke` on its own:
@@ -736,6 +804,13 @@ jobs:
     needs: changes
     if: needs.changes.outputs.compiler == 'true'
     timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.14 is the reference host; 3.11 and 3.13 are the host-floor and
+        # the first-run-trap minors (a 3.11-3.13 pip resolver used to pick
+        # 0.4.1, which is fatally broken on those hosts).
+        python: ["3.14", "3.11", "3.13"]
     steps:
       - uses: actions/checkout@v5
 
@@ -743,7 +818,7 @@ jobs:
         with:
           version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
           enable-cache: true
-          python-version: "3.14"
+          python-version: ${{ matrix.python }}
 
       - name: Stamp PostHog token
         env:
@@ -760,7 +835,7 @@ jobs:
 
       - name: Fresh venv, install wheel, compile and run fixture
         env:
-          WORK: ${{ runner.temp }}/wheel-smoke
+          WORK: ${{ runner.temp }}/wheel-smoke-${{ matrix.python }}
           # The installed wheel is our own traffic and CI must stay silent
           # (env -i below strips CI; PYSC_INTERNAL passes through).
           PYSC_INTERNAL: "1"
@@ -768,7 +843,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$WORK"
           wheel="$(ls dist/pyscriptc-*-any.whl)"
-          uv venv "$WORK/venv"
+          uv venv --python ${{ matrix.python }} "$WORK/venv"
           uv pip install --python "$WORK/venv/bin/python" "$wheel"
           printf 'def main() -> None:\n    print("hello")\n' > "$WORK/hello.py"
           # Repo venv and pyrefly dirs are off PATH on purpose.

@@ -215,7 +215,7 @@ def probe() -> int:
     both: int = 0
     try:
         raise KeyError("k")
-    except ValueError, KeyError:
+    except (ValueError, KeyError):
         both = 1
     if both != 1:
         return 39

@@ -365,6 +365,14 @@ def test_self_census_ballpark() -> None:
     # Since refs #817 the fence pins live per module in tests/census_pins/
     # (regenerate with `uv run python scripts/repin_census.py`), so a PR that
     # moves fences in one module no longer conflicts with every other PR.
+    # The host-floor PR (#1200) adds two target-derivation helpers to
+    # stdmore.py, each with an `ast.Call` annotation like every method in the
+    # file: stdmore 32 -> 35. ir.py retires three fences with the floor-check
+    # rewrite (the version-parsing helpers are plain strings): ir 29 -> 26.
+    # The target-pinning of lower/_entry.py (_cmp_version reads
+    # TARGET_VERSION_INFO now), sigregistry.py and stubs.py moves one fence
+    # each: the added import carries the same dynamic-annotation row the
+    # replaced `sys.version_info` read did.
     # The total is asserted only as an upper bound against the pins ceiling.
     # The census labels packages with bare stems, so join them with the
     # discovered units to get fully qualified module names for the pins keys.

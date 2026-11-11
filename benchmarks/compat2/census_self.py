@@ -83,7 +83,7 @@ def _cached_census(src: Path, paths: list[Path], key: str) -> dict[str, Any] | N
     path = CACHE_DIR / f"census-self-{key}.json"
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except OSError, ValueError:
+    except (OSError, ValueError):
         return None
     if not isinstance(data, dict) or data.get("mode") != "parse-only":
         return None

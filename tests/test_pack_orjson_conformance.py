@@ -60,13 +60,18 @@ def _orjson_stdout() -> str:
     orjson = pytest.importorskip("orjson")
     dumps = orjson.dumps
     loads = orjson.loads
+    # The JSON payloads are spelled with explicit quotes so the f-strings
+    # below stay valid on the 3.11 floor (PEP 701 nested same-quote
+    # f-strings need 3.12).
+    str_payload = '{"a": 41}'
+    bytes_payload = b'{"a": 40}'
     lines = [
         "dumps_compact: " + dumps({"a": 1, "b": 2}).decode(),
         "dumps_sorted: " + dumps({"a": 1, "b": 2}, option=orjson.OPT_SORT_KEYS).decode(),
         "dumps_indent: " + dumps({"a": 1, "b": 2}, option=orjson.OPT_INDENT_2).decode(),
         "dumps_both_options: " + dumps({"a": 1, "b": 2}, option=orjson.OPT_SORT_KEYS | orjson.OPT_INDENT_2).decode(),
-        f"loads_str: {loads('{"a": 41}')['a']}",
-        f"loads_bytes: {loads(b'{"a": 40}')['a']}",
+        f"loads_str: {loads(str_payload)['a']}",
+        f"loads_bytes: {loads(bytes_payload)['a']}",
     ]
     document = {"k": [10, 20]}
     lines.append("round_trip: " + dumps(document).decode())

@@ -1,7 +1,10 @@
 """Closed surface for the rest of the stdlib queue, paths, io, and the island.
 
 Names that are not listed stay fences. Constants are read from the lowering
-interpreter so a baked `sys.platform` matches the CPython oracle on this host.
+interpreter so a baked `sys.platform` matches the CPython oracle on this host,
+except `sys.version`: the version string describes the target the program
+claims to be, not the machine that compiled it, so a 3.11-3.15 tool host
+bakes the target's answer.
 """
 
 from __future__ import annotations
@@ -1726,6 +1729,48 @@ def _ir_const(value: Any) -> tuple[Any, dict[str, Any]] | None:
     return None
 
 
+def _target_version() -> str:
+    """The CPython version the emitted program claims to be ('3.14.9').
+
+    The declared target lives in `src/pyscriptc/target.json`; the tool host
+    may be 3.11 through 3.15 and does not change the program's identity.
+    """
+    from pyscriptc.target import TARGET_CPYTHON
+
+    return TARGET_CPYTHON
+
+
+def _target_sys_version() -> str:
+    """The `sys.version` string the emitted program reports.
+
+    CPython's own string carries the build date and the compiler that built
+    the interpreter (`3.14.9 (main, Oct 21 2026, 17:47:42) [Clang 23.1.3 ]`),
+    which is a property of the interpreter build, not of the program. The
+    emitted program reports the target version with the same shape, so a
+    3.11 tool host and a 3.14 tool host bake the same constant and the
+    program matches the 3.14 oracle. The build stamp is not reproducible
+    outside the interpreter that built it, so it is dropped.
+    """
+    version = _target_version()
+    if sys.version.startswith(version):
+        return sys.version
+    return version
+
+
+def _target_sys_executable() -> str:
+    """The `sys.executable` the emitted program reports: the compiler host's.
+
+    Deliberately not target-pinned. The canonical form already classifies an
+    environment-derived absolute path as incidental (`<PATH>` scrub,
+    decision 2026-10-16), and the one place a program's own `sys.executable`
+    must agree with a real interpreter is the island (#688, #690), where the
+    runtime sets it from the running image, never from this constant. A
+    target-pinned path would dangle in the common case (a 3.11 host with no
+    3.14 interpreter installed) and is not an honest answer either.
+    """
+    return sys.executable
+
+
 def _load_constants() -> tuple[dict[tuple[str, str], tuple[Any, dict[str, Any]]], dict[str, int]]:
     import asyncio
     import ctypes
@@ -1742,8 +1787,8 @@ def _load_constants() -> tuple[dict[tuple[str, str], tuple[Any, dict[str, Any]]]
 
     raw: dict[tuple[str, str], Any] = {
         ("sys", "platform"): sys.platform,
-        ("sys", "version"): sys.version,
-        ("sys", "executable"): sys.executable,
+        ("sys", "version"): _target_sys_version(),
+        ("sys", "executable"): _target_sys_executable(),
         ("sys", "maxsize"): sys.maxsize,
         ("socket", "AF_INET"): int(socket.AF_INET),
         ("socket", "AF_INET6"): int(socket.AF_INET6),

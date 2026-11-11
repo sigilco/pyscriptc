@@ -75,30 +75,48 @@ def target_minor() -> str:
     return TARGET_MINOR
 
 
+HOST_FLOOR = "3.11"
+
+
+def running_version() -> str:
+    """The running interpreter's CPython version, no gate."""
+    return sys.version.split()[0]
+
+
+def running_minor() -> str:
+    """The running interpreter's CPython minor (`3.14`)."""
+    return ".".join(running_version().split(".")[:2])
+
+
 def cpython_version() -> str:
-    """The running interpreter's CPython version, checking minor equality against the declared target."""
-    running = sys.version.split()[0]
-    running_min = ".".join(running.split(".")[:2])
-    target_min = target_minor()
-    if running_min != target_min:
-        target = target_cpython()
-        raise VersionError(
-            f"this process is CPython {running}, declared target is {target}; pyscriptc requires CPython 3.14"
-        )
+    """The running interpreter's CPython version, checked against the host floor.
+
+    The tool host may be 3.11 through 3.15 (the floor lives in `pyproject.toml`
+    and CI proves it); the emitted program's semantics target `target.json`'s
+    CPython regardless of the host, so this is a floor check, not an equality
+    gate on the declared target.
+    """
+    running = running_version()
+    major, minor = (int(part) for part in running.split(".")[:2])
+    floor_major, floor_minor = (int(part) for part in HOST_FLOOR.split("."))
+    if (major, minor) < (floor_major, floor_minor):
+        raise VersionError(f"this process is CPython {running}; pyscriptc requires CPython {HOST_FLOOR} or later")
     return running
 
 
 def zdi_variants() -> dict[str, int]:
-    """The ps_raise_zdi variant numbers for the running interpreter's CPython.
+    """The ps_raise_zdi variant numbers for the target CPython.
 
     CPython 3.13 and earlier name the operation in a ZeroDivisionError
     ("integer division or modulo by zero"); 3.14 unified every division
     into "division by zero". The compiled binary has to agree with the
-    interpreter that oracles the same source, so the variant follows the
-    one that runs the compiler.
+    interpreter that oracles the same source, and that oracle is the pinned
+    target interpreter (`target.json`), not whichever interpreter happens to
+    run the compiler: a 3.11 host still emits a program whose
+    ZeroDivisionError wording matches the 3.14 oracle.
     """
 
-    major, minor = cpython_version().split(".")[:2]
+    major, minor = target_minor().split(".")[:2]
     if int(major) > 3 or (int(major) == 3 and int(minor) >= 14):
         return {"idiv": 7, "imod": 7, "fdiv": 7, "fmod": 7, "ffloordiv": 7, "fpow": 8}
     return {"idiv": 1, "imod": 2, "fdiv": 3, "fmod": 5, "ffloordiv": 4, "fpow": 6}
@@ -535,28 +553,26 @@ def _dotted_identifier(name: str) -> bool:
 
 
 def assert_same_cpython(module: dict[str, Any]) -> None:
-    """LLVM emission refuses an IR stamped by a different CPython minor than the declared target.
+    """LLVM emission refuses an IR stamped by a different CPython minor than the emitter runs.
 
-    Re-run the corpus on the target interpreter, then lower again. The stamp is
-    not a hint the backend may ignore.
+    The stamp records the interpreter that lowered the module and the emitter
+    derives semantics (error wording, layout constants) from the one it runs
+    in, so the two minors must agree. Re-lower on this interpreter instead of
+    mixing IR across hosts. Target semantics stay the declared 3.14 target:
+    `zdi_variants()` and the host-surface tables key off `target.json`, so a
+    3.11-3.15 tool host emits the same program text a 3.14 host would (the
+    corpus A/B on 3.11 and 3.15 proves it byte-identical modulo the stamp).
     """
 
     validate_module(module)
     running = cpython_version()
-    target = target_cpython()
-    target_min = target_minor()
     stamped = module["cpython"]
 
     stamped_min = ".".join(stamped.split(".")[:2])
     running_min = ".".join(running.split(".")[:2])
 
-    if stamped_min != target_min:
+    if stamped_min != running_min:
         raise VersionError(
-            f"IR was lowered on CPython {stamped}, declared target is {target}; "
-            "re-lower and re-run the corpus before emitting LLVM"
-        )
-    if running_min != target_min:
-        raise VersionError(
-            f"this process is CPython {running}, declared target is {target}; "
-            "re-lower and re-run the corpus before emitting LLVM"
+            f"IR was lowered on CPython {stamped}, but this process is CPython {running}; "
+            "re-lower on this interpreter before emitting LLVM"
         )
