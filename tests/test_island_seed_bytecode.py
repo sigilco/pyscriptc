@@ -55,7 +55,7 @@ def test_seed_carries_marshalled_bytecode_not_source(tmp_path: Path) -> None:
         prog,
         {
             "__main__.py": "from helper import twice\nprint(twice(4))\n",
-            "helper.py": "import shlex\n\n\ndef twice(x):\n    return x * len(shlex.split('a b'))\n",
+            "helper.py": "import keyword\n\n\ndef twice(x):\n    return x * len(keyword.kwlist)\n",
         },
     )
     ir = _compile_ir(tmp_path, prog)
@@ -81,8 +81,8 @@ def test_seed_index_covers_every_module_and_bodies_are_disjoint(tmp_path: Path) 
         prog,
         {
             "__main__.py": "import a\nimport b\nprint(a.v(), b.v())\n",
-            "a.py": "import shlex\n\n\ndef v():\n    return len(shlex.split('a b'))\n",
-            "b.py": "import shlex\n\n\ndef v():\n    return len(shlex.split('a b c'))\n",
+            "a.py": "import keyword\n\n\ndef v():\n    return keyword.iskeyword('a')\n",
+            "b.py": "import keyword\n\n\ndef v():\n    return keyword.iskeyword('if')\n",
         },
     )
     ir = _compile_ir(tmp_path, prog)
@@ -108,8 +108,8 @@ def test_seed_module_bodies_load_lazily(tmp_path: Path) -> None:
         prog,
         {
             "__main__.py": "import used\nprint(used.v())\n",
-            "used.py": "import shlex\n\n\ndef v():\n    return len(shlex.split('a b'))\n",
-            "unused.py": "import shlex\n\n\ndef v():\n    return len(shlex.split('a b c'))\n",
+            "used.py": "import keyword\n\n\ndef v():\n    return keyword.iskeyword('a')\n",
+            "unused.py": "import keyword\n\n\ndef v():\n    return keyword.iskeyword('if')\n",
         },
     )
     ir = _compile_ir(tmp_path, prog)
@@ -141,11 +141,11 @@ def test_seed_preserves_module_semantics(tmp_path: Path) -> None:
             ),
             "helper.py": (
                 "import os\n"
-                "import shlex\n"
+                "import keyword\n"
                 "print('helper body', __name__)\n"
                 "\n"
                 "def v():\n"
-                "    return os.path.basename(__file__) + str(len(shlex.split('a b')))\n"
+                "    return os.path.basename(__file__) + str(len(keyword.kwlist))\n"
             ),
         },
     )
@@ -175,7 +175,7 @@ def test_seed_traceback_names_the_compile_time_file(tmp_path: Path) -> None:
                 "    import traceback\n"
                 "    print(traceback.format_exc())\n"
             ),
-            "helper.py": "import shlex\n\n\ndef boom():\n    return 1 / 0\n",
+            "helper.py": "import keyword\n\n\ndef boom():\n    return 1 / 0\n",
         },
     )
     binary = tmp_path / "bin"
@@ -196,11 +196,11 @@ def test_seed_carries_no_module_source_in_the_binary(tmp_path: Path) -> None:
         prog,
         {
             "__main__.py": "import helper\nprint(helper.v())\n",
-            "helper.py": "import shlex\n\n\ndef v():\n    return shlex.split('a b')\n",
+            "helper.py": "import keyword\n\n\ndef v():\n    return len(keyword.kwlist)\n",
         },
     )
     binary = tmp_path / "bin"
     comp = _cli("compile", str(prog), "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path)
     assert comp.returncode == 0, comp.stderr
     blob = binary.read_bytes()
-    assert b"shlex.split('a b')" not in blob
+    assert b"keyword.kwlist" not in blob
