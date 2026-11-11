@@ -29,7 +29,7 @@ def _binascii_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> 
         if len(node.args) != 1:
             lo.fail(node, "PS2003", "binascii.hexlify expects 1 argument(s)")
         arg = lo._expr(node.args[0])
-        if arg["type"]["kind"] not in {"str", "bytes"}:
+        if arg["type"]["kind"] != "bytes":
             lo.fail(node, "PS1003", "binascii.hexlify argument is bytes")
         return lo._abi_call("binascii", "hexlify", [arg], {"kind": "bytes"}, "ps_bin_hexlify", span)
     lo.fail(node, "PS2001", f"binascii.{attr} is not in the lowered subset of binascii")
