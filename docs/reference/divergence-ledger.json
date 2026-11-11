@@ -930,7 +930,7 @@
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d55_uuid.py:2:7: PS2001: uuid.NAMESPACE_DNS is not in the lowered subset of uuid\n  print(uuid.NAMESPACE_DNS)\n        ^\n"
+        "stderr": "probes/divergences/d55_uuid.py:3:7: PS2001: uuid.NAMESPACE_DNS is not in the lowered subset of uuid\n  print(uuid.NAMESPACE_DNS)\n        ^\n"
       },
       "status": "fenced"
     },
@@ -950,7 +950,7 @@
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d56_binascii.py:2:7: PS2001: binascii.Error is not in the lowered subset of binascii\n  print(binascii.Error)\n        ^\n"
+        "stderr": "probes/divergences/d56_binascii.py:3:7: PS2001: binascii.Error is not in the lowered subset of binascii\n  print(binascii.Error)\n        ^\n"
       },
       "status": "fenced"
     },
@@ -970,7 +970,7 @@
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d57_shlex.py:2:7: PS2001: shlex.shlex is not in the lowered subset of shlex\n  print(shlex.shlex)\n        ^\n"
+        "stderr": "probes/divergences/d57_shlex.py:3:7: PS2001: shlex.shlex is not in the lowered subset of shlex\n  print(shlex.shlex)\n        ^\n"
       },
       "status": "fenced"
     },
@@ -983,14 +983,14 @@
       "cpython": {
         "stage": "run",
         "exit": 0,
-        "stdout": "<function token_urlsafe at 0x1039685c0>\n",
+        "stdout": "token_urlsafe\n",
         "stderr": ""
       },
       "pyscriptc": {
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d58_secrets.py:2:7: PS2001: secrets.token_urlsafe is not in the lowered subset of secrets\n  print(secrets.token_urlsafe)\n        ^\n"
+        "stderr": "probes/divergences/d58_secrets.py:3:7: PS2001: secrets.token_urlsafe.__name__ is not in the lowered subset of secrets\n  print(secrets.token_urlsafe.__name__)\n        ^\n"
       },
       "status": "fenced"
     },
