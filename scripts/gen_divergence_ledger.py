@@ -387,6 +387,12 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#54",
     ),
     _row(
+        "D55",
+        "heapq over a list of tuples fences: ordering comparisons on tuple values are not lowered",
+        "d55_heapq_tuple_elements.py",
+        docs=f"{DOC}#55",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

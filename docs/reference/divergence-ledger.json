@@ -915,6 +915,26 @@
       "status": "divergent"
     },
     {
+      "id": "D55",
+      "seam": "heapq over a list of tuples fences: ordering comparisons on tuple values are not lowered",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#55",
+      "probe": "probes/divergences/d55_heapq_tuple_elements.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "[(1, 2), (2, 1)]\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d55_heapq_tuple_elements.py:7:1: PS1003: heapq.heapify takes a list of int, float or str\n  heapq.heapify(xs)\n  ^\n"
+      },
+      "status": "fenced"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
