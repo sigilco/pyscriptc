@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 # boxed:begin
-from pyscriptc import embed, island_engine, onefile, runcache, sitedeps, stdlibzip
+from pyscriptc import embed, engine_gate, island_engine, onefile, runcache, sitedeps, stdlibzip
 
 # boxed:end
 from pyscriptc.cli._report import (
@@ -1681,6 +1681,55 @@ def _require_island_engine(args: argparse.Namespace) -> island_engine.EngineDesc
     # boxed:end
 
 
+# boxed:begin
+def _require_engine_level(
+    engine: island_engine.EngineDescriptor | None, source_path: Path
+) -> engine_gate.LanguageLevel | None:
+    """The engine's language level, with the gate applied to the program.
+
+    The level comes from the engine's capability manifest (its `manifest`
+    key, resolved against the descriptor's directory). A manifest that
+    fails to parse warns on stderr and leaves the gate open, the same
+    degradation the `imports` and `assess` consumers apply. With the gate
+    closed the sources are parsed at the compiler's level, exactly as
+    before.
+    """
+    if engine is None or engine.manifest is None:
+        return None
+    from pyscriptc import engine_manifest
+
+    manifest_path = Path(engine.manifest)
+    if not manifest_path.is_absolute() and engine.path is not None:
+        manifest_path = engine.path.parent / manifest_path
+    try:
+        manifest = engine_manifest.load_manifest_file(manifest_path)
+    except engine_manifest.ManifestError as exc:
+        print(f"warning: {exc}", file=sys.stderr)
+        return None
+    level = engine_gate.engine_level(engine, manifest)
+    if level is None:
+        return None
+    if source_path.is_file():
+        sources: list[Path] = [source_path]
+    elif source_path.is_dir():
+        sources = sorted(source_path.rglob("*.py"))
+    else:
+        return None
+    for path in sources:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        try:
+            engine_gate.check_source(text, level, path=path, filename=str(path))
+        except engine_gate.GateError as exc:
+            raise IRError(f"{exc.path}:{exc.line}: {exc.message}") from exc
+    return level
+
+
+# boxed:end
+
+
 def _load_ffi(args: argparse.Namespace, config: Config) -> list[FfiManifest]:
     """The `--ffi` manifests of this compile, CLI first then the config file.
 
@@ -1768,6 +1817,17 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     engine = _require_island_engine(args)
     if engine is not None:
         dbg.engine_info = engine.as_summary()
+    # boxed:begin
+    # The engine language gate (issue #668): an engine with a capability
+    # manifest declares the language level it implements (PyPy 3.11), and a
+    # program that uses syntax that level does not have is refused before
+    # lowering, with a coded diagnostic. The gate is closed only when an
+    # engine with a manifest was selected: the default path parses exactly
+    # as it always did.
+    engine_level = _require_engine_level(engine, source_path)
+    if engine_level is not None:
+        dbg.engine_level = engine_level.text
+    # boxed:end
     manifests = _load_ffi(args, config)
     log.info(
         "compile.start",
@@ -2228,6 +2288,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             engine_defines=(
                 island_engine.engine_defines(engine) if engine is not None and "ps_island_" in llvm_text else None
             ),
+            # boxed:begin
+            engine_pack=(
+                island_engine.engine_pack_name(engine) if engine is not None and "ps_island_" in llvm_text else None
+            ),
+            # boxed:end
         )
         dbg.end("link")
         await_check()
@@ -2305,6 +2370,18 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             outputs["bin"] = str(built)
             outputs["onefile"] = str(built)
             binary = built
+        # Issue #668: an engine runtime pack stages its own relocatable
+        # directory: the binary under `bin/`, the engine runtime under
+        # `lib/` (the shared library, the portable libraries it needs and
+        # the engine's stdlib tree), with the relative rpath pointing
+        # there. The stage is the engine's own (the CPython bundle's
+        # stdlib trim and site-packages staging do not apply to it).
+        if engine is not None and island_engine.uses_pack(engine) and "ps_island_" in llvm_text:
+            pypy_pack = embed.lock_pypy_pack()
+            pypy_directory = embed.ensure_pypy_pack(pypy_pack)
+            staged = embed.stage_pypy_bundle(binary, pypy_directory, pypy_pack.python, binary)
+            outputs["bin"] = str(staged)
+            binary = staged
         # boxed:end
         state["binary_bytes"] = binary.stat().st_size if binary.is_file() else None
         log.info("link.binary", output=str(binary), driver=args.driver, target=args.target)

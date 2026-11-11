@@ -74,6 +74,10 @@ class Debug:
     # summary, or None when no engine was requested. Typed (attribute
     # access, no literal IR-key reads); serialized with `EngineSummary.as_dict`.
     engine_info: EngineSummary | None
+    # The engine's language level (issue #668): the `major.minor` the
+    # engine's capability manifest declares, or None when no engine with
+    # a manifest was selected (the gate is then open).
+    engine_level: str | None
 
     def __init__(self, topics: set[str], debug_dir: Path | None) -> None:
         self.topics = topics
@@ -98,6 +102,7 @@ class Debug:
         self.binding_info: dict[str, Any] | None = None
         self.mir_plan = None
         self.engine_info = None
+        self.engine_level = None
 
     def set_binding(self, emitted: list[dict[str, Any]], skipped: list[tuple[str, str]]) -> None:
         self.binding_info = {
@@ -243,9 +248,10 @@ class Debug:
         if self.engine_info is not None and self.wants("stages"):
             info = self.engine_info
             caps = ",".join(info.capabilities) or "-"
+            level = f" level={self.engine_level}" if self.engine_level else ""
             lines.append(
                 f"[debug] island-engine: {info.name} {info.version} "
-                f"kind={info.kind} capabilities={caps} source={info.source}"
+                f"kind={info.kind} capabilities={caps} source={info.source}{level}"
             )
         return "\n".join(lines)
 
@@ -280,6 +286,8 @@ class Debug:
             res["mirAdapter"] = mir_records
         if self.engine_info is not None:
             res["islandEngine"] = self.engine_info.as_dict()
+            if self.engine_level is not None:
+                res["islandEngine"]["languageLevel"] = self.engine_level
         # boxed:begin
         if module is not None and _has(module, "fallback"):
             fallback: dict[str, Any] = module["fallback"]
