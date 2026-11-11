@@ -13,14 +13,15 @@ Window covered: `git log v0.9.0..master` - 61 commits at draft time (head
 #670, #672, #732, #829, #830). Add what merges before the cut; the minor bar
 needs 0 open milestone items.
 
-**Theme caveat for the owner:** the v0.10.0 milestone description still lists
-the async/event-loop (#177) and http.server (#227) themes, but those moved to
-Future/v0.11.0. What actually defines the release is embed-engine breadth plus
-stdlib/self-host gains - see the proposal below and decide.
+**Theme resolved 2026-11-11:** the v0.10.0 milestone description was rewritten
+to match what actually defines the release (embed-engine seam, stdlib/self-host
+breadth, the 3.11-3.15 host floor and the zig extra); the async/event-loop and
+http.server themes live in Future/v0.11.0. The owner adopted the framing
+below; tighten the wording at release time.
 
 ## Theme paragraph
 
-PLACEHOLDER - owner writes this. Proposal to react to:
+ADOPTED direction (owner, 2026-11-11) - polish before publishing:
 
 > v0.10.0 widens what compiles and runs without a Python install. More of the
 > stdlib lowers natively (bisect, the finite itertools names, os.symlink and
