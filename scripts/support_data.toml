@@ -496,6 +496,26 @@ ok = ['y: str = tempfile.gettempdir()', 'y: str = tempfile.mkdtemp()', 'with tem
 no = [["TemporaryDirectory, mkstemp with suffix/prefix/dir/text", 'y: str = tempfile.mkstemp(suffix=".txt")', "PS2003"]]
 
 [[stdlib]]
+names = ["uuid"]
+ok = ["y: str = uuid.uuid4()", "y: str = uuid.uuid1()", "y: str = uuid.uuid5(uuid.UUID('36dd619a-56dc-595b-9e09-37f4152c7b5d'), 'video')", "y: str = uuid.UUID('36dd619a-56dc-595b-9e09-37f4152c7b5d')", "y: str = uuid.uuid4().hex"]
+no = [[".int, .urn, .bytes and other names", "y: str = uuid.uuid4().int", "PS2001"], ["names outside the subset", "y: str = uuid.getnode()", "PS2001"]]
+
+[[stdlib]]
+names = ["binascii"]
+ok = ["y: bytes = binascii.unhexlify('deadbeef')", "y: bytes = binascii.hexlify(b)"]
+no = [["hexlify of str", "y: bytes = binascii.hexlify(s)", "PS1003"], ["names outside the subset", "y: bytes = binascii.a2b_base64(b)", "PS2001"]]
+
+[[stdlib]]
+names = ["shlex"]
+ok = ["y: list[str] = shlex.split(s)", "y: list[str] = shlex.split(s, comments=True)", "y: str = shlex.quote(s)", "y: str = shlex.join(ss)"]
+no = [["comments as a variable", "y: list[str] = shlex.split(s, comments=t)", "PS1003"], ["the shlex class and modes", "shlex.shlex(s)", "PS2001"]]
+
+[[stdlib]]
+names = ["secrets"]
+ok = ["y: str = secrets.token_hex(8)", "y: bytes = secrets.token_bytes(8)", "y: int = secrets.randbelow(100)"]
+no = [["the count as a variable", "y: str = secrets.token_hex(n)", "PS1003"], ["names outside the subset", "y: str = secrets.token_urlsafe(8)", "PS2001"]]
+
+[[stdlib]]
 names = ["atexit"]
 ok = ['pass']
 no = [["register of a function with arguments, unregister", 'atexit.unregister(n)', "PS2001"]]
