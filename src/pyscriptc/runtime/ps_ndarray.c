@@ -1220,7 +1220,7 @@ PsSeq *ps_nd_tolist(PsNd *a) {
         /* A bool cell is one byte: the sequence is byte wide, and the
            cells hold 0 or 1. */
         if (a->ndim <= 1) {
-            out = ps_seq_new(1, a->count);
+            out = ps_seq_new(1, 0);
             for (i = 0; i < a->count; i++) {
                 uint8_t v = ((const uint8_t *)a->data)[i] ? 1 : 0;
                 ps_seq_push(out, &v);
@@ -1231,9 +1231,9 @@ PsSeq *ps_nd_tolist(PsNd *a) {
             int64_t rows = a->shape[0];
             int64_t cols = a->shape[1];
             int64_t r;
-            out = ps_seq_new((int64_t)sizeof(PsSeq *), rows);
+            out = ps_seq_new((int64_t)sizeof(PsSeq *), 0);
             for (r = 0; r < rows; r++) {
-                PsSeq *row = ps_seq_new(1, cols);
+                PsSeq *row = ps_seq_new(1, 0);
                 for (i = 0; i < cols; i++) {
                     uint8_t v = ((const uint8_t *)a->data)[r * cols + i] ? 1 : 0;
                     ps_seq_push(row, &v);
@@ -1246,7 +1246,7 @@ PsSeq *ps_nd_tolist(PsNd *a) {
         return NULL;
     }
     if (a->ndim <= 1) {
-        out = ps_seq_new(8, a->count);
+        out = ps_seq_new(8, 0);
         for (i = 0; i < a->count; i++) {
             ps_nd_tolist_cell(out, a, i);
         }
@@ -1256,9 +1256,9 @@ PsSeq *ps_nd_tolist(PsNd *a) {
         int64_t rows = a->shape[0];
         int64_t cols = a->shape[1];
         int64_t r;
-        out = ps_seq_new((int64_t)sizeof(PsSeq *), rows);
+        out = ps_seq_new((int64_t)sizeof(PsSeq *), 0);
         for (r = 0; r < rows; r++) {
-            PsSeq *row = ps_seq_new(8, cols);
+            PsSeq *row = ps_seq_new(8, 0);
             for (i = 0; i < cols; i++) {
                 ps_nd_tolist_cell(row, a, r * cols + i);
             }
@@ -1354,7 +1354,7 @@ int64_t ps_nd_dtype(PsNd *a) { return a->dtype; }
 
 /* `shape`: the extents, as a list of ints. */
 PsSeq *ps_nd_shape(PsNd *a) {
-    PsSeq *out = ps_seq_new((int64_t)sizeof(int64_t), a->ndim);
+    PsSeq *out = ps_seq_new((int64_t)sizeof(int64_t), 0);
     int64_t i;
     for (i = 0; i < a->ndim; i++) {
         int64_t v = a->shape[i];

@@ -27,10 +27,20 @@ _DTYPE_NAMES = ["int32", "int64", "float32", "float64"]
 
 def _nd_dtype_of(typ: dict[str, Any]) -> str:
     """The dtype an ndarray IR type carries, read back from its label."""
+    return _label_parts(typ)[0]
+
+
+def _label_parts(typ: dict[str, Any]) -> tuple[str, int]:
     label = str(typ.get("label", ""))
-    if label.startswith("ndarray[") and label.endswith("]"):
-        return label[len("ndarray[") : -1]
-    return "float64"
+    if not (label.startswith("ndarray[") and label.endswith("]")):
+        return ("float64", 1)
+    body = label[len("ndarray[") : -1]
+    parts = body.split(",")
+    dtype = parts[0].strip() or "float64"
+    ndim = 1
+    if len(parts) > 1 and parts[1].strip().isdigit():
+        ndim = int(parts[1].strip())
+    return (dtype, ndim)
 
 
 def _nd_dtype_code(typ: dict[str, Any]) -> int:
@@ -76,9 +86,9 @@ class NdArrayMixin:
         if symbol == "ps_nd_from_seq":
             return self._nd_from_seq(expr, values)
         if symbol == "ps_nd_arange":
-            return self._nd_plain(symbol, values, ["i64", "double", "double", "double"])
+            return self._nd_arange(expr, values)
         if symbol == "ps_nd_linspace":
-            return self._nd_plain(symbol, values, ["i64", "double", "double", "i64"])
+            return self._nd_linspace(expr, values)
         if symbol in {"ps_nd_concatenate", "ps_nd_stack"}:
             return self._nd_plain(symbol, values, ["ptr", "ptr"])
         if symbol == "ps_nd_copy" or symbol == "ps_nd_ravel" or symbol == "ps_nd_transpose":
@@ -129,6 +139,34 @@ class NdArrayMixin:
         self._abi_decl(symbol, "ptr", params)
         return self._call_ret("ptr", symbol, rendered)
 
+    def _to_double(self, expr: dict[str, Any], index: int, value: str) -> str:
+        """One arg as a double: an int arg widens, a float arg passes."""
+        if expr["args"][index]["type"]["kind"] == "int":
+            reg = self.tmp()
+            self.line(f"{reg} = sitofp i64 {value} to double")
+            return reg
+        return value
+
+    def _nd_arange(self, expr: dict[str, Any], values: list[str]) -> str:
+        """`arange`: the range bounds ride as doubles, whatever the source
+        arguments' own numeric type."""
+        start = self._to_double(expr, 1, values[1])
+        stop = self._to_double(expr, 2, values[2])
+        step = self._to_double(expr, 3, values[3])
+        self._abi_decl("ps_nd_arange", "ptr", ["i64", "double", "double", "double"])
+        return self._call_ret(
+            "ptr", "ps_nd_arange", [f"i64 {values[0]}", f"double {start}", f"double {stop}", f"double {step}"]
+        )
+
+    def _nd_linspace(self, expr: dict[str, Any], values: list[str]) -> str:
+        """`linspace`: the bounds ride as doubles, the count as an int."""
+        start = self._to_double(expr, 1, values[1])
+        stop = self._to_double(expr, 2, values[2])
+        self._abi_decl("ps_nd_linspace", "ptr", ["i64", "double", "double", "i64"])
+        return self._call_ret(
+            "ptr", "ps_nd_linspace", [f"i64 {values[0]}", f"double {start}", f"double {stop}", f"i64 {values[3]}"]
+        )
+
     def _nd_shape_slot(self, values: list[str], ndim: int) -> str:
         """The shape extents as a stack slot the runtime reads."""
         slot = self._alloca(f"[{max(ndim, 1)} x i64]")
@@ -154,7 +192,8 @@ class NdArrayMixin:
         rendered = [f"i64 {values[0]}", f"i64 {values[1]}", f"ptr {slot}"]
         if symbol == "ps_nd_full":
             params.append("double")
-            rendered.append(f"double {values[2 + ndim]}")
+            fill = self._to_double(expr, len(values) - 1, values[-1])
+            rendered.append(f"double {fill}")
         self._abi_decl(symbol, "ptr", params)
         return self._call_ret("ptr", symbol, rendered)
 

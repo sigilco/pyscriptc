@@ -1363,11 +1363,13 @@ class ExprMixin(ExprCompareMixin):
         if _nd_is_ndarray(index["type"]):
             if _nd_dtype_of(index["type"]) != "bool":
                 self.fail(node, "PS1003", "an ndarray index is an int or a bool array")
+            # The boolean mask selects elements: the result is flat.
+            out = {"kind": "class", "name": "ndarray", "label": f"ndarray[{_nd_dtype_of(value['type'])},1]"}
             return self._abi_call(
                 "pyscriptc_ndarray",
                 "boolean_index",
                 [value, index],
-                value["type"],
+                out,
                 "ps_nd_boolean_index",
                 span,
             )

@@ -34,15 +34,38 @@ _DTYPES: dict[str, int] = {
 # round trip (`tirserde`) keeps the label and drops the extra key, so a dtype
 # in its own key would be lost between the lowering and the emitter, and a
 # float32 array would then arithmetic in float64.
-def _nd_type(dtype: str) -> dict[str, Any]:
-    return {"kind": "class", "name": "ndarray", "label": f"ndarray[{dtype}]"}
+def _nd_type(dtype: str, ndim: int = 1) -> dict[str, Any]:
+    """The IR type of an ndarray value.
+
+    The dtype and the rank ride in the type's `label` (`ndarray[float64,2]`),
+    not in extra keys: the dict IR round trip (`tirserde`) keeps the label
+    and drops the extra keys, so a dtype in its own key would be lost
+    between the lowering and the emitter, and a float32 array would then
+    arithmetic in float64."""
+    return {"kind": "class", "name": "ndarray", "label": f"ndarray[{dtype},{ndim}]"}
 
 
 def _dtype_of(typ: dict[str, Any]) -> str:
+    """The dtype an ndarray IR type carries, read back from its label."""
+    return _label_parts(typ)[0]
+
+
+def _ndim_of(typ: dict[str, Any]) -> int:
+    """The rank an ndarray IR type carries, read back from its label."""
+    return _label_parts(typ)[1]
+
+
+def _label_parts(typ: dict[str, Any]) -> tuple[str, int]:
     label = str(typ.get("label", ""))
-    if label.startswith("ndarray[") and label.endswith("]"):
-        return label[len("ndarray[") : -1]
-    return "float64"
+    if not (label.startswith("ndarray[") and label.endswith("]")):
+        return ("float64", 1)
+    body = label[len("ndarray[") : -1]
+    parts = body.split(",")
+    dtype = parts[0].strip() or "float64"
+    ndim = 1
+    if len(parts) > 1 and parts[1].strip().isdigit():
+        ndim = int(parts[1].strip())
+    return (dtype, ndim)
 
 
 def _is_nd(typ: dict[str, Any]) -> bool:
@@ -152,17 +175,20 @@ def _filled(lo: Any, node: ast.Call, span: dict[str, Any], what: str, value: flo
     # The arg count is the contract (the dtype, the ndim, then one arg per
     # extent), because the dict IR round trip keeps no extra key on the
     # call for the emitter to read the ndim off.
-    return lo._abi_call("pyscriptc_ndarray", what, call_args, _nd_type(dtype), f"ps_nd_{what}", span)
+    return lo._abi_call("pyscriptc_ndarray", what, call_args, _nd_type(dtype, ndim), f"ps_nd_{what}", span)
 
 
 def _full(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
-    """`full(shape..., value)`: the shape, then the fill value."""
+    """`full(shape..., value)`: the shape, then the fill value.
+
+    The dtype keyword is optional; without it the value decides, numpy's
+    rule: a Python int fills an int64 array, a Python float a float64 one."""
     if len(node.args) != 2:
         lo.fail(node, "PS2003", "pyscriptc_ndarray.full expects (shape, value)")
-    dtype = "float64"
+    dtype: str | None = None
     for keyword in node.keywords:
         if keyword.arg == "dtype":
-            dtype = _dtype_arg(lo, node, keyword.value, dtype)
+            dtype = _dtype_arg(lo, node, keyword.value, "float64")
         else:
             lo.fail(node, "PS2003", f"pyscriptc_ndarray.full keyword {keyword.arg} is not lowered")
     fill = lo._expr(node.args[1])
@@ -182,6 +208,8 @@ def _full(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     for dim in dims:
         if dim["type"]["kind"] != "int":
             lo.fail(node, "PS1003", "pyscriptc_ndarray.full shape is a list of ints")
+    if dtype is None:
+        dtype = "int64" if fill["type"]["kind"] == "int" else "float64"
     ndim = len(dims)
     call_args = [
         {"kind": "const", "value": str(_DTYPES[dtype]), "type": {"kind": "int"}, "span": span},
@@ -191,7 +219,7 @@ def _full(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     call_args.append(fill)
     # The arg count is the contract (the dtype, the ndim, one arg per
     # extent, then the fill value); see `_filled`.
-    return lo._abi_call("pyscriptc_ndarray", "full", call_args, _nd_type(dtype), "ps_nd_full", span)
+    return lo._abi_call("pyscriptc_ndarray", "full", call_args, _nd_type(dtype, ndim), "ps_nd_full", span)
 
 
 def _arange(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -288,7 +316,7 @@ def _pair(lo: Any, node: ast.Call, span: dict[str, Any], what: str, symbol: str)
         lo.fail(node, "PS1003", f"pyscriptc_ndarray.{what} arguments are arrays")
     if _dtype_of(left["type"]) != _dtype_of(right["type"]):
         lo.fail(node, "PS1003", f"pyscriptc_ndarray.{what} arrays have different dtypes")
-    out = left["type"] if what == "concatenate" else _nd_type(_dtype_of(left["type"]))
+    out = left["type"] if what == "concatenate" else _nd_type(_dtype_of(left["type"]), _ndim_of(left["type"]) + 1)
     return lo._abi_call("pyscriptc_ndarray", what, [left, right], out, symbol, span)
 
 
@@ -302,7 +330,7 @@ def _pair_direct(lo: Any, node: ast.Call, span: dict[str, Any], what: str, symbo
         lo.fail(node, "PS1003", f"pyscriptc_ndarray.{what} arguments are arrays")
     if _dtype_of(left["type"]) != _dtype_of(right["type"]):
         lo.fail(node, "PS1003", f"pyscriptc_ndarray.{what} arrays have different dtypes")
-    out = left["type"] if what == "concatenate" else _nd_type(_dtype_of(left["type"]))
+    out = left["type"] if what == "concatenate" else _nd_type(_dtype_of(left["type"]), _ndim_of(left["type"]) + 1)
     return lo._abi_call("pyscriptc_ndarray", what, [left, right], out, symbol, span)
 
 
@@ -359,10 +387,14 @@ def _method(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any],
     if attr == "copy":
         return lo._abi_call("pyscriptc_ndarray", "copy", [recv], recv["type"], "ps_nd_copy", span)
     if attr == "ravel":
-        out = _nd_type(dtype)
+        out = _nd_type(dtype, 1)
         return lo._abi_call("pyscriptc_ndarray", "ravel", [recv], out, "ps_nd_ravel", span)
     if attr == "transpose":
-        return lo._abi_call("pyscriptc_ndarray", "transpose", [recv], recv["type"], "ps_nd_transpose", span)
+        # The transpose is lowered for a 1-D or a 2-D array; the rank is
+        # unchanged.
+        return lo._abi_call(
+            "pyscriptc_ndarray", "transpose", [recv], _nd_type(dtype, _ndim_of(recv["type"])), "ps_nd_transpose", span
+        )
     if attr == "reshape":
         return _reshape(lo, node, span, recv, dtype)
     if attr == "astype":
@@ -433,8 +465,9 @@ def _reshape(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any]
             lo.fail(node, "PS1003", "pyscriptc_ndarray.reshape shape is a list of ints")
     args = [recv, {"kind": "const", "value": str(len(dims)), "type": {"kind": "int"}, "span": span}, *dims]
     # The arg count is the contract (the array, the ndim, one arg per
-    # extent); see `_filled`.
-    return lo._abi_call("pyscriptc_ndarray", "reshape", args, recv["type"], "ps_nd_reshape", span)
+    # extent); see `_filled`. The result's rank is the new one.
+    out = _nd_type(dtype, len(dims))
+    return lo._abi_call("pyscriptc_ndarray", "reshape", args, out, "ps_nd_reshape", span)
 
 
 def _astype(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any]) -> dict[str, Any]:
@@ -459,7 +492,7 @@ def _tolist(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any],
     else:
         elem = {"kind": "float"}
     out: dict[str, Any]
-    if recv["type"].get("ndim", 1) <= 1:
+    if _ndim_of(recv["type"]) <= 1:
         out = {"kind": "list", "elem": elem}
     else:
         out = {"kind": "list", "elem": {"kind": "list", "elem": elem}}
