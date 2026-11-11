@@ -22,6 +22,7 @@ from pyscriptc.emit._ir import _items, _name_list, _opt_module_fallback, _opt_st
 from pyscriptc.emit.llvm._abi import AbiMixin
 from pyscriptc.emit.llvm._calls import CallsMixin
 from pyscriptc.emit.llvm._core import CoreMixin
+from pyscriptc.emit.llvm._ndarray import NdArrayMixin
 from pyscriptc.emit.llvm._exprs import ExprsMixin
 from pyscriptc.emit.llvm._funcs import FuncsMixin
 from pyscriptc.emit.llvm._print import PrintMixin
@@ -55,6 +56,7 @@ class Emitter(
     CoreMixin,
     ExprsMixin,
     FuncsMixin,
+    NdArrayMixin,
     PrintMixin,
     StdlibMixin,
     StmtsMixin,

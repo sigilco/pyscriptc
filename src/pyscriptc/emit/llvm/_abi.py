@@ -740,6 +740,9 @@ class AbiMixin(EmitterBase):
                     "AsyncSemaphore",
                     "AsyncQueue",
                     "ThreadCall",
+                    # The ndarray carrier (issue #496): the value is the
+                    # pointer to the runtime's record, not a class layout.
+                    "ndarray",
                 }
                 or symbol.startswith("ps_ffi_")
                 # boxed:begin

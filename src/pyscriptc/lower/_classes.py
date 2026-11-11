@@ -1277,6 +1277,30 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
         self.fail(node, "PS2004", f"{op.__name__} on {left_name} and {right_name} is not lowered")
         raise AssertionError("unreachable")
 
+    def _ndarray_attr(
+        self, obj: dict[str, Any], name: str, span: dict[str, Any], node: ast.AST
+    ) -> dict[str, Any]:
+        """The ndarray attribute surface (issue #496): the metadata reads
+        call the runtime, and any other name fences by name."""
+        if name == "ndim":
+            return self._abi_call("pyscriptc_ndarray", "ndim", [obj], {"kind": "int"}, "ps_nd_ndim", span)
+        if name == "size":
+            return self._abi_call("pyscriptc_ndarray", "size", [obj], {"kind": "int"}, "ps_nd_size", span)
+        if name == "nbytes":
+            return self._abi_call("pyscriptc_ndarray", "nbytes", [obj], {"kind": "int"}, "ps_nd_nbytes", span)
+        if name == "dtype":
+            return self._abi_call("pyscriptc_ndarray", "dtype", [obj], {"kind": "str"}, "ps_nd_dtype", span)
+        if name == "shape":
+            return self._abi_call(
+                "pyscriptc_ndarray", "shape", [obj], {"kind": "list", "elem": {"kind": "int"}}, "ps_nd_shape", span
+            )
+        self.fail(
+            node,
+            "PS2001",
+            f"pyscriptc_ndarray.{name} is not in the lowered subset of pyscriptc_ndarray",
+        )
+        raise AssertionError("unreachable")
+
     def _lookup_attr(
         self,
         obj: dict[str, Any],
@@ -1309,6 +1333,10 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
             # An opaque handle has no fields: it is a bare pointer at the
             # ABI, and reading a field would be a wild access (issue #224).
             self.fail(node, "PS4015", f"{class_name} is an opaque ffi handle and has no attributes")
+        if class_name == "ndarray" and not obj["type"].get("handle"):
+            # The ndarray attribute surface (issue #496): the metadata reads
+            # call the runtime; any other name fences.
+            return self._ndarray_attr(obj, name, span, node)
         if class_name == "Semaphore" and name == "_value":
             return self._abi_call("threading", "Semaphore._value", [obj], _leaf_type("int"), "ps_sem_value", span)
         if class_name == "AsyncSemaphore" and name == "_value":

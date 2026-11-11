@@ -1214,6 +1214,7 @@ ALWAYS_CLASSES: tuple[str, ...] = ("TextIO", "BytesIO")
 
 
 MODULE_CLASSES: dict[str, tuple[str, ...]] = {
+    "pyscriptc_ndarray": ("ndarray",),
     "datetime": ("Date", "DateTime", "Time", "TimeDelta"),
     "time": ("StructTime",),
     "pathlib": ("Path", "Stat"),
@@ -1233,6 +1234,9 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
 }
 
 CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
+    # The ndarray carrier (issue #496): the value is the pointer to the
+    # runtime's record, so the class has no fields.
+    "ndarray": [],
     "Date": _plain_fields("year", "month", "day"),
     "DateTime": _plain_fields("year", "month", "day", "hour", "minute", "second", "microsecond"),
     "Time": _plain_fields("hour", "minute", "second", "microsecond"),
@@ -1352,6 +1356,7 @@ ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSema
 PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser"}
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
+    ("pyscriptc_ndarray", "ndarray"): "ndarray",
     ("datetime", "date"): "Date",
     ("datetime", "datetime"): "DateTime",
     ("datetime", "time"): "Time",
@@ -1703,6 +1708,7 @@ REST_MODULES = frozenset(
         "urllib.request",
         "jwt",
         "orjson",
+        "pyscriptc_ndarray",
         "queue",
         "platform",
         "calendar",
@@ -1979,6 +1985,17 @@ def member_callable(module: str, member: str) -> bool:
     if module == "jwt" and member in {"encode", "decode"}:
         return True
     if module == "orjson" and member in {"dumps", "loads"}:
+        return True
+    if module == "pyscriptc_ndarray" and member in {
+        "array",
+        "zeros",
+        "ones",
+        "full",
+        "arange",
+        "linspace",
+        "concatenate",
+        "stack",
+    }:
         return True
     if module == "copy" and member in {"copy", "deepcopy"}:
         return True
