@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-11",
-  "commit": "b5e8c30065e05078c14f23487e8bbc8b3c7ba335",
+  "commit": "7e098f561e9959e8d946ca0bac88d1ee2fd52015",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -763,7 +763,7 @@
       "version": "0.4.6",
       "status": "\ud83d\udd34",
       "ratio": "43/77",
-      "blocking": "param-inference (29), construct-other (17), name-resolution (8)",
+      "blocking": "param-inference (29), construct-other (13), name-resolution (8)",
       "codes": "PS2002, PS1001, PS2003"
     },
     {
@@ -771,7 +771,7 @@
       "version": "1.2.4",
       "status": "\ud83d\udd34",
       "ratio": "42/75",
-      "blocking": "unlowered-call (25), construct-other (18), name-resolution (17)",
+      "blocking": "unlowered-call (25), name-resolution (17), construct-other (17)",
       "codes": "PS2002, PS1106, PS1001"
     },
     {
@@ -859,7 +859,7 @@
       "version": "2026.5",
       "status": "\ud83d\udfe1",
       "ratio": "32/102",
-      "blocking": "param-inference (16), return-inference (2), construct-other (2)",
+      "blocking": "param-inference (16), return-inference (2), stdlib:datetime (2)",
       "codes": "PS2002, PS1001, PS2001"
     },
     {

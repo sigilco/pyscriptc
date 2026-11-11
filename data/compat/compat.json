@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-11",
-  "commit": "066de1d0e5df88beaf46612b9e47108ab5b41d7e",
+  "commit": "7e098f561e9959e8d946ca0bac88d1ee2fd52015",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2626
+    "fences": 2620
   },
   "builtins": [
     {
@@ -1438,7 +1438,7 @@
         },
         {
           "family": "construct-other",
-          "count": 17
+          "count": 13
         },
         {
           "family": "name-resolution",
@@ -1475,11 +1475,11 @@
           "count": 25
         },
         {
-          "family": "construct-other",
-          "count": 18
+          "family": "name-resolution",
+          "count": 17
         },
         {
-          "family": "name-resolution",
+          "family": "construct-other",
           "count": 17
         }
       ],
@@ -1504,7 +1504,7 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "fences": 672,
+      "fences": 670,
       "definitions": 641,
       "fenced_definitions": 233,
       "top_families": [
@@ -1524,7 +1524,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 402
+          "count": 400
         },
         {
           "code": "PS2001",
@@ -1770,7 +1770,7 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "partial",
-      "fences": 549,
+      "fences": 546,
       "definitions": 558,
       "fenced_definitions": 275,
       "top_families": [
@@ -1790,7 +1790,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 215
+          "count": 212
         },
         {
           "code": "PS1106",
@@ -1897,7 +1897,7 @@
           "count": 2
         },
         {
-          "family": "construct-other",
+          "family": "stdlib:datetime",
           "count": 2
         }
       ],
@@ -1922,7 +1922,7 @@
       "import_name": "shellingham",
       "version": "1.5.4",
       "status": "none",
-      "fences": 47,
+      "fences": 46,
       "definitions": 25,
       "fenced_definitions": 19,
       "top_families": [
@@ -1942,7 +1942,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 28
+          "count": 27
         },
         {
           "code": "PS1001",
@@ -2189,7 +2189,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1294,
+      "count": 1288,
       "packages": 16
     },
     {
@@ -2307,12 +2307,12 @@
     },
     {
       "date": "2026-11-11",
-      "commit": "066de1d0e5df88beaf46612b9e47108ab5b41d7e",
+      "commit": "7e098f561e9959e8d946ca0bac88d1ee2fd52015",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2626
+      "fences": 2620
     }
   ]
 }
