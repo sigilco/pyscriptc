@@ -18,10 +18,9 @@ import math
 from pathlib import Path
 
 import pytest
+from tests.test_gates import compile_run, write_case
 
 from pyscriptc.lower import lower_source
-
-from tests.test_gates import compile_run, write_case
 
 
 def _run(tmp_path: Path, name: str, source: str) -> str:
@@ -204,7 +203,7 @@ def test_reductions_match_cpython(tmp_path: Path) -> None:
                 "def run() -> int:",
                 "    a = np.array('float64', [1.0, 2.0, 3.0, 4.0])",
                 "    print(a.sum(), a.min(), a.max(), a.mean(), a.argmin(), a.argmax())",
-                f'    print(f"{{a.std():.12f}} {{a.var():.12f}}")',
+                '    print(f"{a.std():.12f} {a.var():.12f}")',
                 "    i = np.array('int64', [3, 1, 2])",
                 "    print(i.sum(), i.min(), i.max())",
                 "    m = np.array('float64', [1.0, 2.0, 3.0, 4.0]).reshape([2, 2])",
@@ -218,11 +217,7 @@ def test_reductions_match_cpython(tmp_path: Path) -> None:
     mean = sum(vals) / 4
     var = sum((v - mean) ** 2 for v in vals) / 4
     assert got == (
-        "10.0 1.0 4.0 2.5 0 3\n"
-        f"{math.sqrt(var):.12f} {var:.12f}\n"
-        "6 1 3\n"
-        "[4.0, 6.0] [3.0, 7.0]\n"
-        "[1.5, 3.5] [3.0, 4.0]\n"
+        f"10.0 1.0 4.0 2.5 0 3\n{math.sqrt(var):.12f} {var:.12f}\n6 1 3\n[4.0, 6.0] [3.0, 7.0]\n[1.5, 3.5] [3.0, 4.0]\n"
     )
 
 
@@ -354,8 +349,16 @@ def test_concatenate_and_stack(tmp_path: Path) -> None:
 
 def test_fences_name_the_module() -> None:
     cases = [
-        ("import pyscriptc_ndarray as np\n\n\ndef run() -> int:\n    return np.dot(1, 2)", "PS2001", "pyscriptc_ndarray.dot"),
-        ("import pyscriptc_ndarray as np\n\n\ndef run() -> int:\n    return np.linalg.norm(1)", "PS2001", "pyscriptc_ndarray.linalg"),
+        (
+            "import pyscriptc_ndarray as np\n\n\ndef run() -> int:\n    return np.dot(1, 2)",
+            "PS2001",
+            "pyscriptc_ndarray.dot",
+        ),
+        (
+            "import pyscriptc_ndarray as np\n\n\ndef run() -> int:\n    return np.linalg.norm(1)",
+            "PS2001",
+            "pyscriptc_ndarray.linalg",
+        ),
         (
             "import pyscriptc_ndarray as np\n\n\ndef run() -> int:\n    a = np.zeros([2])\n    return a.argmax()\n",
             None,
@@ -426,7 +429,7 @@ def test_fixture_matches_numpy_values(tmp_path: Path) -> None:
                 "    print((a / 2).tolist())",
                 "    print((a > 2).tolist())",
                 "    print(a.sum(), a.min(), a.max(), a.mean(), a.argmax())",
-                f'    print(f"{{a.std():.12f}} {{a.var():.12f}}")',
+                '    print(f"{a.std():.12f} {a.var():.12f}")',
                 "    print(a.reshape([2, 2]).tolist())",
                 "    print(a.reshape([2, 2]).transpose().tolist())",
                 "    print(a[a > 2].tolist())",
@@ -435,8 +438,6 @@ def test_fixture_matches_numpy_values(tmp_path: Path) -> None:
             ]
         ),
     )
-    vals = [1.0, 2.0, 3.0, 4.0]
-    mean = 2.5
     var = float(numpy.var(a))
     expect = (
         f"{[float(v) for v in a.tolist()]}\n".replace("[", "[").replace("]", "]")
