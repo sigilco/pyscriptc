@@ -6,14 +6,18 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc._irnode import Handler, IrNode
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.emit._ir import (
     _field_type,
+    _has,
     _items,
     _llvm_field_type,
+    _maybe_node_kind,
+    _node_id,
+    _node_target,
     _opt_excslot,
     _opt_node_code,
+    _opt_str,
     _opt_str_or_none,
     _span_of,
     _type_of,
@@ -619,93 +623,39 @@ def _used_names(body: list[dict[str, Any]]) -> set[str]:
     the result with the slots that exist.
     """
     names: set[str] = set()
-    stack: list[Any] = [dict_to_node(item) for item in body]
+    stack: list[Any] = list(body)
     while stack:
-        item: Any = stack.pop()
-        if isinstance(item, list):
-            stack.extend(item)
+        node = stack.pop()
+        if isinstance(node, list):
+            stack.extend(node)
             continue
-        if isinstance(item, dict):
-            # A dict that the converter answers whole (the escape-hatch call
-            # dicts: json_flags, print's sep/end) or refuses (a span or type
-            # spelling): walk its children so the names they read still pack.
-            try:
-                converted: Any = dict_to_node(item)
-            except TypeError:
-                converted = item
-            if isinstance(converted, dict):
-                stack.extend(value for value in converted.values() if isinstance(value, (dict, list)))
-                continue
-            node: Any = converted
-        else:
-            node: Any = item
-        if isinstance(item, Handler):
-            # An except handler record has no `kind`: walk its body (the
-            # names it reads must travel in the try outline's env array)
-            # and keep its excslot: it stores the bound record before the
-            # body emits beside the try's callsite, so the slot must be
-            # packed even when no statement names it (#530).
-            if item.excslot:
-                names.add(item.excslot)
-            stack.extend(item.body)
+        if not isinstance(node, dict):
             continue
-        if not hasattr(node, "kind"):
-            continue
-        kind: str = node.kind
+        kind = _maybe_node_kind(node)
         if kind == "name":
-            names.add(node.id)
+            names.add(_node_id(node))
             continue
         if kind == "assign":
-            names.add(node.target)
+            names.add(_node_target(node))
         elif kind in {"annassign", "augassign"}:
-            names.add(node.target)
+            names.add(_node_target(node))
         elif kind == "for":
-            names.add(node.target)
+            names.add(_opt_str(node, "target"))
         elif kind == "with":
-            names.add(node.target)
+            names.add(_opt_str(node, "target"))
         elif kind == "excslot":
-            names.add(node.id)
-        elif node.handlers is not None:
+            names.add(node)
+        elif kind is None and _has(node, "excslot"):
             # An except handler: its excslot stores the bound record before
             # the body emits beside the try's callsite, so the slot must be
             # packed even when no statement names it (#530).
-            for handler in node.handlers:
-                if handler.excslot:
-                    names.add(handler.excslot)
-        for value in (
-            node.span,
-            node.type,
-            node.value,
-            node.object,
-            node.callee,
-            node.args,
-            node.env,
-            node.stub,
-            node.thread_stub,
-            node.thread,
-            node.operand,
-            node.left,
-            node.right,
-            node.hay,
-            node.needle,
-            node.elems,
-            node.pairs,
-            node.index,
-            node.cond,
-            node.then,
-            node.else_,
-            node.body,
-            node.orelse,
-            node.finalbody,
-            node.handlers,
-            node.expr,
-            node.message,
-            node.cause,
-            node.target_node,
-        ):
-            if value is None:
+            slot = _opt_excslot(node)
+            if slot is not None:
+                names.add(slot)
+        for key, value in node.items():
+            if key in {"target", "id", "excslot"} and isinstance(value, str):
                 continue
-            if isinstance(value, (IrNode, list)):
+            if isinstance(value, (dict, list)):
                 stack.append(value)
     names.discard("")
     return names
