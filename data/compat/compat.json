@@ -1,12 +1,25 @@
 {
-  "schema": "1",
+  "schema": "2",
   "generated": "2026-11-11",
-  "commit": "d0d2f78d839118e8825c86b9695a73a323b5ef66",
+  "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
     "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
     "score": ""
+  },
+  "channel": {
+    "released": "0.9.0",
+    "install_released": "uv tool install pyscriptc",
+    "install_master": "uv pip install git+https://github.com/sigilco/pyscriptc"
+  },
+  "island": {
+    "measured": 18,
+    "packages": 18,
+    "runs": 18,
+    "date": "2026-11-11",
+    "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
+    "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
     "builtins_full": 3,
@@ -1487,6 +1500,14 @@
       "import_name": "certifi",
       "version": "2026.7.22",
       "status": "full",
+      "island": "runs",
+      "plane": {
+        "definitions": 5,
+        "native": 5,
+        "island": 0,
+        "blocked": 0
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 0,
       "definitions": 5,
       "fenced_definitions": 0,
@@ -1499,6 +1520,14 @@
       "import_name": "colorama",
       "version": "0.4.6",
       "status": "none",
+      "island": "runs",
+      "plane": {
+        "definitions": 77,
+        "native": 31,
+        "island": 0,
+        "blocked": 46
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 82,
       "definitions": 77,
       "fenced_definitions": 42,
@@ -1537,6 +1566,14 @@
       "import_name": "dotenv",
       "version": "1.2.4",
       "status": "none",
+      "island": "runs",
+      "plane": {
+        "definitions": 75,
+        "native": 29,
+        "island": 0,
+        "blocked": 46
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 114,
       "definitions": 75,
       "fenced_definitions": 42,
@@ -1575,6 +1612,14 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
+      "island": "runs",
+      "plane": {
+        "definitions": 641,
+        "native": 387,
+        "island": 4,
+        "blocked": 250
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 664,
       "definitions": 641,
       "fenced_definitions": 233,
@@ -1613,6 +1658,14 @@
       "import_name": "h11",
       "version": "0.16.0",
       "status": "none",
+      "island": "runs",
+      "plane": {
+        "definitions": 133,
+        "native": 50,
+        "island": 17,
+        "blocked": 66
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 190,
       "definitions": 133,
       "fenced_definitions": 74,
@@ -1651,6 +1704,14 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
+      "island": "runs",
+      "plane": {
+        "definitions": 56,
+        "native": 18,
+        "island": 0,
+        "blocked": 38
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 106,
       "definitions": 56,
       "fenced_definitions": 37,
@@ -1689,6 +1750,14 @@
       "import_name": "iniconfig",
       "version": "2.3.1",
       "status": "partial",
+      "island": "runs",
+      "plane": {
+        "definitions": 34,
+        "native": 19,
+        "island": 0,
+        "blocked": 15
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 29,
       "definitions": 34,
       "fenced_definitions": 13,
@@ -1727,6 +1796,14 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
+      "island": "runs",
+      "plane": {
+        "definitions": 200,
+        "native": 83,
+        "island": 1,
+        "blocked": 116
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 119,
       "definitions": 200,
       "fenced_definitions": 109,
@@ -1765,6 +1842,14 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
+      "island": "runs",
+      "plane": {
+        "definitions": 171,
+        "native": 113,
+        "island": 0,
+        "blocked": 58
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 104,
       "definitions": 171,
       "fenced_definitions": 51,
@@ -1803,6 +1888,14 @@
       "import_name": "mdurl",
       "version": "0.1.2",
       "status": "partial",
+      "island": "runs",
+      "plane": {
+        "definitions": 12,
+        "native": 5,
+        "island": 0,
+        "blocked": 7
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 22,
       "definitions": 12,
       "fenced_definitions": 6,
@@ -1841,6 +1934,14 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "partial",
+      "island": "runs",
+      "plane": {
+        "definitions": 558,
+        "native": 276,
+        "island": 0,
+        "blocked": 282
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 535,
       "definitions": 558,
       "fenced_definitions": 269,
@@ -1879,6 +1980,14 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
+      "island": "runs",
+      "plane": {
+        "definitions": 132,
+        "native": 46,
+        "island": 0,
+        "blocked": 86
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 194,
       "definitions": 132,
       "fenced_definitions": 77,
@@ -1917,6 +2026,14 @@
       "import_name": "platformdirs",
       "version": "4.13.0",
       "status": "partial",
+      "island": "runs",
+      "plane": {
+        "definitions": 388,
+        "native": 226,
+        "island": 0,
+        "blocked": 162
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 257,
       "definitions": 388,
       "fenced_definitions": 154,
@@ -1955,6 +2072,14 @@
       "import_name": "pytz",
       "version": "2026.5",
       "status": "partial",
+      "island": "runs",
+      "plane": {
+        "definitions": 102,
+        "native": 70,
+        "island": 0,
+        "blocked": 32
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 52,
       "definitions": 102,
       "fenced_definitions": 32,
@@ -1993,6 +2118,14 @@
       "import_name": "shellingham",
       "version": "1.5.4",
       "status": "none",
+      "island": "runs",
+      "plane": {
+        "definitions": 25,
+        "native": 6,
+        "island": 0,
+        "blocked": 19
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 46,
       "definitions": 25,
       "fenced_definitions": 19,
@@ -2031,6 +2164,14 @@
       "import_name": "trove_classifiers",
       "version": "2026.9.21.13",
       "status": "partial",
+      "island": "runs",
+      "plane": {
+        "definitions": 0,
+        "native": 0,
+        "island": 0,
+        "blocked": 0
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 1,
       "definitions": 0,
       "fenced_definitions": 0,
@@ -2053,6 +2194,14 @@
       "import_name": "tzdata",
       "version": "2026.5",
       "status": "full",
+      "island": "runs",
+      "plane": {
+        "definitions": 0,
+        "native": 0,
+        "island": 0,
+        "blocked": 0
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 0,
       "definitions": 0,
       "fenced_definitions": 0,
@@ -2065,6 +2214,14 @@
       "import_name": "zipp",
       "version": "4.1.1",
       "status": "none",
+      "island": "runs",
+      "plane": {
+        "definitions": 75,
+        "native": 16,
+        "island": 0,
+        "blocked": 59
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 70,
       "definitions": 75,
       "fenced_definitions": 57,
@@ -2378,7 +2535,7 @@
     },
     {
       "date": "2026-11-11",
-      "commit": "d0d2f78d839118e8825c86b9695a73a323b5ef66",
+      "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

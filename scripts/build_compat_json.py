@@ -163,7 +163,7 @@ def _project_version() -> str:
     try:
         data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
         return str(data["project"]["version"])
-    except OSError, KeyError, tomllib.TOMLDecodeError:
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
         return ""
 
 
