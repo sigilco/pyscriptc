@@ -438,6 +438,13 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#62",
     ),
     _row(
+||||||| parent of b6c70431 (test(random): seeded CPython-parity rows, divergence 63, census and support data (#494))
+        "D63",
+        "the random subset is a CPython-compatible Mersenne Twister; the Random class and rarer draws are refused",
+        "d63_random.py",
+        docs=f"{DOC}#63",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
