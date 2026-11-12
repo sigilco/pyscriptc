@@ -411,6 +411,14 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#58",
     ),
     _row(
+        "D59",
+        "the island plan is conservative past the module that forced it: untyped imports demote the "
+        "whole module top level and, transitively through calls, every function naming them",
+        None,
+        note="needs a multi-module package shape, which single-file probes do not cover",
+        docs=f"{DOC}#59",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
