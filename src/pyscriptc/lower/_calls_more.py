@@ -18,6 +18,7 @@ back-imports `lower._calls`. Every body below is the code that lived in
 from __future__ import annotations
 
 import ast
+import struct
 from typing import Any
 
 from pyscriptc import _irnode as _ir
@@ -53,6 +54,18 @@ class CallsMoreMixin:
                 self.fail(node, "PS1003", f"math.{attr} argument is {_show(arg['type'])}, expected {_show(want)}")
             args.append(arg)
         return _mod_call("math", attr, args, spec["return"], span)
+
+    def _math_int_call(self, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
+        """`factorial(n)` and `lcm(a, b)`: the int helpers lower like gcd does."""
+        if len(node.args) != 2 and attr == "lcm":
+            self.fail(node, "PS2003", "math.lcm expects 2 argument(s)")
+        if len(node.args) != 1 and attr == "factorial":
+            self.fail(node, "PS2003", "math.factorial expects 1 argument(s)")
+        args = [self._expr(arg_node) for arg_node in node.args]
+        for arg in args:
+            if _node_type_kind(arg) != "int":
+                self.fail(node, "PS1003", f"math.{attr} argument is {_show(arg['type'])}, expected int")
+        return self._abi_call("math", attr, args, _t_leaf("int"), f"ps_math_{attr}", span)
 
     def _math_gcd(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if len(node.args) != 2:
@@ -273,6 +286,8 @@ class CallsMoreMixin:
             self.fail(node, "PS2001", "struct native alignment is not lowered")
         if not isinstance(kinds, list):
             self.fail(node, "PS2001", "bad struct format")
+        if attr in {"calcsize", "unpack_from"}:
+            return self._struct_sized_call(node, span, attr, fmt, kinds)
         format_arg = self._expr(node.args[0])
         if attr == "pack":
             if len(node.args) - 1 != len(kinds):
@@ -306,6 +321,49 @@ class CallsMoreMixin:
             "struct",
             "unpack",
             [format_arg, buffer],
+            _t_list(_t_leaf(elem)),
+            span,
+        )
+
+    def _struct_sized_call(
+        self, node: ast.Call, span: dict[str, Any], attr: str, fmt: str, kinds: list[str]
+    ) -> dict[str, Any]:
+        """`struct.calcsize` (a constant) and `struct.unpack_from` over a literal format.
+
+        Both need the byte size at lower time, so the format must open with an
+        explicit `<`, `>`, `!` or `=` (the native `@` default aligns and is fenced).
+        """
+
+        if not fmt.lstrip(" \t\n\r").startswith(("<", ">", "!", "=")):
+            self.fail(node, "PS2001", "struct native alignment is not lowered")
+        try:
+            size = struct.calcsize(fmt)
+        except struct.error:
+            self.fail(node, "PS2001", "bad struct format")
+        if attr == "calcsize":
+            if len(node.args) != 1:
+                self.fail(node, "PS2003", "struct.calcsize expects 1 argument(s)")
+            return self._expr(ast.copy_location(ast.Constant(value=size), node))
+        if len(node.args) not in {2, 3}:
+            self.fail(node, "PS2003", "struct.unpack_from expects 2 or 3 argument(s)")
+        distinct = set(kinds)
+        if len(distinct) > 1:
+            self.fail(node, "PS2001", "struct.unpack result types are mixed")
+        elem = "int" if not distinct else next(iter(distinct))
+        buffer = self._expr(node.args[1])
+        if _node_type_kind(buffer) not in {"bytes", "str"}:
+            self.fail(node, "PS1003", "struct.unpack_from buffer is bytes")
+        if len(node.args) == 3:
+            offset = self._expr(node.args[2])
+            if _node_type_kind(offset) != "int":
+                self.fail(node, "PS1003", "struct.unpack_from offset is an int")
+        else:
+            offset = self._expr(ast.copy_location(ast.Constant(value=0), node))
+        sized = self._expr(ast.copy_location(ast.Constant(value=size), node))
+        return _mod_call(
+            "struct",
+            "unpack_from",
+            [self._expr(node.args[0]), buffer, offset, sized],
             _t_list(_t_leaf(elem)),
             span,
         )

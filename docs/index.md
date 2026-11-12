@@ -17,12 +17,21 @@ Compile annotated Python to a native binary.
 
 For agents: [llms.txt]({{PYSC_DOCS_URL}}/llms.txt), [llms-full.txt]({{PYSC_DOCS_URL}}/llms-full.txt)
 
-## What it does
+## Where it differs from CPython
 
-- **Type-first**: pyscriptc compiles a Python subset that follows strict rules: typed, with no shims or dynamic runtime emulation for untyped Python.
-- **Native output**: Python code is compiled to machine code via LLVM. The result has no interpreter inside. Ship a single file and cross-compile to your target platform.
-- **Gradual adoption**: code that doesn't fit in the subset can be wrapped in an in-process embedded CPython island (`libpython`). You can also integrate compiled code via bindings.
-- **Clear debugging**: anything the subset does not prove is a fence with a diagnostic code (`PSxxxx`).
+pyscriptc compiles a typed subset of Python to machine code.
+Anything the subset cannot prove is refused with a numbered diagnostic (`PSxxxx`) that names the
+line, or routed to an embedded CPython island inside the same binary.
+The rules, the numbered divergences from CPython and the known gaps are in
+[Divergences from CPython](/reference/divergences/) and [The Python subset](/guide/python-subset/);
+the live per-module and per-library status is on the [compat site]({{PYSC_COMPAT_URL}}).
+
+Two things to know before you plan around it:
+
+- Annotations are required. A parameter or local without one stops the build (`PS1001`).
+- Code outside the subset does not fail silently, but it does not become native either: it runs on
+  the island, at interpreter speed, and every call crossing the boundary pays a marshalling cost.
+  [Libraries and fallback mode](/guide/libraries/) states what the two planes cost.
 
 ## Try it now
 
@@ -39,6 +48,7 @@ That prints `285`, the same value CPython returns, from a native binary.
 - [Examples](/examples/)
 - [The Python subset](/guide/python-subset/)
   - [Using libraries](/guide/libraries/)
+  - [Comparison with other tools](/guide/comparison/)
 - [CLI reference](/reference/cli/)
   - [Diagnostic codes](/reference/diagnostics/)
   - [Mobile apps](/guide/mobile/)

@@ -1,5 +1,66 @@
 # Changelog
 
+## [0.10.0b1] - 2026-11-12
+
+v0.10.0 widens what compiles and runs without a Python install. The tool host now runs on any CPython 3.11-3.15 host with the C toolchain one `zig` extra away, while compiled programs still target 3.14. More of the stdlib lowers natively (bisect, the finite itertools names, os.symlink and readlink, tempfile.mkstemp, uuid, binascii, shlex and secrets), inference picks up chained facts from pyrefly and an own-inference arm, decorators and class bodies lower further, and the embed engine grows a capability manifest, an engine descriptor with `--island-engine` and a PyPy seam. This is the first beta of the 0.10.0 line: it is a checkpoint tag, it never reaches PyPI, and the stable promotion comes with the remaining milestone items.
+
+### Highlights
+
+- **The tool runs on any CPython 3.11-3.15 host** while compiled programs still target 3.14 (#1202); `pip install pyscriptc[zig]` pulls the C toolchain in one step (#1196, #1198).
+- **The embed engine grows a seam:** capability manifest v1 with the imports and assess consumers (#669), engine descriptor schema v1 with the loader and `--island-engine` (#1181), and the `ps_island.c` engine seam for PyPy with the driver-emitted `-DPS_ENGINE_PYPY` (#1193).
+- **More of the stdlib lowers natively:** bisect.insort over int, float and str lists (#945), the remaining finite itertools eager names (#946), os.symlink and os.readlink (#1164), tempfile.mkstemp returning the (fd, path) tuple (#1177), and the uuid, binascii, shlex and secrets subsets (#806).
+- **Class bodies and decorators lower further:** class-body assignments with a runtime value become class attributes (#1204), class-body constants lower (#1166), stacked user decorators lower (#1163), and method and function decorators outside the closed set are erased (#1200).
+- **Inference grows two arms:** chained param and return facts arrive via pyrefly infer, and `infer --bridge own` runs the own-inference arm (#731, #1165, #1184).
+
+### Receipt
+
+- Visible corpus score on the release commit (`nightly` visible-score job, CPython 3.14.9 oracle): 13,798 probes scored, 1,671 pass, 10,721 fence, 1,396 excluded, 10 build-error, weighted pass 972.1.
+- Self-host fences (`tests/census_pins/` pin sum): 3,414 at v0.9.0 down to 3,178 on the release commit.
+- Boxed ledger window (`mise run boxed:cost`, newest window `466c29f91097..e4c713b61e96`, 10 commits): code 5.2%, churn 0.0%, bugs 0.0%, tax 10.0%, drop flag false.
+- Release rehearsal on the release commit `e4c713b61e967334233b4a163695629cf62281f7`: the build matrix, smoke and wheel verify pass.
+
+### Features
+- publish the island verdict and the plane split next to the native verdict (#804)
+- onefile output for island bundles, composite passes both baselines (#802)
+- class-body assignments with a runtime value lower as class attributes (#732) (#1204)
+- uuid, binascii, shlex and secrets subsets, and the yt-dlp wall measurement (#806)
+- module-scope call results bind a global slot (#502) (#1183)
+- the tool host runs on CPython 3.11-3.15, the program still targets 3.14 (#1202)
+- the zig extra, one install for the tool and the C toolchain (#1196, #1198)
+- hash typed nodes in schema field order without the dict round-trip (#830 P2) (#1201)
+- erase method and function decorators outside the closed set (#732) (#1200)
+- ps_island.c engine seam for PyPy, driver-emitted -DPS_ENGINE_PYPY (#1193)
+- capability manifest v1 and the imports and assess consumers (#669) (#1192)
+- the own-inference arm as infer --bridge own (#731) (#1184)
+- erase non-dataclass class decorators with a PS3099 divergence note (#732) (#1188)
+- engine descriptor schema v1, loader and --island-engine (#1181)
+- lower the remaining finite itertools eager names (#946)
+- tempfile.mkstemp returns the (fd, path) tuple natively (#1177)
+- an R0 real-scripts lane in the nightly ladder (#1172)
+- lower bisect.insort over int, float and str lists (#945)
+- break the infer fence delta down by family and code (#1173)
+- privacy-respecting PostHog analytics for the public site (#760)
+- Polar sponsor link, badges and CTA button (#755)
+- a Flask and a FastAPI app compiled to one binary, with the bundle walk fixed (#775)
+- lower class-body constant attributes (#1166)
+- lower os.symlink and os.readlink (#1164)
+- supply chained param and return facts via pyrefly infer (#731) (#1165)
+- lower stacked user decorators on module and nested defs (#1163)
+
+### Fixes
+- stop inferring an island top level from closed-import-table fences (#1175)
+- next(iter(d)) peeks the first key instead of materializing it (#1170)
+- a module island-value binding adopts the seed's object (#769)
+- keep the hero backdrop behind the CTA row (#754)
+- count four doc-coupled seams tests after the first_class_scripts removal (#762)
+- skip .py files CPython cannot name in tree scans (#764) (#1162)
+- hash the scorer cache key once, the cache post step failed re-evaluating hashFiles (#1143) (#1148)
+- do not stage a bundle for programs without island references (#1146)
+
+### Internal
+- the emit/llvm mixins read the typed `_irnode` record on the `_stmts`, `_exprs` and `_funcs` slices, with the TIR hash gate on the PR path (#829, #830).
+- the architecture inventory, the plane-map guide and the v0.10.0 release-notes draft land as documents (#785, #799, #1205).
+
 ## [0.9.0] - 2026-11-08
 
 0.9.0 makes the new compiler architecture the default. Programs now compile through the typed HIR, a three-address MIR with a control-flow graph, a verifier (MVS codes) and a printable IR, and `PYSC_MIR=0` keeps the old direct path as an escape hatch until it is removed in 0.10.0. Output speed is unchanged against the old path (geomean 1.02); the gains are in what compiles natively, the island floor, and compile-side speed and distribution.
@@ -584,4 +645,5 @@ Initial release.
 - `try`/`except` for builtin exceptions and user subclasses; `sys.argv` as `list[str]`.
 
 [0.9.0]: https://github.com/sigilco/pyscriptc/compare/v0.8.0...v0.9.0
+[0.10.0b1]: https://github.com/sigilco/pyscriptc/compare/v0.9.0...v0.10.0-beta.1
 [0.8.0]: https://github.com/sigilco/pyscriptc/compare/v0.7.0...v0.8.0

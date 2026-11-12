@@ -14,10 +14,23 @@ from __future__ import annotations
 
 from typing import Any
 
-SCHEMA_VERSION = "1"
+SCHEMA_VERSION = "2"
 
 # Status vocabulary. `full` is green, `partial` is yellow, `none` is red.
 STATUSES = ("full", "partial", "none", "unknown")
+
+# The island vocabulary, the second axis of the package rows. A package can
+# lower natively (`status` above), run on the island tier, or do neither.
+#
+# `runs`        a run receipt exists and the compiled program's output matched
+#               CPython.
+# `blocked`     a run receipt exists and the build or the run failed.
+# `unmeasured`  no run receipt exists for this package yet.
+#
+# The verdict comes from a receipt, never from an inference about the fences.
+# A package with fences in its own code can still run on the island tier, and
+# a package without fences can still fail to build, so only a run says which.
+ISLAND_STATUSES = ("runs", "blocked", "unmeasured")
 
 # The compat2 outcome names, from benchmarks/compat2/outcomes.py. Kept as a
 # literal so the schema does not depend on a frozen module.
@@ -40,6 +53,8 @@ _TOP_LEVEL_KEYS = (
     "commit",
     "sources",
     "summary",
+    "channel",
+    "island",
     "ladder",
     "builtins",
     "stdlib",
@@ -120,6 +135,54 @@ def _check_package(row: Any, where: str, problems: list[str]) -> None:
                 problems.append(f"{where}: {key}[{index}] is not a name/count object")
             elif not _is_int(item.get("count")):
                 problems.append(f"{where}: {key}[{index}] count is not an integer")
+    # The island plane: the second axis, independent of the native verdict.
+    if row.get("island") not in ISLAND_STATUSES:
+        problems.append(f"{where}: island {row.get('island')!r} is not one of {list(ISLAND_STATUSES)}")
+    plane = row.get("plane")
+    if not _is_dict(plane):
+        problems.append(f"{where}: plane is not an object")
+    else:
+        for key in ("definitions", "native", "island", "blocked"):
+            if not _is_int(plane.get(key)):
+                problems.append(f"{where}.plane.{key} is not an integer")
+        if all(_is_int(plane.get(key)) for key in ("definitions", "native", "island", "blocked")):
+            if plane["native"] + plane["island"] + plane["blocked"] != plane["definitions"]:
+                problems.append(
+                    f"{where}.plane: the three planes add up to "
+                    f"{plane['native'] + plane['island'] + plane['blocked']}, "
+                    f"not the {plane['definitions']} definitions"
+                )
+    if not _is_str(row.get("evidence")):
+        problems.append(f"{where}: evidence is not a string")
+
+
+def _check_island(island: Any, where: str, problems: list[str]) -> None:
+    """The island section: the run receipts behind the per-package verdicts."""
+    if not _is_dict(island):
+        problems.append(f"{where} is not an object")
+        return
+    for key in ("measured", "packages", "runs", "date", "commit", "source"):
+        if key not in island:
+            problems.append(f"{where}: missing key {key!r}")
+    for key in ("measured", "packages", "runs"):
+        if not _is_int(island.get(key)):
+            problems.append(f"{where}.{key} is not an integer")
+    for key in ("date", "commit", "source"):
+        if not _is_str(island.get(key)):
+            problems.append(f"{where}.{key} is not a string")
+    if _is_int(island.get("runs")) and _is_int(island.get("packages")):
+        if island["runs"] > island["packages"]:
+            problems.append(f"{where}: more runs than packages")
+
+
+def _check_channel(channel: Any, where: str, problems: list[str]) -> None:
+    """The install channel block: which channel the measurement came from."""
+    if not _is_dict(channel):
+        problems.append(f"{where} is not an object")
+        return
+    for key in ("released", "install_released", "install_master"):
+        if not _is_str(channel.get(key)):
+            problems.append(f"{where}.{key} is not a string")
 
 
 def _check_language(row: Any, where: str, problems: list[str]) -> None:
@@ -322,6 +385,8 @@ def validate(document: Any) -> list[str]:
         problems.append("sources is not an object")
     if not _is_dict(document.get("summary")):
         problems.append("summary is not an object")
+    _check_channel(document.get("channel"), "channel", problems)
+    _check_island(document.get("island"), "island", problems)
     for key, kind in (("builtins", "builtin"), ("stdlib", "stdlib")):
         rows = document.get(key)
         if not _is_list(rows):

@@ -17,6 +17,45 @@ pyscriptc coverage script.py
 `coverage` needs no C toolchain and reports, per line, what would stop the build.
 `pyscriptc explain PSxxxx` looks up any code it prints and shows the smallest rewrite that clears it.
 
+## What runs native and what runs on the island
+
+A compiled program has two execution planes and every definition lands on one of them.
+Definitions inside the subset lower to native machine code.
+Everything else either stops the build with a `PSxxxx` code, or, when fallback mode is on, runs inside the embedded CPython island (see [Libraries and fallback mode](libraries.md)).
+
+The split is decided per module and then propagates: a module whose top level imports something the subset cannot compile has its whole top level planned for the island, and functions in that module that name island-planned imports or unannotated values reaching them are planned there too, transitively through calls (divergence 59).
+On a framework-heavy app this compounds fast: on one measured Flask-plus-LLM backend, 41% of the definitions passed the per-definition check in isolation, yet the run-time plane routed 100% of them to the island because untyped framework imports sat at the module top level of every file.
+A definition that "compiles in isolation" is not a definition that runs native.
+
+How to tell before you build:
+
+```bash
+pyscriptc imports app/        # per import: native, fenced, or island
+pyscriptc assess app/         # per definition counts, refusals, and the island policy to add
+pyscriptc assess app/ --json  # adds the plane map: island route per function and what demoted it
+pyscriptc run --fallback=cpython --report=report.json script.py  # the executed plane map after a run
+```
+
+`assess` prints a "Path to the island" section: the exact `[tool.pyscriptc.imports]` lines that route each unsupported import to embedded CPython, each with the import site that forced it.
+The `--json` plane map reports, per function, `native` or `island`, plus the `demotedBy` function that pulled each island demotion.
+Read the plane map, not the per-definition share: the per-definition share answers "how much of this tree is inside the subset", the plane map answers "what actually runs native", and on a framework-heavy app those differ by the whole framework boundary.
+
+## When pyscriptc fits and when it does not
+
+pyscriptc fits typed application code: CLIs, data pipelines, file and protocol processing, parsers, simulation and math cores, background jobs.
+The pattern that works is a typed core with all annotations, closed data shapes (`dataclass`, `dict[str, int]`, `list[T]`), imports from the closed stdlib table, and third-party interaction pushed to explicit boundaries.
+
+pyscriptc does not fit, as native code, applications whose structure is runtime reflection:
+
+- **pydantic / attrs / dataclasses-with-validators**: these read annotations at run time to build schemas and validators. A native binary has no `typing` object and no annotation surface to read. Route the models to the island and keep the typed logic around them.
+- **Flask, FastAPI and other decorator-routing frameworks**: context proxies (`request`, `g`), decorator-registered route tables and `**kwargs` dispatch are dynamic-object-model patterns the subset refuses, and the route table only exists at run time. The framework part runs on the island or stays on CPython; compile the handlers' typed cores instead.
+- **Agent and plugin frameworks (dynamic registries, getattr dispatch, loosely typed message dicts)**: the dispatch is the program. There is no static call graph to lower.
+- **C-extension-heavy code** (PyMuPDF, NumPy, database drivers): there is no Python source to lower; these cross the island boundary per call and pay marshalling costs.
+
+The honest test is `pyscriptc assess` on your tree and then the plane map.
+If the plane map routes your hot code to the island, pyscriptc gives you a single-file binary that embeds CPython, not a speedup.
+If it routes your hot code native, the binary has no interpreter inside and the subset's guarantees hold.
+
 ## How to write code that compiles
 
 Annotate every variable and function parameter.

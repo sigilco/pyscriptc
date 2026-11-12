@@ -92,7 +92,13 @@ def test_a_cached_program_matches_cpython(tmp_path: Path) -> None:
         prog,
         {
             "__main__.py": "from helper import greet\nprint(greet('world'))\n",
-            "helper.py": "import shlex\n\n\ndef greet(name: str) -> str:\n    return ' '.join(shlex.split(name))\n",
+            "helper.py": (
+                "import keyword\n"
+                "\n"
+                "\n"
+                "def greet(name: str) -> str:\n"
+                "    return name.upper() if keyword.iskeyword(name) else name\n"
+            ),
         },
     )
     binary = _compile(tmp_path, prog, tmp_path / "bin")
@@ -109,7 +115,13 @@ def test_the_compiled_program_carries_the_cache(tmp_path: Path) -> None:
         prog,
         {
             "__main__.py": "from helper import greet\nprint(greet('world'))\n",
-            "helper.py": "import shlex\n\n\ndef greet(name: str) -> str:\n    return ' '.join(shlex.split(name))\n",
+            "helper.py": (
+                "import keyword\n"
+                "\n"
+                "\n"
+                "def greet(name: str) -> str:\n"
+                "    return name.upper() if keyword.iskeyword(name) else name\n"
+            ),
         },
     )
     ir_path = tmp_path / "prog.ir.json"

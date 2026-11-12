@@ -1709,6 +1709,10 @@ REST_MODULES = frozenset(
         "calendar",
         "zipfile",
         "tarfile",
+        "uuid",
+        "binascii",
+        "shlex",
+        "secrets",
     }
 )
 
@@ -1980,6 +1984,14 @@ def member_callable(module: str, member: str) -> bool:
     if module == "csv" and member in {"reader", "writer"}:
         return True
     if module == "textwrap" and member in {"fill", "wrap", "shorten"}:
+        return True
+    if module == "uuid" and member in {"uuid1", "uuid4", "uuid5", "UUID"}:
+        return True
+    if module == "binascii" and member in {"unhexlify", "hexlify"}:
+        return True
+    if module == "shlex" and member in {"split", "quote", "join"}:
+        return True
+    if module == "secrets" and member in {"token_hex", "token_bytes", "randbelow"}:
         return True
     if module == "tomllib" and member == "loads":
         return True
