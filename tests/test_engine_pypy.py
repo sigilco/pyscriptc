@@ -551,3 +551,34 @@ def test_the_environment_variable_does_not_leak_into_the_pack_id() -> None:
     pack = embed.lock_pypy_pack("linux-x86_64", LOCK)
     assert "linux-x86_64" in pack.pack_id
     assert os.sep not in pack.pack_id
+
+
+def test_the_fetch_command_names_the_pypy_pack() -> None:
+    """`pyscriptc embed fetch --pypy` fetches the PyPy pack, not the CPython one.
+
+    The command is the ahead-of-time route for an air-gapped machine: the
+    compile path fetches the pack on demand, but the fetch must be
+    possible without compiling anything.
+    """
+    done = subprocess.run(
+        [sys.executable, "-m", "pyscriptc", "embed", "fetch", "--pypy"],
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    assert done.returncode == 0, done.stderr
+    assert "pypy runtime pack" in done.stdout
+    pack = embed.lock_pypy_pack()
+    assert str(embed.pypy_pack_dir(pack)) in done.stdout
+
+
+def test_the_fetch_command_without_the_flag_fetches_the_cpython_pack() -> None:
+    """The default fetch is unchanged: the CPython bundle's pack."""
+    done = subprocess.run(
+        [sys.executable, "-m", "pyscriptc", "embed", "fetch"],
+        capture_output=True,
+        text=True,
+        timeout=900,
+    )
+    assert done.returncode == 0, done.stderr
+    assert "pypy runtime pack" not in done.stdout

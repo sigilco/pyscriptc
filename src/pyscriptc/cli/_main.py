@@ -721,7 +721,7 @@ def build_parser() -> argparse.ArgumentParser:
     # boxed:begin
     embed_parser: argparse.ArgumentParser = sub.add_parser(
         "embed",
-        help="manage the pinned CPython runtime pack for --embed-python=bundle",
+        help="manage the pinned CPython and PyPy runtime packs",
         parents=[common],
     )
     embed_sub: argparse.ArgumentParser = embed_parser.add_subparsers(dest="embed_cmd", required=True)
@@ -732,6 +732,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--platform", metavar="PLATFORM", default=None, help="pack platform (default: this machine)"
     )
     fetch_parser.add_argument("--force", action="store_true", help="re-download even when the pack is cached")
+    # Issue #668: the PyPy pack is a second pack in the same lock, fetched
+    # the same way. The flag names it; without it the fetch is the CPython
+    # pack the bundle mode needs.
+    fetch_parser.add_argument(
+        "--pypy", action="store_true", help="fetch the pinned PyPy runtime pack (the island engine's)"
+    )
     # boxed:end
     return parser
 
@@ -866,6 +872,8 @@ def embed_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc embed fetch`: download, verify and unpack the pinned runtime pack."""
     if args.embed_cmd != "fetch":
         raise IRError(f"unknown embed command {args.embed_cmd!r} (known: fetch)")
+    if getattr(args, "pypy", False):
+        return _embed_fetch_pypy(args)
     pack = embed.lock_pack(getattr(args, "platform", None))
     directory: Path = embed.pack_dir(pack)
     if embed.pack_is_ready(pack) and not args.force:
@@ -880,6 +888,30 @@ def embed_cmd(args: argparse.Namespace) -> int:
         )
     embed.fetch(pack, force=args.force)
     print(f"runtime pack ready: {directory}")
+    return 0
+
+
+def _embed_fetch_pypy(args: argparse.Namespace) -> int:
+    """`pyscriptc embed fetch --pypy`: the pinned PyPy pack (issue #668).
+
+    The PyPy pack is a second lock table, fetched and verified the same
+    way as the CPython one. The compile path fetches it on demand; this
+    is the ahead-of-time route for an air-gapped machine.
+    """
+    pack = embed.lock_pypy_pack(getattr(args, "platform", None))
+    directory: Path = embed.pypy_pack_dir(pack)
+    if embed.pypy_pack_is_ready(pack) and not args.force:
+        print(f"pypy runtime pack already present: {directory}")
+        return 0
+    if embed.pypy_pack_is_ready(pack) and args.force:
+        print(f"re-fetching pypy runtime pack {pack.pack_id}", file=sys.stderr)
+    else:
+        print(
+            f"fetching pypy runtime pack {pack.pack_id} (PyPy {pack.version}, python {pack.python})",
+            file=sys.stderr,
+        )
+    embed.fetch_pypy(pack, force=args.force)
+    print(f"pypy runtime pack ready: {directory}")
     return 0
 
 

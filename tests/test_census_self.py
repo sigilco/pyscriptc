@@ -313,7 +313,15 @@ def test_self_census_ballpark() -> None:
     # The onefile embed output (#802): onefile.py plus the embed.py,
     # cli/_main.py and stdlibzip.py payload plumbing add about 540 lines,
     # taking the census to 79,697, so the ceiling stays at 80k.
+    # The PyPy runtime pack (#668) takes it past 79k: the pack route in
+    # embed.py (the lock rows, the fetch, the link flags and the bundle
+    # stage) and the language gate in engine_gate.py add about 1k lines,
+    # so the ceiling moves to 80k (79,166 measured).
     assert 11_000 <= census["lines"] <= 80_000
+    # The PyPy runtime pack (#668) takes it past 79k: the pack route in
+    # embed.py (the lock rows, the fetch, the link flags and the bundle
+    # stage) and the language gate in engine_gate.py add about 1k lines,
+    # so the ceiling moves to 80k (79,166 measured).
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.

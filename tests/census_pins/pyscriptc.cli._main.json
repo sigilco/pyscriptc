@@ -1,1 +1,7 @@
+<<<<<<< HEAD
 {"pyscriptc.cli._main": 352}
+||||||| parent of 7194e85 (feat(embed): fetch the PyPy pack from the CLI, register PS4303, repin the census)
+{"pyscriptc.cli._main": 351}
+=======
+{"pyscriptc.cli._main": 366}
+>>>>>>> 7194e85 (feat(embed): fetch the PyPy pack from the CLI, register PS4303, repin the census)

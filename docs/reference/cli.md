@@ -244,6 +244,7 @@ pyscriptc embed fetch [options]
 | ---- | ----- | ------ |
 | `--platform PLATFORM` | `PLATFORM` | pack platform (default: this machine) |
 | `--force` |  | re-download even when the pack is cached |
+| `--pypy` |  | fetch the pinned PyPy runtime pack (the island engine's) |
 <!-- /gen:flags -->
 
 ## Notes on `compile`
