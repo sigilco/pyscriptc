@@ -221,7 +221,7 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D29",
-        "socket, ssl, http.client, http.server and selectors do not compile (PS2001)",
+        "socket, ssl, http.client and http.server do not compile (PS2001)",
         "d29_socket.py",
         docs=f"{DOC}#29",
     ),
