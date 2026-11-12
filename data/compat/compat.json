@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-12",
-  "commit": "234d4316fb5c8b6fb0eac0db1a9784f06e59163a",
+  "commit": "a8a98a71334016b55cdb11652ef7a00e60af7c96",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -9,7 +9,7 @@
     "score": ""
   },
   "channel": {
-    "released": "0.9.0",
+    "released": "0.10.0b1",
     "install_released": "uv tool install pyscriptc",
     "install_master": "uv pip install git+https://github.com/sigilco/pyscriptc"
   },
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-12",
-    "commit": "234d4316fb5c8b6fb0eac0db1a9784f06e59163a",
+    "commit": "a8a98a71334016b55cdb11652ef7a00e60af7c96",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -393,7 +393,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt, log with a base"
+        "fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma, log with a base"
       ],
       "fences": [
         "PS2001",
@@ -2562,7 +2562,7 @@
     },
     {
       "date": "2026-11-12",
-      "commit": "234d4316fb5c8b6fb0eac0db1a9784f06e59163a",
+      "commit": "a8a98a71334016b55cdb11652ef7a00e60af7c96",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

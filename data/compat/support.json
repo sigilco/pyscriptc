@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-12",
-  "commit": "234d4316fb5c8b6fb0eac0db1a9784f06e59163a",
+  "commit": "a8a98a71334016b55cdb11652ef7a00e60af7c96",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -187,7 +187,7 @@
       "label": "`math`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt, log with a base",
+      "missing": "fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma, log with a base",
       "codes": [
         "PS2001",
         "PS2003"
