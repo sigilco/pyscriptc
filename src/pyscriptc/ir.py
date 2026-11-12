@@ -21,7 +21,26 @@ from pyscriptc.errors import IRError, VersionError
 IR_VERSION = 2
 SUBSET = "gates-v1"
 
-TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "exc", "unknown", "func", "any"}
+TYPE_KINDS = {
+    "int",
+    "float",
+    "bool",
+    "none",
+    "str",
+    "bytes",
+    "list",
+    "dict",
+    "class",
+    "exc",
+    "unknown",
+    "func",
+    "any",
+    "buffer",
+}
+# The element kinds a buffer may carry (issue #372): flat numeric arrays
+# only. Multi-dimensional shapes are ndarray surface over one flat buffer,
+# not nested IR types.
+BUFFER_ELEM_KINDS = {"int", "float"}
 # The unresolved value slot of an Any container (issue #781): the container's
 # shape is known, the value type is not, and the read site proves it.
 ANY_KIND = "any"
@@ -131,6 +150,10 @@ def type_key(typ: dict[str, Any]) -> str:
             return "list[?]"
         head = "set" if typ.get("set") else "list"
         return f"{head}[{type_key(typ['elem'])}]"
+    if kind == "buffer":
+        if "elem" not in typ:
+            return "buffer[?]"
+        return f"buffer[{type_key(typ['elem'])}]"
     if kind == "dict":
         if "key" not in typ or "value" not in typ:
             # A bare `dict` shape (the isinstance want record carries no
@@ -209,7 +232,15 @@ def validate_type(typ: Any, where: str) -> None:
     _reject_forbidden(kind, where)
     if kind not in TYPE_KINDS:
         raise IRError(f"{where}: unknown type kind {kind!r}")
-    if kind == "list":
+    if kind == "buffer":
+        if "elem" not in typ:
+            raise IRError(f"{where}: buffer type needs elem")
+        elem = typ["elem"]
+        elem_kind = _kind(elem) if isinstance(elem, dict) else None
+        if elem_kind not in BUFFER_ELEM_KINDS:
+            raise IRError(f"{where}: buffer element must be one of {sorted(BUFFER_ELEM_KINDS)}, got {elem_kind!r}")
+        validate_type(elem, f"{where}.elem")
+    elif kind == "list":
         if "elem" not in typ:
             raise IRError(f"{where}: list type needs elem")
         validate_type(typ["elem"], f"{where}.elem")

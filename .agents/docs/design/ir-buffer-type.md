@@ -1,8 +1,11 @@
 # IR buffer type: design for a first-class contiguous numeric array
 
 Issue #372 (Future milestone). Consumer: pyscriptc-ndarray #496 (M2 substrate).
-Status: design draft, no canonicity decision yet. **This document is not
-authorization to touch frozen gates** — see §7.
+Status: design draft plus the stage A type-plumbing slice (landed in the
+same PR). The stage A slice touches no frozen gate and moves no digest:
+the frozen baselines stay byte-identical, verified with the A/B
+`cmp` ritual on the visible corpus. **Stage B still needs the recorded
+decision** of §7 before any code lands.
 
 ## 1. Summary
 
@@ -231,12 +234,14 @@ runtime loop. The migration is surface-shaped, not representation-shaped:
 
 ## 9. PR slicing
 
-1. This design doc (this PR; milestone Future, `Part of #372`).
-2. Stage A: type plumbing slice, behind no flag (the type is unreachable
-   from source code until a constructor lowering exists, which *is* the
-   flag-by-absence), with unit tests for validate/type_key/round-trip/
-   hashing branches. Frozen baselines untouched; `tirscore
-   --verify-bytes` green.
-3. Stage B: constructor + elementwise lowering + differential probe +
+1. This design doc plus the stage A type-plumbing slice (this PR;
+   milestone Future, `Part of #372`): `buffer` in `TYPE_KINDS` with a
+   flat numeric element validation, `type_key` branch, `t_buffer`
+   factories, the four hashing-surface branches, the MIR pointer tags, and
+   unit tests. The type is unreachable from source code until a
+   constructor lowering exists, which *is* the flag-by-absence. Frozen
+   baselines untouched (A/B `cmp` verified); `tirscore --verify-bytes`
+   green.
+2. Stage B: constructor + elementwise lowering + differential probe +
    divergence-ledger entry if any construct diverges. Separate decision
    record for the fast-slice admission.

@@ -77,6 +77,7 @@ from pyscriptc._irnode import (
     setattr_stmt,
     setitem_stmt,
     subscript,
+    t_buffer,
     t_class,
     t_dict,
     t_func,
@@ -357,6 +358,10 @@ def _type_dict(typ: T) -> dict[str, Any]:
             out["elem"] = _type_dict(typ.elem)
         if typ.flags & F_TSET:
             out["set"] = True
+        return out
+    if typ.kind == "buffer":
+        if typ.elem is not None:
+            out["elem"] = _type_dict(typ.elem)
         return out
     if typ.kind == "dict":
         if typ.key is not None:
@@ -661,6 +666,8 @@ def dict_to_type(d: Any) -> Any:
         )
     if kind == "list":
         return t_list(dict_to_type(d.get("elem")), bool(d.get("set")))
+    if kind == "buffer":
+        return t_buffer(dict_to_type(d.get("elem")))
     if kind == "dict":
         return t_dict(
             dict_to_type(d.get("key")),
