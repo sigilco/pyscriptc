@@ -43,6 +43,9 @@
 
 #include "ps_rt.h"
 
+/* Included before the platform split: the WASI stubs use NULL too. */
+#include <stddef.h>
+
 #if !defined(__wasi__) && !defined(_WIN32)
 
 #include <stdlib.h>
@@ -269,6 +272,13 @@ void *ps_select_get_key(void *box, int64_t fd) {
     (void)fd;
     ps_raise_cstr(PS_RUNTIME, "selectors needs sockets, which this target has no story for");
     return NULL;
+}
+
+int32_t ps_select_get_key_hit(void *box, int64_t fd) {
+    (void)box;
+    (void)fd;
+    ps_raise_cstr(PS_RUNTIME, "selectors needs sockets, which this target has no story for");
+    return 0;
 }
 
 int64_t ps_select_key_fd(void *key) {

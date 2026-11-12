@@ -49,6 +49,9 @@
 
 #include "ps_rt.h"
 
+/* Included before the platform split: the WASI stubs use PsPollFd too. */
+#include "ps_poller.h"
+
 #if !defined(__wasi__) && !defined(_WIN32)
 
 #include <errno.h>
@@ -65,8 +68,6 @@
 #define PS_POLLER_EPOLL 1
 #include <sys/epoll.h>
 #endif
-
-#include "ps_poller.h"
 
 /* The rows one wait watches. The loop's fd table is small; the cap keeps
    the backend's event array on the stack. */
@@ -291,6 +292,19 @@ static void ps_kq_sync_rows(PsPollFd *fds, int count) {
         watch->implicit = 1;
         int want_read = watch->reads > 0 || (fds[i].events & POLLIN) != 0;
         ps_kq_apply(index, fds[i].fd, want_read, watch->writes > 0);
+        /* The interest this row names is the caller's current interest, so
+           it is held explicitly for the life of this wait: the row's events
+           are a request, and the kqueue registration has to survive the
+           second pass below, which drops the holds no row names any more.
+           Without the explicit hold, a row that no `ps_poller_watch` call
+           vouched for loses its registration on the very wait that asked
+           for it, and the wait times out with nothing ready. */
+        if ((fds[i].events & POLLIN) != 0 && watch->reads == 0) {
+            watch->reads = 1;
+        }
+        if ((fds[i].events & POLLOUT) != 0 && watch->writes == 0) {
+            watch->writes = 1;
+        }
     }
     for (int i = 0; i < ps_nwatches;) {
         if (!ps_watches[i].implicit) {
@@ -378,6 +392,28 @@ static int ps_ep_open(void) {
         ps_ep = epoll_create1(0);
     }
     return ps_ep;
+}
+
+/* The self-pipe's read end is registered for reads on the shared handle,
+   once. The flag resets with the pipe, so a fresh pipe is registered
+   again. Without this registration a `ps_poller_wake()` writes a byte
+   nobody is watching for, and a wait with no rows sleeps out its whole
+   timeout instead of waking. */
+static int ps_ep_pipe_registered = 0;
+
+static void ps_ep_pipe_apply(void) {
+    int ep = ps_ep_open();
+    if (ep < 0 || ps_pipe_read < 0 || ps_ep_pipe_registered) {
+        return;
+    }
+    struct epoll_event ev;
+    memset(&ev, 0, sizeof ev);
+    ev.events = EPOLLIN;
+    ev.data.fd = ps_pipe_read;
+    if (epoll_ctl(ep, EPOLL_CTL_ADD, ps_pipe_read, &ev) != 0) {
+        (void)epoll_ctl(ep, EPOLL_CTL_MOD, ps_pipe_read, &ev);
+    }
+    ps_ep_pipe_registered = 1;
 }
 
 /* Set the kernel registration for one watch. */
@@ -507,6 +543,7 @@ int ps_poller_wait(PsPollFd *fds, int count, int timeout_ms) {
     if (ep < 0) {
         return -1;
     }
+    ps_ep_pipe_apply();
     ps_ep_sync_rows(fds, count);
     for (int i = 0; i < count; i++) {
         fds[i].ready = 0;
@@ -537,6 +574,7 @@ void ps_poller_reset(void) {
         ps_ep = -1;
     }
     ps_nwatches = 0;
+    ps_ep_pipe_registered = 0;
     if (ps_pipe_read >= 0) {
         close(ps_pipe_read);
         close(ps_pipe_write);
