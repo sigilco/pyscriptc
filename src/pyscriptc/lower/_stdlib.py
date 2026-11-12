@@ -1025,6 +1025,11 @@ class StdlibDispatchMixin(StdlibBindMixin):
         # boxed:end
         if binding.kind != "module":
             return None
+        if binding.module == "collections" and len(attrs) > 1 and attrs[0] == "abc":
+            # Issue #412: `collections.abc.Sequence` through `import
+            # collections.abc` (or `import collections`) is the erased
+            # annotation-only module, the same as the `typing` spelling.
+            return dotted, "collections.abc", ".".join(attrs[1:]), "erased"
         if binding.rooted:
             prefix = binding.module.split(".")[1:]
             if attrs[: len(prefix)] != prefix:

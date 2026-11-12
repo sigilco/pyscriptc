@@ -572,8 +572,9 @@ class AnnotationMixin:
         if isinstance(node, ast.Name):
             if node.id in self.type_aliases:
                 return self.type_aliases[node.id]
-            if node.id in self._IMPLICIT_ITER_FORMS and node.id not in self.classes and node.id not in self.declared:
-                return node.id
+            implicit = node.id in self._IMPLICIT_ITER_FORMS or node.id in self.checking_aliases
+            if implicit and node.id not in self.classes and node.id not in self.declared:
+                return self.checking_aliases.get(node.id, node.id)
         if isinstance(node, ast.Attribute):
             resolved = self._resolve_module(node)
             if resolved is not None and resolved[3] == "erased":
