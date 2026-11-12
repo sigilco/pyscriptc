@@ -28,7 +28,7 @@ from pathlib import Path
 HERE = Path(__file__).resolve().parent
 
 #: The island module the harness compiles: one echo function per type.
-ISLAND_MODULE = '''\
+ISLAND_MODULE = """\
 def sink() -> int:
     return 1
 
@@ -55,7 +55,7 @@ def echo_bytes(x: bytes) -> bytes:
 
 def echo_list(x: list[int]) -> list[int]:
     return x
-'''
+"""
 
 #: One bench line per measured case: the generated loop calls case[1] and
 #: tags the timing with case[0]. The `base` case measures the seam without
@@ -175,10 +175,7 @@ def main(argv: list[str] | None = None) -> int:
     rows = measure(args.calls, args.repeats)
     report = summarize(rows)
     base = report["base"]["ns_per_call"]
-    print(
-        f"island marshalling per call ({args.calls} calls x {args.repeats} repeats, "
-        "best run, ns/call):"
-    )
+    print(f"island marshalling per call ({args.calls} calls x {args.repeats} repeats, best run, ns/call):")
     print(f"  {'case':<8} {'ns/call':>10} {'marshal share':>16}")
     for name, stats in report.items():
         share = f"+{stats['marshal_ns']:.0f}" if name != "base" else "baseline"
