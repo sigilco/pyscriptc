@@ -181,8 +181,10 @@ _ENTRIES = (
     Diagnostic(
         "PS1204",
         "class body statement",
-        "A class body holds only annotated fields without values and method definitions.",
-        "Move assignments into __init__ and declare fields with an annotation only.",
+        "A class body holds only annotated fields without values, method definitions, "
+        "assignments whose value has a runtime form (a call, a container, a comprehension, "
+        "a name bound at module scope), and assignments whose value folds to a constant.",
+        "Move an assignment the compiler cannot compute into __init__, or declare the field with an annotation only.",
     ),
     Diagnostic(
         "PS1205",

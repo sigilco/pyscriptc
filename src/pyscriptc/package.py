@@ -1951,6 +1951,12 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
         for cname in raw_constants:
             constants[cname] = raw_constants[cname]
     exported["constants"] = constants
+    runtime_attr_types: dict[str, dict[str, Any]] = {}
+    if "runtime_attr_types" in info:
+        raw_runtime: dict[str, dict[str, Any]] = info["runtime_attr_types"]
+        for aname in raw_runtime:
+            runtime_attr_types[aname] = raw_runtime[aname]
+    exported["runtime_attr_types"] = runtime_attr_types
     base: str = ""
     if "base" in info:
         base = info["base"]

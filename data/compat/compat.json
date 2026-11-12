@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-11",
-  "commit": "d4c1cf4048af0f37a1595e680693cc53d0dcb602",
+  "commit": "d0d2f78d839118e8825c86b9695a73a323b5ef66",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -19,7 +19,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2611
+    "fences": 2585
   },
   "builtins": [
     {
@@ -1499,9 +1499,9 @@
       "import_name": "colorama",
       "version": "0.4.6",
       "status": "none",
-      "fences": 84,
+      "fences": 82,
       "definitions": 77,
-      "fenced_definitions": 43,
+      "fenced_definitions": 42,
       "top_families": [
         {
           "family": "param-inference",
@@ -1633,7 +1633,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 106
+          "count": 107
         },
         {
           "code": "PS1106",
@@ -1727,9 +1727,9 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "fences": 126,
+      "fences": 119,
       "definitions": 200,
-      "fenced_definitions": 111,
+      "fenced_definitions": 109,
       "top_families": [
         {
           "family": "param-inference",
@@ -1740,8 +1740,8 @@
           "count": 19
         },
         {
-          "family": "class-body",
-          "count": 7
+          "family": "name-resolution",
+          "count": 2
         }
       ],
       "codes": [
@@ -1754,8 +1754,8 @@
           "count": 16
         },
         {
-          "code": "PS1204",
-          "count": 7
+          "code": "PS2001",
+          "count": 1
         }
       ],
       "pypi": "https://pypi.org/project/jmespath/"
@@ -1765,9 +1765,9 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "fences": 105,
+      "fences": 104,
       "definitions": 171,
-      "fenced_definitions": 52,
+      "fenced_definitions": 51,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1841,9 +1841,9 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "partial",
-      "fences": 546,
+      "fences": 535,
       "definitions": 558,
-      "fenced_definitions": 275,
+      "fenced_definitions": 269,
       "top_families": [
         {
           "family": "unlowered-type-name",
@@ -1854,22 +1854,22 @@
           "count": 77
         },
         {
-          "family": "class-body",
-          "count": 49
+          "family": "generic-alias",
+          "count": 64
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 212
+          "count": 215
         },
         {
           "code": "PS1106",
           "count": 90
         },
         {
-          "code": "PS1204",
-          "count": 49
+          "code": "PS1103",
+          "count": 64
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -1879,27 +1879,27 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "fences": 198,
+      "fences": 194,
       "definitions": 132,
-      "fenced_definitions": 78,
+      "fenced_definitions": 77,
       "top_families": [
         {
           "family": "name-resolution",
           "count": 30
         },
         {
-          "family": "unlowered-type-name",
-          "count": 19
+          "family": "construct-other",
+          "count": 21
         },
         {
-          "family": "type-mismatch",
+          "family": "unlowered-type-name",
           "count": 19
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 103
+          "count": 107
         },
         {
           "code": "PS1106",
@@ -2065,7 +2065,7 @@
       "import_name": "zipp",
       "version": "4.1.1",
       "status": "none",
-      "fences": 71,
+      "fences": 70,
       "definitions": 75,
       "fenced_definitions": 57,
       "top_families": [
@@ -2260,7 +2260,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1275,
+      "count": 1283,
       "packages": 16
     },
     {
@@ -2284,7 +2284,7 @@
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 132,
+      "count": 165,
       "packages": 9
     },
     {
@@ -2298,12 +2298,6 @@
       "title": "call arguments not supported",
       "count": 87,
       "packages": 10
-    },
-    {
-      "code": "PS1204",
-      "title": "class body statement",
-      "count": 71,
-      "packages": 7
     },
     {
       "code": "PS1003",
@@ -2354,6 +2348,12 @@
       "packages": 2
     },
     {
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 4,
+      "packages": 2
+    },
+    {
       "code": "PS4203",
       "title": "finalizer refused",
       "count": 1,
@@ -2378,12 +2378,12 @@
     },
     {
       "date": "2026-11-11",
-      "commit": "d4c1cf4048af0f37a1595e680693cc53d0dcb602",
+      "commit": "d0d2f78d839118e8825c86b9695a73a323b5ef66",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2611
+      "fences": 2585
     }
   ]
 }
