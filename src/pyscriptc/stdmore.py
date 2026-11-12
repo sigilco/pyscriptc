@@ -1968,6 +1968,16 @@ def member_callable(module: str, member: str) -> bool:
         "getrandbits",
         "choice",
         "shuffle",
+        "choices",
+        "sample",
+        "randbytes",
+        "gauss",
+        "normalvariate",
+        "lognormvariate",
+        "expovariate",
+        "triangular",
+        "gammavariate",
+        "betavariate",
     }:
         return True
     if module == "csv" and member in {"reader", "writer"}:

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-12",
-  "commit": "bc7acf9bb7d64b0b864bf3a5986e75bd9158d294",
+  "commit": "b8aa70fca2817766b892ee7b7fdc74ca180bdc82",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -693,7 +693,7 @@
       "label": "`random`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "sample, gauss, Random, choices(k=)",
+      "missing": "Random, vonmisesvariate, paretovariate, choices(cum_weights=)",
       "codes": [
         "PS2001",
         "PS2003"
