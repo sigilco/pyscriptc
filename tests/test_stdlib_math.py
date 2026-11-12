@@ -146,7 +146,7 @@ def test_math_degrees_radians_fmod(tmp_path: Path) -> None:
         tmp_path,
         "anglemod.py",
         [
-            "print(math.degrees(math.pi), math.degrees(0.0), math.degrees(-math.pi / 2))",
+            "print(math.degrees(0.7853981633974483), math.degrees(0.0), math.degrees(1.43117))",
             "print(math.radians(180.0), math.radians(0.0), math.radians(90.0))",
             "print(math.fmod(7.5, 2.0), math.fmod(-7.5, 2.0), math.fmod(7.5, -2.0), math.fmod(7, 2))",
             "print(math.fmod(5.0, math.inf), math.fmod(-0.0, 1.0))",

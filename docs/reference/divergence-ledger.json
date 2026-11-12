@@ -1006,6 +1006,46 @@
       "status": "unprobed"
     },
     {
+      "id": "D60",
+      "seam": "math.factorial(n) is an i64 overflow past 20 instead of growing a big int",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#60",
+      "probe": "probes/divergences/d60_factorial_overflow.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2432902008176640000\n51090942171709440000\nValueError\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2432902008176640000\nOverflowError\nValueError\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D61",
+      "seam": "float text output is shortest-round-trip without CPython's fixed-exponent rule: 180.0 prints as 1.8e+02",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#61",
+      "probe": "probes/divergences/d61_float_print.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "180.0\n57.29577951308232\n1.1752011936438014\n485165195.4097903\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1.8e+02\n57.29577951308232\n1.1752011936438014\n485165195.4097903\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
