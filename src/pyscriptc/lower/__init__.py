@@ -208,6 +208,8 @@ class Lowerer(
         self.prelude: list[dict[str, Any]] = []
         self.constants: dict[str, dict[str, Any]] = {}
         self.type_aliases: dict[str, str] = {}
+        # Erased names imported only under `if TYPE_CHECKING:` (issue #412).
+        self.checking_aliases: dict[str, str] = {}
         self.comp_elt: ast.expr | None = None
         self.comp_key: ast.expr | None = None
         self.comp_kind = "list"
