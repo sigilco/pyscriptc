@@ -638,3 +638,40 @@ def test_irverify_has_no_raw_node_kind_reads() -> None:
 
     Visitor().visit(tree)
     assert hits == [], f"raw kind reads outside accessors: {hits}"
+
+
+def _try(
+    body: list[dict[str, Any]], finalbody: list[dict[str, Any]], handlers: list[dict[str, Any]] | None = None
+) -> dict[str, Any]:
+    return {
+        "kind": "try",
+        "body": body,
+        "handlers": handlers or [],
+        "orelse": [],
+        "finalbody": finalbody,
+        "span": span(),
+    }
+
+
+def _ret(value: str = "1") -> dict[str, Any]:
+    return {"kind": "return", "value": const(value), "span": span()}
+
+
+def _pass_stmt() -> dict[str, Any]:
+    return {"kind": "expr", "value": const("0"), "span": span()}
+
+
+def test_try_finally_with_returning_body_passes() -> None:
+    # #1185: the finally block does not suppress the return in the try body.
+    module = module_with([_try([_ret()], [_pass_stmt()])])
+    assert verify_module(module) == []
+
+
+def test_try_finally_that_can_fall_off_is_reported() -> None:
+    module = module_with([_try([_pass_stmt()], [_pass_stmt()])])
+    assert [e.code for e in verify_module(module)] == ["PS0103"]
+
+
+def test_terminating_finally_ends_every_path() -> None:
+    module = module_with([_try([_pass_stmt()], [_ret()])])
+    assert verify_module(module) == []

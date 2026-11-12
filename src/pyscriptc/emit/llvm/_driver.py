@@ -254,6 +254,7 @@ def link_binary(
     shared: bool = False,
     embed_mode: str | None = None,
     engine_defines: list[str] | None = None,
+    engine_pack: str | None = None,
 ) -> None:
     """Link `.ll` text plus the C runtime into `output`.
 
@@ -364,35 +365,58 @@ def link_binary(
         libdir = sysconfig.get_config_var("LIBDIR")
         version = sysconfig.get_config_var("VERSION")
         # boxed:begin
-        # --embed-python: host links the compiler interpreter (the line below is
-        # unchanged), bundle links the pinned runtime pack, auto picks host when
-        # this interpreter has a shared libpython (the wheel or venv case) and
-        # bundle otherwise (the release binary, where sysconfig describes the
-        # build machine). See src/pyscriptc/embed.py and issue #657.
-        embed_mode = embed.resolve_mode(embed_mode)
-        if embed_mode == "bundle":
+        # Issue #668: an engine that names a runtime pack links the pack's
+        # runtime instead of the host's. The pack carries the include
+        # directory (`include/pypy3.11`), the shared library
+        # (`libpypy3.11-c`) and the stdlib tree (`lib/pypy3.11/`), and the
+        # link flags are the pack's own: the library goes on by soname
+        # (a path-named entry lands in `NEEDED` verbatim and breaks the
+        # first directory move) and the relative rpath points at the
+        # staged `lib/`, where the portable libraries the pack ships live
+        # next to the library itself.
+        if engine_pack is not None:
             if target is not None:
                 raise IRError(
-                    "--embed-python=bundle links the pinned runtime pack for this host; "
-                    "cross-compiling it is explain-only"
+                    "an engine runtime pack links the pinned runtime for this host; cross-compiling it is explain-only"
                 )
-            pack = embed.lock_pack()
-            pack_directory = embed.ensure_pack(pack)
-            embed_version = embed.python_version()
-            link_parts: tuple[str, list[str]] = embed.link_flags(pack_directory, embed_version)
-            include, embed_flags = link_parts
+            pypy_pack = embed.lock_pypy_pack()
+            pack_directory = embed.ensure_pypy_pack(pypy_pack)
+            pypy_parts: tuple[str, list[str]] = embed.pypy_link_flags(pack_directory, pypy_pack.python)
+            pypy_include, pypy_flags = pypy_parts
+            include = pypy_include
             target_flags.extend(["-I", include])
-            tail = embed_flags + tail
+            tail = pypy_flags + tail
         else:
-            if include is None or not Path(include).is_dir():
-                raise IRError(
-                    f"the island link needs the CPython headers ({include or 'include'}); "
-                    "this interpreter has no usable header directory. On a self-compiled "
-                    "pyscriptc bundle, rebuild it with --embed-python=bundle --embed-headers, "
-                    "or compile this program with --embed-python=bundle so the pinned "
-                    "runtime pack supplies the headers"
-                )
-            # boxed:end
+            # --embed-python: host links the compiler interpreter (the line below is
+            # unchanged), bundle links the pinned runtime pack, auto picks host when
+            # this interpreter has a shared libpython (the wheel or venv case) and
+            # bundle otherwise (the release binary, where sysconfig describes the
+            # build machine). See src/pyscriptc/embed.py and issue #657.
+            embed_mode = embed.resolve_mode(embed_mode)
+            if embed_mode == "bundle":
+                if target is not None:
+                    raise IRError(
+                        "--embed-python=bundle links the pinned runtime pack for this host; "
+                        "cross-compiling it is explain-only"
+                    )
+                pack = embed.lock_pack()
+                pack_directory = embed.ensure_pack(pack)
+                embed_version = embed.python_version()
+                link_parts: tuple[str, list[str]] = embed.link_flags(pack_directory, embed_version)
+                include, embed_flags = link_parts
+                target_flags.extend(["-I", include])
+                tail = embed_flags + tail
+            else:
+                if include is None or not Path(include).is_dir():
+                    raise IRError(
+                        f"the island link needs the CPython headers ({include or 'include'}); "
+                        "this interpreter has no usable header directory. On a self-compiled "
+                        "pyscriptc bundle, rebuild it with --embed-python=bundle --embed-headers, "
+                        "or compile this program with --embed-python=bundle so the pinned "
+                        "runtime pack supplies the headers"
+                    )
+        # boxed:end
+        if engine_pack is None:
             target_flags.extend(["-I", include])
             if not Path(libdir).is_dir():
                 # A relocatable build (a python-build-standalone install)

@@ -1977,7 +1977,7 @@ def _kind_tag(kind: str) -> int:
         return MIR_B
     if kind == "str":
         return MIR_S
-    if kind == "list" or kind == "dict" or kind == "class":
+    if kind == "list" or kind == "dict" or kind == "class" or kind == "buffer":
         return MIR_P
     return MIR_W
 

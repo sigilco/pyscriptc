@@ -1,0 +1,88 @@
+# Static single-binary CPython build for the island (issue #672, stretch).
+#
+# NON-REQUIRED on purpose: the measured cost is 15-20 minutes per cell cold
+# (4-core GitHub runner, PGO), an order of magnitude over the embed budget
+# of issue #662 (4 minutes per cell). The build runs on workflow_dispatch
+# and the nightly schedule, never on pull_request, so a PR touching the
+# embedding surface does not pay for it. The smoke after the build is the
+# differential check of issue #672's slice: the curated builtin modules
+# must import from the binary alone, and the plan's fractions program must
+# match CPython's output. The per-platform required matrix waits for an
+# owner decision recorded on the issue (see
+# .agents/docs/release/static-cpython.md).
+name: static-cpython
+
+on:
+  schedule:
+    # Weekly, Sunday, well after the nightly embed run.
+    - cron: "17 4 * * 0"
+  workflow_dispatch:
+    inputs:
+      run_smoke:
+        description: "Run the builtin-import and fractions smoke after the build"
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: static-cpython-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: static cpython (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-24.04
+            platform: linux-x86_64
+          - os: macos-26
+            platform: macos-arm64
+    runs-on: ${{ matrix.os }}
+    # The cold build measures 15-20 minutes on a 4-core runner; the timeout
+    # is the escape hatch, not the budget.
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+
+      - run: uv sync --frozen
+
+      # The built prefix is cached on the lock hash: a rerun of an unchanged
+      # lock restores the install tree and skips the PGO build entirely.
+      # The tarball itself is downloaded once per runner and cached too.
+      - name: Cache the built prefix
+        uses: actions/cache@v5
+        with:
+          path: packaging/dist/static-cpython
+          key: static-cpython-${{ matrix.platform }}-${{ hashFiles('packaging/static-cpython.lock.toml', 'packaging/Setup.local') }}
+
+      - name: Build the pinned static CPython
+        run: |
+          set -euo pipefail
+          if [ -f packaging/dist/static-cpython/pyscriptc-static-stamp.json ]; then
+            echo "prefix cache hit, skipping the build"
+            exit 0
+          fi
+          uv run python scripts/build_static_cpython.py --jobs 4 --smoke
+
+      - name: Smoke (builtin imports and the fractions program)
+        if: ${{ inputs.run_smoke != false }}
+        run: uv run python -c "import sys; sys.path.insert(0, 'scripts'); import build_static_cpython as b; sys.exit(b.smoke(__import__('pathlib').Path('packaging/dist/static-cpython')))"
+
+      - name: Record the size
+        if: always()
+        run: |
+          set -euo pipefail
+          du -sh packaging/dist/static-cpython 2>/dev/null || true
+          ls -la packaging/dist/static-cpython/lib/libpython* 2>/dev/null || true

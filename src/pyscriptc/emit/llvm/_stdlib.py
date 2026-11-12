@@ -52,6 +52,14 @@ class StdlibMixin(EmitterBase):
         self.needed.add("math")
         return self._call_ret(spec["llvm"], spec["symbol"], [f"double {value}" for value in values])
 
+    def _emit_math_int(self, symbol: str, values: list[str]) -> str:
+        """The `_abi_call` math symbols (`factorial`, `lcm`): i64 params in
+        and out, declared from the call shape, not the `MATH_FUNCTIONS`
+        float table."""
+        self.needed.add("math")
+        self._abi_decl(symbol, "i64", ["i64"] * len(values))
+        return self._call_ret("i64", symbol, [f"i64 {value}" for value in values])
+
     def _emit_re(self, name: str, values: list[str]) -> str:
         if name == "compile":
             return self._emit_pattern(values)
@@ -203,6 +211,20 @@ class StdlibMixin(EmitterBase):
         want = {"int": 1, "float": 2, "bytes": 3}[elem]
         fmt_len, fmt_ptr = self._buf_parts(values[0])
         data_len, data_ptr = self._buf_parts(values[1])
+        if name == "unpack_from":
+            return self._call_ret(
+                "ptr",
+                "ps_struct_unpack_from",
+                [
+                    f"i64 {fmt_len}",
+                    f"ptr {fmt_ptr}",
+                    f"i64 {data_len}",
+                    f"ptr {data_ptr}",
+                    f"i64 {values[2]}",
+                    f"i64 {values[3]}",
+                    f"i32 {want}",
+                ],
+            )
         return self._call_ret(
             "ptr",
             "ps_struct_unpack",

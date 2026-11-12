@@ -487,6 +487,8 @@ class StdlibDispatchMixin(StdlibBindMixin):
             self._reject_keywords(node)
             if attr == "gcd":
                 return self._math_gcd(node, span)
+            if attr in {"factorial", "lcm"}:
+                return self._math_int_call(node, span, attr)
             return self._math_call(node, span, attr)
         if module == "bisect":
             from pyscriptc.restlower._bisect import _bisect
@@ -503,7 +505,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
             return self._json_dump(node, span)
         if module == "json" and attr == "dumps":
             return self._json_dumps(node, span)
-        if module == "struct" and attr in {"pack", "unpack"}:
+        if module == "struct" and attr in {"pack", "unpack", "calcsize", "unpack_from"}:
             self._reject_keywords(node)
             return self._struct_call(node, span, attr)
         if module == "re" and attr == "findall":

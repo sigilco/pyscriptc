@@ -1,0 +1,139 @@
+# The island engine conformance matrix (issue #670).
+#
+# The corpus is a set of island programs (fractions, json, re, dataclasses,
+# exceptions, bytes, lists) that must behave identically on every shipped
+# island engine. The runner iterates the engine descriptors under
+# `benchmarks/engine_corpus/engines/`, so the PyPy leg turns on by itself
+# when #668 ships a PyPy descriptor: the file lands in the directory, this
+# workflow needs no edit.
+#
+# The matrix runs on Linux x86_64 only: the corpus measures behavior, not
+# performance, so one cell is enough to keep the lane cheap. The
+# marshalling micro-benchmark (the release receipt for #670) runs here
+# too, on the same cell, and writes its numbers into the job summary.
+#
+# Path filter: the corpus, the runner and the island runtime are the
+# surface. A change elsewhere in the compiler does not need this lane.
+name: engine-conformance
+
+on:
+  push:
+    branches: [master]
+  schedule:
+    - cron: "17 7 * * *" # nightly, after the embed acceptance
+  workflow_dispatch:
+  pull_request:
+    branches-ignore:
+      - bot/compat-snapshot
+
+permissions:
+  contents: read
+
+concurrency:
+  group: engine-conformance-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  changes:
+    name: classify paths
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      run: ${{ steps.classify.outputs.run }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Classify the changed paths
+        id: classify
+        env:
+          EVENT: ${{ github.event_name }}
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" != "pull_request" ]; then echo "run=true" >> "$GITHUB_OUTPUT"; exit 0; fi
+          head_sha=""
+          for candidate in "$HEAD" "FETCH_HEAD"; do
+            if [ -n "$candidate" ] && git cat-file -e "$candidate" 2>/dev/null; then
+              head_sha="$candidate"
+              break
+            fi
+          done
+          if [ -z "$head_sha" ]; then
+            git fetch --no-tags --depth=1 origin "$HEAD" 2>/dev/null || true
+            if git cat-file -e "$HEAD" 2>/dev/null; then head_sha="$HEAD"; fi
+          fi
+          if [ -z "$head_sha" ]; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed="$(git diff --name-only "$BASE" "$head_sha")"
+          if grep -Eq '(^benchmarks/engine_corpus/|^src/pyscriptc/runtime/ps_island\.c$|^src/pyscriptc/island_engine\.py$)' <<<"$changed"; then
+            echo "run=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "run=false" >> "$GITHUB_OUTPUT"
+          fi
+
+  conformance:
+    name: engine conformance matrix
+    needs: changes
+    if: needs.changes.outputs.run == 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.14"
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Install clang
+        run: command -v clang >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq clang; }
+
+      - run: uv sync --frozen
+
+      # The corpus compiles island binaries, so it needs the compiler's own
+      # link line: clang and a shared libpython. The venv's interpreter
+      # provides both on this cell.
+      - name: Run the conformance matrix
+        run: uv run python -m benchmarks.engine_corpus.run --json engine-conformance.json
+
+      - name: Summary
+        if: always()
+        run: |
+          set -euo pipefail
+          uv run python -m benchmarks.engine_corpus.summary conformance engine-conformance.json \
+            >> "$GITHUB_STEP_SUMMARY"
+
+      # The marshalling receipt for #670: the per-call cost of the island
+      # seam for each type the ABI carries. Report-only, it never fails the
+      # lane; the numbers go into the release body.
+      - name: Marshalling micro-benchmark
+        if: always()
+        run: uv run python -m benchmarks.engine_corpus.marshalling --calls 20000 --json marshalling.json || true
+
+      - name: Marshalling summary
+        if: always()
+        run: |
+          set -euo pipefail
+          {
+            echo
+            uv run python -m benchmarks.engine_corpus.summary marshalling marshalling.json
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload the reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: engine-conformance
+          path: |
+            engine-conformance.json
+            marshalling.json
+          if-no-files-found: ignore

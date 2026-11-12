@@ -449,6 +449,21 @@ _ENTRIES = (
         "Reduce the offending size or count.",
     ),
     Diagnostic(
+        "PS4303",
+        "the engine's language level refuses this syntax",
+        (
+            "The island engine selected for this build implements an older "
+            "language level than the compiler targets (PyPy 3.11 has no PEP 649 "
+            "deferred annotations, no PEP 695 type parameter lists, no PEP 750 "
+            "t-strings and no PEP 758 `except A, B:`), so the construct cannot "
+            "run on that engine."
+        ),
+        (
+            "Rewrite the construct in syntax the engine's level has, or build "
+            "the program against the embedded CPython engine."
+        ),
+    ),
+    Diagnostic(
         "PS3101",
         "dependency resolution failed",
         "`pyscriptc deps` could not read, resolve, download or verify a PyPI dependency "

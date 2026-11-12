@@ -258,6 +258,12 @@ def t_list(elem: T, set_: bool = False) -> T:
     return T(kind="list", elem=elem, key=None, value=None, params=None, ret=None, flags=flags)
 
 
+def t_buffer(elem: T) -> T:
+    """A `buffer` type dict: the contiguous numeric array of issue #372,
+    flat by definition (the element is int or float)."""
+    return T(kind="buffer", elem=elem, key=None, value=None, params=None, ret=None)
+
+
 def t_dict(key: T, value: T, counter: bool = False, defaultdict: bool = False, ordered: bool = False) -> T:
     """A `dict` type dict; the marker bits spell the `counter`,
     `defaultdict` and `ordered` keys."""

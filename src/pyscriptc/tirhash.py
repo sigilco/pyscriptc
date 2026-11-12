@@ -764,6 +764,10 @@ def _write_type(write, typ: Any) -> None:
             _write_type(write, typ.elem)
         if typ.flags & F_TSET:
             write(b',"set":true')
+    elif kind == "buffer":
+        if typ.elem is not None:
+            write(b',"elem":')
+            _write_type(write, typ.elem)
     elif kind == "dict":
         if typ.key is not None:
             write(b',"key":')
