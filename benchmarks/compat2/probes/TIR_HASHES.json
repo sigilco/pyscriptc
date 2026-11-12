@@ -2,7 +2,6 @@
  "canonical_schema": "canonical-schema/2",
  "hash_algo": "sha256",
  "oracle": "2/cpython-3.14.9",
- "tir_schema": "tir/1",
  "probes": {
   "builtins.ArithmeticError": "1bda704a44ee89525dfac7c837ba36a449a144cacf3bd85c048d66b3d8998645",
   "builtins.AssertionError": "2f4037e63c17c449ab5308bab3efacb8fb6fdba7b1da77039a682cdc83830ca9",
@@ -13696,5 +13695,6 @@
   "stdlib.zoneinfo.ZoneInfoNotFoundError": "daa0c201f9ae44ffcf2860fd7cda6838b95ffc4efb2665b9b97c6ef9a46af52e",
   "stdlib.zoneinfo.available_timezones": "4c9878da98781960bac2e25ce319f705a0eb510f0b6809a6c107f800c8b6c5f9",
   "stdlib.zoneinfo.reset_tzpath": "4c9878da98781960bac2e25ce319f705a0eb510f0b6809a6c107f800c8b6c5f9"
- }
+ },
+ "tir_schema": "tir/1"
 }

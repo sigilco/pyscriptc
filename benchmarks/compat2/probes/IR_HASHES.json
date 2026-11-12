@@ -13695,5 +13695,7 @@
   "stdlib.zoneinfo.ZoneInfoNotFoundError": "daa0c201f9ae44ffcf2860fd7cda6838b95ffc4efb2665b9b97c6ef9a46af52e",
   "stdlib.zoneinfo.available_timezones": "4c9878da98781960bac2e25ce319f705a0eb510f0b6809a6c107f800c8b6c5f9",
   "stdlib.zoneinfo.reset_tzpath": "4c9878da98781960bac2e25ce319f705a0eb510f0b6809a6c107f800c8b6c5f9"
- }
+ },
+ "revision": 1,
+ "version": 1
 }
