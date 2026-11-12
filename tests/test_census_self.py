@@ -316,8 +316,9 @@ def test_self_census_ballpark() -> None:
     # The PyPy runtime pack (#668) takes it past 79k: the pack route in
     # embed.py (the lock rows, the fetch, the link flags and the bundle
     # stage) and the language gate in engine_gate.py add about 1k lines,
-    # so the ceiling moves to 80k (79,166 measured).
-    assert 11_000 <= census["lines"] <= 80_000
+    # so the ceiling moves to 80k; after the onefile merge it measures
+    # 80,365, so the ceiling moves to 82k.
+    assert 11_000 <= census["lines"] <= 82_000
     # The PyPy runtime pack (#668) takes it past 79k: the pack route in
     # embed.py (the lock rows, the fetch, the link flags and the bundle
     # stage) and the language gate in engine_gate.py add about 1k lines,
