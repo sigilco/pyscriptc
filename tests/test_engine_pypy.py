@@ -24,6 +24,7 @@ from __future__ import annotations
 
 import json
 import os
+import platform
 import shutil
 import subprocess
 import sys
@@ -295,7 +296,15 @@ def test_the_manifest_is_a_genuine_probe_output(tmp_path: Path) -> None:
     assert probed.returncode == 0, probed.stderr
     got = json.loads(probed.stdout)
     want = json.loads(PYPY_MANIFEST.read_text(encoding="utf-8"))
-    assert got["engine"] == want["engine"]
+    # The identity carries the host platform (the pack is probed on its
+    # own host); the probe output and the fixture must agree on
+    # everything but that field.
+    assert got["engine"]["platform"] != "linux-x86_64" or platform.system() == "Linux"
+    assert want["engine"]["platform"] == "linux-x86_64"
+    assert got["engine"]["free_threaded"] == want["engine"]["free_threaded"]
+    assert got["engine"]["language_level"] == want["engine"]["language_level"]
+    assert got["engine"]["name"] == want["engine"]["name"]
+    assert got["engine"]["version"] == want["engine"]["version"]
     assert got["features"] == want["features"]
     assert got["stdlib"] == want["stdlib"]
 
@@ -391,6 +400,8 @@ def test_the_relocated_bundle_carries_its_runtime(tmp_path: Path) -> None:
     done = _compile(tmp_path, FRACTIONS_PROGRAM, work / "prog")
     assert done.returncode == 0, done.stderr
     binary = work / "prog" / "bin" / "prog"
+    if shutil.which("readelf") is None:
+        pytest.skip("readelf is not available on this host")
     needed = subprocess.run(
         ["readelf", "-d", str(binary)],
         capture_output=True,

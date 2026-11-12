@@ -47,11 +47,10 @@ GATE_CODE = "PS4303"
 #: cannot lower).
 COMPILER_LEVEL = (3, 14)
 
+
 #: The language level of the built-in embedded CPython engine: the
-#: compiler's own. The built-in engine is never gated.
-BUILTIN_LEVEL = COMPILER_LEVEL
-
-
+#: compiler's own. The built-in engine is never gated. Defined after the
+#: `LanguageLevel` dataclass, so the module reads it at import time.
 class GateError(Exception):
     """A user-facing failure of the engine language gate (no traceback)."""
 
@@ -81,6 +80,11 @@ class LanguageLevel:
 
     def __str__(self) -> str:
         return self.text
+
+
+#: The language level of the built-in embedded CPython engine: the
+#: compiler's own. The built-in engine is never gated.
+BUILTIN_LEVEL = LanguageLevel(*COMPILER_LEVEL)
 
 
 def parse_level(text: str) -> LanguageLevel | None:
