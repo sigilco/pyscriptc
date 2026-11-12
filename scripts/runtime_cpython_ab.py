@@ -168,7 +168,7 @@ def default_programs() -> list[Path]:
     for path in corpus_script_paths():
         try:
             in_slice, _total, _fenced = module_stats(path)
-        except IRError, OSError:
+        except (IRError, OSError):
             continue
         if in_slice > 0:
             chosen.append(path)

@@ -7,6 +7,29 @@ pyscriptc compiles the typed subset of Python 3.14.
 Every dependency gets one of two execution modes: it compiles to native code when it fits the subset, or it runs through embedded CPython (fallback mode) when it does not.
 An untyped dependency is never impossible to use: it runs in fallback mode.
 
+## The two planes
+
+Every compiled program is split into two execution planes, decided per module and shown by
+`pyscriptc assess` (the plane map):
+
+| Plane | What runs there | What it costs |
+| --- | --- | --- |
+| **native** | compiled to machine code; no interpreter in the loop | the subset's speed and binary size; anything outside the subset fences the build |
+| **island** | an embedded CPython 3.14 interpreter in the same process | interpreter speed for those parts, plus a marshalling cost on every native-island call crossing |
+
+The split is not a per-package verdict of "works or not": a program can run entirely on the island
+tier and still produce correct output, at interpreter speed, in a single binary that needs no
+system Python.
+What the split decides is how much of the program gets native speed.
+`pyscriptc assess --json` prints the planned route per definition (`planeMap`, with `demotedBy`
+naming the import or call that pulled a function onto the island) and
+`pyscriptc run --report=report.json` prints the route that a run actually took.
+
+A fence (a `PSxxxx` diagnostic) is the compile-time signal that a construct cannot be lowered;
+the island is the run-time answer for the code that a fence would otherwise stop.
+Support status per package, including which packages are measured to run on which plane, is on
+the [compat site]({{PYSC_COMPAT_URL}}); this page states the mechanics and the costs.
+
 ## Route a module to fallback mode
 
 Fallback mode links your binary against `libpython` and runs the unsupported parts in an in-process CPython 3.14 interpreter, while the typed functions still compile to native code.
@@ -60,6 +83,10 @@ Note that `helper` runs there too: when an unsupported function calls a typed on
 ```bash
 pyscriptc assess script.py
 ```
+
+Its summary counts definitions inside the subset; that is not the share that runs native.
+On a fallback build the deciding report is the plane map: `assess --json` prints the planned route per function plus `demotedBy` (the call that pulled a function onto the island), and `run --report=report.json` prints the executed route after a run.
+A module whose top level imports an untyped dependency has its whole top level routed first (divergence 42), so framework-heavy trees can show a high per-definition share with everything island at run time; see [What runs native and what runs on the island](python-subset.md#what-runs-native-and-what-runs-on-the-island).
 
 `pyscriptc imports SOURCE` classifies every imported module as `native` or as requiring libpython.
 `pyscriptc run --fallback=cpython --report=report.json script.py` writes the same classification as JSON after a run.
@@ -135,6 +162,7 @@ Limits to know:
 - Cross-compiling a libpython-linked binary to a foreign target is refused (divergence 31); fallback mode needs the host libpython and its installed packages.
 - Uncaught exceptions from the embedded side print the type and message but not a traceback (divergences 12 and 42).
 - Unsupported module-level statements plan the whole module top level for the embedded interpreter (divergence 42).
+- The island plan propagates through calls: a native-eligible function that names an island-planned import or an unannotated value reaching one is routed there too (divergence 59). On one measured Flask-plus-LLM backend this took the run-time native share from 41% (definitions passing in isolation) to 0% (functions planned island).
 
 The complete crossing rules and numbered divergences: [Divergences from CPython](../reference/divergences.md).
 Per-module and per-library support status: the [compat site]({{PYSC_COMPAT_URL}}).

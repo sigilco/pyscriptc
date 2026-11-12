@@ -14,7 +14,6 @@ from __future__ import annotations
 
 import json
 import os
-import resource
 import time
 from pathlib import Path
 from typing import Any
@@ -75,6 +74,10 @@ class Debug:
     # summary, or None when no engine was requested. Typed (attribute
     # access, no literal IR-key reads); serialized with `EngineSummary.as_dict`.
     engine_info: EngineSummary | None
+    # The engine's language level (issue #668): the `major.minor` the
+    # engine's capability manifest declares, or None when no engine with
+    # a manifest was selected (the gate is then open).
+    engine_level: str | None
 
     def __init__(self, topics: set[str], debug_dir: Path | None) -> None:
         self.topics = topics
@@ -99,6 +102,7 @@ class Debug:
         self.binding_info: dict[str, Any] | None = None
         self.mir_plan = None
         self.engine_info = None
+        self.engine_level = None
 
     def set_binding(self, emitted: list[dict[str, Any]], skipped: list[tuple[str, str]]) -> None:
         self.binding_info = {
@@ -244,9 +248,10 @@ class Debug:
         if self.engine_info is not None and self.wants("stages"):
             info = self.engine_info
             caps = ",".join(info.capabilities) or "-"
+            level = f" level={self.engine_level}" if self.engine_level else ""
             lines.append(
                 f"[debug] island-engine: {info.name} {info.version} "
-                f"kind={info.kind} capabilities={caps} source={info.source}"
+                f"kind={info.kind} capabilities={caps} source={info.source}{level}"
             )
         return "\n".join(lines)
 
@@ -281,6 +286,8 @@ class Debug:
             res["mirAdapter"] = mir_records
         if self.engine_info is not None:
             res["islandEngine"] = self.engine_info.as_dict()
+            if self.engine_level is not None:
+                res["islandEngine"]["languageLevel"] = self.engine_level
         # boxed:begin
         if module is not None and _has(module, "fallback"):
             fallback: dict[str, Any] = module["fallback"]
@@ -313,11 +320,21 @@ class Debug:
 
 
 def _rss_kb() -> int:
-    """Peak resident set size of this process so far, in KiB."""
+    """Peak resident set size of this process so far, in KiB.
+
+    `resource` is a Unix module, so it is imported here and not at module
+    scope: the CLI has to start on Windows, where the import would fail
+    before `main()` ever runs.
+    """
+
+    try:
+        import resource
+    except ImportError:
+        return 0
 
     try:
         return int(resource.getrusage(resource.RUSAGE_SELF).ru_maxrss)
-    except OSError, ValueError:
+    except (OSError, ValueError):
         return 0
 
 

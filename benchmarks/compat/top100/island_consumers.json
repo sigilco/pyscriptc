@@ -1,0 +1,24 @@
+{
+  "schemaVersion": 1,
+  "description": "One consumer program per pinned package. Each program imports the package, exercises one entry point, and prints a portable result. The island probe compiles each with `pyscriptc compile --fallback=cpython --embed-python=host --emit bin --skip-check` and diffs the binary's stdout and exit code against CPython 3.14 running the same program.",
+  "consumers": {
+    "certifi": "import certifi\n\n\ndef main() -> None:\n    data: str = certifi.where()\n    print(len(data) > 0)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "colorama": "from colorama import Fore, Style\n\n\ndef main() -> None:\n    print(Fore.RED + \"x\" + Style.RESET_ALL)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "dotenv": "from dotenv import dotenv_values\n\n\ndef main() -> None:\n    d: dict = dotenv_values(stream=None)\n    print(type(d).__name__)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "filelock": "from filelock import FileLock\n\n\ndef main() -> None:\n    lock: FileLock = FileLock(\"/tmp/x.lock\")\n    print(type(lock).__name__)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "h11": "import h11\n\n\ndef main() -> None:\n    print(h11.__version__)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "idna": "import idna\n\n\ndef main() -> None:\n    print(idna.encode(\"münchen.example\").decode())\n    print(idna.decode(\"xn--mnchen-3ya.example\"))\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "iniconfig": "from iniconfig import IniConfig\n\n\ndef main() -> None:\n    c: IniConfig = IniConfig(\"fixed.ini\")\n    print(c.sections[\"a\"][\"x\"])\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "jmespath": "import jmespath\n\n\ndef main() -> None:\n    r = jmespath.search(\"a.b\", {\"a\": {\"b\": 7}})\n    print(r)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "jwt": "import jwt\n\n\ndef main() -> None:\n    t: str = jwt.encode({\"a\": 1}, \"k\", algorithm=\"HS256\")\n    print(len(t) > 0)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "mdurl": "from mdurl import encode\n\n\ndef main() -> None:\n    print(encode(\"a b\"))\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "packaging": "from packaging.version import Version\n\n\ndef main() -> None:\n    v: Version = Version(\"1.2.3\")\n    print(str(v))\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "pathspec": "from pathspec import PathSpec\n\n\ndef main() -> None:\n    s: PathSpec = PathSpec.from_lines(\"gitwildmatch\", [\"*.py\"])\n    print(s.match_file(\"a.py\"))\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "platformdirs": "from platformdirs import user_config_dir\n\n\ndef main() -> None:\n    d: str = user_config_dir(\"x\")\n    print(len(d) > 0)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "pytz": "import pytz\n\n\ndef main() -> None:\n    z = pytz.timezone(\"UTC\")\n    print(str(z))\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "shellingham": "from shellingham import detect_shell\n\n\ndef main() -> None:\n    r = detect_shell()\n    print(r is not None)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "trove_classifiers": "from trove_classifiers import classifiers\n\n\ndef main() -> None:\n    print(len(classifiers) > 0)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "tzdata": "import tzdata\n\n\ndef main() -> None:\n    print(tzdata.__version__)\n\n\nif __name__ == \"__main__\":\n    main()\n",
+    "zipp": "import zipp\n\n\ndef main() -> None:\n    print(hasattr(zipp, \"Path\"))\n\n\nif __name__ == \"__main__\":\n    main()\n"
+  }
+}

@@ -129,7 +129,7 @@ def main(argv: list[str] | None = None) -> int:
             for target in stale:
                 try:
                     names.append(str(target.relative_to(ROOT)))
-                except AttributeError, ValueError, TypeError:
+                except (AttributeError, ValueError, TypeError):
                     names.append(str(target))
             print(
                 f"NOTICE is stale: run `uv run python scripts/gen_third_party_notices.py` ({', '.join(names)})",
@@ -142,7 +142,7 @@ def main(argv: list[str] | None = None) -> int:
         target.write_text(text, encoding="utf-8")
         try:
             print(f"wrote {target.relative_to(ROOT)}")
-        except AttributeError, ValueError, TypeError:
+        except (AttributeError, ValueError, TypeError):
             print(f"wrote {target}")
     return 0
 

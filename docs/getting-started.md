@@ -40,7 +40,8 @@ Pass `--yes` (or `-Yes` on Windows) to let the script install `uv` and `zig` too
 
 You need two things:
 
-- CPython 3.14 or later, to run the compiler. On an older CPython, `uv tool install --python 3.14 pyscriptc` fetches a suitable interpreter.
+- CPython 3.11 or later, to run the compiler. On an older CPython, `uv tool install --python 3.14 pyscriptc` fetches a suitable interpreter.
+- The compiled program always targets CPython 3.14 semantics, whatever host runs the compiler. A source the host cannot parse (syntax newer than the host) is a syntax error before the compiler sees it; see [Divergences](reference/divergences.md).
 - A C toolchain on PATH, to link compiled programs. `zig` also enables cross-compilation.
 
 The type checker ships inside the package, so there is nothing extra to install for it.
@@ -58,7 +59,24 @@ The type checker ships inside the package, so there is nothing extra to install 
 
 You only need one of `clang` or `zig`. Run `pyscriptc doctor` after installing to see what was found.
 
+### No system zig? Install it as a wheel
+
+If the host has no zig and no clang, install pyscriptc with the `zig` extra:
+
+```sh
+uv tool install "pyscriptc[zig]"
+```
+
+The extra pulls the `ziglang` wheel, which ships the zig toolchain. The wheel registers only a `python-zig` console script, so pyscriptc installs a `zig` PATH shim over `python -m ziglang` and reports it as `zig: ... [PATH shim for pip install ziglang]` in `doctor`. With that in place `--driver zig` and cross-compilation (`--target`) work with no other setup.
+
+The same works with `pipx install "pyscriptc[zig]"` and `pip install "pyscriptc[zig]"`. The extra is the wheel route only: a system zig (`brew`, `winget`, `mise`, the distro package) is found directly and needs no shim.
+
 ## Install pyscriptc
+
+These pages describe master; the newest released wheel can lag it.
+`uv tool install pyscriptc` installs the newest release; installing from the repository
+(`uv pip install git+https://github.com/sigilco/pyscriptc`) installs master.
+`pyscriptc doctor` prints the installed version, so you can see which one you have.
 
 Install pyscriptc as a tool:
 
@@ -75,6 +93,8 @@ pyscriptc doctor
 ```
 
 `doctor` prints the pyscriptc version, the checker it found, the C compiler or zig it will link with, and the cache locations. If something is missing, fix it with the table above and run `doctor` again.
+
+For an automated check, `pyscriptc doctor --json` prints the same facts as JSON. The `zig.found` and `clang.found` fields answer whether this machine can compile a binary at all.
 
 ## First run
 
@@ -122,3 +142,13 @@ If a file cannot be compiled, pyscriptc prints a table naming each construct and
 | 4 | A version or target mismatch |
 
 Run `pyscriptc explain PS2003` to see what a code means and how to change your code. The full list of diagnostic codes is in [Diagnostics](reference/diagnostics.md), and the general reference for unsupported behavior is [Divergences from CPython](reference/divergences.md).
+
+## If your app is framework-heavy
+
+Reflection-heavy and framework-heavy code (pydantic models, Flask routes, agent frameworks) does not compile to native code.
+It does not fail either: once an untyped import sits at a module top level, that module's functions are pulled onto the embedded CPython island with it, and the program runs there.
+What it costs is the island: those parts run at interpreter speed, and every call crossing between a native function and an island one pays a marshalling cost.
+The fences that remain in your own code (a missing annotation, an `Any` annotation, a construct outside the subset) still stop the build, and each names the line to change.
+
+Before building, run `pyscriptc assess` on the tree and read the plane map it prints: what runs native, what runs on the island and why, and the policy lines that route each unsupported import.
+The rules are in [What runs native and what runs on the island](guide/python-subset.md#what-runs-native-and-what-runs-on-the-island), the island mechanics and what a crossing costs in [Libraries and fallback mode](guide/libraries.md#the-two-planes), and how this compares with other tools in [Comparison with other tools](guide/comparison.md).

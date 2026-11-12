@@ -22,12 +22,13 @@ Design doc: .agents/docs/compat-site.md
 from __future__ import annotations
 
 import argparse
+import ast
 import json
 import os
 import subprocess
 import sys
 import tomllib
-from collections import Counter
+from collections import Counter, defaultdict
 from pathlib import Path
 from typing import Any
 
@@ -35,7 +36,7 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from benchmarks.compat2.census import DEFAULT_SRC  # noqa: E402
-from scripts.compat_schema import HISTORY_LIMIT, SCHEMA_VERSION, validate  # noqa: E402
+from scripts.compat_schema import HISTORY_LIMIT, ISLAND_STATUSES, SCHEMA_VERSION, validate  # noqa: E402
 from scripts.gen_support_table import evaluate  # noqa: E402
 
 from pyscriptc.coverage import build_report  # noqa: E402
@@ -45,11 +46,34 @@ DATA = ROOT / "scripts" / "support_data.toml"
 PINS = ROOT / "benchmarks" / "compat" / "top100" / "pins.json"
 DEFAULT_OUT = ROOT / "data" / "compat" / "compat.json"
 
+# The island run receipts: the committed output of the island probe
+# (`benchmarks.compat.top100.island_probe`), one consumer program per pinned
+# package, compiled with the island fallback and diffed against CPython. A
+# package with a receipt gets its island verdict from that receipt; a package
+# without one says `unmeasured` instead of inferring a verdict from the
+# fences, because only a run says whether a package runs.
+ISLAND_RESULTS = ROOT / "data" / "compat" / "island.json"
+
+# The install channel the measurement came from, read from pyproject.toml.
+# The page states which channel a number describes; without it a reader
+# cannot tell the released wheel from master.
+PYPROJECT = ROOT / "pyproject.toml"
+
+# The evidence base URL for the nightly artifacts. A package with a run
+# receipt links its run; the rest carry an empty string, and the page says
+# "not measured" instead of inventing a link.
+NIGHTLY_EVIDENCE = "https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml"
+
 # The ladder document: the R1, R2 and R4 numbers the site publishes.
 DEFAULT_LADDER = ROOT / "data" / "compat" / "ladder.json"
 
 GREEN, YELLOW, RED = "🟢", "🟡", "🔴"
 STATUS_FULL, STATUS_PARTIAL, STATUS_NONE = "full", "partial", "none"
+
+# The island vocabulary of the second axis. `runs` means a receipt exists and
+# the compiled program matched CPython; `blocked` means a receipt exists and
+# the build or the run failed; `unmeasured` means no receipt exists yet.
+ISLAND_RUNS, ISLAND_BLOCKED, ISLAND_UNMEASURED = ISLAND_STATUSES
 
 # Where the scorer output lands when the nightly runs it.
 DEFAULT_SCORE = ROOT / "nightly" / "visible-score.json"
@@ -92,7 +116,7 @@ def _git(*args: str) -> str:
             text=True,
             check=True,
         )
-    except OSError, subprocess.CalledProcessError:
+    except (OSError, subprocess.CalledProcessError):
         return ""
     return proc.stdout.strip()
 
@@ -134,7 +158,122 @@ def _support_rows(data: dict[str, Any], kind: str, errors: list[str]) -> list[di
     return rows
 
 
-def _package_rows() -> list[dict[str, Any]]:
+def _project_version() -> str:
+    """The compiler version of the tree, from pyproject.toml. Empty when unreadable."""
+    try:
+        data = tomllib.loads(PYPROJECT.read_text(encoding="utf-8"))
+        return str(data["project"]["version"])
+    except (OSError, KeyError, tomllib.TOMLDecodeError):
+        return ""
+
+
+def _package_plane(report: dict[str, Any]) -> dict[str, Any]:
+    """The plane split of one package tree: how many definitions lower
+    natively, how many route to the island, and how many stay blocked.
+
+    The rule is the one the compiler uses: a definition with no fence inside
+    it lowers natively, one whose fence traces to runtime reflection routes to
+    the island, and one fenced by a construct the subset refuses stays
+    blocked. A definition can never be on two planes, so the three counts add
+    up to the definitions in the tree.
+
+    The counts are per definition occurrence, not per name: a module that
+    defines the same name twice has two definitions, and the fence census
+    keys its buckets by name, which would collapse them into one.
+    """
+    from pyscriptc.coverage import _definitions as coverage_definitions
+    from pyscriptc.reflection import routes_to_island
+
+    fences_by_file: dict[str, list[dict[str, Any]]] = defaultdict(list)
+    for fence in report["fences"]:
+        fences_by_file[fence["file"]].append(fence)
+
+    native = 0
+    island = 0
+    blocked = 0
+    for entry in report["capabilities"]["byFile"]:
+        path = entry["file"]
+        text = _read_text(path)
+        if text is None:
+            continue
+        try:
+            parsed = ast.parse(text, filename=path)
+        except SyntaxError:
+            continue
+        defs = coverage_definitions(parsed)
+        local = fences_by_file.get(path, [])
+        for item in defs:
+            inside = [fence for fence in local if item.line <= fence["line"] <= item.end_line]
+            if not inside:
+                native += 1
+            elif any(routes_to_island(fence["message"]) for fence in inside):
+                island += 1
+            else:
+                blocked += 1
+    definitions = native + island + blocked
+    return {
+        "definitions": definitions,
+        "native": native,
+        "island": island,
+        "blocked": blocked,
+    }
+
+
+def _read_text(path: str) -> str | None:
+    """The source of one file, or None when it cannot be read."""
+    try:
+        return Path(path).read_text(encoding="utf-8")
+    except OSError:
+        return None
+
+
+def _island_receipts() -> dict[str, dict[str, Any]]:
+    """The committed island receipts, keyed by package name.
+
+    Empty when the probe has not been run in this tree, so the page says
+    "not measured" instead of publishing a verdict nobody can back.
+    """
+    if not ISLAND_RESULTS.exists():
+        return {}
+    document = json.loads(ISLAND_RESULTS.read_text(encoding="utf-8"))
+    receipts = {}
+    for row in document.get("results", []):
+        receipts[row["name"]] = row
+    return receipts
+
+
+def _island_section(receipts: dict[str, dict[str, Any]], generated: str) -> dict[str, Any]:
+    """The island section: the run receipts behind the per-package verdicts.
+
+    The section states what was measured and when, so the per-package
+    verdicts have a source a reader can check. Without receipts the section
+    says so, and every row reads `unmeasured`.
+    """
+    results = sorted(receipts.values(), key=lambda row: row["name"])
+    return {
+        "measured": len(results),
+        "packages": len(results),
+        "runs": sum(1 for row in results if row.get("runs")),
+        "date": generated,
+        "commit": _commit(),
+        "source": "benchmarks/compat/top100/island_probe.py",
+    }
+
+
+def _island_verdict(receipt: dict[str, Any] | None) -> str:
+    """The island verdict of a package, from its run receipt.
+
+    - `runs`        the receipt exists and the compiled program matched
+                    CPython on stdout and exit code.
+    - `blocked`     the receipt exists and the build or the run failed.
+    - `unmeasured`  there is no receipt for this package.
+    """
+    if receipt is None:
+        return ISLAND_UNMEASURED
+    return ISLAND_RUNS if receipt.get("runs") else ISLAND_BLOCKED
+
+
+def _package_rows(receipts: dict[str, dict[str, Any]]) -> list[dict[str, Any]]:
     """One row per pinned package, measured with `pyscriptc coverage`.
 
     Returns the package rows and the fence-code counters from the same
@@ -163,12 +302,18 @@ def _package_rows() -> list[dict[str, Any]]:
         else:
             status = STATUS_NONE
         name, version = versions.get(tree.name, (tree.name, "?"))
+        plane = _package_plane(report)
+        receipt = receipts.get(tree.name)
+        island = _island_verdict(receipt)
         rows.append(
             {
                 "name": name,
                 "import_name": tree.name,
                 "version": version,
                 "status": status,
+                "island": island,
+                "plane": plane,
+                "evidence": "benchmarks/compat/top100/island_probe.py",
                 "fences": summary["fences"],
                 "definitions": definitions,
                 "fenced_definitions": fenced,
@@ -265,7 +410,8 @@ def build(
     stdlib = _support_rows(data, "stdlib", errors)
     if errors:
         raise ValueError("support probe errors:\n" + "\n".join(errors))
-    packages, fences = _package_rows()
+    receipts = _island_receipts()
+    packages, fences = _package_rows(receipts)
     score = _load_score(score_path)
     language = _language_rows(score)
     ladder = _ladder_rows(ladder_path)
@@ -301,6 +447,12 @@ def build(
             "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
             "score": _relative(score_path),
         },
+        "channel": {
+            "released": _project_version(),
+            "install_released": "uv tool install pyscriptc",
+            "install_master": "uv pip install git+https://github.com/sigilco/pyscriptc",
+        },
+        "island": _island_section(receipts, generated),
         "summary": {
             "builtins_full": sum(1 for row in builtins if row["status"] == STATUS_FULL),
             "builtins_partial": sum(1 for row in builtins if row["status"] == STATUS_PARTIAL),

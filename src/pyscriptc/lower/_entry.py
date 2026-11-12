@@ -11,11 +11,12 @@ code that lived in `lower.__init__`, unchanged.
 from __future__ import annotations
 
 import ast
-import sys
+from typing import Any
 
 from pyscriptc.lower._core import _CMP, Fence
 from pyscriptc.lower._stdlib_shared import _ERASED_MODULES, _module_assigned, _release_erased_import
 from pyscriptc.lower._stmt import _is_docstring, _is_main_guard
+from pyscriptc.target import TARGET_VERSION_INFO
 
 
 class EntryMixin:
@@ -45,6 +46,11 @@ class EntryMixin:
         )
         scriptish = self._script_line is not None
         divert = self._diverted_literals(live) if scriptish else set()
+        # The call-assign scan must precede the assign binds: its `call`
+        # slot markers are the deferral gate in `_bind_module_assign`, and
+        # `_script_line` here is the input the scan needs. The slot itself
+        # still binds in the deferred pass; this only names it.
+        self._scan_module_call_assigns(live)
         for stmt in live:
             if isinstance(stmt, (ast.Import, ast.ImportFrom, ast.Pass)):
                 continue
@@ -174,6 +180,25 @@ class EntryMixin:
         name = "main" if "main" not in taken else "__entry__"
         return [self._make_entry(stmts, name)]
 
+    def _module_init_entry(self, inits: list[dict[str, Any]]) -> dict[str, Any]:
+        """The `__init__` entry a program module runs at import.
+
+        The body carries the module's global slot initializers: in CPython
+        the assignment runs when the module is imported, so the entry runs
+        them at that point. A module whose body has no statements of its
+        own still needs one when it binds a slot.
+        """
+        name = self._ir_name("__init__")
+        body = [{"kind": "expr", "expr": init, "span": init.get("span", {})} for init in inits]
+        return {
+            "name": name,
+            "params": [],
+            "returnType": {"kind": "none"},
+            "locals": [],
+            "body": body,
+            "span": {"file": self.filename, "line": 1, "col": 0, "endLine": 1, "endCol": 0},
+        }
+
     def _make_entry(self, stmts: list[ast.stmt], name: str) -> ast.FunctionDef:
         """A synthetic no-argument function carrying `stmts` in source order."""
 
@@ -277,7 +302,13 @@ class EntryMixin:
                     # C3: the canonical guard's body is live script text. It joins
                     # the entry in source order; an `else` under a `__name__` test
                     # never runs as `__main__`, so it stays dropped.
-                    live.extend(self._live_statements(list(stmt.body), fences, rebound))
+                    guard_live = self._live_statements(list(stmt.body), fences, rebound)
+                    # The guard body's own statements carry the flag: the
+                    # call-assign scan runs after `_split_entry`, whose
+                    # `_script_line` heuristic cannot see a guard whose
+                    # body is the module's only non-definition text.
+                    self._guard_stmts.update(id(s) for s in guard_live)
+                    live.extend(guard_live)
                     continue
                 # An imported module is not `__main__`: the guard body never
                 # runs there, and the `else` branch does.
@@ -370,7 +401,14 @@ def _is_int_const(node: ast.expr) -> bool:
 
 
 def _cmp_version(op: str, parts: tuple[int, ...]) -> bool:
-    current: tuple[int, ...] = sys.version_info
+    """Fold a `sys.version_info` compare against the declared target.
+
+    The compare describes the program's world, which is `target.json`'s
+    CPython, not the interpreter that happens to run the compiler: a 3.11
+    tool host folds `sys.version_info >= (3, 12)` the same way the 3.14
+    oracle would.
+    """
+    current: tuple[int, ...] = TARGET_VERSION_INFO
     if op == ">=":
         return current >= parts
     if op == ">":

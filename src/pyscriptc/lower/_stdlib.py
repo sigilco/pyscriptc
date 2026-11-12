@@ -487,6 +487,8 @@ class StdlibDispatchMixin(StdlibBindMixin):
             self._reject_keywords(node)
             if attr == "gcd":
                 return self._math_gcd(node, span)
+            if attr in {"factorial", "lcm"}:
+                return self._math_int_call(node, span, attr)
             return self._math_call(node, span, attr)
         if module == "bisect":
             from pyscriptc.restlower._bisect import _bisect
@@ -503,7 +505,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
             return self._json_dump(node, span)
         if module == "json" and attr == "dumps":
             return self._json_dumps(node, span)
-        if module == "struct" and attr in {"pack", "unpack"}:
+        if module == "struct" and attr in {"pack", "unpack", "calcsize", "unpack_from"}:
             self._reject_keywords(node)
             return self._struct_call(node, span, attr)
         if module == "re" and attr == "findall":
@@ -1115,11 +1117,40 @@ class StdlibDispatchMixin(StdlibBindMixin):
                     self._annotation(stmt.annotation)  # a bare declaration binds nothing
                     return
                 typ = self._annotation(stmt.annotation)
-                if typ["kind"] == "func" and not self._deferring and self._script_line is None:
+                is_call = isinstance(stmt.value, ast.Call)
+                shape = stmt.value.func if is_call else None
+                is_pattern_call = (
+                    is_call
+                    and isinstance(shape, ast.Attribute)
+                    and shape.attr == "compile"
+                    and isinstance(shape.value, ast.Name)
+                    and shape.value.id == "re"
+                    and len(stmt.value.args) in {1, 2}
+                    and not stmt.value.keywords
+                    and all(isinstance(a, ast.Constant) for a in stmt.value.args[1:])
+                )
+                hoists = (self._script_line is None or stmt.lineno < self._script_line) and id(
+                    stmt
+                ) not in self._guard_stmts
+                if (
+                    typ["kind"] == "func"
+                    or (
+                        isinstance(stmt.value, ast.Call)
+                        and hoists
+                        and not is_pattern_call
+                        # A call result takes a module slot only when a
+                        # definition body reads the name (the #502 case).
+                        # The scan marked that slot; an entry-only call
+                        # assign keeps master's path: it lowers inside the
+                        # entry with its readers in source order (E1).
+                        and self.global_slots.get(stmt.target.id, {}).get("call")
+                    )
+                ) and not self._deferring:
                     # A Callable-annotated module name may bind a function
-                    # value: signatures do not exist yet, so binding waits
-                    # for the deferred pass after sigs. A scriptish module
-                    # leaves it: the assignment lowers inside the entry.
+                    # value, and a call result takes a global slot (#502):
+                    # signatures do not exist yet, so binding waits for the
+                    # deferred pass after sigs. A scriptish module leaves it:
+                    # the assignment lowers inside the entry.
                     self.deferred_module.append(stmt)
                     return
                 if isinstance(stmt.value, ast.Set):
@@ -1189,9 +1220,41 @@ class StdlibDispatchMixin(StdlibBindMixin):
                         f"{target} = {name} copies the module-scope constant {name}: a copy-on-alias "
                         f"is not representable — {_one_identity_note(name, typ)}",
                     )
+                shape2 = stmt.value.func if isinstance(stmt.value, ast.Call) else None
+                is_pattern_call2 = (
+                    shape2 is not None
+                    and isinstance(shape2, ast.Attribute)
+                    and shape2.attr == "compile"
+                    and isinstance(shape2.value, ast.Name)
+                    and shape2.value.id == "re"
+                    and len(stmt.value.args) in {1, 2}
+                    and not stmt.value.keywords
+                    and all(isinstance(a, ast.Constant) for a in stmt.value.args[1:])
+                )
+                hoists = (self._script_line is None or stmt.lineno < self._script_line) and id(
+                    stmt
+                ) not in self._guard_stmts
+                is_call = isinstance(stmt.value, ast.Call)
+                # A call result takes a module slot when a definition body
+                # reads the name (the #502 case). The scan marked that slot;
+                # an entry-only call assign keeps master's path: it lowers
+                # inside the entry with its readers in source order (E1).
+                call_slot = is_call and self.global_slots.get(target, {}).get("call")
                 if (
                     not self._deferring
-                    and self._script_line is None
+                    and not is_pattern_call2
+                    # Under the fallback tier the island seed owns a call
+                    # assign: deferring it would lower the call native-side
+                    # and marshal its arguments (`pickle.dumps(square)`
+                    # fences on the func the seed runs fine). The ordinary
+                    # path below keeps the fence set the island plan reads.
+                    and not (self.fallback_definitions and is_call)
+                    # The call-assign case widens the rule to a scriptish
+                    # module: the assign may precede the first script
+                    # statement and still take a slot. Every other value
+                    # keeps master's rule (a definition-only module), so
+                    # a script's other assigns lower inside the entry.
+                    and (call_slot if is_call else self._script_line is None)
                     and isinstance(
                         stmt.value,
                         (ast.Name, ast.Lambda, ast.Call, ast.Attribute, ast.Subscript, ast.IfExp),
@@ -1199,14 +1262,16 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 ):
                     # `h = f` / `p = functools.partial(...)` may hold a
                     # callable: signatures do not exist yet, so binding waits
-                    # for the deferred pass after sigs. A scriptish module
-                    # leaves it: the assignment lowers inside the entry.
+                    # for the deferred pass after sigs. A call result takes a
+                    # global slot (#502) and must precede the first script
+                    # statement to hoist; anything else keeps the scriptish
+                    # rule: the assignment lowers inside the entry.
                     self.deferred_module.append(stmt)
                     return
                 if target in self.global_slots and _is_none_expr(stmt.value):
                     self._activate_slot(target, stmt)
                     return
-                if target in self.global_slots:
+                if target in self.global_slots and not self.global_slots[target].get("call"):
                     # `count = 0` under a `global count` declaration: the slot
                     # activates and the constant is emitted as a ps_global_set_*
                     # initializer at the top of main. In a script, only an
@@ -1450,7 +1515,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
                                 if isinstance(lv, int) and isinstance(rv, int) and rv >= 0:
                                     return _const_int(res, span)
                                 return _const_float(float(res), span)
-                            except OverflowError, ValueError:
+                            except (OverflowError, ValueError):
                                 pass
                     elif isinstance(node.op, (ast.BitAnd, ast.BitOr, ast.BitXor, ast.LShift, ast.RShift)):
                         if isinstance(lv, int) and isinstance(rv, int):

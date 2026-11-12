@@ -388,11 +388,61 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D55",
-        "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
-        "d55_csv_dict_reader.py",
+        "the uuid subset covers uuid4, uuid1, uuid5 and UUID(text); every other name is refused",
+        "d55_uuid.py",
         docs=f"{DOC}#55",
     ),
     _row(
+        "D56",
+        "the binascii subset covers unhexlify and hexlify; every other name is refused",
+        "d56_binascii.py",
+        docs=f"{DOC}#56",
+    ),
+    _row(
+        "D57",
+        "the shlex subset covers split, quote and join; the shlex class and modes are refused",
+        "d57_shlex.py",
+        docs=f"{DOC}#57",
+    ),
+    _row(
+        "D58",
+        "the secrets subset covers token_hex, token_bytes and randbelow; every other name is refused",
+        "d58_secrets.py",
+        docs=f"{DOC}#58",
+    ),
+    _row(
+        "D59",
+        "the island plan is conservative past the module that forced it: untyped imports demote the "
+        "whole module top level and, transitively through calls, every function naming them",
+        None,
+        note="needs a multi-module package shape, which single-file probes do not cover",
+        docs=f"{DOC}#59",
+    ),
+    _row(
+        "D60",
+        "math.factorial(n) is an i64 overflow past 20 instead of growing a big int",
+        "d60_factorial_overflow.py",
+        docs=f"{DOC}#60",
+    ),
+    _row(
+        "D61",
+        "float text output is shortest-round-trip without CPython's fixed-exponent rule: 180.0 prints as 1.8e+02",
+        "d61_float_print.py",
+        docs=f"{DOC}#61",
+    ),
+    _row(
+        "D62",
+        "struct.calcsize and struct.unpack_from need a literal format with an explicit byte-order prefix; "
+        "a short buffer raises ValueError, not struct.error",
+        "d62_struct_unpack_from.py",
+        docs=f"{DOC}#62",
+    ),
+    _row(
+        "D63",
+        "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
+        "d63_csv_dict_reader.py",
+        docs=f"{DOC}#63",
+    ),
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

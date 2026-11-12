@@ -5,6 +5,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import types
 from pathlib import Path
 
 import pytest
@@ -74,6 +75,58 @@ def test_is_shim_distinguishes_the_shim_from_a_real_zig(shim_home: Path, fake_zi
 def test_install_hint_names_the_wheel() -> None:
     hint = zigshim.install_hint()
     assert "pip install ziglang" in hint
+
+
+def test_on_windows_the_wheel_exe_resolves(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Windows resolves the wheel's own `zig.exe`, not a shell shim.
+
+    The POSIX shim scripts are not subprocess-safe on Windows, so the
+    compiler's own calls resolve the wheel's Win32 executable directly.
+    """
+    package = tmp_path / "ziglang"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    exe = package / "zig.exe"
+    exe.write_bytes(b"MZ")
+    monkeypatch.setitem(sys.modules, "ziglang", _fake_module(package))
+    monkeypatch.setattr(zigshim.sys, "platform", "win32")
+    monkeypatch.setattr(zigshim.shutil, "which", lambda name: None)
+    assert zigshim.resolve_zig() == str(exe)
+    assert zigshim.is_wheel_zig(str(exe))
+    assert not zigshim.is_shim(str(exe))
+
+
+def test_on_windows_the_shim_scripts_are_still_written(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """The `.bat` and `zig` scripts stay for interactive shells."""
+    monkeypatch.setattr(zigshim.sys, "platform", "win32")
+    monkeypatch.setattr(Path, "home", lambda: tmp_path)
+    monkeypatch.setenv("HOME", str(tmp_path))
+    script = zigshim.install_shim(sys.executable)
+    assert script.exists()
+    bat = script.parent / "zig.bat"
+    assert bat.exists()
+    text = bat.read_text(encoding="utf-8")
+    assert "-m ziglang" in text
+    assert text.startswith("@")
+
+
+def test_the_wheel_exe_is_not_confused_with_a_system_zig(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A `zig.exe` outside the wheel package is not a wheel binary."""
+    other = tmp_path / "zig.exe"
+    other.write_bytes(b"MZ")
+    package = tmp_path / "ziglang"
+    package.mkdir()
+    (package / "__init__.py").write_text("", encoding="utf-8")
+    monkeypatch.setitem(sys.modules, "ziglang", _fake_module(package))
+    assert not zigshim.is_wheel_zig(str(other))
+    assert not zigshim.is_wheel_zig(None)
+
+
+def _fake_module(package: Path) -> object:
+    """A stand-in `ziglang` module whose `__file__` points at the package."""
+    module = types.ModuleType("ziglang")
+    module.__file__ = str(package / "__init__.py")
+    return module
 
 
 def shutil_which(name: str) -> str | None:

@@ -114,3 +114,59 @@ def test_math_isclose(tmp_path: Path) -> None:
             "    print('ValueError')",
         ],
     )
+
+
+def test_math_inverse_and_hyperbolic(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "inverse.py",
+        [
+            "print(math.asin(0.5), math.asin(-1.0), math.asin(1.0), math.asin(1))",
+            "print(math.acos(1.0), math.acos(0.5), math.acos(-0.5))",
+            "print(math.atan(1.0), math.atan(-1.0), math.atan(0.0))",
+            "print(math.sinh(0.5), math.cosh(0.5), math.tanh(0.5))",
+            "print(math.asinh(1.0), math.acosh(1.0), math.acosh(2.0))",
+            "print(math.atanh(0.5), math.atanh(-0.5), math.atanh(0.0))",
+            "print(math.asin(float('nan')), math.acos(float('nan')), math.atan(float('nan')))",
+            *_raises("math.asin(1.5)"),
+            *_raises("math.asin(-1.5)"),
+            *_raises("math.acos(2.0)"),
+            *_raises("math.acosh(0.5)"),
+            *_raises("math.atanh(1.0)"),
+            *_raises("math.atanh(-1.0)"),
+            *_raises("math.atanh(2.0)"),
+            *_raises("math.sinh(1000.0)"),
+            *_raises("math.cosh(1000.0)"),
+        ],
+    )
+
+
+def test_math_degrees_radians_fmod(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "anglemod.py",
+        [
+            "print(math.degrees(0.7853981633974483), math.degrees(0.0), math.degrees(1.43117))",
+            "print(math.radians(180.0), math.radians(0.0), math.radians(90.0))",
+            "print(math.fmod(7.5, 2.0), math.fmod(-7.5, 2.0), math.fmod(7.5, -2.0), math.fmod(7, 2))",
+            "print(math.fmod(5.0, math.inf), math.fmod(-0.0, 1.0))",
+            *_raises("math.fmod(1.0, 0.0)"),
+            *_raises("math.fmod(math.inf, 1.0)"),
+            *_raises("math.fmod(float('nan'), 1.0)"),
+        ],
+    )
+
+
+def test_math_factorial_lcm(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "intfns.py",
+        [
+            "print(math.factorial(0), math.factorial(1), math.factorial(5), math.factorial(20))",
+            "print(math.lcm(4, 6), math.lcm(-4, 6), math.lcm(4, -6), math.lcm(-4, -6))",
+            "print(math.lcm(0, 5), math.lcm(5, 0), math.lcm(0, 0))",
+            "print(math.lcm(7, 13), math.lcm(1024, 768), math.lcm(2**31, 2**17))",
+            *_raises("math.factorial(-1)"),
+            *_raises("math.lcm(3037000500, 3037000499)"),
+        ],
+    )

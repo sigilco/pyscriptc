@@ -46,6 +46,8 @@ import tempfile
 import zipfile
 from pathlib import Path
 
+from pyscriptc.target import TARGET_MINOR
+
 STDLIB_MODES = ["safe", "minimal"]
 DEFAULT_MODE = "safe"
 
@@ -249,7 +251,10 @@ def _import_names_relative(source: str, package: str) -> set[str]:
 
     A `from . import sibling` inside a package resolves against the package,
     and the frozen closure must follow it or a kept submodule loses a peer
-    (`xml.etree.ElementTree` pulls `ElementPath` that way).
+    (`zipfile` pulls `_path` that way). A `from pkg import submod` names the
+    submodule only through the alias, so `pkg.submod` joins the candidates
+    too (`email._policybase` pulls `email.header` that way); names that are
+    not modules simply find no file in the closure walk.
     """
 
     found = _import_names(source)
@@ -258,7 +263,11 @@ def _import_names_relative(source: str, package: str) -> set[str]:
     except SyntaxError:
         return found
     for node in ast.walk(tree):
-        if not isinstance(node, ast.ImportFrom) or node.level == 0:
+        if not isinstance(node, ast.ImportFrom):
+            continue
+        if node.level == 0:
+            module = node.module or ""
+            found.update(f"{module}.{alias.name}" for alias in node.names if alias.name != "*" and module)
             continue
         parts = package.split(".") if package else []
         if node.level > 1:
@@ -266,6 +275,7 @@ def _import_names_relative(source: str, package: str) -> set[str]:
         base = ".".join(parts)
         if node.module:
             found.add(f"{base}.{node.module}" if base else node.module)
+            base = f"{base}.{node.module}" if base else node.module
         for alias in node.names:
             if alias.name != "*":
                 found.add(f"{base}.{alias.name}" if base else alias.name)
@@ -273,9 +283,18 @@ def _import_names_relative(source: str, package: str) -> set[str]:
 
 
 def _stdlib_available() -> Path:
-    """A stdlib tree to read sources from: the running interpreter's."""
+    """A stdlib tree to read sources from: the target's, else the host's.
+
+    The closure is a 3.14 answer ("the compiler host and the pack share the
+    3.14 stdlib layout"), so the target's tree is the right one. The host's
+    tree is the fallback for a machine that has no 3.14 installed, which is
+    the common case for a 3.11 or 3.15 tool host.
+    """
+    candidate: Path = Path(sys.base_prefix) / "lib" / f"python{TARGET_MINOR}"
+    if candidate.is_dir():
+        return candidate
     version_parts = platform.python_version().split(".")
-    candidate: Path = Path(sys.base_prefix) / "lib" / f"python{version_parts[0]}.{version_parts[1]}"
+    candidate = Path(sys.base_prefix) / "lib" / f"python{version_parts[0]}.{version_parts[1]}"
     if candidate.is_dir():
         return candidate
     for entry in sys.path:
@@ -315,6 +334,12 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
             for child in package.glob("*.py"):
                 keep.add(f"{name}.{child.stem}")
         queue.append(name)
+    # `sysconfig` reads the build's configuration through a data module whose
+    # name carries the platform and the ABI flags (`_sysconfigdata__linux_
+    # x86_64-linux-gnu`), imported by name at run time. The static walk
+    # cannot see it, so the module travels whenever `sysconfig` does.
+    for data in sorted(source_tree.glob("_sysconfigdata_*.py")):
+        keep.add(data.stem)
     seen: set[str] = set()
     while queue:
         name = queue.pop(0)
@@ -346,15 +371,26 @@ def minimal_modules(stdlib_dir: Path | None = None) -> list[Path]:
                 prefix = ".".join(parts[:cut])
                 if prefix.split(".")[0] not in SAFE_TRIM:
                     keep.add(prefix)
+                    # A parent package's `__init__` runs on the submodule
+                    # import, so its own imports belong to the closure too
+                    # (`importlib.resources.__init__` pulls `._common`).
+                    queue.append(prefix)
     tree = stdlib_dir if stdlib_dir is not None else source_tree
     files: list[Path] = []
+    seen: set[Path] = set()
     for name in sorted(keep):
         rel = name.replace(".", "/")
         candidate: Path = tree / f"{rel}.py"
         if not candidate.is_file():
             candidate = tree / rel / "__init__.py"
         if candidate.is_file():
-            files.append(candidate)
+            # A package's `__init__.py` answers two names (the package
+            # and the module), so the same file can be reached twice. The
+            # zip would then carry the entry twice, which the archive
+            # writer warns about and the importer reads twice.
+            if candidate not in seen:
+                seen.add(candidate)
+                files.append(candidate)
     return files
 
 

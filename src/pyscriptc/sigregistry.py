@@ -36,6 +36,7 @@ from pyscriptc.stubs import (
     find_stub,
     load_stub,
 )
+from pyscriptc.target import TARGET_MINOR_INFO
 from pyscriptc.typefacts import CallableFacts, ParameterFacts, StaticValue, TypeFacts, _parse_type_text
 
 _SCALARS = frozenset({"int", "float", "bool", "str", "bytes"})
@@ -97,7 +98,7 @@ class SignatureRegistry:
         self, roots: Sequence[StubRoot], *, version: Version | None = None, platform: str | None = None
     ) -> None:
         self.roots = tuple(roots)
-        self.version = version or sys.version_info[:2]
+        self.version = version or TARGET_MINOR_INFO
         self.platform = platform or sys.platform
         self._modules: dict[tuple[str, bool], StubModule | None] = {}
 

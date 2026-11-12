@@ -44,6 +44,9 @@ def test_self_census_ballpark() -> None:
     # the emit/ package: 13 modules (emit/_ir.py, emit/llvm/_driver.py and the
     # eight area mixins, plus the two package inits) replace the one file.
     # zigshim.py (#291, the `pip install ziglang` PATH shim) adds 1 module.
+    # The win32 resolution (#1198): the wheel's zig.exe helper adds two
+    # fences (zigshim 9 -> 11); the wheel route on Windows is a direct path,
+    # not a shim, so the count is one import probe and one annotation.
     # restlower/_dotenv.py (dotenv_values / load_dotenv, #253) adds 1 module and 5 fences.
     # restlower/_yaml.py (yaml.safe_load, #254) adds 1 module and 5 fences.
     # restlower/_urllib.py (urlopen / Request, #225 #226) adds 1 module and 12 fences.
@@ -300,7 +303,24 @@ def test_self_census_ballpark() -> None:
     # escape primitive it shares with tirserde.
     # csv DictReader/DictWriter (#488): the dict-io lowering and probes
     # add about 130 lines over the previous ceiling.
-    assert 11_000 <= census["lines"] <= 79_000
+    # The ceiling was already 39 lines short on master (78,039 measured
+    # against a 78,000 cap, from the typed TIR hasher), so it moves to 79k:
+    # the win32 resolution (#1198) takes it to 78,111 and the host floor
+    # (#1202) to 78,140 (the version helpers in ir.py, the target
+    # sys.version bake in stdmore.py and the target lookups in deps.py,
+    # stdlibzip.py and embed.py).
+    # Class-body runtime values (#732): _class_attrs.py and the
+    # _classes.py/_expr.py lowering pass add about 170 lines, taking the
+    # census to 79,166, so the ceiling moves to 80k.
+    # The onefile embed output (#802): onefile.py plus the embed.py,
+    # cli/_main.py and stdlibzip.py payload plumbing add about 540 lines,
+    # taking the census to 79,697, so the ceiling stays at 80k.
+    # The PyPy runtime pack (#668) takes it past 79k: the pack route in
+    # embed.py (the lock rows, the fetch, the link flags and the bundle
+    # stage) and the language gate in engine_gate.py add about 1k lines,
+    # so the ceiling moves to 80k; after the onefile merge it measures
+    # 80,365, so the ceiling moves to 82k.
+    assert 11_000 <= census["lines"] <= 82_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
@@ -360,6 +380,14 @@ def test_self_census_ballpark() -> None:
     # Since refs #817 the fence pins live per module in tests/census_pins/
     # (regenerate with `uv run python scripts/repin_census.py`), so a PR that
     # moves fences in one module no longer conflicts with every other PR.
+    # The host-floor PR (#1202) adds two target-derivation helpers to
+    # stdmore.py, each with an `ast.Call` annotation like every method in the
+    # file: stdmore 32 -> 35. ir.py retires three fences with the floor-check
+    # rewrite (the version-parsing helpers are plain strings): ir 29 -> 26.
+    # The target-pinning of lower/_entry.py (_cmp_version reads
+    # TARGET_VERSION_INFO now), sigregistry.py and stubs.py moves one fence
+    # each: the added import carries the same dynamic-annotation row the
+    # replaced `sys.version_info` read did.
     # The total is asserted only as an upper bound against the pins ceiling.
     # The census labels packages with bare stems, so join them with the
     # discovered units to get fully qualified module names for the pins keys.

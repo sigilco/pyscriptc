@@ -171,7 +171,7 @@ def _qualified_signatures(root: Path) -> dict[str, dict[str, str]]:
     for path in sorted(root.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
-        except OSError, SyntaxError, UnicodeDecodeError:
+        except (OSError, SyntaxError, UnicodeDecodeError):
             continue
         module = _module_name(path, root)
         for node in ast.walk(tree):
@@ -232,7 +232,7 @@ def build_facts(root: Path, provider: str = "pyrefly") -> InferFacts:
             try:
                 source = path.read_text(encoding="utf-8")
                 tree = ast.parse(source, filename=str(path))
-            except OSError, SyntaxError, UnicodeDecodeError:
+            except (OSError, SyntaxError, UnicodeDecodeError):
                 continue
             module = _module_name(path, root)
             stem = path.stem

@@ -51,6 +51,18 @@ PYPY_KINDS = frozenset({"pypy-interpreter", "pypy"})
 #: the descriptor file or absolute), needed to compile `ps_island.c`
 #: against `libpypy-c`'s embedding headers.
 PYPY_INCLUDE_KEY = "include"
+# boxed:begin
+#: The `[abi]` key whose value names the **runtime pack** the engine links
+#: against (issue #668). The value `pypy` means the pinned PyPy pack of
+#: `packaging/runtime.lock.toml`: the compiler fetches it, compiles
+#: `ps_island.c` against its headers and links its `libpypy<lang>-c`. The
+#: pack route and the `include` route are alternatives: a descriptor that
+#: names a pack does not name an include directory, and the compiler
+#: refuses a descriptor that names both.
+PYPY_PACK_KEY = "pack"
+#: The pack name the PyPy runtime pack carries in the runtime lock.
+PYPY_PACK_NAME = "pypy"
+# boxed:end
 
 
 class EngineError(Exception):
@@ -268,13 +280,63 @@ def engine_defines(descriptor: EngineDescriptor) -> list[str]:
         return []
     raw = descriptor.abi.get(PYPY_INCLUDE_KEY)
     if not isinstance(raw, str) or not raw.strip():
+        # Issue #668: a descriptor that names a runtime pack gets its
+        # include directory from the pack (the driver resolves it), so the
+        # `include` entry is only required on the by-hand route.
+        if uses_pack(descriptor):
+            return ["-DPS_ENGINE_PYPY"]
         raise EngineError(
             f"engine descriptor: the {descriptor.kind} engine needs an abi "
             f'{PYPY_INCLUDE_KEY} = "<dir>" entry pointing at the PyPy '
             "include directory (the headers rpython_startup_code and "
-            "pypy_setup_home come from)"
+            "pypy_setup_home come from), or an abi "
+            f'{PYPY_PACK_KEY} = "{PYPY_PACK_NAME}" entry naming the '
+            "pinned runtime pack"
         )
     include = Path(raw)
     if not include.is_absolute() and descriptor.path is not None:
         include = descriptor.path.parent / include
     return ["-DPS_ENGINE_PYPY", "-I", str(include)]
+
+
+# boxed:begin
+def is_pypy(descriptor: EngineDescriptor) -> bool:
+    """True when the descriptor selects the PyPy embedding path."""
+    return descriptor.kind in PYPY_KINDS
+
+
+def uses_pack(descriptor: EngineDescriptor) -> bool:
+    """True when the descriptor names a runtime pack instead of an include dir.
+
+    Issue #668: a PyPy descriptor may either point at an include directory
+    it owns (`abi.include`) or name the pinned PyPy pack (`abi.pack`), never
+    both. The pack route is the one the compiler can satisfy on its own:
+    the pack is fetched, verified and staged like the CPython bundle pack.
+    """
+    if not is_pypy(descriptor):
+        return False
+    raw = descriptor.abi.get(PYPY_PACK_KEY)
+    return isinstance(raw, str) and raw.strip() != ""
+
+
+def engine_pack_name(descriptor: EngineDescriptor) -> str | None:
+    """The runtime pack name the descriptor names, or None.
+
+    Only the `pypy` pack is known today; any other name refuses with a
+    diagnostic that names the packs the compiler can fetch, so a typo does
+    not become a silent no-op.
+    """
+    if not uses_pack(descriptor):
+        return None
+    raw = descriptor.abi.get(PYPY_PACK_KEY)
+    if not isinstance(raw, str) or raw.strip() == "":
+        return None
+    name = raw.strip()
+    if name != PYPY_PACK_NAME:
+        raise EngineError(
+            f"engine descriptor: unknown runtime pack {name!r}; the compiler can fetch the {PYPY_PACK_NAME!r} pack"
+        )
+    return name
+
+
+# boxed:end

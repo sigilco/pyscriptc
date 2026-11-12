@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-11",
-  "commit": "b8bdd2e156cebe358a997a34213339461dc5c680",
+  "generated": "2026-11-12",
+  "commit": "bc7acf9bb7d64b0b864bf3a5986e75bd9158d294",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 61,
+      "yellow": 65,
       "red": 0
     },
     "packages": {
@@ -187,7 +187,7 @@
       "label": "`math`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt, log with a base",
+      "missing": "fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma, log with a base",
       "codes": [
         "PS2001",
         "PS2003"
@@ -307,7 +307,7 @@
       "label": "`struct`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "calcsize, unpack_from, non-literal format",
+      "missing": "non-literal format, native-alignment format (no byte-order prefix), pack_into, iter_unpack, Struct",
       "codes": [
         "PS2001"
       ]
@@ -614,6 +614,45 @@
       ]
     },
     {
+      "label": "`uuid`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": ".int, .urn, .bytes and other names, names outside the subset",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`binascii`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "hexlify of str, names outside the subset",
+      "codes": [
+        "PS1003",
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`shlex`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "comments as a variable, the shlex class and modes",
+      "codes": [
+        "PS1003",
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`secrets`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "the count as a variable, names outside the subset",
+      "codes": [
+        "PS1003",
+        "PS2001"
+      ]
+    },
+    {
       "label": "`atexit`",
       "status": "\ud83d\udfe1",
       "count": 1,
@@ -664,10 +703,9 @@
       "label": "`csv`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "restkey, restval, Sniffer, Sniffer, Dialect",
+      "missing": "DictReader, writer on a non-file",
       "codes": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ]
     },
     {
@@ -763,7 +801,7 @@
       "name": "colorama",
       "version": "0.4.6",
       "status": "\ud83d\udd34",
-      "ratio": "43/77",
+      "ratio": "42/77",
       "blocking": "param-inference (29), construct-other (13), name-resolution (8)",
       "codes": "PS2002, PS1001, PS2003"
     },
@@ -780,7 +818,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "233/641",
-      "blocking": "name-resolution (149), construct-other (90), generic-alias (61)",
+      "blocking": "name-resolution (146), construct-other (91), generic-alias (61)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -811,40 +849,40 @@
       "name": "jmespath",
       "version": "1.1.0",
       "status": "\ud83d\udd34",
-      "ratio": "111/200",
-      "blocking": "param-inference (82), return-inference (19), class-body (7)",
-      "codes": "PS1001, PS2002, PS1204"
+      "ratio": "109/200",
+      "blocking": "param-inference (82), return-inference (19), name-resolution (2)",
+      "codes": "PS1001, PS2002, PS2001"
     },
     {
       "name": "pyjwt",
       "version": "2.15.1",
       "status": "\ud83d\udfe1",
-      "ratio": "52/171",
-      "blocking": "name-resolution (19), union-types (14), unlowered-type-name (11)",
-      "codes": "PS2002, PS1101, PS1106"
+      "ratio": "51/171",
+      "blocking": "name-resolution (17), union-types (14), unlowered-type-name (11)",
+      "codes": "PS2002, PS1101, PS2001"
     },
     {
       "name": "mdurl",
       "version": "0.1.2",
       "status": "\ud83d\udfe1",
       "ratio": "6/12",
-      "blocking": "name-resolution (5), unlowered-call (3), construct-other (2)",
+      "blocking": "name-resolution (5), construct-other (3), unlowered-call (3)",
       "codes": "PS2002, PS2003, PS2001"
     },
     {
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "275/558",
-      "blocking": "unlowered-type-name (90), name-resolution (77), class-body (49)",
-      "codes": "PS2002, PS1106, PS1204"
+      "ratio": "269/558",
+      "blocking": "unlowered-type-name (90), name-resolution (77), generic-alias (64)",
+      "codes": "PS2002, PS1106, PS1103"
     },
     {
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "78/132",
-      "blocking": "name-resolution (30), unlowered-type-name (19), type-mismatch (19)",
+      "ratio": "77/132",
+      "blocking": "name-resolution (30), construct-other (21), unlowered-type-name (19)",
       "codes": "PS2002, PS1106, PS1003"
     },
     {

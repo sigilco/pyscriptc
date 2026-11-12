@@ -35,6 +35,8 @@ Live per-module and per-library support status: the [compat site](https://pyscri
 
 pyscriptc is experimental, aims for CPython compatibility, and supports a subset of Python, its builtins and standard library, and selected PyPI packages. Code outside the subset stops the build with a diagnostic code (`PSxxxx`) that names the exact line, or runs through embedded CPython (fallback mode) when you opt in with `--island` or `--fallback=cpython`. Fallback mode links against the host CPython: it is not bundled, and a Python installation is expected on the machine.
 
+These pages describe master, which is ahead of the newest released wheel. `uv tool install pyscriptc` installs the release; `uv pip install git+https://github.com/sigilco/pyscriptc` installs master. `pyscriptc doctor` prints the installed version.
+
 ## Installation
 
 macOS and Linux:
@@ -67,7 +69,13 @@ then compile and run a hello world with it.
 uv tool install pyscriptc
 ```
 
-Building a binary needs a clang (or `zig`) on your PATH; `pyscriptc doctor` checks. See [Getting started](https://pyscriptc.pages.dev/getting-started/) for the full toolchain setup.
+Building a binary needs a clang (or `zig`) on your PATH; `pyscriptc doctor` checks. If the host has no zig, install the toolchain wheel with the `zig` extra and pyscriptc wires it up:
+
+```bash
+uv tool install "pyscriptc[zig]"
+```
+
+The extra pulls the `ziglang` wheel; pyscriptc installs a `zig` PATH shim over it, so `--driver zig` and cross-compilation work with no other setup. See [Getting started](https://pyscriptc.pages.dev/getting-started/) for the full toolchain setup.
 
 </details>
 
@@ -114,11 +122,13 @@ Source: [benchmarks/baseline/reference.json](https://github.com/sigilco/pyscript
 
 ## What it does not do yet
 
-Code outside the supported subset stops the build with a `PSxxxx` diagnostic that names the exact line, and a native binary has no interpreter inside it, so dynamic patterns that need one do not run. The concrete fences and their causes are in [Diagnostics](https://pyscriptc.pages.dev/reference/diagnostics/), the behavior differences from CPython are in [Divergences from CPython](https://pyscriptc.pages.dev/reference/divergences/), and the live per-module and per-library status is on the [compat site](https://pyscriptc.pages.dev/compat/).
+Code outside the supported subset stops the build with a `PSxxxx` diagnostic that names the exact line. A binary with no island in it carries no interpreter, so dynamic patterns that need one do not run in it; a binary built with `--island` runs them on the embedded CPython, at interpreter speed and with a marshalling cost on every call that crosses the boundary. The concrete fences and their causes are in [Diagnostics](https://pyscriptc.pages.dev/reference/diagnostics/), the behavior differences from CPython are in [Divergences from CPython](https://pyscriptc.pages.dev/reference/divergences/), and the live per-module and per-library status is on the [compat site](https://pyscriptc.pages.dev/compat/).
 
 ## Using PyPI packages
 
-We keep track of the share of the top 100 PyPI libraries that compiles. Mind that the compiler requires typed code. Per-module and per-library support status is tracked on the [compat site](https://pyscriptc.pages.dev/compat/), fed by the nightly CI workflow, so it cannot go stale the way a page would.
+We keep track of a pinned corpus of PyPI libraries, and each library's status splits into two planes: what compiles to native code, and what runs on the embedded CPython island.
+An untyped dependency is not unusable: it runs on the island, at interpreter speed, with a marshalling cost on every call that crosses the boundary.
+Per-module and per-library support status is tracked on the [compat site](https://pyscriptc.pages.dev/compat/), fed by the nightly CI workflow, so it cannot go stale the way a page would.
 
 ## Contributing
 

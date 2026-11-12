@@ -96,6 +96,9 @@ class ModuleDriverMixin:
         imported_slots = {k: v for k, v in self.global_slots.items() if v.get("foreign_key")}
         self.global_slots = self._scan_global_slots(live)
         self.global_slots.update(imported_slots)
+        # `_split_entry` computes `_script_line` from the same statements
+        # and runs the call-assign scan right after, so the `call` slot
+        # markers are in place before the assigns bind.
         entry_stmts = self._split_entry(live, functions, class_nodes, fences)
         # boxed:end
         entry_fn = self._entry_function(entry_stmts, functions)
@@ -161,6 +164,16 @@ class ModuleDriverMixin:
         self._pin_call_site_params(functions, fences)
         if self.deferred_module:
             self._bind_deferred_module(fences)
+        # The class-body assignments with a runtime value (issue #732): the
+        # values lower here, after the signature pass, so a value may call a
+        # module function. Each class's values land in one synthesized
+        # initializer, and the initializer runs at module init: the
+        # attribute's value is computed once, before any read.
+        class_attr_inits = self._lower_class_attrs(class_nodes, fences)
+        if class_attr_inits:
+            for record in class_attr_inits:
+                init = self._class_attr_init_call(record["name"], record.get("span") or {})
+                self.global_inits.append(init)
         # boxed:begin
         # The boxed plane decision happens here, before any body lowers, so
         # every call site sees the same `island_fns` (issue #612). Names the
@@ -355,6 +368,10 @@ class ModuleDriverMixin:
                 self.typevars = saved_typevars
         self._drain_instances(lowered, lowered_classes, fences)
         lowered.extend(self.nested_fns)
+        # The class-attribute initializers (issue #732) join the module's
+        # lowered functions: their bodies are already the IR statements, so
+        # no body pass runs over them.
+        lowered.extend(class_attr_inits)
         # A program module's global slot initializers belong to its module
         # body: in CPython the assignment runs when the module is imported,
         # so the synthesized `__init__` carries them. The single-file shape
@@ -368,6 +385,12 @@ class ModuleDriverMixin:
                     ] + record["body"]
                     self.global_inits = []
                     break
+            else:
+                # A program module whose body has no statements of its own
+                # (only the class-attribute initializers) still runs its
+                # body at import: the synthesized `__init__` carries them.
+                lowered.append(self._module_init_entry(self.global_inits))
+                self.global_inits = []
         lowered_classes.extend(self._synthetic_classes({item["name"] for item in lowered_classes}))
         # The deferred classes (the argparse namespace) grew their fields
         # while the statements lowered, so they close here.

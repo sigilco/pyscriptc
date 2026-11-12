@@ -53,7 +53,7 @@ def _cc_id_cache_enabled() -> bool:
 def _probe_compiler(cc: tuple[str, ...]) -> str:
     try:
         proc = subprocess.run([*cc, "--version"], capture_output=True, text=True, timeout=30)
-    except OSError, subprocess.SubprocessError:
+    except (OSError, subprocess.SubprocessError):
         return "unknown:" + " ".join(cc)
     return " ".join(cc) + "\n" + proc.stdout + proc.stderr
 

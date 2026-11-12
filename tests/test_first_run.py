@@ -39,7 +39,10 @@ def test_run_without_call_and_no_entry_prints_a_hint(tmp_path: Path) -> None:
 def _stripped_env(tmp_path: Path) -> dict[str, str]:
     empty = tmp_path / "empty-bin"
     empty.mkdir()
-    return {**ENV, "PATH": str(empty), "PYSC_NO_TELEMETRY": "1"}
+    # HOME moves too: a `zig` shim left in ~/.cache/pyscriptc/shim by another
+    # run on this machine would otherwise satisfy `--driver zig` and turn the
+    # expected diagnostic into a successful compile.
+    return {**ENV, "PATH": str(empty), "HOME": str(tmp_path), "PYSC_NO_TELEMETRY": "1"}
 
 
 def test_missing_toolchain_fails_up_front_and_points_at_doctor(tmp_path: Path) -> None:

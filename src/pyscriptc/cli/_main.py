@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 # boxed:begin
-from pyscriptc import embed, island_engine, runcache, sitedeps, stdlibzip
+from pyscriptc import embed, engine_gate, island_engine, onefile, runcache, sitedeps, stdlibzip
 
 # boxed:end
 from pyscriptc.cli._report import (
@@ -311,6 +311,19 @@ def build_parser() -> argparse.ArgumentParser:
         help="stage the runtime pack's CPython headers into a bundle: a bundle that is "
         "itself a compiler (the self-compiled pyscriptc) needs Python.h to compile "
         "island programs at run time",
+    )
+    compile_parser.add_argument(
+        "--onefile",
+        action="store_true",
+        help="write the bundle as one executable: the payload travels appended to a small "
+        "stub, which extracts it into the cache (keyed by the payload's sha256) on the first "
+        "run and execs it on every run. Needs --embed-python=bundle",
+    )
+    compile_parser.add_argument(
+        "--strip-runtime",
+        action="store_true",
+        help="strip the staged libpython of a bundle: the dynamic symbols the interpreter "
+        "exports stay, the debug and static symbols go (about 12 MB on Linux)",
     )
     # boxed:end
     compile_parser.add_argument("--call", metavar="FUNC", help="function the generated main calls")
@@ -708,7 +721,7 @@ def build_parser() -> argparse.ArgumentParser:
     # boxed:begin
     embed_parser: argparse.ArgumentParser = sub.add_parser(
         "embed",
-        help="manage the pinned CPython runtime pack for --embed-python=bundle",
+        help="manage the pinned CPython and PyPy runtime packs",
         parents=[common],
     )
     embed_sub: argparse.ArgumentParser = embed_parser.add_subparsers(dest="embed_cmd", required=True)
@@ -719,6 +732,12 @@ def build_parser() -> argparse.ArgumentParser:
         "--platform", metavar="PLATFORM", default=None, help="pack platform (default: this machine)"
     )
     fetch_parser.add_argument("--force", action="store_true", help="re-download even when the pack is cached")
+    # Issue #668: the PyPy pack is a second pack in the same lock, fetched
+    # the same way. The flag names it; without it the fetch is the CPython
+    # pack the bundle mode needs.
+    fetch_parser.add_argument(
+        "--pypy", action="store_true", help="fetch the pinned PyPy runtime pack (the island engine's)"
+    )
     # boxed:end
     return parser
 
@@ -835,7 +854,7 @@ def main(argv: list[str] | None = None) -> int:
         print(str(exc), file=sys.stderr)
         return 1
     # boxed:begin
-    except (embed.EmbedError, sitedeps.SiteError) as exc:
+    except (embed.EmbedError, sitedeps.SiteError, onefile.OnefileError) as exc:
         # Issues #661 and #662: a bundle compile that cannot get its pack (or
         # that carries a native dependency) is a user-facing refusal, not a
         # crash: one line naming `pyscriptc embed fetch`, no traceback.
@@ -853,6 +872,8 @@ def embed_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc embed fetch`: download, verify and unpack the pinned runtime pack."""
     if args.embed_cmd != "fetch":
         raise IRError(f"unknown embed command {args.embed_cmd!r} (known: fetch)")
+    if getattr(args, "pypy", False):
+        return _embed_fetch_pypy(args)
     pack = embed.lock_pack(getattr(args, "platform", None))
     directory: Path = embed.pack_dir(pack)
     if embed.pack_is_ready(pack) and not args.force:
@@ -867,6 +888,30 @@ def embed_cmd(args: argparse.Namespace) -> int:
         )
     embed.fetch(pack, force=args.force)
     print(f"runtime pack ready: {directory}")
+    return 0
+
+
+def _embed_fetch_pypy(args: argparse.Namespace) -> int:
+    """`pyscriptc embed fetch --pypy`: the pinned PyPy pack (issue #668).
+
+    The PyPy pack is a second lock table, fetched and verified the same
+    way as the CPython one. The compile path fetches it on demand; this
+    is the ahead-of-time route for an air-gapped machine.
+    """
+    pack = embed.lock_pypy_pack(getattr(args, "platform", None))
+    directory: Path = embed.pypy_pack_dir(pack)
+    if embed.pypy_pack_is_ready(pack) and not args.force:
+        print(f"pypy runtime pack already present: {directory}")
+        return 0
+    if embed.pypy_pack_is_ready(pack) and args.force:
+        print(f"re-fetching pypy runtime pack {pack.pack_id}", file=sys.stderr)
+    else:
+        print(
+            f"fetching pypy runtime pack {pack.pack_id} (PyPy {pack.version}, python {pack.python})",
+            file=sys.stderr,
+        )
+    embed.fetch_pypy(pack, force=args.force)
+    print(f"pypy runtime pack ready: {directory}")
     return 0
 
 
@@ -1668,6 +1713,55 @@ def _require_island_engine(args: argparse.Namespace) -> island_engine.EngineDesc
     # boxed:end
 
 
+# boxed:begin
+def _require_engine_level(
+    engine: island_engine.EngineDescriptor | None, source_path: Path
+) -> engine_gate.LanguageLevel | None:
+    """The engine's language level, with the gate applied to the program.
+
+    The level comes from the engine's capability manifest (its `manifest`
+    key, resolved against the descriptor's directory). A manifest that
+    fails to parse warns on stderr and leaves the gate open, the same
+    degradation the `imports` and `assess` consumers apply. With the gate
+    closed the sources are parsed at the compiler's level, exactly as
+    before.
+    """
+    if engine is None or engine.manifest is None:
+        return None
+    from pyscriptc import engine_manifest
+
+    manifest_path = Path(engine.manifest)
+    if not manifest_path.is_absolute() and engine.path is not None:
+        manifest_path = engine.path.parent / manifest_path
+    try:
+        manifest = engine_manifest.load_manifest_file(manifest_path)
+    except engine_manifest.ManifestError as exc:
+        print(f"warning: {exc}", file=sys.stderr)
+        return None
+    level = engine_gate.engine_level(engine, manifest)
+    if level is None:
+        return None
+    if source_path.is_file():
+        sources: list[Path] = [source_path]
+    elif source_path.is_dir():
+        sources = sorted(source_path.rglob("*.py"))
+    else:
+        return None
+    for path in sources:
+        try:
+            text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError):
+            continue
+        try:
+            engine_gate.check_source(text, level, path=path, filename=str(path))
+        except engine_gate.GateError as exc:
+            raise IRError(f"{exc.path}:{exc.line}: {exc.message}") from exc
+    return level
+
+
+# boxed:end
+
+
 def _load_ffi(args: argparse.Namespace, config: Config) -> list[FfiManifest]:
     """The `--ffi` manifests of this compile, CLI first then the config file.
 
@@ -1755,6 +1849,17 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
     engine = _require_island_engine(args)
     if engine is not None:
         dbg.engine_info = engine.as_summary()
+    # boxed:begin
+    # The engine language gate (issue #668): an engine with a capability
+    # manifest declares the language level it implements (PyPy 3.11), and a
+    # program that uses syntax that level does not have is refused before
+    # lowering, with a coded diagnostic. The gate is closed only when an
+    # engine with a manifest was selected: the default path parses exactly
+    # as it always did.
+    engine_level = _require_engine_level(engine, source_path)
+    if engine_level is not None:
+        dbg.engine_level = engine_level.text
+    # boxed:end
     manifests = _load_ffi(args, config)
     log.info(
         "compile.start",
@@ -2215,6 +2320,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             engine_defines=(
                 island_engine.engine_defines(engine) if engine is not None and "ps_island_" in llvm_text else None
             ),
+            # boxed:begin
+            engine_pack=(
+                island_engine.engine_pack_name(engine) if engine is not None and "ps_island_" in llvm_text else None
+            ),
+            # boxed:end
         )
         dbg.end("link")
         await_check()
@@ -2274,7 +2384,34 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 binary,
                 stdlib_mode=getattr(args, "embed_stdlib", None) or stdlibzip.DEFAULT_MODE,
                 dependency_roots=dep_roots,
+                with_headers=bool(getattr(args, "embed_headers", False)),
+                strip_runtime=bool(getattr(args, "strip_runtime", False)),
             )
+            outputs["bin"] = str(staged)
+            binary = staged
+        # The onefile output: the staged bundle travels appended to a small
+        # stub, which extracts it into the cache on the first run and execs
+        # it on every run. The unpacked bundle stays on disk (it is the
+        # payload's source), but the shipped artifact is the single file.
+        if getattr(args, "onefile", False):
+            if resolved_embed != "bundle":
+                raise IRError("--onefile needs --embed-python=bundle")
+            bundle_dir = binary.parent.parent
+            onefile_path = bundle_dir.parent / f"{bundle_dir.name}.onefile"
+            built = onefile.build(bundle_dir, binary.name, onefile_path)
+            outputs["bin"] = str(built)
+            outputs["onefile"] = str(built)
+            binary = built
+        # Issue #668: an engine runtime pack stages its own relocatable
+        # directory: the binary under `bin/`, the engine runtime under
+        # `lib/` (the shared library, the portable libraries it needs and
+        # the engine's stdlib tree), with the relative rpath pointing
+        # there. The stage is the engine's own (the CPython bundle's
+        # stdlib trim and site-packages staging do not apply to it).
+        if engine is not None and island_engine.uses_pack(engine) and "ps_island_" in llvm_text:
+            pypy_pack = embed.lock_pypy_pack()
+            pypy_directory = embed.ensure_pypy_pack(pypy_pack)
+            staged = embed.stage_pypy_bundle(binary, pypy_directory, pypy_pack.python, binary)
             outputs["bin"] = str(staged)
             binary = staged
         # boxed:end
