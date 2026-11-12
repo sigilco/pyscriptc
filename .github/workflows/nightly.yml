@@ -106,6 +106,11 @@ jobs:
           mkdir -p nightly
           uv run python -m benchmarks.real_scripts.measure --quiet --json nightly/r0.json
           uv run python scripts/r0_lane.py --json data/compat/ladder.json --measure nightly/r0.json
+          # The island receipts first, so the compat file carries fresh
+          # verdicts. A probe failure keeps the old receipts: the file then
+          # says what was last measured, never an invented verdict.
+          uv run python -m benchmarks.compat.top100.island_probe --json data/compat/island.json || \
+            echo "island probe failed; keeping the previous receipts"
           uv run python scripts/build_compat_json.py \
             --out data/compat/compat.json \
             --score nightly/visible-score.json \
@@ -121,6 +126,7 @@ jobs:
           mkdir -p nightly
           cp data/compat/compat.json nightly/compat.json
           cp data/compat/ladder.json nightly/ladder.json
+          cp data/compat/island.json nightly/island.json
 
       # The bot PR carries only data/compat/*.json, so the pull_request runs
       # of ci.yml, embed.yml and site.yml on it are excluded (see the
@@ -164,7 +170,7 @@ jobs:
           branch="bot/compat-snapshot"
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add data/compat/compat.json data/compat/ladder.json
+          git add data/compat/compat.json data/compat/ladder.json data/compat/island.json
           git commit -m "ci: nightly compat snapshot ${DATE}"
           git push --force origin "HEAD:${branch}"
           body="$(mktemp)"

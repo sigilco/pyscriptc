@@ -4,7 +4,7 @@ import HeatGrid from "../../components/compat/HeatGrid.astro";
 import SupportTable from "../../components/compat/SupportTable.astro";
 import PackageTable from "../../components/compat/PackageTable.astro";
 import data from "../../../../../data/compat/compat.json";
-import { getHeadlineStat, getCategorySummaries } from "../../lib/stats";
+import { getHeadlineStat, getCategorySummaries, getIslandHeadline, getIslandCounts, getPlaneShare } from "../../lib/stats";
 import type { SupportRow } from "../../lib/compat";
 
 // The compat page is static: every number is baked in at build time from
@@ -12,8 +12,13 @@ import type { SupportRow } from "../../lib/compat";
 
 const headline = getHeadlineStat(data);
 const categories = getCategorySummaries(data);
+const islandHeadline = getIslandHeadline(data);
+const islandCounts = getIslandCounts(data);
+const plane = getPlaneShare(data);
 const generated = data.generated;
 const commit = data.commit.slice(0, 12);
+const channel = data.channel;
+const island = data.island;
 
 const heatRows = (rows: SupportRow[], anchor: string) =>
   rows.map((row) => ({
@@ -47,10 +52,12 @@ const supportRows = [...data.builtins, ...data.stdlib];
       <p class="lead">
         Live compatibility status of <a href="https://github.com/sigilco/pyscriptc" data-ph-event="outbound_click" data-ph-label="compat_github">pyscriptc</a>:
         which builtins, standard-library modules and PyPI packages compile to
-        native code today.
+        native code today, and which run on the island tier instead.
       </p>
       <p class="meta">
-        generated {generated} at commit <code>{commit}</code>
+        generated {generated} at commit <code>{commit}</code> ·
+        released version {channel.released} ·
+        install <code>{channel.install_released}</code>
       </p>
     </div>
     <div class="bento-cell bento-cell--stat">
@@ -61,6 +68,45 @@ const supportRows = [...data.builtins, ...data.stdlib];
       </span>
     </div>
   </header>
+
+  <section id="planes" class="table-section">
+    <h2>Two planes</h2>
+    <p class="section-note">
+      A package can lower to machine code with no interpreter inside it, or it
+      can run on the island tier, where an embedded CPython executes the code
+      the subset cannot lower. The native column is the fence ratio over the
+      package's own definitions. The island column is a run receipt: the
+      package was compiled with the island fallback and its output was
+      compared against CPython.
+    </p>
+    <div class="lane-strip">
+      <div class="lane-card">
+        <span class="lane-name">native</span>
+        <span class="lane-share">{plane.nativeShare}%</span>
+        <span class="lane-count">{plane.native} of {plane.definitions} definitions</span>
+      </div>
+      <div class="lane-card">
+        <span class="lane-name">island</span>
+        <span class="lane-share">{plane.islandShare}%</span>
+        <span class="lane-count">{plane.island} of {plane.definitions} definitions</span>
+      </div>
+      <div class="lane-card">
+        <span class="lane-name">blocked</span>
+        <span class="lane-share">{plane.blockedShare}%</span>
+        <span class="lane-count">{plane.blocked} of {plane.definitions} definitions</span>
+      </div>
+    </div>
+    <p class="section-note">
+      {islandCounts.runs} of {islandCounts.runs + islandCounts.blocked + islandCounts.unmeasured}
+      pinned packages were measured to run on the island tier
+      {island.date ? `on ${island.date}` : ""}
+      ({island.runs} of {island.packages} receipts matched CPython).
+      {islandCounts.unmeasured > 0
+        ? ` ${islandCounts.unmeasured} packages have no receipt yet and read as not measured.`
+        : ""}
+      The probe is <code>{island.source}</code>.
+    </p>
+  </section>
 
   <section class="summary-strip" aria-label="Category summaries">
     {categories.map((cat) => (
@@ -79,10 +125,11 @@ const supportRows = [...data.builtins, ...data.stdlib];
   <HeatGrid heading="Support at a glance" rows={heatRows(supportRows, "builtins")} />
 
   <nav class="toc" aria-label="Sections">
+    <a href="#planes">Two planes</a>
     <a href="#ladder">Adoption ladder</a>
     <a href="#builtins">Builtins</a>
     <a href="#stdlib">Standard library</a>
-    <a href="#pypi">PyPI top 100</a>
+    <a href="#pypi">Pinned packages</a>
     <a href="#fences">Fence census</a>
     <a href="#history">History</a>
   </nav>

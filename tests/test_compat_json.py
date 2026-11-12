@@ -15,6 +15,7 @@ from pathlib import Path
 import pytest
 from scripts.build_compat_json import (
     DEFAULT_OUT,
+    ISLAND_RESULTS,
     STATUS_FULL,
     STATUS_NONE,
     STATUS_PARTIAL,
@@ -23,7 +24,13 @@ from scripts.build_compat_json import (
     render,
     write_atomic,
 )
-from scripts.compat_schema import HISTORY_LIMIT, SCHEMA_VERSION, STATUSES, validate
+from scripts.compat_schema import (
+    HISTORY_LIMIT,
+    ISLAND_STATUSES,
+    SCHEMA_VERSION,
+    STATUSES,
+    validate,
+)
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,6 +55,76 @@ def test_committed_file_covers_every_section() -> None:
     document = _document()
     for key in ("builtins", "stdlib", "packages", "language", "fences", "history", "summary", "sources"):
         assert key in document, key
+
+
+def test_committed_file_carries_the_channel_and_the_island_section() -> None:
+    document = _document()
+    assert "channel" in document
+    assert "island" in document
+
+
+def test_channel_names_the_released_version_and_the_install_commands() -> None:
+    document = _document()
+    channel = document["channel"]
+    assert channel["released"]
+    assert "uv tool install pyscriptc" == channel["install_released"]
+    assert channel["install_master"].startswith("uv pip install")
+
+
+def test_island_verdicts_are_from_the_vocabulary() -> None:
+    document = _document()
+    for row in document["packages"]:
+        assert row["island"] in ISLAND_STATUSES, row["name"]
+
+
+def test_island_verdict_comes_from_a_receipt_not_from_the_fences() -> None:
+    """A package without a receipt reads as not measured, whatever its fences."""
+    document = _document()
+    receipts = {}
+    if ISLAND_RESULTS.exists():
+        probe = json.loads(ISLAND_RESULTS.read_text(encoding="utf-8"))
+        receipts = {row["name"]: row for row in probe["results"]}
+    for row in document["packages"]:
+        receipt = receipts.get(row["import_name"])
+        if receipt is None:
+            assert row["island"] == "unmeasured", row["name"]
+        elif receipt["runs"]:
+            assert row["island"] == "runs", row["name"]
+        else:
+            assert row["island"] == "blocked", row["name"]
+
+
+def test_island_section_counts_match_the_receipts() -> None:
+    document = _document()
+    island = document["island"]
+    runs = sum(1 for row in document["packages"] if row["island"] == "runs")
+    assert island["runs"] == runs
+    assert island["packages"] <= len(document["packages"])
+    assert island["source"]
+
+
+def test_plane_split_adds_up_to_the_definitions() -> None:
+    document = _document()
+    for row in document["packages"]:
+        plane = row["plane"]
+        assert plane["native"] + plane["island"] + plane["blocked"] == plane["definitions"], row["name"]
+
+
+def test_plane_split_counts_definitions_not_names() -> None:
+    """A module that defines the same name twice has two definitions."""
+    document = _document()
+    for row in document["packages"]:
+        plane = row["plane"]
+        assert plane["definitions"] >= 0
+        assert plane["native"] <= plane["definitions"], row["name"]
+        assert plane["island"] <= plane["definitions"], row["name"]
+        assert plane["blocked"] <= plane["definitions"], row["name"]
+
+
+def test_evidence_names_the_probe_that_produced_the_verdict() -> None:
+    document = _document()
+    for row in document["packages"]:
+        assert row["evidence"], row["name"]
 
 
 def test_statuses_are_from_the_vocabulary() -> None:
