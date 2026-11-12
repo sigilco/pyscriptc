@@ -1,7 +1,7 @@
 {
   "schema": "2",
-  "generated": "2026-11-11",
-  "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
+  "generated": "2026-11-12",
+  "commit": "0e7dddc3dc206c1e577cfb79ead7f7f618c511ae",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -17,8 +17,8 @@
     "measured": 18,
     "packages": 18,
     "runs": 18,
-    "date": "2026-11-11",
-    "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
+    "date": "2026-11-12",
+    "commit": "0e7dddc3dc206c1e577cfb79ead7f7f618c511ae",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -26,7 +26,7 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 63,
+    "stdlib_partial": 64,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
@@ -1469,6 +1469,25 @@
       "note": ""
     },
     {
+      "id": "stdlib.selectors",
+      "kind": "stdlib",
+      "label": "`selectors`",
+      "names": [
+        "selectors"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "a fileobj argument (the typed socket handle is #229), other selector classes (EpollSelector, PollSelector, KqueueSelector, DevpollSelector, BaseSelector), get_map, the key's fileobj and data (they ride the #229 handle)"
+      ],
+      "fences": [
+        "PS1003",
+        "PS1106",
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
       "id": "stdlib.typing",
       "kind": "stdlib",
       "label": "`typing`, `typing_extensions`",
@@ -2536,6 +2555,15 @@
     {
       "date": "2026-11-11",
       "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
+    },
+    {
+      "date": "2026-11-12",
+      "commit": "0e7dddc3dc206c1e577cfb79ead7f7f618c511ae",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
