@@ -419,6 +419,18 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#59",
     ),
     _row(
+        "D60",
+        "math.factorial(n) is an i64 overflow past 20 instead of growing a big int",
+        "d60_factorial_overflow.py",
+        docs=f"{DOC}#60",
+    ),
+    _row(
+        "D61",
+        "float text output is shortest-round-trip without CPython's fixed-exponent rule: 180.0 prints as 1.8e+02",
+        "d61_float_print.py",
+        docs=f"{DOC}#61",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

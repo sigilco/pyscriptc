@@ -54,6 +54,18 @@ class CallsMoreMixin:
             args.append(arg)
         return _mod_call("math", attr, args, spec["return"], span)
 
+    def _math_int_call(self, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
+        """`factorial(n)` and `lcm(a, b)`: the int helpers lower like gcd does."""
+        if len(node.args) != 2 and attr == "lcm":
+            self.fail(node, "PS2003", "math.lcm expects 2 argument(s)")
+        if len(node.args) != 1 and attr == "factorial":
+            self.fail(node, "PS2003", "math.factorial expects 1 argument(s)")
+        args = [self._expr(arg_node) for arg_node in node.args]
+        for arg in args:
+            if _node_type_kind(arg) != "int":
+                self.fail(node, "PS1003", f"math.{attr} argument is {_show(arg['type'])}, expected int")
+        return self._abi_call("math", attr, args, _t_leaf("int"), f"ps_math_{attr}", span)
+
     def _math_gcd(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if len(node.args) != 2:
             self.fail(node, "PS2003", "math.gcd expects 2 argument(s)")

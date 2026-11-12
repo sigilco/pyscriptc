@@ -170,8 +170,8 @@ probes = [
 
 [[stdlib]]
 names = ["math"]
-ok = ['y: float = math.sqrt(x)', 'y: float = math.atan2(x, x)', 'y: int = math.gcd(n, n)', 'y: bool = math.isclose(x, x)', 'y: float = math.pi', 'y: bool = math.isfinite(x)', 'y: int = math.floor(x)']
-no = [["asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt", 'y: float = math.asin(x)', "PS2001"], ["log with a base", 'y: float = math.log(x, 2.0)', "PS2003"]]
+ok = ['y: float = math.sqrt(x)', 'y: float = math.atan2(x, x)', 'y: int = math.gcd(n, n)', 'y: int = math.factorial(n)', 'y: int = math.lcm(n, n)', 'y: float = math.asin(x)', 'y: float = math.sinh(x)', 'y: float = math.asinh(x)', 'y: float = math.acosh(x)', 'y: float = math.atanh(x)', 'y: float = math.degrees(x)', 'y: float = math.radians(x)', 'y: float = math.fmod(x, x)', 'y: bool = math.isclose(x, x)', 'y: float = math.pi', 'y: bool = math.isfinite(x)', 'y: int = math.floor(x)']
+no = [["fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma", 'y: float = math.fsum(xs)', "PS2001"], ["log with a base", 'y: float = math.log(x, 2.0)', "PS2003"]]
 
 [[stdlib]]
 names = ["re"]

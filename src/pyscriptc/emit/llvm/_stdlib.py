@@ -52,6 +52,14 @@ class StdlibMixin(EmitterBase):
         self.needed.add("math")
         return self._call_ret(spec["llvm"], spec["symbol"], [f"double {value}" for value in values])
 
+    def _emit_math_int(self, symbol: str, values: list[str]) -> str:
+        """The `_abi_call` math symbols (`factorial`, `lcm`): i64 params in
+        and out, declared from the call shape, not the `MATH_FUNCTIONS`
+        float table."""
+        self.needed.add("math")
+        self._abi_decl(symbol, "i64", ["i64"] * len(values))
+        return self._call_ret("i64", symbol, [f"i64 {value}" for value in values])
+
     def _emit_re(self, name: str, values: list[str]) -> str:
         if name == "compile":
             return self._emit_pattern(values)
