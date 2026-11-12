@@ -24,7 +24,9 @@ from pyscriptc.lower._core import (
     _LIST_FORMS,
     _SET_FORMS,
     _UNRESOLVED_KIND,
+    _has_typevar,
     _show,
+    _subst_type,
 )
 from pyscriptc.reflection import kwargs_parameter_note
 from pyscriptc.restlower import alias_name
@@ -168,9 +170,43 @@ class AnnotationMixin:
             self.fail(fn, "PS1003", "__init__ returns None")
         return params, ret
 
+    def _subst(self, typ: dict[str, Any], mapping: dict[str, dict[str, Any]], node: ast.AST) -> dict[str, Any]:
+        """`_subst_type`, then the optionals it concretized re-formed (issue #412).
+
+        A `T | None` template carries the TypeVar in its `elem`; once the
+        TypeVar is bound, the optional is the concrete `opt_<T>` class, which
+        `_opt_type` declares on first use.
+        """
+        return self._concrete_opt(_subst_type(typ, mapping), node)
+
+    def _concrete_opt(self, typ: dict[str, Any], node: ast.AST) -> dict[str, Any]:
+        kind = typ["kind"]
+        if kind == "class" and typ.get("optional") and isinstance(typ.get("elem"), dict):
+            elem = self._concrete_opt(typ["elem"], node)
+            return typ if _has_typevar(elem) else self._opt_type(elem, node)
+        if kind == "list":
+            return {**typ, "elem": self._concrete_opt(typ["elem"], node)}
+        if kind == "dict":
+            formed = {
+                **typ,
+                "key": self._concrete_opt(typ["key"], node),
+                "value": self._concrete_opt(typ["value"], node),
+            }
+            self._reject_banned_type(node, formed)
+            return formed
+        if kind == "func":
+            return {
+                **typ,
+                "params": [self._concrete_opt(param, node) for param in typ["params"]],
+                "return": self._concrete_opt(typ["return"], node),
+            }
+        return typ
+
     def _reject_banned_type(self, node: ast.AST, typ: dict[str, Any]) -> None:
         if typ["kind"] == "dict":
-            if typ["key"]["kind"] not in {"int", "str"}:
+            # A TypeVar key (`Mapping[K, V]`, issue #412) is checked once it
+            # is bound: `_concrete_opt` refuses a substituted non-int/str key.
+            if typ["key"]["kind"] not in {"int", "str", "typevar"}:
                 self.fail(node, "PS2002", "dict keys are int or str")
             if typ["value"]["kind"] == "bool":
                 self.fail(node, "PS2002", "dict values of bool are not lowered")
@@ -728,6 +764,13 @@ class AnnotationMixin:
         if elem.get("optional"):
             return elem
         name = "opt_" + _type_slug(elem)
+        if _has_typevar(elem):
+            # Issue #412: `T | None` in a generic signature is a template.
+            # No class is declared for it (a TypeVar field has no layout);
+            # `_subst` re-forms the concrete optional per instantiation.
+            return _type(
+                {"kind": "class", "name": name, "label": _show(elem) + " | None", "optional": True, "elem": elem}
+            )
         existing = self.classes.get(name)
         if existing is None:
             if name in self.declared:

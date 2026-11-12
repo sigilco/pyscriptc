@@ -114,9 +114,11 @@ There is no `typing` module object in the binary.
 | `Final`, `Final[int]`, `ClassVar[T]` | the inner annotation compiles; the checker enforces no reassignment |
 | `Annotated[int, "..."]` | the first argument compiles, the rest is dropped |
 | `Callable[[int], int]` | compiles over functions and lambdas; bare `Callable` is unsupported (`PS1104`) |
-| `Iterator[int]`, `Iterable[int]`, `Generator[...]`, `Sequence[int]` | compiles (`Sequence[T]` reads as `list[T]`); spell the names under `if TYPE_CHECKING:` from `collections.abc` |
-| `TypeVar("T")` generic functions | compiles, specialized per call site |
-| PEP 695 `def f[T]`, bound or constrained `TypeVar`, `ParamSpec` | unsupported (`PS1106` and friends) |
+| `Iterator[int]`, `Iterable[int]`, `Generator[...]`, `Sequence[int]` | compiles (`Sequence[T]` reads as `list[T]`) from `typing` or `collections.abc`, imported directly, as `collections.abc.X`, or under `if TYPE_CHECKING:` |
+| `Mapping[K, V]`, `MutableMapping[K, V]`, `MutableSequence[T]`, `Collection[T]`, `AbstractSet[T]`, `MutableSet[T]` | compiles as the concrete container (`dict[K, V]`, `list[T]`, `set[T]`); the argument must be that container, so a `set` passed to a `Collection[T]` parameter is refused (`PS1003`) |
+| `collections.abc` or `typing` names used as values (`isinstance(v, Sequence)`, `print(Mapping)`) | unsupported (`PS2002`, or `PS2001` inside `isinstance`); they are annotation-only |
+| `TypeVar("T")` generic functions and `Generic[T]` classes | compiles, specialized per call site, including `T \| None`, `Callable[[T], U]` and a TypeVar key in `dict[K, V]` or `Mapping[K, V]`; a bound `TypeVar` erases to its bound; constraints and variance flags are accepted and not enforced (as in CPython) |
+| PEP 695 `def f[T]`, `ParamSpec`, `TypeVar(..., default=...)` | unsupported (`PS1106`, `PS2003`) |
 | `Protocol`, `ABC`, `@abstractmethod`, `@overload` | the annotation is checked, then dropped; no runtime enforcement (divergence 14) |
 | `NamedTuple`, `TypedDict`, `NewType`, `Literal[...]`, `Self` | unsupported; use a `@dataclass`, a plain `dict[K, V]`, an alias, a plain `str`, or the class name |
 | `Any` as a container element (`dict[K, Any]`, `list[Any]`) | compiles in the builtin and the `typing` spelling; reads need a proven type at the read site (annotation or checker fact), an unproven read fences `PS1107`; bare `Any` or `object` as an annotation is unsupported (`PS1104`) |
