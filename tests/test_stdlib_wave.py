@@ -79,9 +79,9 @@ def test_codec_fences_stay_closed(tmp_path: Path) -> None:
         ),
         (
             "calcsize.py",
-            "import struct\n\ndef f() -> int:\n    return struct.calcsize('<H')\n",
+            "import struct\n\ndef f() -> int:\n    return struct.calcsize('H')\n",
             "PS2001",
-            "struct.calcsize",
+            "native alignment",
         ),
         (
             "groups.py",

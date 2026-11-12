@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-11",
-  "commit": "d0d2f78d839118e8825c86b9695a73a323b5ef66",
+  "generated": "2026-11-12",
+  "commit": "bc7acf9bb7d64b0b864bf3a5986e75bd9158d294",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -187,7 +187,7 @@
       "label": "`math`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt, log with a base",
+      "missing": "fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma, log with a base",
       "codes": [
         "PS2001",
         "PS2003"
@@ -307,7 +307,7 @@
       "label": "`struct`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "calcsize, unpack_from, non-literal format",
+      "missing": "non-literal format, native-alignment format (no byte-order prefix), pack_into, iter_unpack, Struct",
       "codes": [
         "PS2001"
       ]

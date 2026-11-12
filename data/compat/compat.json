@@ -1,7 +1,7 @@
 {
   "schema": "2",
-  "generated": "2026-11-11",
-  "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
+  "generated": "2026-11-12",
+  "commit": "85729e513fe0b6f1e706f755a91225043dcf34ed",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -9,7 +9,7 @@
     "score": ""
   },
   "channel": {
-    "released": "0.9.0",
+    "released": "0.10.0b1",
     "install_released": "uv tool install pyscriptc",
     "install_master": "uv pip install git+https://github.com/sigilco/pyscriptc"
   },
@@ -17,8 +17,8 @@
     "measured": 18,
     "packages": 18,
     "runs": 18,
-    "date": "2026-11-11",
-    "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
+    "date": "2026-11-12",
+    "commit": "85729e513fe0b6f1e706f755a91225043dcf34ed",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -393,7 +393,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt, log with a base"
+        "fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma, log with a base"
       ],
       "fences": [
         "PS2001",
@@ -610,7 +610,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "calcsize, unpack_from, non-literal format"
+        "non-literal format, native-alignment format (no byte-order prefix), pack_into, iter_unpack, Struct"
       ],
       "fences": [
         "PS2001"
@@ -2536,6 +2536,15 @@
     {
       "date": "2026-11-11",
       "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
+    },
+    {
+      "date": "2026-11-12",
+      "commit": "85729e513fe0b6f1e706f755a91225043dcf34ed",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

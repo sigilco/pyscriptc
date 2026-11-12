@@ -152,6 +152,9 @@ class EmitterBase:
     def _emit_join(self, values: list[str]) -> str:
         raise NotImplementedError
 
+    def _emit_math_int(self, symbol: str, values: list[str]) -> str:
+        raise NotImplementedError
+
     def _emit_deque_store(self, expr: dict[str, Any], values: list[str]) -> str:
         raise NotImplementedError
 

@@ -1006,6 +1006,66 @@
       "status": "unprobed"
     },
     {
+      "id": "D60",
+      "seam": "math.factorial(n) is an i64 overflow past 20 instead of growing a big int",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#60",
+      "probe": "probes/divergences/d60_factorial_overflow.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2432902008176640000\n51090942171709440000\nValueError\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2432902008176640000\nOverflowError\nValueError\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D61",
+      "seam": "float text output is shortest-round-trip without CPython's fixed-exponent rule: 180.0 prints as 1.8e+02",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#61",
+      "probe": "probes/divergences/d61_float_print.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "180.0\n57.29577951308232\n1.1752011936438014\n485165195.4097903\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1.8e+02\n57.29577951308232\n1.1752011936438014\n485165195.4097903\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D62",
+      "seam": "struct.calcsize and struct.unpack_from need a literal format with an explicit byte-order prefix; a short buffer raises ValueError, not struct.error",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#62",
+      "probe": "probes/divergences/d62_struct_unpack_from.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d62_struct_unpack_from.py\", line 4, in <module>\n    head: list[int] = struct.unpack_from(\"<I\", data)\n                      ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\nstruct.error: unpack_from requires a buffer of at least 4 bytes for unpacking 4 bytes at offset 0 (actual buffer size is 2)\n"
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "ValueError: struct.unpack_from buffer is too small\n"
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
