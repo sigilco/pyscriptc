@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-11",
-  "commit": "7e098f561e9959e8d946ca0bac88d1ee2fd52015",
+  "commit": "ea28d41e8629df6b1570876302fdf731694f6b9f",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 61,
+      "yellow": 65,
       "red": 0
     },
     "packages": {
@@ -614,6 +614,45 @@
       ]
     },
     {
+      "label": "`uuid`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": ".int, .urn, .bytes and other names, names outside the subset",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`binascii`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "hexlify of str, names outside the subset",
+      "codes": [
+        "PS1003",
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`shlex`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "comments as a variable, the shlex class and modes",
+      "codes": [
+        "PS1003",
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`secrets`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "the count as a variable, names outside the subset",
+      "codes": [
+        "PS1003",
+        "PS2001"
+      ]
+    },
+    {
       "label": "`atexit`",
       "status": "\ud83d\udfe1",
       "count": 1,
@@ -779,7 +818,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "233/641",
-      "blocking": "name-resolution (149), construct-other (91), generic-alias (61)",
+      "blocking": "name-resolution (146), construct-other (91), generic-alias (61)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -819,8 +858,8 @@
       "version": "2.15.1",
       "status": "\ud83d\udfe1",
       "ratio": "52/171",
-      "blocking": "name-resolution (19), union-types (14), unlowered-type-name (11)",
-      "codes": "PS2002, PS1101, PS1106"
+      "blocking": "name-resolution (17), union-types (14), unlowered-type-name (11)",
+      "codes": "PS2002, PS1101, PS2001"
     },
     {
       "name": "mdurl",

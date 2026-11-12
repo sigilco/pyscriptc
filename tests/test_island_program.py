@@ -46,7 +46,13 @@ def test_program_dir_sibling_with_fenced_function(tmp_path: Path) -> None:
         prog,
         {
             "__main__.py": "from helper import count\nimport sys\nprint(count('a b c'), __name__, len(sys.argv))\n",
-            "helper.py": "import shlex\n\n\ndef count(s: str) -> int:\n    return len(shlex.split(s))\n",
+            "helper.py": (
+                "import keyword\n"
+                "\n"
+                "\n"
+                "def count(s: str) -> int:\n"
+                "    return len(s.split()) + int(keyword.iskeyword('a b c'))\n"
+            ),
         },
     )
     out = _compare(tmp_path, prog, [sys.executable, str(prog)])

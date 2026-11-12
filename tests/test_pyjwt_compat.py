@@ -54,10 +54,12 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
     # 80 after the PEP 585 self-host fix (#855) and the typed-HIR fence work: the
     # vendored tree lowers ten more annotations.
     # 79 after class-body constants (#732): one class attribute fence clears.
+    # 73 after the uuid/binascii/shlex/secrets stdlib subsets: two import
+    # fences in the vendored tree clear.
     # Shrinking means a backlog lowering cleared fences here; update the pin
     # when that happens. `compile` prints at most 3 root fences and counts the rest.
     assert proc.stderr.count("PS") == 3
-    assert "(and 75 more fences)" in proc.stderr
+    assert "(and 73 more fences)" in proc.stderr
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh

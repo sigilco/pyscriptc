@@ -38,6 +38,7 @@ from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.reflection import annotation_note, metaclass_note
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower import path_attr
+from pyscriptc.restlower._uuid import uuid_hex_attr
 from pyscriptc.sigrec import T, type_to_dict
 from pyscriptc.stdmore import (
     ALWAYS_CLASSES,
@@ -1296,6 +1297,11 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
                 return obj
             self.fail(node, "PS2001", f"type(e) has no attribute {name}")
         if _type_kind(obj["type"]) != "class":
+            # A lowered uuid call keeps the `.hex` attribute CPython's UUID
+            # holds: the canonical text without the dashes.
+            hexed = uuid_hex_attr(self, obj, name, span)
+            if hexed is not None:
+                return hexed
             note = annotation_note(name)
             if note is not None:
                 self.fail(node, "PS2001", note)
