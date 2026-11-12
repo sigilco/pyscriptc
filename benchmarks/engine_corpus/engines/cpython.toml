@@ -1,0 +1,22 @@
+# The built-in CPython engine of the conformance corpus (issue #670).
+#
+# The built-in engine needs no descriptor file to be selected
+# (`--island-engine cpython` always resolves), but the corpus matrix
+# iterates descriptor files, so the built-in engine gets one too: the
+# matrix then names every engine the same way and a new descriptor
+# directory entry is picked up without a workflow edit.
+#
+# `kind = "interpreter"` with no PyPy marker: this engine compiles the
+# island runtime's default CPython path, byte-identical to a build with
+# no engine selected.
+schema_version = 1
+
+[engine]
+name = "cpython"
+version = "3.14"
+kind = "interpreter"
+
+capabilities = ["fallback"]
+
+[abi]
+libpython = "embedded"
