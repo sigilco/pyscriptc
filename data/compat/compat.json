@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-12",
-  "commit": "b8aa70fca2817766b892ee7b7fdc74ca180bdc82",
+  "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-12",
-    "commit": "b8aa70fca2817766b892ee7b7fdc74ca180bdc82",
+    "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -26,7 +26,7 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 63,
+    "stdlib_partial": 64,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
@@ -1469,6 +1469,25 @@
       "note": ""
     },
     {
+      "id": "stdlib.selectors",
+      "kind": "stdlib",
+      "label": "`selectors`",
+      "names": [
+        "selectors"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "a fileobj argument (the typed socket handle is #229), other selector classes (EpollSelector, PollSelector, KqueueSelector, DevpollSelector, BaseSelector), get_map, the key's fileobj and data (they ride the #229 handle)"
+      ],
+      "fences": [
+        "PS1003",
+        "PS1106",
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
       "id": "stdlib.typing",
       "kind": "stdlib",
       "label": "`typing`, `typing_extensions`",
@@ -2544,7 +2563,7 @@
     },
     {
       "date": "2026-11-12",
-      "commit": "b8aa70fca2817766b892ee7b7fdc74ca180bdc82",
+      "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
