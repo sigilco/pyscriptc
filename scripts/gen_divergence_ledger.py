@@ -431,6 +431,13 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#61",
     ),
     _row(
+        "D62",
+        "struct.calcsize and struct.unpack_from need a literal format with an explicit byte-order prefix; "
+        "a short buffer raises ValueError, not struct.error",
+        "d62_struct_unpack_from.py",
+        docs=f"{DOC}#62",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

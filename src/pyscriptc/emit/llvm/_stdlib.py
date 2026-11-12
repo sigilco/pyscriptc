@@ -211,6 +211,20 @@ class StdlibMixin(EmitterBase):
         want = {"int": 1, "float": 2, "bytes": 3}[elem]
         fmt_len, fmt_ptr = self._buf_parts(values[0])
         data_len, data_ptr = self._buf_parts(values[1])
+        if name == "unpack_from":
+            return self._call_ret(
+                "ptr",
+                "ps_struct_unpack_from",
+                [
+                    f"i64 {fmt_len}",
+                    f"ptr {fmt_ptr}",
+                    f"i64 {data_len}",
+                    f"ptr {data_ptr}",
+                    f"i64 {values[2]}",
+                    f"i64 {values[3]}",
+                    f"i32 {want}",
+                ],
+            )
         return self._call_ret(
             "ptr",
             "ps_struct_unpack",

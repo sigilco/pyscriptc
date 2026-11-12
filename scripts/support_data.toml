@@ -284,8 +284,8 @@ no = [["blake2, sha3, sha224, new, pbkdf2_hmac", 'y: str = hashlib.blake2b(b).he
 
 [[stdlib]]
 names = ["struct"]
-ok = ['y: bytes = struct.pack("<I", n)', 'y: list[int] = struct.unpack("<I", b)']
-no = [["calcsize, unpack_from", 'y: int = struct.calcsize("<I")', "PS2001"], ["non-literal format", 'y: bytes = struct.pack(s, n)', "PS2001"]]
+ok = ['y: bytes = struct.pack("<I", n)', 'y: list[int] = struct.unpack("<I", b)', 'y: int = struct.calcsize("<I")', 'y: list[int] = struct.unpack_from("<I", b, 0)']
+no = [["non-literal format", 'y: bytes = struct.pack(s, n)', "PS2001"], ["native-alignment format (no byte-order prefix)", 'y: int = struct.calcsize("I")', "PS2001"], ["pack_into, iter_unpack, Struct", 'y: int = struct.Struct("<I").size', "PS2001"]]
 
 [[stdlib]]
 names = ["datetime"]

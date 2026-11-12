@@ -225,6 +225,7 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
             [
                 "declare void @ps_struct_pack(i64, ptr, ptr, i64, ptr)",
                 "declare ptr @ps_struct_unpack(i64, ptr, i64, ptr, i32)",
+                "declare ptr @ps_struct_unpack_from(i64, ptr, i64, ptr, i64, i64, i32)",
             ]
         )
     return lines

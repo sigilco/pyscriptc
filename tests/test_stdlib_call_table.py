@@ -461,6 +461,8 @@ PROBES: list[Probe] = [
     ),
     _p("struct", "pack", "data", "print(struct.pack('>i', 42))"),
     _p("struct", "unpack", "data", "print(struct.unpack('>i', b'\\x00\\x00\\x00*')[0])"),
+    _p("struct", "calcsize", "data", "print(struct.calcsize('<IHB'))"),
+    _p("struct", "unpack_from", "data", "print(struct.unpack_from('>H', b'\\x00\\x01\\x02', 1)[0])"),
 ]
 
 GROUP_IMPORTS: dict[str, tuple[str, ...]] = {
