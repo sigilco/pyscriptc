@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-12",
-  "commit": "a8a98a71334016b55cdb11652ef7a00e60af7c96",
+  "commit": "379949e2b67f3e963c7a92c6ca4815b681f5a243",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -307,7 +307,7 @@
       "label": "`struct`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "calcsize, unpack_from, non-literal format",
+      "missing": "non-literal format, native-alignment format (no byte-order prefix), pack_into, iter_unpack, Struct",
       "codes": [
         "PS2001"
       ]
