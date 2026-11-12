@@ -77,6 +77,9 @@ STUB_SOURCE = r"""
 #include <unistd.h>
 #include <limits.h>
 #include <errno.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 #include <zlib.h>
 
 #define PS_TAIL 8
@@ -260,7 +263,15 @@ static int ps_unpack(const char *dir) {
 
 int main(int argc, char **argv) {
     char self[PATH_MAX];
-    ssize_t n = readlink("/proc/self/exe", self, sizeof self - 1);
+    ssize_t n = -1;
+#if defined(__APPLE__)
+    uint32_t self_size = sizeof self;
+    if (_NSGetExecutablePath(self, &self_size) == 0) {
+        n = (ssize_t)strlen(self);
+    }
+#else
+    n = readlink("/proc/self/exe", self, sizeof self - 1);
+#endif
     if (n <= 0) {
         fprintf(stderr, "onefile: cannot read /proc/self/exe\n");
         return 2;
