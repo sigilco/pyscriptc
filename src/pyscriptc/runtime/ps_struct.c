@@ -289,3 +289,16 @@ PsSeq *ps_struct_unpack(int64_t fn, char *fmt, int64_t dn, char *data, int32_t w
     ps_walk(fmt, fn, 0, NULL, 0, data, dn, NULL, &seq, want);
     return seq;
 }
+
+PsSeq *ps_struct_unpack_from(int64_t fn, char *fmt, int64_t dn, char *data, int64_t offset, int64_t size, int32_t want) {
+    int64_t start = offset;
+    if (start < 0) {
+        start += dn;
+    }
+    if (start < 0 || size > dn - start) {
+        ps_raise_cstr(PS_VALUE, "struct.unpack_from buffer is too small");
+    }
+    PsSeq *seq = NULL;
+    ps_walk(fmt, fn, 0, NULL, 0, data + start, size, NULL, &seq, want);
+    return seq;
+}

@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-12",
-  "commit": "059fe35e2d7e3eae72cf80bd7f9ef39fffbc4373",
+  "commit": "85729e513fe0b6f1e706f755a91225043dcf34ed",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-12",
-    "commit": "059fe35e2d7e3eae72cf80bd7f9ef39fffbc4373",
+    "commit": "85729e513fe0b6f1e706f755a91225043dcf34ed",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -610,7 +610,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "calcsize, unpack_from, non-literal format"
+        "non-literal format, native-alignment format (no byte-order prefix), pack_into, iter_unpack, Struct"
       ],
       "fences": [
         "PS2001"
@@ -2544,7 +2544,7 @@
     },
     {
       "date": "2026-11-12",
-      "commit": "059fe35e2d7e3eae72cf80bd7f9ef39fffbc4373",
+      "commit": "85729e513fe0b6f1e706f755a91225043dcf34ed",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
