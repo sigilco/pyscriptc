@@ -71,13 +71,9 @@ from pyscriptc.restlower._ospath import _os_open, _os_read, _relpath, _walk
 from pyscriptc.restlower._pathlib import _buffer, _one
 from pyscriptc.restlower._queue import _queue_call, _queue_method
 from pyscriptc.restlower._random import _random_call
-<<<<<<< HEAD
 from pyscriptc.restlower._secrets import _secrets_call
+from pyscriptc.restlower._selectors import _selectors_call
 from pyscriptc.restlower._shlex import _shlex_call
-||||||| parent of ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
-=======
-from pyscriptc.restlower._selectors import _selector_method, _selectors_call
->>>>>>> ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
 from pyscriptc.restlower._subprocess import _call as _sub_call
 from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
 from pyscriptc.restlower._subprocess import _run as _sub_run
@@ -114,7 +110,6 @@ __all__ = [
     "_lock_method",
     "_mk_iter",
     "_queue_method",
-    "_selector_method",
     "_thread_method",
     "_static_builtin_fold",
     "alias_name",

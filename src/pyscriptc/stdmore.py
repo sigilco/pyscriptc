@@ -1284,4 +1284,744 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # CPython's SelectorKey also carries `fileobj` and `data`: the typed
     # socket handle is #229, so those two stay fenced (divergence 29).
     "DefaultSelector": [],
-    "SelectorKey": [{"name": "fd", "type": _I}, {"name": "events", "type": _I}],
+    "SelectorKey": [("fd", _I), ("events", _I)],
+    "Namespace": [],
+    # The logger carries the name getLogger recorded.
+    "Logger": [("_name", _S)],
+    # The request record carries what urlopen sends; the response carries what
+    # came back. The headers ride as the wire block ("Name: value\n" rows).
+    "HttpRequest": [
+        ("url", _S),
+        ("method", _S),
+        ("body", _BY),
+        ("headers", _S),
+        ("timeout", _F),
+    ],
+    "HttpResponse": [
+        ("status", _I),
+        ("headers", _S),
+        ("body", _BY),
+    ],
+    # HTTPError keeps the response the server sent: the body stays readable
+    # through read(), the status is the .code CPython puts on the error.
+    "HTTPError": [
+        ("status", _I),
+        ("headers", _S),
+        ("body", _BY),
+    ],
+    "URLError": [],
+}
+
+# Classes whose fields grow while the statements lower. They are emitted
+# after the functions, not with the other synthetic classes.
+DEFERRED_CLASSES = frozenset({"Namespace"})
+
+# Synthetic classes that lower as exceptions. The runtime registers each at
+# module init, so `except` matches through the builtin parent chain.
+SYNTHETIC_EXCEPTIONS: dict[str, int] = {"HTTPError": 24, "URLError": 24}
+
+# Reserved-code exceptions the import binds as classes: `except Empty:` and
+# `except Full:` match the runtime's reserved codes through the parent walk,
+# so user codes never shift. The value is the CPython builtin parent's code.
+RESERVED_CODE_EXCEPTIONS: dict[str, int] = {
+    "Empty": RESERVED_EXCEPTIONS["Empty"],
+    "Full": RESERVED_EXCEPTIONS["Full"],
+    "CancelledError": RESERVED_EXCEPTIONS["CancelledError"],
+}
+
+# i64 field packs compared lexicographically. Path compares its string.
+LEX_CLASSES = frozenset({"Date", "DateTime", "Time", "TimeDelta"})
+COMPARE_CLASSES = LEX_CLASSES | {"Path"}
+
+# Class constants: `date.min` and friends read a runtime record instead of a
+# baked literal, so the values stay right when the class layout changes.
+CLASS_CONSTANTS: dict[tuple[str, str], tuple[T, str]] = {
+    ("datetime", "date.min"): (_DATE, "ps_date_min"),
+    ("datetime", "date.max"): (_DATE, "ps_date_max"),
+    ("datetime", "datetime.min"): (_DT, "ps_dt_min"),
+    ("datetime", "datetime.max"): (_DT, "ps_dt_max"),
+}
+
+# The threading records are runtime pointers. A module-level binding keeps
+# its identity through the global slot, not through a re-emitted call.
+THREADING_CLASSES: frozenset[str] = frozenset({"Thread", "Event", "Condition", "Semaphore", "Lock"})
+
+# The queue records are runtime pointers, one shape for Queue, LifoQueue and
+# SimpleQueue: the element type rides on the class, like Deque's does.
+QUEUE_CLASSES: frozenset[str] = frozenset({"Queue"})
+
+# The asyncio primitives are runtime pointers too, one shape each: Lock,
+# Event, Semaphore and Queue. The wait is cooperative, so the records hold a
+# waiter list of tasks rather than a pthread condvar.
+ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSemaphore", "AsyncQueue"})
+
+# The records that live in a global slot: a runtime pointer whose identity
+# has to hold across reads, the threading records and the queue records.
+PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser", "DefaultSelector"}
+
+TYPE_ALIAS: dict[tuple[str, str], str] = {
+    ("datetime", "date"): "Date",
+    ("datetime", "datetime"): "DateTime",
+    ("datetime", "time"): "Time",
+    ("datetime", "timedelta"): "TimeDelta",
+    ("pathlib", "Path"): "Path",
+    ("collections", "deque"): "Deque",
+    ("io", "StringIO"): "TextIO",
+    ("io", "BytesIO"): "BytesIO",
+    ("time", "struct_time"): "StructTime",
+    ("os", "stat_result"): "Stat",
+    ("csv", "_writer"): "CsvWriter",
+    ("argparse", "ArgumentParser"): "ArgParser",
+    ("argparse", "Namespace"): "Namespace",
+    ("logging", "Logger"): "Logger",
+    ("re", "Pattern"): "Pattern",
+    ("re", "Match"): "Match",
+    ("threading", "Lock"): "Lock",
+    ("threading", "RLock"): "Lock",
+    ("os", "terminal_size"): "TerminalSize",
+    ("subprocess", "CompletedProcess"): "CompletedProcess",
+    ("threading", "Thread"): "Thread",
+    ("threading", "Event"): "Event",
+    ("threading", "Condition"): "Condition",
+    ("threading", "Semaphore"): "Semaphore",
+    ("queue", "Queue"): "Queue",
+    ("queue", "LifoQueue"): "Queue",
+    ("queue", "SimpleQueue"): "Queue",
+    ("queue", "Empty"): "Empty",
+    ("queue", "Full"): "Full",
+    ("urllib.parse", "SplitResult"): "SplitResult",
+    ("urllib.request", "HTTPResponse"): "HttpResponse",
+    ("urllib.request", "HttpResponse"): "HttpResponse",
+    ("urllib.request", "HttpRequest"): "HttpRequest",
+    ("urllib.request", "Request"): "HttpRequest",
+    ("urllib.error", "HTTPError"): "HTTPError",
+    ("urllib.error", "URLError"): "URLError",
+    ("asyncio", "Task"): "Task",
+    ("asyncio", "CancelledError"): "CancelledError",
+    ("asyncio", "Lock"): "AsyncLock",
+    ("asyncio", "Event"): "AsyncEvent",
+    ("asyncio", "Semaphore"): "AsyncSemaphore",
+    ("asyncio", "Queue"): "AsyncQueue",
+    ("selectors", "DefaultSelector"): "DefaultSelector",
+    ("selectors", "SelectorKey"): "SelectorKey",
+}
+
+# Instance methods. `elem` means the deque's element type.
+CLASS_METHODS: dict[str, dict[str, Sig]] = {
+    "Date": {
+        "isoformat": sig([], _S, "ps_date_iso"),
+        "toordinal": sig([], _I, "ps_date_ord"),
+        "weekday": sig([], _I, "ps_date_weekday"),
+    },
+    "DateTime": {
+        "isoformat": sig([], _S, "ps_dt_iso"),
+        "date": sig([], _DATE, "ps_dt_date"),
+        "time": sig([], _TOD, "ps_dt_time"),
+        "timestamp": sig([], _F, "ps_dt_timestamp"),
+    },
+    "Time": {"isoformat": sig([], _S, "ps_tod_iso")},
+    "TimeDelta": {"total_seconds": sig([], _F, "ps_delta_total")},
+    "Path": {
+        "as_posix": sig([], _S, "ps_path_posix"),
+        "exists": sig([], _B, "ps_path_exists_p"),
+        "is_file": sig([], _B, "ps_path_isfile_p"),
+        "is_dir": sig([], _B, "ps_path_isdir_p"),
+        "is_absolute": sig([], _B, "ps_path_isabs_p"),
+        "read_text": sig([], _S, "ps_path_read_text"),
+        "read_bytes": sig([], _BY, "ps_path_read_bytes"),
+        "write_text": sig([_S], _I, "ps_path_write_text"),
+        "write_bytes": sig([_BY], _I, "ps_path_write_bytes"),
+        "joinpath": sig([_S], _PATH, "ps_path_joinpath"),
+        "with_name": sig([_S], _PATH, "ps_path_with_name"),
+        "resolve": sig([], _PATH, "ps_path_resolve"),
+        "unlink": sig([], _N, "ps_path_unlink"),
+        "touch": sig([], _N, "ps_path_touch"),
+        "rename": sig([_S], _PATH, "ps_path_rename"),
+        "stat": sig([], _STAT, "ps_path_stat"),
+        "expanduser": sig([], _PATH, "ps_path_expanduser_p"),
+        # iterdir/glob return the materialized list[Path]; lowering wraps it
+        # in the R24 iterator record. mkdir is special-cased for keywords.
+        "iterdir": sig([], t_list(_PATH), "ps_path_iterdir"),
+        "glob": sig([_S], t_list(_PATH), "ps_path_glob"),
+        "mkdir": sig([], _N, "ps_path_mkdir"),
+    },
+    "TextIO": {
+        "read": sig([], _S, "ps_io_read"),
+        "readline": sig([], _S, "ps_io_readline"),
+        "write": sig([_S], _I, "ps_io_write"),
+        "close": sig([], _N, "ps_io_close"),
+        "getvalue": sig([], _S, "ps_io_value"),
+    },
+    "BytesIO": {
+        "read": sig([], _BY, "ps_io_read"),
+        "readline": sig([], _BY, "ps_io_readline"),
+        "write": sig([_BY], _I, "ps_io_write"),
+        "close": sig([], _N, "ps_io_close"),
+        "getvalue": sig([], _BY, "ps_io_value"),
+    },
+    "Deque": {
+        "append": {"params": ["elem"], "return": {"kind": "none"}, "symbol": "ps_deque_append"},
+        "appendleft": {"params": ["elem"], "return": {"kind": "none"}, "symbol": "ps_deque_appendleft"},
+        "pop": {"params": [], "return": "elem", "symbol": "ps_deque_pop"},
+        "popleft": {"params": [], "return": "elem", "symbol": "ps_deque_popleft"},
+    },
+    "Hmac": {"digest": sig([], _BY, "ps_hmac_finish")},
+    "Logger": {
+        "debug": sig([_S], _N, "ps_log_debug"),
+        "info": sig([_S], _N, "ps_log_info"),
+        "warning": sig([_S], _N, "ps_log_warning"),
+        "error": sig([_S], _N, "ps_log_error"),
+        "critical": sig([_S], _N, "ps_log_critical"),
+        "exception": sig([_S], _N, "ps_log_exception"),
+    },
+    "CsvWriter": {
+        "writerow": sig([_LS], _N, "ps_csv_writerow"),
+        "writerows": sig([_LLS], _N, "ps_csv_writerows"),
+    },
+    "HttpResponse": {
+        "getcode": sig([], _I, "ps_http_getcode"),
+        "info": sig([], _S, "ps_http_info"),
+        "read": sig([], _BY, "ps_http_read"),
+    },
+    "HttpRequest": {},
+}
+
+PATH_ATTRS: dict[str, tuple[T, str]] = {
+    "name": (_S, "ps_path_name"),
+    "suffix": (_S, "ps_path_suffix"),
+    "stem": (_S, "ps_path_stem"),
+    "parent": (_PATH, "ps_path_parent"),
+}
+
+REST_FIXED: dict[str, dict[str, Sig]] = {
+    "datetime": {
+        "date.today": sig([], _DATE, "ps_date_today"),
+        "date.fromisoformat": sig([_S], _DATE, "ps_date_fromiso"),
+        "date.fromordinal": sig([_I], _DATE, "ps_date_fromord"),
+        "date.fromtimestamp": sig([_F], _DATE, "ps_date_fromtimestamp"),
+        "datetime.now": sig([], _DT, "ps_dt_now"),
+        "datetime.fromisoformat": sig([_S], _DT, "ps_dt_fromiso"),
+        "datetime.fromtimestamp": sig([_F], _DT, "ps_dt_fromtimestamp"),
+        "datetime.strptime": sig([_S, _S], _DT, "ps_dt_strptime_entry"),
+        "datetime.combine": sig([_DATE, _TOD], _DT, "ps_dt_combine"),
+    },
+    "time": {
+        "time": sig([], _F, "ps_time_time"),
+        "monotonic": sig([], _F, "ps_time_monotonic"),
+        "perf_counter": sig([], _F, "ps_time_perf_counter"),
+        "strftime": sig([_S, _STM], _S, "ps_time_strftime"),
+        "mktime": sig([_STM], _F, "ps_time_mktime"),
+    },
+    "pathlib": {
+        "Path.cwd": sig([], _PATH, "ps_path_cwd"),
+        "Path.home": sig([], _PATH, "ps_path_home"),
+    },
+    "os": {
+        "getcwd": sig([], _S, "ps_os_getcwd"),
+        "listdir": sig([_S], _LS, "ps_os_listdir"),
+        "getenv": sig([_S], _S, "ps_os_getenv"),
+        "remove": sig([_S], _N, "ps_os_remove"),
+        "rename": sig([_S, _S], _N, "ps_os_rename"),
+        "makedirs": sig([_S], _N, "ps_os_makedirs"),
+        "stat": sig([_S], _STAT, "ps_os_stat"),
+        "access": sig([_S, _I], _B, "ps_os_access"),
+        "getpid": sig([], _I, "ps_os_getpid"),
+        "chdir": sig([_S], _N, "ps_os_chdir"),
+        "chmod": sig([_S, _I], _N, "ps_os_chmod"),
+        "symlink": sig([_S, _S], _N, "ps_os_symlink"),
+        "readlink": sig([_S], _S, "ps_os_readlink"),
+        "mkdir": sig([_S], _N, "ps_os_mkdir"),
+        "replace": sig([_S, _S], _N, "ps_os_replace"),
+        "unlink": sig([_S], _N, "ps_os_remove"),
+        "close": sig([_I], _N, "ps_os_close"),
+        "write": sig([_I, _BY], _I, "ps_os_write"),
+        "fstat": sig([_I], _STAT, "ps_os_fstat"),
+        "lstat": sig([_S], _STAT, "ps_os_lstat"),
+        "utime": sig([_S], _N, "ps_os_utime"),
+    },
+    "posixpath": {
+        "basename": sig([_S], _S, "ps_path_base"),
+        "dirname": sig([_S], _S, "ps_path_dir"),
+        "split": sig([_S], _LS, "ps_path_split"),
+        "splitext": sig([_S], _LS, "ps_path_splitext"),
+        "normpath": sig([_S], _S, "ps_path_norm"),
+        "isabs": sig([_S], _B, "ps_path_isabs"),
+        "abspath": sig([_S], _S, "ps_path_abs"),
+        "exists": sig([_S], _B, "ps_path_exists"),
+        "isfile": sig([_S], _B, "ps_path_isfile"),
+        "isdir": sig([_S], _B, "ps_path_isdir"),
+        "expanduser": sig([_S], _S, "ps_path_expanduser"),
+        "expandvars": sig([_S], _S, "ps_path_expandvars"),
+        "realpath": sig([_S], _S, "ps_path_realpath"),
+        "getmtime": sig([_S], _F, "ps_path_getmtime"),
+        "getsize": sig([_S], _I, "ps_path_getsize"),
+        "getatime": sig([_S], _F, "ps_path_getatime"),
+        "islink": sig([_S], _B, "ps_path_islink"),
+        "splitdrive": sig([_S], _LS, "ps_path_splitdrive"),
+    },
+    "stat": {
+        "S_ISREG": sig([_I], _B, "ps_stat_isreg"),
+        "S_ISDIR": sig([_I], _B, "ps_stat_isdir"),
+        "S_ISLNK": sig([_I], _B, "ps_stat_islnk"),
+    },
+    "fnmatch": {
+        "fnmatch": sig([_S, _S], _B, "ps_fnmatch"),
+        "filter": sig([_LS, _S], _LS, "ps_fnfilter"),
+    },
+    "warnings": {"warn": sig([_S], _N, "ps_warn")},
+    "inspect": {"cleandoc": sig([_S], _S, "ps_island_cleandoc")},
+    "logging": {
+        "getLogger": sig([_S], t_class("Logger"), "ps_log_new"),
+        "debug": sig([_S], _N, "ps_island_log_debug"),
+        "info": sig([_S], _N, "ps_island_log_info"),
+        "warning": sig([_S], _N, "ps_island_log_warning"),
+        "error": sig([_S], _N, "ps_island_log_error"),
+        "critical": sig([_S], _N, "ps_island_log_critical"),
+    },
+    "socket": {"gethostname": sig([], _S, "ps_island_hostname")},
+    "threading": {"active_count": sig([], _I, "ps_thread_active_count")},
+    "subprocess": {"check_output": sig([t_list(_S)], _BY, "ps_island_check_output")},
+    "sys": {
+        "stdout.write": sig([_S], _I, "ps_stdout_write"),
+        "stderr.write": sig([_S], _I, "ps_stderr_write"),
+    },
+    "unicodedata": {
+        "category": sig([_S], _S, "ps_unicode_category"),
+        "combining": sig([_S], _I, "ps_unicode_combining"),
+        "normalize": sig([_S, _S], _S, "ps_unicode_normalize"),
+        "is_normalized": sig([_S, _S], _B, "ps_unicode_is_normalized"),
+        "bidirectional": sig([_S], _S, "ps_unicode_bidirectional"),
+        "east_asian_width": sig([_S], _S, "ps_unicode_east_asian_width"),
+        "mirrored": sig([_S], _I, "ps_unicode_mirrored"),
+        "decimal": sig([_S], _I, "ps_unicode_decimal"),
+        "digit": sig([_S], _I, "ps_unicode_digit"),
+        "numeric": sig([_S], _F, "ps_unicode_numeric"),
+        "decomposition": sig([_S], _S, "ps_unicode_decomposition"),
+        "lookup": sig([_S], _S, "ps_unicode_lookup"),
+    },
+    "tempfile": {
+        "gettempdir": sig([], _S, "ps_temp_getdir"),
+        "gettempprefix": sig([], _S, "ps_temp_prefix"),
+        "mkdtemp": sig([], _S, "ps_temp_mkdtemp"),
+    },
+    "shutil": {
+        "copyfile": sig([_S, _S], _S, "ps_shutil_copyfile"),
+        "rmtree": sig([_S], _N, "ps_shutil_rmtree"),
+        # `which` keeps its row for the call-table inventory (the probe
+        # census counts it), but the _EARLY handler in restlower takes the
+        # call first: the return is the tagged `str | None`, not the fixed
+        # str this row would hand the fixed-call path.
+        "which": sig([_S], _S, "ps_shutil_which"),
+        "copy": sig([_S, _S], _S, "ps_shutil_copy"),
+        "copy2": sig([_S, _S], _S, "ps_shutil_copy2"),
+        "copytree": sig([_S, _S], _S, "ps_shutil_copytree"),
+        "move": sig([_S, _S], _S, "ps_shutil_move"),
+        "get_terminal_size": sig([], t_class("TerminalSize"), "ps_shutil_get_terminal_size"),
+    },
+    "textwrap": {
+        "dedent": sig([_S], _S, "ps_wrap_dedent"),
+        "indent": sig([_S, _S], _S, "ps_wrap_indent"),
+    },
+    "platform": {
+        "system": sig([], _S, "ps_platform_system"),
+        "machine": sig([], _S, "ps_platform_machine"),
+        "python_version": sig([], _S, "ps_platform_python_version"),
+        "platform": sig([], _S, "ps_platform_platform"),
+    },
+    "calendar": {
+        "isleap": sig([_I], _B, "ps_calendar_isleap"),
+        "leapdays": sig([_I, _I], _I, "ps_calendar_leapdays"),
+        "weekday": sig([_I, _I, _I], _I, "ps_calendar_weekday"),
+    },
+    "zipfile": {
+        "is_zipfile": sig([_S], _B, "ps_zipfile_is_zipfile"),
+    },
+    "tarfile": {
+        "is_tarfile": sig([_S], _B, "ps_tarfile_is_tarfile"),
+    },
+}
+
+# Callable, but only in a particular statement shape.
+FOR_ONLY = frozenset({("itertools", "repeat")})
+WITH_ONLY = frozenset({("contextlib", "suppress"), ("contextlib", "nullcontext"), ("importlib.resources", "as_file")})
+
+CALL_FENCES: dict[tuple[str, str], str] = {
+    ("importlib", "import_module"): "import_module returns a module",
+    ("sys", "exit"): "",
+    ("functools", "partial"): "functools.partial is not lowered",
+    ("functools", "wraps"): "decorators are not lowered",
+    ("functools", "lru_cache"): "decorators are not lowered",
+    ("functools", "cmp_to_key"): "functools.cmp_to_key is not lowered",
+    ("itertools", "count"): "infinite iterators are not lowered",
+    ("itertools", "cycle"): "infinite iterators are not lowered",
+    ("operator", "itemgetter"): "operator.itemgetter is not a value",
+    ("operator", "attrgetter"): "operator.attrgetter is not a value",
+    ("operator", "methodcaller"): "operator.methodcaller is not a value",
+    ("contextlib", "contextmanager"): "contextmanager is only lowered as a decorator",
+    ("threading", "current_thread"): "threading.current_thread is only lowered for .name",
+}
+
+OPERATORS = frozenset(
+    {"add", "sub", "mul", "floordiv", "truediv", "mod", "neg", "eq", "ne", "lt", "le", "gt", "ge", "concat"}
+)
+
+CTYPES = frozenset({"c_char", "c_int", "c_long", "c_int64", "c_size_t", "c_void_p"})
+
+REST_MODULES = frozenset(
+    {
+        "datetime",
+        "time",
+        "collections",
+        "functools",
+        "itertools",
+        "operator",
+        "contextlib",
+        "os",
+        "posixpath",
+        "pathlib",
+        "stat",
+        "fnmatch",
+        "warnings",
+        "io",
+        "sys",
+        "importlib",
+        "inspect",
+        "threading",
+        "logging",
+        "asyncio",
+        "subprocess",
+        "socket",
+        "ssl",
+        "ctypes",
+        "string",
+        "bisect",
+        "errno",
+        "importlib.resources",
+        "hmac",
+        "unicodedata",
+        "tempfile",
+        "atexit",
+        "shutil",
+        "random",
+        "csv",
+        "textwrap",
+        "copy",
+        "argparse",
+        "tomllib",
+        "dotenv",
+        "yaml",
+        "urllib.request",
+        "jwt",
+        "orjson",
+        "queue",
+        "platform",
+        "calendar",
+        "zipfile",
+        "tarfile",
+        "selectors",
+    }
+)
+
+
+def _ir_const(value: Any) -> tuple[Any, dict[str, Any]] | None:
+    """`(value, dict type row)`: the constants feed the IR, so the record
+    of the typing-hygiene slice converts here, at the boundary."""
+
+    if isinstance(value, bool):
+        return value, type_to_dict(_B)
+    if isinstance(value, int):
+        return str(int(value)), type_to_dict(_I)
+    if isinstance(value, str):
+        if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
+            return None
+        return value, type_to_dict(_S)
+    if isinstance(value, float):
+        return repr(value), type_to_dict(_F)
+    return None
+
+
+def _target_version() -> str:
+    """The CPython version the emitted program claims to be ('3.14.9').
+
+    The declared target lives in `src/pyscriptc/target.json`; the tool host
+    may be 3.11 through 3.15 and does not change the program's identity.
+    """
+    from pyscriptc.target import TARGET_CPYTHON
+
+    return TARGET_CPYTHON
+
+
+def _target_sys_version() -> str:
+    """The `sys.version` string the emitted program reports.
+
+    CPython's own string carries the build date and the compiler that built
+    the interpreter (`3.14.9 (main, Oct 21 2026, 17:47:42) [Clang 23.1.3 ]`),
+    which is a property of the interpreter build, not of the program. The
+    emitted program reports the target version with the same shape, so a
+    3.11 tool host and a 3.14 tool host bake the same constant and the
+    program matches the 3.14 oracle. The build stamp is not reproducible
+    outside the interpreter that built it, so it is dropped.
+    """
+    version = _target_version()
+    if sys.version.startswith(version):
+        return sys.version
+    return version
+
+
+def _target_sys_executable() -> str:
+    """The `sys.executable` the emitted program reports: the compiler host's.
+
+    Deliberately not target-pinned. The canonical form already classifies an
+    environment-derived absolute path as incidental (`<PATH>` scrub,
+    decision 2026-10-16), and the one place a program's own `sys.executable`
+    must agree with a real interpreter is the island (#688, #690), where the
+    runtime sets it from the running image, never from this constant. A
+    target-pinned path would dangle in the common case (a 3.11 host with no
+    3.14 interpreter installed) and is not an honest answer either.
+    """
+    return sys.executable
+
+
+def _load_constants() -> tuple[dict[tuple[str, str], tuple[Any, dict[str, Any]]], dict[str, int]]:
+    import asyncio
+    import ctypes
+    import errno
+    import importlib
+    import inspect
+    import logging
+    import re
+    import string
+    import subprocess
+    import threading
+    import unicodedata
+    import warnings
+
+    raw: dict[tuple[str, str], Any] = {
+        ("sys", "platform"): sys.platform,
+        ("sys", "version"): _target_sys_version(),
+        ("sys", "executable"): _target_sys_executable(),
+        ("sys", "maxsize"): sys.maxsize,
+        ("socket", "AF_INET"): int(socket.AF_INET),
+        ("socket", "AF_INET6"): int(socket.AF_INET6),
+        ("socket", "SOCK_STREAM"): int(socket.SOCK_STREAM),
+        ("socket", "SOCK_DGRAM"): int(socket.SOCK_DGRAM),
+        ("ssl", "OPENSSL_VERSION"): ssl.OPENSSL_VERSION,
+        ("ssl", "HAS_SNI"): bool(ssl.HAS_SNI),
+        ("stat", "S_IFREG"): int(stat.S_IFREG),
+        ("stat", "S_IFDIR"): int(stat.S_IFDIR),
+        ("stat", "S_IFLNK"): int(stat.S_IFLNK),
+        ("stat", "S_IRUSR"): int(stat.S_IRUSR),
+        ("string", "ascii_lowercase"): string.ascii_lowercase,
+        ("string", "ascii_uppercase"): string.ascii_uppercase,
+        ("string", "ascii_letters"): string.ascii_letters,
+        ("string", "digits"): string.digits,
+        ("string", "hexdigits"): string.hexdigits,
+        ("string", "octdigits"): string.octdigits,
+        ("string", "punctuation"): string.punctuation,
+        ("string", "whitespace"): string.whitespace,
+        ("string", "printable"): string.printable,
+        ("unicodedata", "unidata_version"): unicodedata.unidata_version,
+        ("re", "A"): int(re.A),
+        ("re", "ASCII"): int(re.ASCII),
+        ("re", "DEBUG"): int(re.DEBUG),
+        ("re", "DOTALL"): int(re.DOTALL),
+        ("warnings", "defaultaction"): warnings.defaultaction,
+        ("threading", "TIMEOUT_MAX"): threading.TIMEOUT_MAX,
+        ("logging", "BASIC_FORMAT"): logging.BASIC_FORMAT,
+        ("asyncio", "ALL_COMPLETED"): asyncio.ALL_COMPLETED,
+        ("subprocess", "DEVNULL"): int(subprocess.DEVNULL),
+    }
+    agen_closed = _host_attr(inspect, "AGEN_CLOSED")
+    if agen_closed is not _MISSING:
+        raw[("inspect", "AGEN_CLOSED")] = agen_closed
+    for name in _ERRNO:
+        value = _host_attr(errno, name)
+        if value is not _MISSING:
+            raw[("errno", name)] = int(value)
+    for module, names in _INT_SURFACE.items():
+        mod = importlib.import_module(module)
+        for name in names:
+            value = _host_attr(mod, name)
+            if value is not _MISSING:
+                raw[(module, name)] = int(value)
+    for module, names in _STR_SURFACE.items():
+        mod = importlib.import_module(module)
+        for name in names:
+            value = _host_attr(mod, name)
+            if value is not _MISSING:
+                raw[(module, name)] = value
+    for module, names in _BOOL_SURFACE.items():
+        mod = importlib.import_module(module)
+        for name in names:
+            value = _host_attr(mod, name)
+            if value is not _MISSING:
+                raw[(module, name)] = bool(value)
+    found: dict[tuple[str, str], tuple[Any, dict[str, Any]]] = {}
+    for key, value in raw.items():
+        shaped = _ir_const(value)
+        if shaped is not None:
+            found[key] = shaped
+    sizeof: dict[str, int] = {}
+    for name in CTYPES:
+        sizeof[name] = ctypes.sizeof(getattr(ctypes, name))
+    return found, sizeof
+
+
+CONSTANTS, SIZEOF = _load_constants()
+
+
+def module_constant(module: str, member: str) -> tuple[Any, dict[str, Any]] | None:
+    return CONSTANTS.get((module, member))
+
+
+def class_constant(module: str, member: str) -> tuple[T, str] | None:
+    """The type and runtime symbol of a class constant, like `date.max`."""
+    return CLASS_CONSTANTS.get((module, member))
+
+
+def fixed_spec(module: str, member: str) -> dict[str, Any] | None:
+    """The dict row of a rest call, `sig_for`-cached on first use.
+
+    `REST_FIXED` stores the `Sig` records of the typing-hygiene slice; the
+    lowerer reads the dict shape (`_fixed_call`), so this accessor is the
+    record-to-dict boundary.
+    """
+
+    row = REST_FIXED.get(module, {}).get(member)
+    return sig_for(row) if row is not None else None
+
+
+def type_alias(module: str, member: str) -> str | None:
+    return TYPE_ALIAS.get((module, member))
+
+
+def slot_size(typ: dict[str, Any]) -> int:
+    kind: str = typ["kind"]
+    if kind in {"int", "float", "list", "dict", "class"}:
+        return 8
+    if kind in {"str", "bytes"}:
+        return 16
+    raise ValueError(f"no slot size for {kind}")
+
+
+def member_callable(module: str, member: str) -> bool:
+    if fixed_spec(module, member) is not None:
+        return True
+    if type_alias(module, member) is not None:
+        return True
+    if (module, member) in FOR_ONLY or (module, member) in WITH_ONLY:
+        return True
+    if (module, member) in CALL_FENCES:
+        return True
+    if module == "operator" and member in OPERATORS:
+        return True
+    if module == "ctypes" and member in {"sizeof", *CTYPES}:
+        return True
+    if module == "datetime" and member in {"date", "datetime", "time", "timedelta"}:
+        return True
+    if module == "time" and member in {"sleep", "gmtime", "localtime"}:
+        return True
+    if module == "asyncio" and member in {
+        "run",
+        "sleep",
+        "gather",
+        "create_task",
+        "wait_for",
+        "to_thread",
+        "Lock",
+        "Event",
+        "Semaphore",
+        "Queue",
+    }:
+        return True
+    if module == "collections" and member in {"deque", "OrderedDict", "Counter", "defaultdict", "namedtuple"}:
+        return True
+    if module == "functools" and member == "reduce":
+        return True
+    if module == "posixpath" and member == "join":
+        return True
+    if module == "pathlib" and member == "Path":
+        return True
+    if module == "io" and member in {"StringIO", "BytesIO"}:
+        return True
+    if module == "bisect" and member in {
+        "bisect_left",
+        "bisect_right",
+        "insort",
+        "insort_left",
+        "insort_right",
+    }:
+        return True
+    if module == "hmac" and member in {"new", "digest", "compare_digest"}:
+        return True
+    if module == "unicodedata" and member == "name":
+        return True
+    if module == "importlib.resources" and member == "files":
+        return True
+    if module == "tempfile" and member in {"NamedTemporaryFile", "mkstemp"}:
+        return True
+    if module == "atexit" and member == "register":
+        return True
+    if module == "enum" and member in {"Enum", "IntEnum", "auto"}:
+        return True
+    if module == "dataclasses" and member == "dataclass":
+        return True
+    if module == "random" and member in {
+        "seed",
+        "random",
+        "randint",
+        "randrange",
+        "uniform",
+        "getrandbits",
+        "choice",
+        "shuffle",
+    }:
+        return True
+    if module == "csv" and member in {"reader", "writer"}:
+        return True
+    if module == "textwrap" and member in {"fill", "wrap", "shorten"}:
+        return True
+    if module == "tomllib" and member == "loads":
+        return True
+    if module == "dotenv" and member in {"dotenv_values", "load_dotenv"}:
+        return True
+    if module == "yaml" and member == "safe_load":
+        return True
+    if module == "jwt" and member in {"encode", "decode"}:
+        return True
+    if module == "orjson" and member in {"dumps", "loads"}:
+        return True
+    if module == "copy" and member in {"copy", "deepcopy"}:
+        return True
+    if module == "threading" and member in {
+        "Lock",
+        "RLock",
+        "get_ident",
+        "Thread",
+        "Event",
+        "Condition",
+        "Semaphore",
+    }:
+        return True
+    if module == "itertools" and member in {
+        "chain",
+        "chain.from_iterable",
+        "starmap",
+        "filterfalse",
+        "pairwise",
+        "batched",
+        "dropwhile",
+        "compress",
+        "tee",
+        "permutations",
+    }:
+        return True
+    if module == "argparse" and member == "ArgumentParser":
+        return True
+    if module == "queue" and member in {"Queue", "LifoQueue", "SimpleQueue", "Empty", "Full"}:
+        return True
+    if module == "urllib.request" and member in {"urlopen", "Request"}:
+        return True
+    if module == "selectors" and member in {"DefaultSelector", "SelectorKey"}:
+        return True
+    return False

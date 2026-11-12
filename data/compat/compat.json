@@ -1,54 +1,25 @@
 {
-<<<<<<< HEAD
-  "schema": "2",
+  "schema": "1",
   "generated": "2026-11-11",
-  "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
-||||||| parent of ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
-  "schema": "1",
-  "generated": "2026-10-28",
-  "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
-=======
-  "schema": "1",
-  "generated": "2026-10-29",
-  "commit": "c9ea83ad618cc3eebb95ef99ed523ecfab4d04a9",
->>>>>>> ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
+  "commit": "d0dc305af2a37fd3838f68130f300f76af045115",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
     "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
     "score": ""
   },
-  "channel": {
-    "released": "0.9.0",
-    "install_released": "uv tool install pyscriptc",
-    "install_master": "uv pip install git+https://github.com/sigilco/pyscriptc"
-  },
-  "island": {
-    "measured": 18,
-    "packages": 18,
-    "runs": 18,
-    "date": "2026-11-11",
-    "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
-    "source": "benchmarks/compat/top100/island_probe.py"
-  },
   "summary": {
     "builtins_full": 3,
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
-<<<<<<< HEAD
-    "stdlib_partial": 63,
-||||||| parent of ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
-    "stdlib_partial": 59,
-=======
     "stdlib_partial": 60,
->>>>>>> ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2585
+    "fences": 2618
   },
   "builtins": [
     {
@@ -1191,77 +1162,6 @@
       "note": ""
     },
     {
-      "id": "stdlib.uuid",
-      "kind": "stdlib",
-      "label": "`uuid`",
-      "names": [
-        "uuid"
-      ],
-      "status": "partial",
-      "count": 1,
-      "unsupported": [
-        ".int, .urn, .bytes and other names, names outside the subset"
-      ],
-      "fences": [
-        "PS2001"
-      ],
-      "note": ""
-    },
-    {
-      "id": "stdlib.binascii",
-      "kind": "stdlib",
-      "label": "`binascii`",
-      "names": [
-        "binascii"
-      ],
-      "status": "partial",
-      "count": 1,
-      "unsupported": [
-        "hexlify of str, names outside the subset"
-      ],
-      "fences": [
-        "PS1003",
-        "PS2001"
-      ],
-      "note": ""
-    },
-    {
-      "id": "stdlib.shlex",
-      "kind": "stdlib",
-      "label": "`shlex`",
-      "names": [
-        "shlex"
-      ],
-      "status": "partial",
-      "count": 1,
-      "unsupported": [
-        "comments as a variable, the shlex class and modes"
-      ],
-      "fences": [
-        "PS1003",
-        "PS2001"
-      ],
-      "note": ""
-    },
-    {
-      "id": "stdlib.secrets",
-      "kind": "stdlib",
-      "label": "`secrets`",
-      "names": [
-        "secrets"
-      ],
-      "status": "partial",
-      "count": 1,
-      "unsupported": [
-        "the count as a variable, names outside the subset"
-      ],
-      "fences": [
-        "PS1003",
-        "PS2001"
-      ],
-      "note": ""
-    },
-    {
       "id": "stdlib.atexit",
       "kind": "stdlib",
       "label": "`atexit`",
@@ -1535,14 +1435,6 @@
       "import_name": "certifi",
       "version": "2026.7.22",
       "status": "full",
-      "island": "runs",
-      "plane": {
-        "definitions": 5,
-        "native": 5,
-        "island": 0,
-        "blocked": 0
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 0,
       "definitions": 5,
       "fenced_definitions": 0,
@@ -1555,17 +1447,9 @@
       "import_name": "colorama",
       "version": "0.4.6",
       "status": "none",
-      "island": "runs",
-      "plane": {
-        "definitions": 77,
-        "native": 31,
-        "island": 0,
-        "blocked": 46
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 82,
+      "fences": 84,
       "definitions": 77,
-      "fenced_definitions": 42,
+      "fenced_definitions": 43,
       "top_families": [
         {
           "family": "param-inference",
@@ -1601,15 +1485,7 @@
       "import_name": "dotenv",
       "version": "1.2.4",
       "status": "none",
-      "island": "runs",
-      "plane": {
-        "definitions": 75,
-        "native": 29,
-        "island": 0,
-        "blocked": 46
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 114,
+      "fences": 115,
       "definitions": 75,
       "fenced_definitions": 42,
       "top_families": [
@@ -1629,7 +1505,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 79
+          "count": 80
         },
         {
           "code": "PS1106",
@@ -1647,25 +1523,17 @@
       "import_name": "filelock",
       "version": "4.1.1",
       "status": "partial",
-      "island": "runs",
-      "plane": {
-        "definitions": 641,
-        "native": 387,
-        "island": 4,
-        "blocked": 250
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 664,
+      "fences": 670,
       "definitions": 641,
       "fenced_definitions": 233,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 146
+          "count": 149
         },
         {
           "family": "construct-other",
-          "count": 91
+          "count": 90
         },
         {
           "family": "generic-alias",
@@ -1675,7 +1543,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 392
+          "count": 400
         },
         {
           "code": "PS2001",
@@ -1693,14 +1561,6 @@
       "import_name": "h11",
       "version": "0.16.0",
       "status": "none",
-      "island": "runs",
-      "plane": {
-        "definitions": 133,
-        "native": 50,
-        "island": 17,
-        "blocked": 66
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 190,
       "definitions": 133,
       "fenced_definitions": 74,
@@ -1721,7 +1581,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 107
+          "count": 106
         },
         {
           "code": "PS1106",
@@ -1739,14 +1599,6 @@
       "import_name": "idna",
       "version": "3.20",
       "status": "none",
-      "island": "runs",
-      "plane": {
-        "definitions": 56,
-        "native": 18,
-        "island": 0,
-        "blocked": 38
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 106,
       "definitions": 56,
       "fenced_definitions": 37,
@@ -1785,14 +1637,6 @@
       "import_name": "iniconfig",
       "version": "2.3.1",
       "status": "partial",
-      "island": "runs",
-      "plane": {
-        "definitions": 34,
-        "native": 19,
-        "island": 0,
-        "blocked": 15
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 29,
       "definitions": 34,
       "fenced_definitions": 13,
@@ -1831,17 +1675,9 @@
       "import_name": "jmespath",
       "version": "1.1.0",
       "status": "none",
-      "island": "runs",
-      "plane": {
-        "definitions": 200,
-        "native": 83,
-        "island": 1,
-        "blocked": 116
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 119,
+      "fences": 126,
       "definitions": 200,
-      "fenced_definitions": 109,
+      "fenced_definitions": 111,
       "top_families": [
         {
           "family": "param-inference",
@@ -1852,8 +1688,8 @@
           "count": 19
         },
         {
-          "family": "name-resolution",
-          "count": 2
+          "family": "class-body",
+          "count": 7
         }
       ],
       "codes": [
@@ -1866,8 +1702,8 @@
           "count": 16
         },
         {
-          "code": "PS2001",
-          "count": 1
+          "code": "PS1204",
+          "count": 7
         }
       ],
       "pypi": "https://pypi.org/project/jmespath/"
@@ -1877,21 +1713,13 @@
       "import_name": "jwt",
       "version": "2.15.1",
       "status": "partial",
-      "island": "runs",
-      "plane": {
-        "definitions": 171,
-        "native": 113,
-        "island": 0,
-        "blocked": 58
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 104,
+      "fences": 107,
       "definitions": 171,
-      "fenced_definitions": 51,
+      "fenced_definitions": 52,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 17
+          "count": 19
         },
         {
           "family": "union-types",
@@ -1905,15 +1733,15 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 51
+          "count": 55
         },
         {
           "code": "PS1101",
           "count": 14
         },
         {
-          "code": "PS2001",
-          "count": 13
+          "code": "PS1106",
+          "count": 11
         }
       ],
       "pypi": "https://pypi.org/project/pyjwt/"
@@ -1923,15 +1751,7 @@
       "import_name": "mdurl",
       "version": "0.1.2",
       "status": "partial",
-      "island": "runs",
-      "plane": {
-        "definitions": 12,
-        "native": 5,
-        "island": 0,
-        "blocked": 7
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 22,
+      "fences": 21,
       "definitions": 12,
       "fenced_definitions": 6,
       "top_families": [
@@ -1940,18 +1760,18 @@
           "count": 5
         },
         {
-          "family": "construct-other",
+          "family": "unlowered-call",
           "count": 3
         },
         {
-          "family": "unlowered-call",
-          "count": 3
+          "family": "construct-other",
+          "count": 2
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 15
+          "count": 14
         },
         {
           "code": "PS2003",
@@ -1969,17 +1789,9 @@
       "import_name": "packaging",
       "version": "26.3",
       "status": "partial",
-      "island": "runs",
-      "plane": {
-        "definitions": 558,
-        "native": 276,
-        "island": 0,
-        "blocked": 282
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 535,
+      "fences": 546,
       "definitions": 558,
-      "fenced_definitions": 269,
+      "fenced_definitions": 275,
       "top_families": [
         {
           "family": "unlowered-type-name",
@@ -1990,22 +1802,22 @@
           "count": 77
         },
         {
-          "family": "generic-alias",
-          "count": 64
+          "family": "class-body",
+          "count": 49
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 215
+          "count": 212
         },
         {
           "code": "PS1106",
           "count": 90
         },
         {
-          "code": "PS1103",
-          "count": 64
+          "code": "PS1204",
+          "count": 49
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -2015,35 +1827,27 @@
       "import_name": "pathspec",
       "version": "1.1.1",
       "status": "none",
-      "island": "runs",
-      "plane": {
-        "definitions": 132,
-        "native": 46,
-        "island": 0,
-        "blocked": 86
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 194,
+      "fences": 198,
       "definitions": 132,
-      "fenced_definitions": 77,
+      "fenced_definitions": 78,
       "top_families": [
         {
           "family": "name-resolution",
           "count": 30
         },
         {
-          "family": "construct-other",
-          "count": 21
+          "family": "unlowered-type-name",
+          "count": 19
         },
         {
-          "family": "unlowered-type-name",
+          "family": "type-mismatch",
           "count": 19
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 107
+          "count": 103
         },
         {
           "code": "PS1106",
@@ -2061,14 +1865,6 @@
       "import_name": "platformdirs",
       "version": "4.13.0",
       "status": "partial",
-      "island": "runs",
-      "plane": {
-        "definitions": 388,
-        "native": 226,
-        "island": 0,
-        "blocked": 162
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 257,
       "definitions": 388,
       "fenced_definitions": 154,
@@ -2107,15 +1903,7 @@
       "import_name": "pytz",
       "version": "2026.5",
       "status": "partial",
-      "island": "runs",
-      "plane": {
-        "definitions": 102,
-        "native": 70,
-        "island": 0,
-        "blocked": 32
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 52,
+      "fences": 51,
       "definitions": 102,
       "fenced_definitions": 32,
       "top_families": [
@@ -2135,7 +1923,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 31
+          "count": 30
         },
         {
           "code": "PS1001",
@@ -2153,14 +1941,6 @@
       "import_name": "shellingham",
       "version": "1.5.4",
       "status": "none",
-      "island": "runs",
-      "plane": {
-        "definitions": 25,
-        "native": 6,
-        "island": 0,
-        "blocked": 19
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 46,
       "definitions": 25,
       "fenced_definitions": 19,
@@ -2199,14 +1979,6 @@
       "import_name": "trove_classifiers",
       "version": "2026.9.21.13",
       "status": "partial",
-      "island": "runs",
-      "plane": {
-        "definitions": 0,
-        "native": 0,
-        "island": 0,
-        "blocked": 0
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 1,
       "definitions": 0,
       "fenced_definitions": 0,
@@ -2229,14 +2001,6 @@
       "import_name": "tzdata",
       "version": "2026.5",
       "status": "full",
-      "island": "runs",
-      "plane": {
-        "definitions": 0,
-        "native": 0,
-        "island": 0,
-        "blocked": 0
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
       "fences": 0,
       "definitions": 0,
       "fenced_definitions": 0,
@@ -2249,15 +2013,7 @@
       "import_name": "zipp",
       "version": "4.1.1",
       "status": "none",
-      "island": "runs",
-      "plane": {
-        "definitions": 75,
-        "native": 16,
-        "island": 0,
-        "blocked": 59
-      },
-      "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 70,
+      "fences": 71,
       "definitions": 75,
       "fenced_definitions": 57,
       "top_families": [
@@ -2452,7 +2208,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1283,
+      "count": 1286,
       "packages": 16
     },
     {
@@ -2470,13 +2226,13 @@
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 190,
+      "count": 188,
       "packages": 14
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 165,
+      "count": 132,
       "packages": 9
     },
     {
@@ -2492,9 +2248,15 @@
       "packages": 10
     },
     {
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 71,
+      "packages": 7
+    },
+    {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 56,
+      "count": 54,
       "packages": 8
     },
     {
@@ -2540,12 +2302,6 @@
       "packages": 2
     },
     {
-      "code": "PS1204",
-      "title": "class body statement",
-      "count": 4,
-      "packages": 2
-    },
-    {
       "code": "PS4203",
       "title": "finalizer refused",
       "count": 1,
@@ -2570,67 +2326,12 @@
     },
     {
       "date": "2026-11-11",
-      "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
+      "commit": "d0dc305af2a37fd3838f68130f300f76af045115",
       "weighted_pass": 0.0,
       "packages_full": 2,
-<<<<<<< HEAD
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2585
-||||||| parent of ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
-    },
-    {
-      "date": "2026-10-27",
-      "commit": "95debbd232c8b3caebcd34907f4cfe161f914ec5",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
-    },
-    {
-      "date": "2026-10-28",
-      "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
-=======
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
-    },
-    {
-      "date": "2026-10-27",
-      "commit": "95debbd232c8b3caebcd34907f4cfe161f914ec5",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
-    },
-    {
-      "date": "2026-10-28",
-      "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
-    },
-    {
-      "date": "2026-10-29",
-      "commit": "c9ea83ad618cc3eebb95ef99ed523ecfab4d04a9",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
->>>>>>> ecffc498 (feat(stdlib): the closed selectors subset over the #177 loop (#485))
+      "fences": 2618
     }
   ]
 }
