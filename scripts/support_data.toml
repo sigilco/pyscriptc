@@ -664,6 +664,13 @@ y: int = g([1])''',
   '''y: int = 0
 if n is not None:
     y = n + 1''',
+  '''from typing import TypeVar
+T = TypeVar("T")
+def first(xs: list[T]) -> T | None:
+    return xs[0] if xs else None
+@@
+y: int | None = first(xs)''',
+  'q: typing.Mapping[str, int] = d',
 ]
 no = [
   ["Any annotation", 'y: typing.Any = n', "PS1104"],
@@ -710,4 +717,24 @@ y: int = 1''', "PS2002"],
 y: int = len(get_type_hints(f))''', "PS2002"],
   ["isinstance with a generic", 'y: bool = isinstance(n, list[int])', "PS2001"],
   ["__annotations__ read", 'y: int = len(f.__annotations__)', "PS2001"],
+]
+
+[[stdlib]]
+names = ["collections.abc"]
+red = false
+note = "annotation-only like typing: the abstract containers erase to the concrete list, dict and set; names used as values fence"
+ok = [
+  'q: collections.abc.Sequence[int] = xs',
+  'q: collections.abc.Iterable[str] = ss',
+  'q: collections.abc.Mapping[str, int] = d',
+  'q: collections.abc.MutableMapping[str, int] = d',
+  'q: collections.abc.MutableSet[int] = st',
+  '''from collections.abc import Callable
+c: Callable[[int], int] = lambda v: v + 1
+@@
+y: int = c(n)''',
+]
+no = [
+  ["name as a value", 'y: int = len(str(collections.abc.Sized))', "PS2002"],
+  ["isinstance with an abstract base", 'y: bool = isinstance(xs, collections.abc.Sequence)', "PS2001"],
 ]

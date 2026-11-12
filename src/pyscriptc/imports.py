@@ -83,7 +83,9 @@ KIND_CURATED = "curated-replacement"
 KIND_PURE = "pure-python"
 
 # Annotation-only modules the checker keeps, so an import of them is free.
-_ERASED = frozenset({"typing", "typing_extensions"})
+# `collections.abc` is erased by its full name (issue #412): the `collections`
+# package itself is a lowered module.
+_ERASED = frozenset({"typing", "typing_extensions", "collections.abc"})
 
 _DATA_FILE = Path(__file__).parent / "native_packages.json"
 
@@ -517,7 +519,7 @@ def _stdlib_verdict(name: str) -> Verdict | None:
     in_table: bool = module_status(canonical_module(name)) is not None
     if root not in sys.stdlib_module_names and not in_table:
         return None
-    if root in _ERASED:
+    if root in _ERASED or name in _ERASED:
         return _verdict(
             name,
             KIND_STDLIB,
