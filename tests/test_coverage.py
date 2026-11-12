@@ -17,7 +17,7 @@ from pyscriptc.lower import lower_source
 
 SOURCE = "\n".join(
     [
-        "from typing import Any, Mapping, Optional, Union",
+        "from typing import Any, Awaitable, Optional, Union",
         "",
         "def ok(x: int) -> int:",
         "    return x",
@@ -28,7 +28,7 @@ SOURCE = "\n".join(
         "def uni(x: Union[int, str]) -> int:",
         "    return 1",
         "",
-        "def alias(x: Mapping[str, int]) -> int:",
+        "def alias(x: Awaitable[int]) -> int:",
         "    return 1",
         "",
         "def dyn(x: Any) -> int:",
@@ -60,7 +60,7 @@ def fence_codes(source: str) -> dict[str, str]:
     [
         ("int | str", "PS1101"),
         ("Union[int, str]", "PS1101"),
-        ("Mapping[str, int]", "PS1103"),
+        ("Awaitable[int]", "PS1103"),
         ("Any", "PS1104"),
         ("object", "PS1104"),
         ("'Later'", "PS1105"),
@@ -68,7 +68,7 @@ def fence_codes(source: str) -> dict[str, str]:
     ],
 )
 def test_annotation_fences_have_specific_codes(annotation: str, code: str) -> None:
-    source = f"from typing import Any, Mapping, Optional, Union\n\ndef f(x: {annotation}) -> int:\n    return 1\n"
+    source = f"from typing import Any, Awaitable, Optional, Union\n\ndef f(x: {annotation}) -> int:\n    return 1\n"
     assert fence_codes(source) == {"f": code}
 
 
