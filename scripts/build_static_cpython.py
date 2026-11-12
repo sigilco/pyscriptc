@@ -76,9 +76,7 @@ def load_lock(path: Path) -> dict:
 def verify_sha256(archive: Path, expected: str) -> None:
     digest = hashlib.sha256(archive.read_bytes()).hexdigest()
     if digest != expected:
-        raise BuildError(
-            f"sha256 mismatch for {archive.name}: got {digest}, lock says {expected}"
-        )
+        raise BuildError(f"sha256 mismatch for {archive.name}: got {digest}, lock says {expected}")
 
 
 def fetch_tarball(lock: dict, cache: Path) -> Path:
