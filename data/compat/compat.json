@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-12",
-  "commit": "85729e513fe0b6f1e706f755a91225043dcf34ed",
+  "commit": "9fc4dc2db33582d73e52dd71f8d37add1ce5f8be",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-12",
-    "commit": "85729e513fe0b6f1e706f755a91225043dcf34ed",
+    "commit": "9fc4dc2db33582d73e52dd71f8d37add1ce5f8be",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -1342,10 +1342,11 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "DictReader, writer on a non-file"
+        "restkey, restval, Sniffer, Sniffer, Dialect"
       ],
       "fences": [
-        "PS2001"
+        "PS2001",
+        "PS2003"
       ],
       "note": ""
     },
@@ -2544,7 +2545,7 @@
     },
     {
       "date": "2026-11-12",
-      "commit": "85729e513fe0b6f1e706f755a91225043dcf34ed",
+      "commit": "9fc4dc2db33582d73e52dd71f8d37add1ce5f8be",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

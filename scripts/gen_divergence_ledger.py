@@ -443,6 +443,7 @@ ROWS: list[dict[str, Any]] = [
         "d63_csv_dict_reader.py",
         docs=f"{DOC}#63",
     ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
