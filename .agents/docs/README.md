@@ -30,6 +30,7 @@ Preview the internal notes with `mise run docs:internal` (a docmd dev server ove
 ## Design notes
 
 - [Checker bridge](design/checker-bridge.md)
+- [IR buffer type](design/ir-buffer-type.md) — the first-class contiguous numeric array in the IR (#372)
 - [Coroutine lowering](design/coroutine-lowering.md)
 - [MIR adapter fallback telemetry](design/mir-adapter-telemetry.md)
 

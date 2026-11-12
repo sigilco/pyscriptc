@@ -75,6 +75,11 @@ def t_list(elem: T, set_: bool = False) -> T:
     return T("list", elem, None, None, [], None, flags=T_SET if set_ else 0)
 
 
+def t_buffer(elem: T) -> T:
+    """A buffer row: the contiguous numeric array of issue #372, flat."""
+    return T("buffer", elem, None, None, [], None)
+
+
 def t_dict(key: T, value: T) -> T:
     """A dict row with its key and value rows."""
     return T("dict", None, key, value, [], None)
@@ -139,6 +144,8 @@ def type_to_dict(typ: T) -> dict[str, object]:
         if typ.flags & T_SET:
             row["set"] = True
         return row
+    if typ.kind == "buffer":
+        return {"kind": "buffer", "elem": type_to_dict(typ.elem)}
     if typ.kind == "dict":
         return {"kind": "dict", "key": type_to_dict(typ.key), "value": type_to_dict(typ.value)}
     if typ.kind == "func":
@@ -196,6 +203,7 @@ __all__ = [
     "sig_for",
     "sig_to_dict",
     "t_class",
+    "t_buffer",
     "t_dict",
     "t_func",
     "t_leaf",
