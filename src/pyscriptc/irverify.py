@@ -418,9 +418,16 @@ def _always_terminates(body: list[dict[str, Any]]) -> bool:
                         if cval == "True":
                             return True
         elif kind == "try":
+            # A terminating `finally` ends every path. Otherwise the `finally`
+            # block runs and then the pending return or raise continues, so it
+            # never rescues a try that would fall through: the try (or its
+            # `else`) must terminate and every handler must too. No handlers
+            # is a bare try/finally and needs only the body to terminate.
+            if _always_terminates(_list_field(stmt, "finalbody")):
+                return True
             handlers = _list_field(stmt, "handlers")
-            if handlers and all(_always_terminates(_list_field(handler, "body")) for handler in handlers):
-                if _always_terminates(_list_field(stmt, "body")):
+            if all(_always_terminates(_list_field(handler, "body")) for handler in handlers):
+                if _always_terminates(_list_field(stmt, "body")) or _always_terminates(_list_field(stmt, "orelse")):
                     return True
     return False
 
