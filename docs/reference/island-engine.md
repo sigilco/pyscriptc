@@ -211,22 +211,29 @@ timed run on a shared machine is dominated by scheduling noise.
 
 The numbers are the release receipt for the embed epic, not a gate: they
 are recorded in the PR body of #670 and re-measured at release
-boundaries. On a loaded Linux x86_64 host (CPython 3.14.9):
+boundaries. Measured on a quiet Linux x86_64 runner (CPython 3.14.9,
+20 000 calls x 5 repeats, best run):
 
 | case | ns/call | marshalling share |
 | --- | --- | --- |
-| base (no payload) | 245 | baseline |
-| int | 257 | +12 ns |
-| float | 254 | +9 ns |
-| bool | 249 | +4 ns |
-| str | 257 | +12 ns |
-| bytes | 260 | +15 ns |
-| list (4 ints) | 484 | +239 ns |
+| base (no payload) | 26.4 | baseline |
+| int | 28.3 | +2 ns |
+| float | 28.2 | +2 ns |
+| bool | 26.9 | +0 ns |
+| str | 27.8 | +1 ns |
+| bytes | 29.5 | +3 ns |
+| list (4 ints) | 52.0 | +26 ns |
 
-Reading: the scalars cost a few nanoseconds over the seam itself — the
-copy is not the interesting cost. A list is the first structurally
+Reading: the scalars cost one to three nanoseconds over the seam itself —
+the copy is not the interesting cost. A list is the first structurally
 bigger case (an element copy per item plus a fresh list object), and it
 is the one to watch when the ABI grows.
+
+The absolute figures are noise-sensitive: on a loaded host the same run
+reports a baseline near 245 ns/call with the same shape (scalars within a
+few nanoseconds of the baseline, the list an order of magnitude above it).
+Compare shapes across hosts, not absolutes; the CI job re-measures on a
+quiet runner and writes its numbers into the job summary.
 
 ## Open questions (deferred to later embed issues)
 
