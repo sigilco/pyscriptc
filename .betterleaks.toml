@@ -8,7 +8,6 @@ useDefault = true
 [allowlist]
 description = "IR probe hashes, vendored test fixtures and vendored typeshed stubs"
 paths = [
-  '''benchmarks/compat2/probes/IR_HASHES\.json''',
   '''benchmarks/compat2/probes/TIR_HASHES\.json''',
   '''src/pyscriptc/_typeshed/.*\.pyi''',
 ]

@@ -73,4 +73,4 @@ The compiler tracks four distinct versioned axes:
 
 ### IR hashing and canonicity
 
-`PS_ABI` and C runtime revisions do not affect IR canonicity. In accordance with the IR canonicity specification (`.agents/docs/spec/ir-canonicity.md`) and the canonical normalizer (`benchmarks/compat2/canonical.py`), canonical IR hashing evaluates only the validated semantic IR tree. Compiler environment details, host paths, and runtime ABI versions never enter the IR hash calculation.
+`PS_ABI` and C runtime revisions do not affect IR canonicity. In accordance with the IR canonicity specification (`.agents/docs/spec/ir-canonicity.md`, section 7) and the typed serializer (`src/pyscriptc/tirhash.py`), canonical IR hashing evaluates only the semantic IR tree, walked in schema field order. Compiler environment details, host paths, and runtime ABI versions never enter the IR hash calculation: spans, the `cpython` stamp and `_notes` are never emitted, environment absolute paths in string values are scrubbed to `<PATH>`, and synthetic class, handler-code and fence orders are canonicalized by the serializer.

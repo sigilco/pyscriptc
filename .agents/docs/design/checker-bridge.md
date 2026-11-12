@@ -111,11 +111,11 @@ IR now depends on the pinned mypy version, not just the source. Consequences:
 
 - The bridge is pinned `>=2.4,<2.5` and refuses to run outside the range,
   so a mypy upgrade cannot silently change emitted binaries.
-- The A/B `irscore` discipline (run twice, `cmp`) is unchanged; a probe run
+- The A/B hash discipline (run twice, `cmp`) is unchanged; a probe run
   with a bridged compile must record the mypy version next to the oracle
   version (`oracle` field already carries the CPython version).
 - The frozen v2 gates are untouched: this PR never regenerates
-  `IR_HASHES.json`, and the default (no bridge) compile path is
+  the IR hash baseline, and the default (no bridge) compile path is
   IR-identical to master by the A/B comparison.
 
 ## PS11xx fences stay
@@ -151,7 +151,7 @@ bridge recovers it from the return expressions' own facts and answers only
 when they all agree. The lanes differ in scope, not in answers: the mypy
 lane holds the full TypeMap for one in-process build, the pyrefly lane
 reuses the long-lived facts-oracle subprocess. The bridge version recorded
-by `irscore --bridge` is the pyrefly wheel version for this lane and the
+by `tirscore --bridge` is the pyrefly wheel version for this lane and the
 pinned mypy version for the other.
 - Extend lowering's own inference instead. Rejected: it duplicates the
   checker and drifts from it; the checker is the oracle by design
