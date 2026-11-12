@@ -310,6 +310,9 @@ def test_self_census_ballpark() -> None:
     # Class-body runtime values (#732): _class_attrs.py and the
     # _classes.py/_expr.py lowering pass add about 170 lines, taking the
     # census to 79,166, so the ceiling moves to 80k.
+    # The onefile embed output (#802): onefile.py plus the embed.py,
+    # cli/_main.py and stdlibzip.py payload plumbing add about 540 lines,
+    # taking the census to 79,697, so the ceiling stays at 80k.
     assert 11_000 <= census["lines"] <= 80_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
