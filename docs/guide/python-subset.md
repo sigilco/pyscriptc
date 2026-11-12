@@ -133,6 +133,12 @@ For background on the typing system itself, the upstream references are the best
 - [The typing module](https://docs.python.org/3/library/typing.html) and [Type hints cheat sheet](https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html) from the mypy docs
 - [PEP 484](https://peps.python.org/pep-0484/) (type hints), [PEP 526](https://peps.python.org/pep-0526/) (variable annotations), [PEP 544](https://peps.python.org/pep-0544/) (protocols), [PEP 570](https://peps.python.org/pep-0570/) (positional-only parameters), [PEP 585](https://peps.python.org/pep-0585/) (builtin generics), [PEP 604](https://peps.python.org/pep-0604/) (`X | Y` unions), [PEP 647](https://peps.python.org/pep-0647/) (type guards), [PEP 695](https://peps.python.org/pep-0695/) (type parameter syntax)
 
+## Networked and concurrent subsets
+
+The stdlib subsets that touch the outside world keep to a closed surface; each names its divergences in [Divergences from CPython](../reference/divergences.md).
+
+- `selectors`: `DefaultSelector` over the compiled event loop, with `SelectorKey`, `EVENT_READ`/`EVENT_WRITE` and `register`/`unregister`/`modify`/`select`/`get_key`/`close`. `register` takes a bare int fd, not a `fileobj` (the typed socket handle is issue #229), `select()` returns `list[SelectorKey]` rather than CPython's `(key, events)` pairs, and `get_key` of an unregistered fd returns `None` where CPython raises `KeyError`.
+
 ## What stays unsupported
 
 - Runtime reflection: `inspect.signature`, `getattr` dispatch, `**kwargs` forwarding, annotation reads.

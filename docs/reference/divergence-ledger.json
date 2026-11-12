@@ -486,7 +486,7 @@
     },
     {
       "id": "D29",
-      "seam": "socket, ssl, http.client, http.server and selectors do not compile (PS2001)",
+      "seam": "socket, ssl, http.client and http.server do not compile (PS2001)",
       "listed": true,
       "docs": "docs/reference/divergences.md#29",
       "probe": "probes/divergences/d29_socket.py",
