@@ -2,13 +2,10 @@
 
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 from benchmarks.compat2.census_self import build_self_census
 from scripts.repin_census import load_pins
-
-from pyscriptc.package import _discover
 
 ROOT = Path(__file__).resolve().parents[1]
 SRC = ROOT / "src" / "pyscriptc"

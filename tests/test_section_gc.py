@@ -91,7 +91,7 @@ def test_the_pe_lane_takes_no_link_flag() -> None:
 def test_the_link_line_carries_the_gc_flag(tmp_path: Path) -> None:
     """The flag reaches the link line, not just the compile line."""
     record: list[list[str]] = []
-    link_binary(_ll(tmp_path), tmp_path / "a", record=record)
+    link_binary(_ll(tmp_path), tmp_path / "a", driver="zig", target="x86_64-linux-gnu", record=record)
     link = record[-1]
     assert "-Wl,--gc-sections" in link
 
@@ -99,7 +99,7 @@ def test_the_link_line_carries_the_gc_flag(tmp_path: Path) -> None:
 def test_every_compile_carries_the_section_flags(tmp_path: Path) -> None:
     """The compile half is on every unit, so the link half has sections to collect."""
     record: list[list[str]] = []
-    link_binary(_ll(tmp_path), tmp_path / "a", record=record)
+    link_binary(_ll(tmp_path), tmp_path / "a", driver="zig", target="x86_64-linux-gnu", record=record)
     compiles = [cmd for cmd in record if "-c" in cmd]
     assert compiles
     for cmd in compiles:

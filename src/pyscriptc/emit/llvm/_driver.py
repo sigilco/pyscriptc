@@ -29,6 +29,8 @@ from pyscriptc.emit.llvm._stdlib import StdlibMixin
 from pyscriptc.emit.llvm._stmts import StmtsMixin
 from pyscriptc.errors import IRError
 from pyscriptc.ir import assert_same_cpython
+from pyscriptc.sectiongc import compile_flags as gc_compile_flags
+from pyscriptc.sectiongc import link_flags as gc_link_flags
 
 
 def _cc_argv(cc: str) -> list[str]:
@@ -351,7 +353,13 @@ def link_binary(
     # default (no engine or the built-in cpython) emits nothing and keeps
     # the CPython path byte-identical.
     defines: list[str] = [*curl_defines, *(engine_defines or [])]
-    tail: list[str] = san_flags + ["-lm"] + curl_flags + ["-o", str(output)]
+    # Section GC: the compile half gives every function and datum its own
+    # section, the link half lets the linker drop the ones nothing
+    # references (`sectiongc.py`). The two halves only make sense together,
+    # so they are decided once, here, from the same target.
+    gc_compile: list[str] = gc_compile_flags(target)
+    gc_link: list[str] = gc_link_flags(target)
+    tail: list[str] = san_flags + gc_link + ["-lm"] + curl_flags + ["-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
             raise IRError(
@@ -450,6 +458,7 @@ def link_binary(
         + wasm_flags
         + dbg_flags
         + san_flags
+        + gc_compile
         + ll_kind
         + ["-c", str(llvm_path), "-o", str(ll_obj)]
         + target_flags
@@ -470,7 +479,7 @@ def link_binary(
     # the runtime exactly as it did before the FFI gate.
     for source in sources:
         src = Path(source)
-        flags: list[str] = ["-O2"] + pic_flags + wasm_flags + san_flags + defines + target_flags
+        flags: list[str] = ["-O2"] + pic_flags + wasm_flags + san_flags + gc_compile + defines + target_flags
         extra_dirs: list[Path] = []
         if source in ffi_sources:
             flags.extend(ffi_include_flags)
