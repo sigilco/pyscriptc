@@ -2,6 +2,7 @@
  "canonical_schema": "canonical-schema/2",
  "hash_algo": "sha256",
  "oracle": "2/cpython-3.14.9",
+ "tir_schema": "tir/1",
  "probes": {
   "builtins.ArithmeticError": "1bda704a44ee89525dfac7c837ba36a449a144cacf3bd85c048d66b3d8998645",
   "builtins.AssertionError": "2f4037e63c17c449ab5308bab3efacb8fb6fdba7b1da77039a682cdc83830ca9",
