@@ -257,12 +257,15 @@ static void ps_island_init(void) {
            running image, then argv[0] - the first that yields a real file. */
         PyObject *executable = NULL;
         char argv0[PATH_MAX];
+        char image_path[PATH_MAX];
+        image_path[0] = '\0';
 #if defined(_WIN32)
         char image[MAX_PATH];
         DWORD image_n = GetModuleFileNameA(NULL, image, sizeof image);
         if (image_n > 0 && image_n < sizeof image) {
             image[image_n] = '\0';
             executable = PyUnicode_DecodeFSDefault(image);
+            memcpy(image_path, image, (size_t)image_n + 1);
         }
 #elif defined(__APPLE__)
         char image[PATH_MAX];
@@ -270,6 +273,7 @@ static void ps_island_init(void) {
         if (_NSGetExecutablePath(image, &image_size) == 0) {
             image[sizeof image - 1] = '\0';
             executable = PyUnicode_DecodeFSDefault(image);
+            memcpy(image_path, image, strlen(image) + 1);
         }
 #else
         char image[PATH_MAX];
@@ -277,6 +281,7 @@ static void ps_island_init(void) {
         if (image_n > 0) {
             image[image_n] = '\0';
             executable = PyUnicode_DecodeFSDefaultAndSize(image, (Py_ssize_t)image_n);
+            memcpy(image_path, image, (size_t)image_n + 1);
         }
 #endif
         if (executable == NULL) {
@@ -325,6 +330,40 @@ static void ps_island_init(void) {
             }
             PyErr_Clear();
             Py_DECREF(out);
+        }
+        /* A relocated program bundle stages its pure dependencies in the
+           bundle's own lib/pythonX.Y/site-packages next to the stdlib. Neither
+           VIRTUAL_ENV nor PYTHONPATH names it, so derive it from the running
+           image (<prefix>/bin/<name>) and seed it when it exists. */
+        if (site != NULL && image_path[0] != '\0') {
+            char bundle_site[PATH_MAX];
+            char *bin = strrchr(image_path, '/');
+#ifdef _WIN32
+            char *bwin = strrchr(image_path, '\\');
+            if (bwin != NULL && (bin == NULL || bwin > bin)) {
+                bin = bwin;
+            }
+#endif
+            if (bin != NULL) {
+                /* image is <prefix>/bin/<name>; the bundle site sits at
+                   <prefix>/lib/..., so the /bin component comes off too. */
+                char *sep = bin;
+                while (sep > image_path && *(sep - 1) != '/' && *(sep - 1) != '\\') {
+                    sep--;
+                }
+                size_t prefix_len = (size_t)(sep - image_path);
+#ifdef _WIN32
+                snprintf(bundle_site, sizeof bundle_site, "%.*s\\Lib\\site-packages", (int)prefix_len, image_path);
+#else
+                snprintf(bundle_site, sizeof bundle_site, "%.*s/lib/python%d.%d/site-packages", (int)prefix_len, image_path, PY_MAJOR_VERSION, PY_MINOR_VERSION);
+#endif
+                struct stat bst;
+                if (stat(bundle_site, &bst) == 0 && S_ISDIR(bst.st_mode)) {
+                    PyObject *res = PyObject_CallMethod(site, "addsitedir", "s", bundle_site);
+                    Py_XDECREF(res);
+                    PyErr_Clear();
+                }
+            }
         }
         Py_DECREF(sys);
         PyErr_Clear();
