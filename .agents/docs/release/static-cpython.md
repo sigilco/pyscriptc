@@ -74,12 +74,38 @@ staging change is a `stage_static` beside `stage_bundle`. Both stay out of
 this PR: they need the per-platform CI matrix to be trustworthy, and that
 is exactly what the stretch gate withholds.
 
-Known static-link wrinkles to design around when wiring: getpath needs
-`lib/python3.14/lib-dynload/` to exist even when empty (the plan measured
-"Could not find platform dependent libraries" otherwise); the stdlib zip
-must be stored uncompressed when zlib is not builtin; and the curated list
-is per-micro (it tracks `Modules/Setup.stdlib.in`, which moves between
-micros).
+Known static-link wrinkles, measured on the Linux x86_64 build:
+
+- getpath needs `lib/python3.14/lib-dynload/` to exist even when empty (the
+  plan measured "Could not find platform dependent libraries" otherwise).
+- The stdlib zip must be **stored** (uncompressed) when `zlib` is not
+  builtin: zipimport fails at `encodings` with "can't decompress data; zlib
+  not available". The shared bundle path deflates its zip (`stdlibzip.py`),
+  which is fine there because the PBS pack builds zlib into the library.
+- The curated list changes the link line: `binascii` picks up `-lz` (the
+  zlib CRC32 path) and `math`/`cmath`/`_statistics`/`_datetime` pick up
+  `-lm`, so a static link needs `-lz -lm` on top of the ELF extras
+  `-ldl -lm -lpthread -lutil`. `socket` needs no extra on Linux.
+- The curated list is per-micro: it tracks `Modules/Setup.stdlib.in`, which
+  moves between micros. A lock bump re-checks the module names.
+
+### Measured link (Linux x86_64, this VPS)
+
+`gcc -O2 -I <prefix>/include/python3.14 embed.c <prefix>/lib/python3.14/config-3.14-x86_64-linux-gnu/libpython3.14.a -ldl -lm -lpthread -lutil -lz`
+against a 15-line `Py_InitializeEx` + `PyRun_SimpleString` program:
+
+- the executable is **33.4 MB** (a debug-info-free `-O2` link of the whole
+  interpreter), not the 6.4 MB of the macOS POC: the POC's number came from
+  a Darwin build where the linker drops more, and this build carries
+  `-g` debug info in the archive (the static archive is 75.9 MB). A
+  `strip`ped link and a Darwin build are the honest comparison to run
+  before quoting a size; the number here is an upper bound.
+- it runs from an empty environment (`env -i`, no `PYTHONHOME`, no PATH)
+  once `lib/python314.zip` sits next to it and `lib/python3.14/lib-dynload/`
+  exists: `fractions` prints `11/12` and `math` is reported as a builtin.
+- the stdlib zip of the *untrimmed* tree is 107 MB stored; the trimming the
+  bundle path already does (`stdlibzip.py`, `.pyc` bodies only) is what
+  brings it to the plan's 0.25 MB for a small program.
 
 ## Divergence note
 
