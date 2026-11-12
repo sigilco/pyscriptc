@@ -172,6 +172,80 @@ Python call; a foreign thread registers with `pypy_thread_attach`).
 byte-name `PyImport_AddModule` entry under PyPy.
 
 
+## The conformance corpus (issue #670)
+
+Every shipped engine must behave the same on the island surface, so the
+corpus is a set of island programs that run on each engine and must match
+CPython byte for byte (stdout, stderr and the exit code).
+
+| Program | What it covers |
+| --- | --- |
+| `fractions` | `fractions.Fraction` arithmetic and `str()` of the result |
+| `json` | `json.dumps` with sort keys and `ensure_ascii=False`, `json.loads` |
+| `re` | `re.match` with groups, `re.findall`, `re.sub` |
+| `dataclasses` | a dataclass with a nested dataclass, `dataclasses.fields`, `asdict` |
+| `exceptions` | a caught exception, a chained one, a locally defined exception class |
+| `bytes` | empty, embedded-NUL and non-ASCII byte strings across the seam |
+| `lists` | int and str element kinds, the empty list, a list built island-side |
+
+The programs live in `benchmarks/engine_corpus/programs/<name>/`: an
+island module (declared `island` in the program's `pyscriptc.toml`, so
+every definition in it runs on the selected engine) and a thin typed entry
+that calls it.
+
+```bash
+uv run python -m benchmarks.engine_corpus.run            # the whole matrix
+uv run python -m benchmarks.engine_corpus.run --only re  # one program
+```
+
+The matrix is **descriptor-driven**: every `*.toml` under
+`benchmarks/engine_corpus/engines/` is one engine of the matrix, so the
+PyPy leg turns on by itself when #668 ships a PyPy descriptor — the file
+lands in the directory, and neither the runner nor the CI workflow needs
+an edit. A descriptor opts out with a top-level `conformance = false`
+key (an engine without an island seam yet); the runner reports it as
+skipped and does not fail.
+
+The CI lane is `.github/workflows/engine-conformance.yml`: one Linux cell
+runs the matrix and the marshalling micro-benchmark, writes both reports
+into the job summary and uploads them as artifacts.
+
+### Marshalling cost per call
+
+`benchmarks/engine_corpus/marshalling.py` measures the seam itself: the
+per-call cost of an island call for each type the ABI carries, against a
+no-argument baseline that covers the GIL re-entry, the namespace lookup
+and the call machinery. Each case runs a warm-up loop first and is then
+timed five times inside the binary; the best run is reported, because the
+first call pays the embedded interpreter's initialization and a single
+timed run on a shared machine is dominated by scheduling noise.
+
+The numbers are the release receipt for the embed epic, not a gate: they
+are recorded in the PR body of #670 and re-measured at release
+boundaries. Measured on a quiet Linux x86_64 runner (CPython 3.14.9,
+20 000 calls x 5 repeats, best run):
+
+| case | ns/call | marshalling share |
+| --- | --- | --- |
+| base (no payload) | 26.4 | baseline |
+| int | 28.3 | +2 ns |
+| float | 28.2 | +2 ns |
+| bool | 26.9 | +0 ns |
+| str | 27.8 | +1 ns |
+| bytes | 29.5 | +3 ns |
+| list (4 ints) | 52.0 | +26 ns |
+
+Reading: the scalars cost one to three nanoseconds over the seam itself —
+the copy is not the interesting cost. A list is the first structurally
+bigger case (an element copy per item plus a fresh list object), and it
+is the one to watch when the ABI grows.
+
+The absolute figures are noise-sensitive: on a loaded host the same run
+reports a baseline near 245 ns/call with the same shape (scalars within a
+few nanoseconds of the baseline, the list an order of magnitude above it).
+Compare shapes across hosts, not absolutes; the CI job re-measures on a
+quiet runner and writes its numbers into the job summary.
+
 ## Open questions (deferred to later embed issues)
 
 - Closed capability vocabulary and what each capability obligates the
