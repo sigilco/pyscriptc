@@ -1,14 +1,14 @@
 {
   "schema": "1",
-  "generated": "2026-10-24",
-  "commit": "00523ecd8000d9f141b04cb4e7bc115b8b4994a9",
+  "generated": "2026-11-09",
+  "commit": "c15b2b5910d58982804c4166066651908acffb8b",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 50,
+    "total_fences": 49,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -58,12 +58,6 @@
           "construct": "`p.is_file`",
           "code": "PS2001",
           "diagnostic": "p.is_file is not in the lowered subset of pathlib"
-        },
-        {
-          "module": "random",
-          "construct": "`random.sample`",
-          "code": "PS2001",
-          "diagnostic": "random.sample is not in the lowered subset of random"
         },
         {
           "module": "subprocess",
