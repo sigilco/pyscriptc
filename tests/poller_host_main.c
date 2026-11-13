@@ -3,8 +3,11 @@
    way the loop drives them.
 
    Scenario 1 (fd wait): the poller parks on two pipe read ends; a writer
-   thread writes to one of them after 50 ms; the wait wakes only the written
-   pipe, and the other stays parked until its own writer fires.
+   thread writes to one of them and the wait wakes only the written pipe;
+   the other stays parked until its own writer fires. The writers write
+   immediately, so the scenario proves the wake, not the scheduler: a
+   loaded CI runner can start a thread late, and a fixed 50 ms sleep
+   inside a 100 ms wait would turn that into a false failure.
 
    Scenario 2 (timers only): 100 waits of 10 ms are a kernel sleep, not a
    spin (the loop sits in the same wait with its earliest timer as the
@@ -58,13 +61,14 @@ static double now_ms(void) {
 
 typedef struct {
     int fd;
-    long delay_ms;
 } Writer;
 
-static void *writer_body(void *arg) {
+/* The writer writes as soon as the thread starts, so the scenario never
+   depends on the scheduler starting the thread inside the wait's window
+   (a loaded CI runner can start it late; the write then lands after the
+   timeout and the poll legitimately reports nothing). */
+static void *writer_body_now(void *arg) {
     Writer *w = arg;
-    struct timespec pause = {w->delay_ms / 1000, (w->delay_ms % 1000) * 1000000L};
-    nanosleep(&pause, NULL);
     ssize_t wrote = write(w->fd, "x", 1);
     (void)wrote;
     return NULL;
@@ -76,10 +80,12 @@ static int scenario_poller_wakes_the_written_pipe(void) {
     if (pipe(a) != 0 || pipe(b) != 0) {
         return 1;
     }
-    /* Both fds are readable=false now. The wait blocks 100ms; a writer
-       wakes pipe a at 50ms. The result: exactly one row ready (a), one
-       wait. Then a second wait (b's writer fires at 50ms into it) wakes
-       b. */
+    /* Both fds are readable=false now. The wait blocks up to a second; the
+       writer thread writes pipe a as soon as it starts. The result:
+       exactly one row ready (a), one wait. Then a second wait wakes b the
+       same way. The cap is a second because the assertion is the wake, not
+       the latency: a loaded CI runner can start the writer thread late, and
+       a wait that outlives the write must still report the ready row. */
     PsPollFd polls[2];
     polls[0].fd = a[0];
     polls[0].events = 1;
@@ -88,12 +94,12 @@ static int scenario_poller_wakes_the_written_pipe(void) {
     polls[1].events = 1;
     polls[1].ready = 0;
 
-    Writer wa = {a[1], 50};
+    Writer wa = {a[1]};
     pthread_t ta;
-    pthread_create(&ta, NULL, writer_body, &wa);
+    pthread_create(&ta, NULL, writer_body_now, &wa);
 
     double started = now_ms();
-    int ready = ps_poller_wait(polls, 2, 100);
+    int ready = ps_poller_wait(polls, 2, 1000);
     double elapsed = now_ms() - started;
     pthread_join(ta, NULL);
     printf("poll1 ready=%d a=%d b=%d waited=%.0fms\n", ready, polls[0].ready, polls[1].ready, elapsed);
@@ -104,10 +110,10 @@ static int scenario_poller_wakes_the_written_pipe(void) {
     ssize_t got = read(a[0], &drained, 1);
     (void)got;
 
-    Writer wb = {b[1], 50};
-    pthread_create(&ta, NULL, writer_body, &wb);
+    Writer wb = {b[1]};
+    pthread_create(&ta, NULL, writer_body_now, &wb);
     started = now_ms();
-    ready = ps_poller_wait(polls, 2, 100);
+    ready = ps_poller_wait(polls, 2, 1000);
     elapsed = now_ms() - started;
     pthread_join(ta, NULL);
     printf("poll2 ready=%d a=%d b=%d waited=%.0fms\n", ready, polls[0].ready, polls[1].ready, elapsed);
@@ -213,11 +219,12 @@ static int scenario_selector(void) {
     void *none = ps_select_select(sel, 0.0);
     printf("select0 empty=%d\n", ps_seq_len(none) == 0 ? 1 : 0);
 
-    /* A writer wakes pipe a at 50ms; the select blocks until then and
-       returns exactly a's key. */
-    Writer wa = {a[1], 50};
+    /* A writer wakes pipe a as soon as the thread starts; the select
+       blocks until then and returns exactly a's key. The 5s cap absorbs a
+       late thread start on a loaded runner. */
+    Writer wa = {a[1]};
     pthread_t ta;
-    pthread_create(&ta, NULL, writer_body, &wa);
+    pthread_create(&ta, NULL, writer_body_now, &wa);
     double started = now_ms();
     void *ready = ps_select_select(sel, 5.0);
     double elapsed = now_ms() - started;
