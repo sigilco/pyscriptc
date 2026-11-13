@@ -486,7 +486,7 @@
     },
     {
       "id": "D29",
-      "seam": "socket, ssl, http.client, http.server and selectors do not compile (PS2001)",
+      "seam": "socket, ssl, http.client and http.server do not compile (PS2001)",
       "listed": true,
       "docs": "docs/reference/divergences.md#29",
       "probe": "probes/divergences/d29_socket.py",
@@ -1067,10 +1067,30 @@
     },
     {
       "id": "D63",
-      "seam": "heapq over a list of tuples fences: ordering comparisons on tuple values are not lowered",
+      "seam": "the random subset is a CPython-compatible Mersenne Twister; the Random class and rarer draws are refused",
       "listed": true,
       "docs": "docs/reference/divergences.md#63",
-      "probe": "probes/divergences/d63_heapq_tuple_elements.py",
+      "probe": "probes/divergences/d63_random.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "vonmisesvariate\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d63_random.py:3:7: PS2001: random.vonmisesvariate.__name__ is not in the lowered subset of random\n  print(random.vonmisesvariate.__name__)\n        ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D64",
+      "seam": "heapq over a list of tuples fences: ordering comparisons on tuple values are not lowered",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#64",
+      "probe": "probes/divergences/d64_heapq_tuple_elements.py",
       "cpython": {
         "stage": "run",
         "exit": 0,
@@ -1081,7 +1101,7 @@
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d63_heapq_tuple_elements.py:7:1: PS1003: heapq.heapify takes a list of int, float or str\n  heapq.heapify(xs)\n  ^\n"
+        "stderr": "probes/divergences/d64_heapq_tuple_elements.py:7:1: PS1003: heapq.heapify takes a list of int, float or str\n  heapq.heapify(xs)\n  ^\n"
       },
       "status": "fenced"
     },

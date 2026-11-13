@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-12",
-  "commit": "a9aa16cb29f114005e81c83010c855c79e5cef4d",
+  "generated": "2026-11-13",
+  "commit": "474a7a2acac5b381d4fbd69b83bd5975cb54a4aa",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 66,
+      "yellow": 67,
       "red": 0
     },
     "packages": {
@@ -704,7 +704,7 @@
       "label": "`random`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "sample, gauss, Random, choices(k=)",
+      "missing": "Random, vonmisesvariate, paretovariate, choices(cum_weights=)",
       "codes": [
         "PS2001",
         "PS2003"
@@ -779,6 +779,17 @@
       "count": 1,
       "missing": "TarFile",
       "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`selectors`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "a fileobj argument (the typed socket handle is #229), other selector classes (EpollSelector, PollSelector, KqueueSelector, DevpollSelector, BaseSelector), get_map, the key's fileobj and data (they ride the #229 handle)",
+      "codes": [
+        "PS1003",
+        "PS1106",
         "PS2001"
       ]
     },

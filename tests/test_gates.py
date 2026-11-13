@@ -76,6 +76,7 @@ QUEUE = (
     "binascii",
     "shlex",
     "secrets",
+    "selectors",
 )
 
 

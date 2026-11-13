@@ -89,6 +89,7 @@ QUEUE: tuple[str, ...] = (
     "binascii",
     "shlex",
     "secrets",
+    "selectors",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)

@@ -221,7 +221,7 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D29",
-        "socket, ssl, http.client, http.server and selectors do not compile (PS2001)",
+        "socket, ssl, http.client and http.server do not compile (PS2001)",
         "d29_socket.py",
         docs=f"{DOC}#29",
     ),
@@ -439,9 +439,15 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D63",
-        "heapq over a list of tuples fences: ordering comparisons on tuple values are not lowered",
-        "d63_heapq_tuple_elements.py",
+        "the random subset is a CPython-compatible Mersenne Twister; the Random class and rarer draws are refused",
+        "d63_random.py",
         docs=f"{DOC}#63",
+    ),
+    _row(
+        "D64",
+        "heapq over a list of tuples fences: ordering comparisons on tuple values are not lowered",
+        "d64_heapq_tuple_elements.py",
+        docs=f"{DOC}#64",
     ),
     _row(
         "AUDIT-D1",

@@ -1,7 +1,7 @@
 {
   "schema": "2",
-  "generated": "2026-11-12",
-  "commit": "117763312fed9781acd79b9c862ba86fc2c24c28",
+  "generated": "2026-11-13",
+  "commit": "474a7a2acac5b381d4fbd69b83bd5975cb54a4aa",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -17,8 +17,8 @@
     "measured": 18,
     "packages": 18,
     "runs": 18,
-    "date": "2026-11-12",
-    "commit": "117763312fed9781acd79b9c862ba86fc2c24c28",
+    "date": "2026-11-13",
+    "commit": "474a7a2acac5b381d4fbd69b83bd5975cb54a4aa",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -26,7 +26,7 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 64,
+    "stdlib_partial": 65,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
@@ -1343,7 +1343,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "sample, gauss, Random, choices(k=)"
+        "Random, vonmisesvariate, paretovariate, choices(cum_weights=)"
       ],
       "fences": [
         "PS2001",
@@ -1483,6 +1483,25 @@
         "TarFile"
       ],
       "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.selectors",
+      "kind": "stdlib",
+      "label": "`selectors`",
+      "names": [
+        "selectors"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "a fileobj argument (the typed socket handle is #229), other selector classes (EpollSelector, PollSelector, KqueueSelector, DevpollSelector, BaseSelector), get_map, the key's fileobj and data (they ride the #229 handle)"
+      ],
+      "fences": [
+        "PS1003",
+        "PS1106",
         "PS2001"
       ],
       "note": ""
@@ -2563,7 +2582,16 @@
     },
     {
       "date": "2026-11-12",
-      "commit": "117763312fed9781acd79b9c862ba86fc2c24c28",
+      "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
+    },
+    {
+      "date": "2026-11-13",
+      "commit": "474a7a2acac5b381d4fbd69b83bd5975cb54a4aa",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
