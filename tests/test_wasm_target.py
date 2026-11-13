@@ -1,7 +1,7 @@
 """The wasm32-wasi target: emitter gates, link gates and end-to-end output parity.
 
 The emitter changes are wasm-only (`@__main_argc_argv` entry, i32 `%.*s`
-lengths); an A/B `irscore` run proves non-wasm IR is unchanged. The link gate
+lengths); an A/B `tirscore` run proves non-wasm IR is unchanged. The link gate
 refuses subprocess/mix/island programs with a target-naming diagnostic. The
 end-to-end tests need `zig` and a wasmtime >= 50 binary (env `PYSC_WASMTIME`).
 """

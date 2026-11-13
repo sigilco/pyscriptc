@@ -51,11 +51,17 @@ from pyscriptc._irnode import (
     P_BOOL,
     P_NONE,
 )
-from pyscriptc.canonical import CANONICAL_SCHEMA_VERSION
 
 # The JSON escape primitive is shared with the dict serializer: both byte
 # streams must spell strings identically.
 from pyscriptc.tirserde import write_json_str as _write_str
+
+# The canonical-form version the digests are valid under (the sccache
+# FORMAT_VERSION pattern): a change to the canonicity rules rekeys every
+# digest instead of masquerading as a compiler change. The constant moved
+# here from the retired `canonical.py` (#830, D2): the typed serializer owns
+# the rules now, so it owns their version stamp too.
+CANONICAL_SCHEMA_VERSION = "canonical-schema/2"
 
 # Schema/2: environment-derived absolute paths reaching IR string constants
 # are replaced with this placeholder so the digest cannot depend on the

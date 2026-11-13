@@ -4,7 +4,7 @@
 # family and quantiles over int data, where the subset's exact integer
 # arithmetic matches CPython's exact-rational path value for value.
 #
-# The seams that are recorded in divergence 64 (D64) instead of probed
+# The seams that are recorded in divergence 65 (D65) instead of probed
 # here: mean/median/variance over list[int] return float where CPython
 # returns int (equal value, different repr), stdev/pstdev differ by one
 # ulp from CPython's correctly-rounded integer sqrt, and the float data

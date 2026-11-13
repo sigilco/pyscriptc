@@ -9,9 +9,9 @@ E1 boundary tool. Reads two JSON inputs:
     detector has not landed, these records are synthesized by hand from the
     spec's scan tables; the fixture set under ``tests/fixtures/flipcheck/``
     is such a synthesized example.
-  * achieved flips: parsed irscore output, either the ``--out`` baseline JSON
+  * achieved flips: parsed tirscore output, either the ``--out`` baseline JSON
     or the stdout text with ``ADDED``/``REMOVED``/``CHANGED`` sections
-    (``benchmarks/compat2/irscore.py``). A probe id counts as achieved when it
+    (``benchmarks/compat2/tirscore.py``). A probe id counts as achieved when it
     appears in ADDED or CHANGED. REMOVED is ignored: a probe leaving the set
     is not a flip.
 
@@ -69,7 +69,7 @@ def load_predicted(data: Any) -> list[str]:
 
 
 def load_achieved(data: Any) -> list[str]:
-    """Return probe ids that flipped, from an irscore --out doc or a diff dict."""
+    """Return probe ids that flipped, from a tirscore --out doc or a diff dict."""
     if not isinstance(data, dict):
         raise ValueError("achieved input must be a JSON object")
     if isinstance(data.get("probes"), dict):
@@ -78,7 +78,7 @@ def load_achieved(data: Any) -> list[str]:
 
 
 def load_achieved_text(text: str) -> list[str]:
-    """Parse irscore stdout (ADDED/REMOVED/CHANGED sections) for flipped ids."""
+    """Parse tirscore stdout (ADDED/REMOVED/CHANGED sections) for flipped ids."""
     ids: set[str] = set()
     section = None
     for line in text.splitlines():
@@ -113,10 +113,10 @@ def cross_check(predicted: list[str], achieved: list[str]) -> dict[str, Any]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Cross-check predicted flips (detector records) against achieved flips (irscore output).",
+        description="Cross-check predicted flips (detector records) against achieved flips (tirscore output).",
     )
     parser.add_argument("predicted", help="predicted-flip JSON file (list of detector records)")
-    parser.add_argument("achieved", help="achieved-flip JSON file (irscore --out doc) or stdout text")
+    parser.add_argument("achieved", help="achieved-flip JSON file (tirscore --out doc) or stdout text")
     args = parser.parse_args(argv)
     try:
         predicted_text = Path(args.predicted).read_text(encoding="utf-8")

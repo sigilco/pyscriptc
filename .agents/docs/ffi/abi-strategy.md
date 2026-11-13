@@ -13,7 +13,7 @@ pyscriptc has three distinct compat surfaces, not one:
    the same boundary scriptc calls its runtime ABI.
 2. **IR JSON schema.** `irVersion: 1`, `subset: "gates-v1"`, plus the `cpython`
    stamp (`assert_same_cpython` refuses emission under a different interpreter
-   version). `--emit ir` artifacts and `IR_HASHES.json` live here.
+   version). `--emit ir` artifacts and the IR hash baseline live here.
 3. **External C ABI.** `PYSCRIPTC_MIX_SO` — a frozen two-symbol surface
    (`mix_crc32`, `mix_crc32_n`) dlopened by `ps_mix.c`. This is the only ABI a
    third party could ever build against today.
@@ -68,7 +68,7 @@ Adopt the epoch model, but bump on *contract change*, not on release:
 5. **Do not promise cross-version `.ll` compat.** Saved `--emit llvm`
    artifacts and committed fixtures are same-epoch only; regenerating
    (`packaging/zig/emit.sh`) is the documented answer, same as
-   `IR_HASHES.json` regen. This is scriptc's model: cheap, honest, and the
+   IR hash baseline regen. This is scriptc's model: cheap, honest, and the
    only wrong-use mode (stale artifact) fails loudly at link time instead of
    silently misreading a struct.
 

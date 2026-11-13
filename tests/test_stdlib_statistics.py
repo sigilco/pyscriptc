@@ -1,7 +1,7 @@
 """statistics: the closed subset over `list[int]` and `list[float]`.
 
 The deterministic rows diff against the CPython oracle byte for byte.
-Two seams are recorded in divergence 64 (D64) instead of asserted equal:
+Two seams are recorded in divergence 65 (D65) instead of asserted equal:
 
 - the mean/median/variance family over `list[int]` returns `float` where
   CPython returns `int` (equal value, different repr), and

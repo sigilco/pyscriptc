@@ -19,8 +19,8 @@ from pathlib import Path
 
 from tests.test_gates import oracle, run_cli, write_case
 
-from pyscriptc.canonical import hash_module
 from pyscriptc.lower import lower_source
+from pyscriptc.tirhash import hash_module_node
 from pyscriptc.tirserde import dict_to_node, dict_to_type
 
 
@@ -153,8 +153,9 @@ def probe(xs: list[int]) -> int:
     assert mod["fences"] == []
     assert mod["entry"] == "probe"
     assert "main" not in {fn["name"] for fn in mod["functions"]}
-    # Hash moved with the S1 IR_VERSION 2 stamp (#473); the shape is unchanged.
-    assert hash_module(mod) == "759b9192c117837cdb862e74b63b8920f13cb34a3afac8b9d8c104f97088d7fc"
+    # Hash moved with the S1 IR_VERSION 2 stamp (#473) and again with the
+    # typed hasher (#830, the one canonicity gate); the shape is unchanged.
+    assert hash_module_node(mod) == "dfa4c02a1fa34b5faea407b462ef13ca5ed5ad037de14b3661c1dcb875b7b8fa"
 
 
 def test_append_in_defonly_module_synthesizes_no_fence() -> None:

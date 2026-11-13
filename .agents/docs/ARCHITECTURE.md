@@ -101,7 +101,7 @@ flowchart TB
         LOW[lower/: ast to JSON IR]
         REST[restlower/: stdlib surface]
         CORO[coro.py: generators and async]
-        IR[ir.py / irverify.py / canonical.py]
+        IR[ir.py / irverify.py / tirhash.py]
     end
     subgraph back["Backend: emit and link"]
         EMLL[emit/llvm/: textual LLVM IR]
@@ -161,7 +161,7 @@ flowchart TB
 | lower/ (9 files) | 14388 | ast to JSON IR, subset fences | owned | cli, package.py | all | tests/test_lower*, fences | largest owned surface; tracks CPython grammar | none (CPython ast is the input) |
 | restlower/ (~30 files) | 6470 | per-module stdlib lowering | owned | lower/_stdlib.py | all | tests/test_stdlib_* | grows with stdlib queue | none |
 | coro.py | 2222 | generators and async def to frames | owned | lower/ | all | tests/test_coro_* | closure/frame semantics | none |
-| ir.py, irverify.py, canonical.py | 1066 | JSON IR schema, verify, stable hash | owned | emit/, benchmarks | all | tests/test_canonical, ir-hashes.yml | low | none |
+| ir.py, irverify.py, tirhash.py | 1066 | JSON IR schema, verify, stable hash | owned | emit/, benchmarks | all | tests/test_tirhash, tir-hashes.yml | low | none |
 | emit/llvm/ (11 files) | 4391 | textual LLVM IR emission | owned | _driver.py | all | tests/test_emitter_goldens.py golden corpus | ABI and LLVM text drift | none (LLVM is the target) |
 | emit/llvm/_driver.py | 521 | compile and link via clang or zig cc | delegated to clang/zig | cli | linux, macOS, Windows, wasi | tests/test_ffi_link, zig smoke | toolchain discovery | n/a |
 | emitlib.py | 311 | static-library build | owned, shells to cc | cli | all | tests/test_emitlib* | low | n/a |

@@ -43,8 +43,8 @@ def _module_hashes(src: Path) -> dict[str, str]:
     location independent.
     """
 
-    from pyscriptc.canonical import hash_module
     from pyscriptc.lower import lower_file
+    from pyscriptc.tirhash import hash_module_node
 
     units, skipped = _discover(src)
     hashes: dict[str, str] = {}
@@ -55,7 +55,7 @@ def _module_hashes(src: Path) -> dict[str, str]:
             module, _ = lower_file(str(copy))
             module.pop("_notes", None)
             label = path.relative_to(src).as_posix()
-            hashes[label] = hash_module(module)
+            hashes[label] = hash_module_node(module)
     if skipped:
         print(f"skipped {skipped} module(s) the discovery refuses", file=sys.stderr)
     return hashes

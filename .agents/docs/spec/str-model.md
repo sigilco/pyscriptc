@@ -93,9 +93,9 @@ The IR needs no new node kind: `const` already carries the source text of a stri
 - The `subset` stamp stays `gates-v1`. The gate set does not change: the same programs lower before and after. The invariants rule about the subset string is about the language surface, and S1 does not touch it.
 - The five `"irVersion": 1` literal sites (`lower/__init__.py`, `package.py`) move to the shared constant in the same commit, so the stamp has one definition.
 
-Frozen gates: the payload change moves `benchmarks/compat2/probes/IR_HASHES.json` (every module's canonical form changes). The gate-change decision is recorded in `.agents/decisions.md` (the 2026-10-24 S1 gate-change row). The regeneration runs on Linux only, through the `ir-hashes` workflow's A/B byte-identical discipline, never by hand on macOS. `outcomes.py`, the `score.py` weights, `coverage_map.py` and `cache.py` do not change.
+Frozen gates: the payload change moves the IR hash baseline (every module's canonical form changes). The gate-change decision is recorded in `.agents/decisions.md` (the 2026-10-24 S1 gate-change row). The regeneration runs on Linux only, through the hash workflow's A/B byte-identical discipline, never by hand on macOS. (The baseline was then `probes/IR_HASHES.json`, driven by `irscore`; both are retired since #830 and `probes/TIR_HASHES.json`, driven by `tirscore`, is the one gate.) `outcomes.py`, the `score.py` weights, `coverage_map.py` and `cache.py` do not change.
 
-TODO (this PR, before merge): regenerate `IR_HASHES.json` through the `ir-hashes` workflow (`workflow_dispatch` on this branch), verify the A/B run is byte-identical (`cmp`), and copy the artifact into `benchmarks/compat2/probes/`. The baseline header also stamps the compiler ABI through the lowered modules, so it must land in the same PR as the `IR_VERSION` bump, and CI's irscore check stays red until it does.
+TODO (this PR, before merge): regenerate the hash baseline through the `tir-hashes` workflow (`workflow_dispatch` on this branch), verify the A/B run is byte-identical (`cmp`), and copy the artifact into `benchmarks/compat2/probes/`. The baseline header also stamps the compiler ABI through the lowered modules, so it must land in the same PR as the `IR_VERSION` bump, and the hash gate check stays red until it does.
 
 ## What does not change in S1
 
