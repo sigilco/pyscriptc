@@ -1086,6 +1086,26 @@
       "status": "fenced"
     },
     {
+      "id": "D64",
+      "seam": "the statistics subset runs double arithmetic for the float-valued seams: stdev/pstdev differ by one ulp from CPython's exact-rational sqrt, and the mean/median/variance family over list[int] returns float where CPython returns int (equal value, different repr)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#64",
+      "probe": "probes/divergences/d64_statistics.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "3\n2.8\n1.7\n1.3038404810405297\n1.1661903789690602\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "3.0\n2.8\n1.7\n1.3038404810405297\n1.1661903789690602\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

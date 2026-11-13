@@ -109,23 +109,36 @@ def _quantiles_keywords(lo: Any, node: ast.Call) -> None:
             lo._reject_keywords(node)
 
 
+def _copy_into(
+    lo: Any, node: ast.Call, span: dict[str, Any], name: str, arg: dict[str, Any], kind: str
+) -> None:
+    """`name = list(arg)` through the normal call path: a real copy, not an
+    alias, so later mutation of `name` leaves the caller's list alone. The
+    argument is pinned to a temp first because a const literal has no `id`."""
+
+    src = _tname(lo, "src")
+    lo.locals[src] = _t_list(_t_leaf(kind))
+    lo.prelude.append(_asg(src, arg, span))
+    _emit(lo, node, [f"{name} = list({src})"], span)
+
+
 def _sorted_copy(
     lo: Any, node: ast.Call, span: dict[str, Any], arg: dict[str, Any], kind: str, hint: str
 ) -> tuple[dict[str, Any], dict[str, Any]]:
-    """Pin the data into a fresh local and insertion-sort it (the sorted
-    key= lowering's sort); the caller's list is left unmodified like every
-    CPython statistics function."""
+    """Pin the data into a fresh local copy and insertion-sort it; the
+    caller's list is left unmodified like every CPython statistics function."""
 
     name = _tname(lo, hint)
     lo.locals[name] = _t_list(_t_leaf(kind))
-    lo.prelude.append(_asg(name, arg, span))
+    _copy_into(lo, node, span, name, arg, kind)
     seq = _nm(name, _t_list(_t_leaf(kind)), span)
     n = _tname(lo, "n")
     i = _tname(lo, "i")
     j = _tname(lo, "j")
     v = _tname(lo, "v")
-    for t in (n, i, j, v):
+    for t in (n, i, j):
         lo.locals[t] = _t_leaf("int")
+    lo.locals[v] = _t_leaf(kind)
     _emit(
         lo,
         node,
@@ -153,7 +166,7 @@ def _meanish(
 
     seq, n = _sorted_copy(lo, node, span, arg, kind, _SORTED_HINT[attr])
     total = _tname(lo, "t")
-    lo.locals[total] = _t_leaf(kind)
+    lo.locals[total] = _t_leaf("float")
     i = _tname(lo, "i")
     lo.locals[i] = _t_leaf("int")
     result = _tname(lo, "r")
@@ -162,7 +175,7 @@ def _meanish(
         lo,
         node,
         [
-            f"{total} = 0",
+            f"{total} = 0.0",
             f"{i} = 0",
             f"while {i} < {n['id']}:",
             f"    {total} = {total} + {seq['id']}[{i}]",
@@ -181,7 +194,11 @@ def _median(
     half = _tname(lo, "h")
     lo.locals[half] = _t_leaf("int")
     result = _tname(lo, "r")
-    lo.locals[result] = _t_leaf(kind)
+    # `median` over int data is typed float: the even-length branch is a
+    # float divide, and one static return type covers both branches. The
+    # odd-length repr seam (3 vs 3.0) is part of D55; median_low/high keep
+    # the element type, matching CPython exactly.
+    lo.locals[result] = _t_leaf("float" if attr == "median" else kind)
     if attr == "median_low":
         lines = [f"{result} = {seq['id']}[({n['id']} - 1) // 2]"]
     elif attr == "median_high":
@@ -190,17 +207,21 @@ def _median(
         lines = [
             f"{half} = {n['id']} // 2",
             f"if {n['id']} % 2 == 1:",
-            f"    {result} = {seq['id']}[{half}]",
+            f"    {result} = {seq['id']}[{half}] * 1.0",
             "else:",
             f"    {result} = ({seq['id']}[{half} - 1] + {seq['id']}[{half}]) / 2",
         ]
     _emit(lo, node, lines, span)
-    return _nm(result, _t_leaf(kind), span)
+    return _nm(result, lo.locals[result], span)
 
 
 def _mode(
     lo: Any, node: ast.Call, span: dict[str, Any], arg: dict[str, Any], attr: str, kind: str
 ) -> dict[str, Any]:
+    name = _tname(lo, "md")
+    lo.locals[name] = _t_list(_t_leaf(kind))
+    _copy_into(lo, node, span, name, arg, kind)
+    seq = _nm(name, _t_list(_t_leaf(kind)), span)
     counts = _tname(lo, "c")
     lo.locals[counts] = {"kind": "dict", "key": _t_leaf("int"), "value": _t_leaf("int")}
     best = _tname(lo, "b")
@@ -209,25 +230,32 @@ def _mode(
     lo.locals[seen] = _t_leaf("int")
     x = _tname(lo, "x")
     lo.locals[x] = _t_leaf("int")
+    k = _tname(lo, "k")
+    lo.locals[k] = _t_leaf("int")
     _emit(
         lo,
         node,
         [
             f"{counts} = {{}}",
-            f"{best} = 0",
-            f"{seen} = -1",
-            f"for {x} in {arg['id']}:",
+            f"for {x} in {seq['id']}:",
             f"    if {x} in {counts}:",
             f"        {counts}[{x}] = {counts}[{x}] + 1",
             "    else:",
             f"        {counts}[{x}] = 1",
-            f"    if {counts}[{x}] > {seen}:",
-            f"        {seen} = {counts}[{x}]",
-            f"        {best} = {x}",
+            # Second pass over the insertion-ordered dict: strict > keeps
+            # the first key that reached the top count, CPython's tie rule.
+            f"{best} = 0",
+            f"{seen} = -1",
+            f"for {k} in {counts}:",
+            f"    if {counts}[{k}] > {seen}:",
+            f"        {seen} = {counts}[{k}]",
+            f"        {best} = {k}",
         ],
         span,
     )
     return _nm(best, _t_leaf("int"), span)
+
+
 
 
 def _varianceish(
@@ -263,7 +291,7 @@ def _varianceish(
         ],
         span,
     )
-    if attr == "pvariance":
+    if attr in {"pvariance", "pstdev"}:
         lines = [
             f"{num} = {n['id']} * {sst} - {total} * {total}",
             f"{den} = {n['id']} * {n['id']}",
@@ -271,7 +299,7 @@ def _varianceish(
     else:
         lines = [
             f"if {n['id']} < 2:",
-            "    raise ValueError('variance requires at least two data points')",
+            f"    raise ValueError('{attr} requires at least two data points')",
             f"{num} = {n['id']} * {sst} - {total} * {total}",
             f"{den} = {n['id']} * ({n['id']} - 1)",
         ]
