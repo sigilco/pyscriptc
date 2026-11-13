@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-12",
-  "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+  "generated": "2026-11-13",
+  "commit": "d2a6ce20b40819ee8e544c33665f7875870415b5",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -703,9 +703,10 @@
       "label": "`csv`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "DictReader, writer on a non-file",
+      "missing": "restkey, restval, Sniffer, Sniffer, Dialect",
       "codes": [
-        "PS2001"
+        "PS2001",
+        "PS2003"
       ]
     },
     {
