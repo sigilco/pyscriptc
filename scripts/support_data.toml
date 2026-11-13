@@ -170,8 +170,8 @@ probes = [
 
 [[stdlib]]
 names = ["math"]
-ok = ['y: float = math.sqrt(x)', 'y: float = math.atan2(x, x)', 'y: int = math.gcd(n, n)', 'y: bool = math.isclose(x, x)', 'y: float = math.pi', 'y: bool = math.isfinite(x)', 'y: int = math.floor(x)']
-no = [["asin, sinh, degrees, fsum, factorial, comb, isqrt, copysign, fmod, cbrt", 'y: float = math.asin(x)', "PS2001"], ["log with a base", 'y: float = math.log(x, 2.0)', "PS2003"]]
+ok = ['y: float = math.sqrt(x)', 'y: float = math.atan2(x, x)', 'y: int = math.gcd(n, n)', 'y: int = math.factorial(n)', 'y: int = math.lcm(n, n)', 'y: float = math.asin(x)', 'y: float = math.sinh(x)', 'y: float = math.asinh(x)', 'y: float = math.acosh(x)', 'y: float = math.atanh(x)', 'y: float = math.degrees(x)', 'y: float = math.radians(x)', 'y: float = math.fmod(x, x)', 'y: bool = math.isclose(x, x)', 'y: float = math.pi', 'y: bool = math.isfinite(x)', 'y: int = math.floor(x)']
+no = [["fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma", 'y: float = math.fsum(xs)', "PS2001"], ["log with a base", 'y: float = math.log(x, 2.0)', "PS2003"]]
 
 [[stdlib]]
 names = ["re"]
@@ -284,8 +284,8 @@ no = [["blake2, sha3, sha224, new, pbkdf2_hmac", 'y: str = hashlib.blake2b(b).he
 
 [[stdlib]]
 names = ["struct"]
-ok = ['y: bytes = struct.pack("<I", n)', 'y: list[int] = struct.unpack("<I", b)']
-no = [["calcsize, unpack_from", 'y: int = struct.calcsize("<I")', "PS2001"], ["non-literal format", 'y: bytes = struct.pack(s, n)', "PS2001"]]
+ok = ['y: bytes = struct.pack("<I", n)', 'y: list[int] = struct.unpack("<I", b)', 'y: int = struct.calcsize("<I")', 'y: list[int] = struct.unpack_from("<I", b, 0)']
+no = [["non-literal format", 'y: bytes = struct.pack(s, n)', "PS2001"], ["native-alignment format (no byte-order prefix)", 'y: int = struct.calcsize("I")', "PS2001"], ["pack_into, iter_unpack, Struct", 'y: int = struct.Struct("<I").size', "PS2001"]]
 
 [[stdlib]]
 names = ["datetime"]
@@ -496,6 +496,26 @@ ok = ['y: str = tempfile.gettempdir()', 'y: str = tempfile.mkdtemp()', 'with tem
 no = [["TemporaryDirectory, mkstemp with suffix/prefix/dir/text", 'y: str = tempfile.mkstemp(suffix=".txt")', "PS2003"]]
 
 [[stdlib]]
+names = ["uuid"]
+ok = ["y: str = uuid.uuid4()", "y: str = uuid.uuid1()", "y: str = uuid.uuid5(uuid.UUID('36dd619a-56dc-595b-9e09-37f4152c7b5d'), 'video')", "y: str = uuid.UUID('36dd619a-56dc-595b-9e09-37f4152c7b5d')", "y: str = uuid.uuid4().hex"]
+no = [[".int, .urn, .bytes and other names", "y: str = uuid.uuid4().int", "PS2001"], ["names outside the subset", "y: str = uuid.getnode()", "PS2001"]]
+
+[[stdlib]]
+names = ["binascii"]
+ok = ["y: bytes = binascii.unhexlify('deadbeef')", "y: bytes = binascii.hexlify(b)"]
+no = [["hexlify of str", "y: bytes = binascii.hexlify(s)", "PS1003"], ["names outside the subset", "y: bytes = binascii.a2b_base64(b)", "PS2001"]]
+
+[[stdlib]]
+names = ["shlex"]
+ok = ["y: list[str] = shlex.split(s)", "y: list[str] = shlex.split(s, comments=True)", "y: str = shlex.quote(s)", "y: str = shlex.join(ss)"]
+no = [["comments as a variable", "y: list[str] = shlex.split(s, comments=t)", "PS1003"], ["the shlex class and modes", "shlex.shlex(s)", "PS2001"]]
+
+[[stdlib]]
+names = ["secrets"]
+ok = ["y: str = secrets.token_hex(8)", "y: bytes = secrets.token_bytes(8)", "y: int = secrets.randbelow(100)"]
+no = [["the count as a variable", "y: str = secrets.token_hex(n)", "PS1003"], ["names outside the subset", "y: str = secrets.token_urlsafe(8)", "PS2001"]]
+
+[[stdlib]]
 names = ["atexit"]
 ok = ['pass']
 no = [["register of a function with arguments, unregister", 'atexit.unregister(n)', "PS2001"]]
@@ -533,8 +553,8 @@ y: int = 1''', "PS1201"]]
 
 [[stdlib]]
 names = ["random"]
-ok = ['y: float = random.random()', 'y: int = random.randint(1, 2)', 'random.seed(1)', 'random.shuffle(xs)', 'y: int = random.choice(xs)', 'y: float = random.uniform(1.0, 2.0)']
-no = [["sample, gauss, Random", 'y: int = random.gauss(0.0, 1.0)', "PS2001"], ["choices(k=)", 'y: int = random.choices(xs, k=2)', "PS2003"]]
+ok = ['y: float = random.random()', 'y: int = random.randint(1, 2)', 'random.seed(1)', 'random.shuffle(xs)', 'y: int = random.choice(xs)', 'y: float = random.uniform(1.0, 2.0)', 'z: list[int] = random.choices(xs, k=2)', 'z: list[int] = random.sample(xs, 1)', 'y: float = random.gauss(0.0, 1.0)', 'y: float = random.triangular(0.0, 1.0)', 'y: bytes = random.randbytes(4)']
+no = [["Random, vonmisesvariate, paretovariate", 'y: float = random.vonmisesvariate(1.0, 2.0)', "PS2001"], ["choices(cum_weights=)", 'z: list[int] = random.choices(xs, cum_weights=[1, 2])', "PS2003"]]
 
 [[stdlib]]
 names = ["csv"]
@@ -577,6 +597,30 @@ no = [["ZipFile", 'y: int = zipfile.ZipFile(s)', "PS2001"]]
 names = ["tarfile"]
 ok = ['y: bool = tarfile.is_tarfile(s)']
 no = [["TarFile", 'y: int = tarfile.TarFile(s)', "PS2001"]]
+
+[[stdlib]]
+names = ["selectors"]
+ok = [
+  '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+key: selectors.SelectorKey = sel.register(n, selectors.EVENT_READ)
+changed: selectors.SelectorKey = sel.modify(n, selectors.EVENT_READ | selectors.EVENT_WRITE)
+out: selectors.SelectorKey = sel.unregister(n)
+y: list[selectors.SelectorKey] = sel.select(0.0)
+found: selectors.SelectorKey | None = sel.get_key(n)
+sel.close()''',
+  'y: int = selectors.EVENT_READ',
+  'y: int = selectors.EVENT_WRITE',
+]
+no = [
+  ["a fileobj argument (the typed socket handle is #229)", '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+sel.register(p, selectors.EVENT_READ)''', "PS1003"],
+  ["other selector classes (EpollSelector, PollSelector, KqueueSelector, DevpollSelector, BaseSelector)", 'q: selectors.EpollSelector = selectors.EpollSelector()', "PS1106"],
+  ["get_map", '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+y: dict[str, selectors.SelectorKey] = sel.get_map()''', "PS2001"],
+  ["the key's fileobj and data (they ride the #229 handle)", '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+key: selectors.SelectorKey = sel.register(n, selectors.EVENT_READ)
+y: str = key.fileobj''', "PS2001"],
+]
 
 [[stdlib]]
 names = ["typing", "typing_extensions"]

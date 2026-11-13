@@ -54,8 +54,10 @@ def test_reads_via_class_instance_self_and_inheritance() -> None:
     assert module["fences"] == []
 
 
-def test_non_constant_values_keep_the_ps1204_fence() -> None:
-    for stmt in ("x = [1]", "x = {}", "x = (1, 2)", "x = print", "x = y = 3"):
+def test_values_with_no_slot_form_keep_the_ps1204_fence() -> None:
+    # A tuple and a multi-target assign have no runtime slot form, so they
+    # keep the fence and the class routes to the island.
+    for stmt in ("x = (1, 2)", "x = y = 3"):
         fences = _fences(f"class C:\n    {stmt}\n")
         assert any(fence["code"] == "PS1204" for fence in fences), (stmt, fences)
 
@@ -127,6 +129,38 @@ def probe() -> int:
 """
 
 
+_RUNTIME_PROBE = """
+def make(n: int) -> list[int]:
+    return [i * n for i in range(3)]
+
+
+class Base:
+    SHARED = [1, 2]
+    KIND = "base"
+
+
+class C(Base):
+    a = make(2)
+    b = [x + 1 for x in make(1)]
+    c: list[str] = ["p", "q"]
+    d = Base.SHARED
+    e = len(Base.SHARED)
+
+    def total(self) -> int:
+        return len(self.a) + self.e + len(C.c)
+
+
+def probe() -> int:
+    print(C.a, C.b, C.c, C.d, C.e)
+    print(C().a, C().d, C().total())
+    print(Base.SHARED, Base.KIND)
+    seen = C.a
+    seen.append(99)
+    print(C.a)
+    return 0
+"""
+
+
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
 def test_class_constants_match_cpython(tmp_path: Path) -> None:
     path = write_case(tmp_path, "class_constants.py", _PROBE)
@@ -136,10 +170,65 @@ def test_class_constants_match_cpython(tmp_path: Path) -> None:
 
 
 def test_non_constant_class_body_still_fences_the_compile(tmp_path: Path) -> None:
-    path = write_case(tmp_path, "fenced.py", "class C:\n    x = [1]\n")
+    path = write_case(tmp_path, "fenced.py", "class C:\n    x = (1, 2)\n")
     got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "fenced.ll"))
     assert got.returncode == 3, got.stdout + got.stderr
     assert "PS1204" in got.stderr
+
+
+def test_a_call_value_lowers_as_a_runtime_class_attribute() -> None:
+    module = lower_source(
+        "def f() -> int:\n    return 7\n\n\nclass C:\n    a = f()\n\n\ndef probe() -> int:\n    return C.a\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+    assert "__clsattr_C" in {record["name"] for record in module["functions"]}, [f["name"] for f in module["functions"]]
+
+
+def test_runtime_attribute_reads_through_class_instance_and_self() -> None:
+    module = lower_source(
+        "def f() -> int:\n"
+        "    return 7\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    a = f()\n"
+        "\n"
+        "    def total(self) -> int:\n"
+        "        return self.a + C.a\n"
+        "\n"
+        "\n"
+        "def probe() -> int:\n"
+        "    return C().total()\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+
+
+def test_a_comprehension_value_lowers() -> None:
+    module = lower_source(
+        "class C:\n    a = [i * 2 for i in range(3)]\n\n\ndef probe() -> int:\n    return len(C.a)\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+
+
+def test_a_slot_storing_type_is_required() -> None:
+    # A tuple has no slot form: the fence names the class body statement.
+    module = lower_source("class C:\n    a = (1, 2)\n", "case.py")
+    assert any(fence["code"] == "PS1204" for fence in module["fences"]), module["fences"]
+
+
+def test_an_annotated_runtime_attribute_checks_its_annotation() -> None:
+    module = lower_source("class C:\n    a: int = (1, 2)\n", "case.py")
+    assert any(fence["code"] == "PS1003" for fence in module["fences"]), module["fences"]
+
+
+def test_the_initializer_runs_before_the_first_read(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "init_order.py", _RUNTIME_PROBE)
+    got = compile_run(tmp_path, path, "probe")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "probe")
 
 
 def test_a_user_class_decorator_is_erased() -> None:

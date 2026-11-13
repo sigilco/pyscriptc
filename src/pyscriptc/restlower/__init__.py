@@ -26,6 +26,7 @@ from pyscriptc.restlower._asyncio_sync import (
     _prim_call,
     _to_thread,
 )
+from pyscriptc.restlower._binascii import _binascii_call
 from pyscriptc.restlower._builtins import (
     _abs,
     _base_repr,
@@ -70,6 +71,9 @@ from pyscriptc.restlower._ospath import _os_open, _os_read, _relpath, _walk
 from pyscriptc.restlower._pathlib import _buffer, _one
 from pyscriptc.restlower._queue import _queue_call, _queue_method
 from pyscriptc.restlower._random import _random_call
+from pyscriptc.restlower._secrets import _secrets_call
+from pyscriptc.restlower._selectors import _selector_method, _selectors_call
+from pyscriptc.restlower._shlex import _shlex_call
 from pyscriptc.restlower._subprocess import _call as _sub_call
 from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
 from pyscriptc.restlower._subprocess import _run as _sub_run
@@ -87,6 +91,7 @@ from pyscriptc.restlower._threading import _lock_method, _thread_method, _thread
 from pyscriptc.restlower._time import _clock, _sleep, _strftime
 from pyscriptc.restlower._tomllib import _tomllib_call
 from pyscriptc.restlower._urllib import _urllib_request_call
+from pyscriptc.restlower._uuid import _uuid_call, _uuid_construct
 from pyscriptc.restlower._yaml import _yaml_call
 from pyscriptc.sigrec import Sig, sig_for, type_to_dict
 from pyscriptc.stdmore import (
@@ -105,6 +110,7 @@ __all__ = [
     "_lock_method",
     "_mk_iter",
     "_queue_method",
+    "_selector_method",
     "_thread_method",
     "_static_builtin_fold",
     "alias_name",
@@ -163,6 +169,12 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("asyncio", "Event"): _prim_call,
     ("asyncio", "Semaphore"): _prim_call,
     ("asyncio", "Queue"): _prim_call,
+    ("secrets", "token_hex"): lambda lo, node, span, expect, attr: _secrets_call(lo, node, span, attr),
+    ("secrets", "token_bytes"): lambda lo, node, span, expect, attr: _secrets_call(lo, node, span, attr),
+    ("secrets", "randbelow"): lambda lo, node, span, expect, attr: _secrets_call(lo, node, span, attr),
+    ("shlex", "split"): lambda lo, node, span, expect, attr: _shlex_call(lo, node, span, attr),
+    ("shlex", "quote"): lambda lo, node, span, expect, attr: _shlex_call(lo, node, span, attr),
+    ("shlex", "join"): lambda lo, node, span, expect, attr: _shlex_call(lo, node, span, attr),
 }
 
 # Whole-module handlers, consulted before `fixed_spec`.
@@ -170,6 +182,7 @@ _MODULES_BEFORE_SPEC: dict[str, Handler] = {
     "itertools": lambda lo, node, span, expect, attr: _itertools(lo, node, span, attr),
     "threading": lambda lo, node, span, expect, attr: _threading_call(lo, node, span, attr),
     "queue": lambda lo, node, span, expect, attr: _queue_call(lo, node, span, expect, attr),
+    "selectors": lambda lo, node, span, expect, attr: _selectors_call(lo, node, span, expect, attr),
 }
 
 # Whole-module handlers, consulted after `fixed_spec`.
@@ -235,6 +248,12 @@ _AFTER_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("unicodedata", "name"): lambda lo, node, span, expect, attr: _unicode_name(lo, node, span),
     ("importlib.resources", "files"): lambda lo, node, span, expect, attr: _resource_files(lo, node, span),
     ("atexit", "register"): lambda lo, node, span, expect, attr: _atexit_register(lo, node, span),
+    ("uuid", "uuid1"): lambda lo, node, span, expect, attr: _uuid_call(lo, node, span, attr),
+    ("uuid", "uuid4"): lambda lo, node, span, expect, attr: _uuid_call(lo, node, span, attr),
+    ("uuid", "uuid5"): lambda lo, node, span, expect, attr: _uuid_call(lo, node, span, attr),
+    ("uuid", "UUID"): lambda lo, node, span, expect, attr: _uuid_construct(lo, node, span),
+    ("binascii", "unhexlify"): lambda lo, node, span, expect, attr: _binascii_call(lo, node, span, attr),
+    ("binascii", "hexlify"): lambda lo, node, span, expect, attr: _binascii_call(lo, node, span, attr),
 }
 
 
