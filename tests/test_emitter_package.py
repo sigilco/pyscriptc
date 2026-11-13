@@ -517,6 +517,7 @@ def test_every_emitter_area_lives_in_its_own_module() -> None:
         "_driver.py",
         "_exprs.py",
         "_funcs.py",
+        "_ndarray.py",
         "_print.py",
         "_runtime.py",
         "_stdlib.py",

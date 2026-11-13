@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-12",
-  "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+  "generated": "2026-11-13",
+  "commit": "f9ad23501b166f9e0eef7b13a1dfa6090c83ffba",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 66,
+      "yellow": 68,
       "red": 0
     },
     "packages": {
@@ -260,6 +260,16 @@
       "status": "\ud83d\udfe1",
       "count": 1,
       "missing": "default callable, other OPT_ flags, other orjson members (Fragment, JSONDecodeError)",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`pyscriptc_ndarray`, `numpy`",
+      "status": "\ud83d\udfe1",
+      "count": 2,
+      "missing": "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step",
       "codes": [
         "PS2001",
         "PS2003"
