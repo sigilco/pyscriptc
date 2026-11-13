@@ -1,0 +1,16 @@
+# Pinned nanoarrow bundle (issue #1209). The two vendored files are generated
+# from this release tarball by nanoarrow's own `ci/scripts/bundle.py` with
+# `--symbol-namespace=PsArrow`; the command is in fetch_vendor.py. The
+# 155 KB nanoarrow.c is not committed: fetch_vendor.py regenerates it,
+# checks every hash below and writes vendor/nanoarrow.c and
+# vendor/nanoarrow/nanoarrow.h (both gitignored).
+name = "nanoarrow"
+version = "0.9.0"
+license = "Apache-2.0"
+url = "https://github.com/apache/arrow-nanoarrow/releases/download/apache-arrow-nanoarrow-0.9.0/apache-arrow-nanoarrow-0.9.0.tar.gz"
+tar_sha256 = "801200a0e95e869d5c4bdeb5b535dba58551482bb782b7dc8bd599c8b6e8cacf"
+bundle_namespace = "PsArrow"
+bundle_flags = "--with-ipc"
+# Generated (bundle.py is deterministic: two runs are byte-identical).
+nanoarrow.c_sha256 = "71df0f041932023f666fceae9a9e087bc26263b1058e69be5dd7ca656e08f04a"
+nanoarrow.h_sha256 = "cba635cebff437b3d0e8550122877b188153b8bb88dac398c8d40469970e8e65"

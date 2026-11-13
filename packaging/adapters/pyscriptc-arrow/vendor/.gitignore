@@ -1,0 +1,4 @@
+nanoarrow.c
+nanoarrow_ipc.c
+nanoarrow/nanoarrow.h
+nanoarrow/nanoarrow_ipc.h
