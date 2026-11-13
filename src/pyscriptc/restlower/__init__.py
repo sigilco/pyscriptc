@@ -44,6 +44,7 @@ from pyscriptc.restlower._builtins import (
 from pyscriptc.restlower._collections import _counter, _defaultdict, _deque, _ordered
 from pyscriptc.restlower._copy import _copy_call
 from pyscriptc.restlower._csv import _csv_call
+from pyscriptc.restlower._statistics import _statistics_call
 from pyscriptc.restlower._ctypes import _sizeof
 from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
@@ -189,6 +190,7 @@ _MODULES_BEFORE_SPEC: dict[str, Handler] = {
 _MODULES_AFTER_SPEC: dict[str, Handler] = {
     "random": lambda lo, node, span, expect, attr: _random_call(lo, node, span, attr),
     "csv": lambda lo, node, span, expect, attr: _csv_call(lo, node, span, attr),
+    "statistics": lambda lo, node, span, expect, attr: _statistics_call(lo, node, span, attr),
     "textwrap": lambda lo, node, span, expect, attr: _textwrap_call(lo, node, span, attr),
     "copy": lambda lo, node, span, expect, attr: _copy_call(lo, node, span, attr),
     "tomllib": lambda lo, node, span, expect, attr: _tomllib_call(lo, node, span, expect, attr),
