@@ -129,6 +129,133 @@
 .compare-card--accent {
   border-color: var(--color-accent-border);
 }
+/* The tanstack-style one-liner: "choose X when ...", quiet by design. */
+.compare-card .choose-when {
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.6rem;
+}
+
+/* Highlights strip: the scannable proof points above the fold. */
+
+.highlights {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.highlight {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1rem 1.15rem;
+}
+.highlight-value {
+  font-family: var(--font-mono);
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+.highlight:first-child .highlight-value {
+  color: var(--color-accent);
+}
+.highlight-label {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.highlight-note {
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.highlights-note {
+  margin-bottom: 2.5rem;
+}
+
+/* ROI block: one clean visual, three values, not a dense table. */
+
+.roi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+.roi {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1.1rem 1.2rem;
+}
+.roi-value {
+  font-family: var(--font-mono);
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--color-text-primary);
+}
+.roi--accent {
+  border-color: var(--color-accent-border);
+}
+.roi--accent .roi-value {
+  color: var(--color-accent);
+}
+.roi-label {
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.roi-note {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+/* Deploy story: the two-line terminal block, mono, quiet chrome. */
+
+.deploy-code {
+  margin: 0 0 0.85rem;
+  padding: 0.9rem 1.1rem;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow-x: auto;
+}
+.deploy-code code {
+  display: block;
+  background: none;
+  padding: 0;
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: var(--color-text-primary);
+  white-space: pre;
+}
+
+/* Decision table: yes / no / partial marks, data not decoration. */
+
+.decision-table td {
+  min-width: 0;
+  white-space: nowrap;
+}
+.mark {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+.mark-yes {
+  color: var(--color-status-full);
+}
+.mark-no {
+  color: var(--color-status-none);
+}
+.mark-partial {
+  color: var(--color-status-partial);
+}
 
 /* Tables */
 
@@ -207,6 +334,31 @@
   .compare-card {
     padding: 1.1rem 1.15rem;
   }
+  /* Highlights drop to two columns, then the ROI tiles to one; the value
+     stays readable without horizontal scroll anywhere on the page. */
+  .highlights {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+  .highlight-value {
+    font-size: 1.35rem;
+  }
+  .highlight {
+    padding: 0.85rem 0.95rem;
+  }
+  .roi-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .roi-value {
+    font-size: 1.8rem;
+  }
+  /* The two commands wrap on their spaces at phone width instead of
+     scrolling the block sideways. */
+  .deploy-code code {
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+  }
   /* The table keeps its columns and scrolls sideways inside its own box;
      the page itself never scrolls horizontally. */
   .compare-table {
@@ -217,3 +369,4 @@
     padding: 0.5rem 0.7rem;
   }
 }
+
