@@ -1,12 +1,12 @@
 {
   "schema": "2",
-  "generated": "2026-11-12",
-  "commit": "238edd9e75821f9bbb49fe3db0f10cd5c261df57",
+  "generated": "2026-11-13",
+  "commit": "f4f66576c98386b3a746fec04c8e5577184a7f7e",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
     "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
-    "score": "nightly/visible-score.json"
+    "score": ""
   },
   "channel": {
     "released": "0.10.0b1",
@@ -17,8 +17,8 @@
     "measured": 18,
     "packages": 18,
     "runs": 18,
-    "date": "2026-11-12",
-    "commit": "238edd9e75821f9bbb49fe3db0f10cd5c261df57",
+    "date": "2026-11-13",
+    "commit": "f4f66576c98386b3a746fec04c8e5577184a7f7e",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -26,12 +26,12 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 64,
+    "stdlib_partial": 65,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
     "packages_none": 8,
-    "weighted_pass": 995.3,
+    "weighted_pass": 0.0,
     "fences": 2585
   },
   "builtins": [
@@ -1086,6 +1086,25 @@
       ],
       "fences": [
         "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.statistics",
+      "kind": "stdlib",
+      "label": "`statistics`",
+      "names": [
+        "statistics"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "multimode, median_grouped, correlation, linear_regression, mode over float data, quantiles n= outside 2, 4, 8"
+      ],
+      "fences": [
+        "PS1003",
+        "PS2001",
+        "PS2003"
       ],
       "note": ""
     },
@@ -2275,89 +2294,7 @@
       "pypi": "https://pypi.org/project/zipp/"
     }
   ],
-  "language": [
-    {
-      "id": "lang",
-      "label": "language",
-      "probes": 440,
-      "outcomes": {
-        "fence": 108,
-        "pass": 332
-      },
-      "weighted_pass": 332.0,
-      "fence_codes": {
-        "PS2002": 60,
-        "PS1001": 16,
-        "PS2003": 11,
-        "PS1004": 10,
-        "PS2001": 6,
-        "PS2004": 3,
-        "PS1106": 2
-      }
-    },
-    {
-      "id": "builtins",
-      "label": "builtins",
-      "probes": 403,
-      "outcomes": {
-        "excluded": 2,
-        "fence": 233,
-        "pass": 168
-      },
-      "weighted_pass": 165.3,
-      "fence_codes": {
-        "PS1106": 108,
-        "PS2001": 56,
-        "PS2002": 33,
-        "PS2003": 23,
-        "PS1103": 9,
-        "PS1003": 3,
-        "PS1104": 1
-      }
-    },
-    {
-      "id": "stdlib",
-      "label": "stdlib modules",
-      "probes": 12849,
-      "outcomes": {
-        "build-error": 1,
-        "excluded": 1394,
-        "fence": 10276,
-        "pass": 1178
-      },
-      "weighted_pass": 440.0,
-      "fence_codes": {
-        "PS2002": 6348,
-        "PS1106": 2812,
-        "PS2001": 972,
-        "PS2003": 58,
-        "PS1001": 37,
-        "PS1003": 35,
-        "PS1104": 12,
-        "PS1103": 2
-      }
-    },
-    {
-      "id": "top100",
-      "label": "PyPI packages",
-      "probes": 86,
-      "outcomes": {
-        "build-error": 6,
-        "fence": 78,
-        "pass": 2
-      },
-      "weighted_pass": 10.0,
-      "fence_codes": {
-        "PS2002": 64,
-        "PS1001": 8,
-        "PS1106": 2,
-        "PS1101": 1,
-        "PS1103": 1,
-        "PS1104": 1,
-        "PS1203": 1
-      }
-    }
-  ],
+  "language": [],
   "ladder": {
     "corpus": "benchmarks/scripts_corpus",
     "rungs": [
@@ -2653,6 +2590,15 @@
       "date": "2026-11-12",
       "commit": "238edd9e75821f9bbb49fe3db0f10cd5c261df57",
       "weighted_pass": 995.3,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
+    },
+    {
+      "date": "2026-11-13",
+      "commit": "f4f66576c98386b3a746fec04c8e5577184a7f7e",
+      "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
