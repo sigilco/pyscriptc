@@ -17,6 +17,11 @@
 module = "pyscriptc_arrow"
 ps_abi = 1
 format = 1
+# The vendored bundle's header tree lives under vendor/, and the flatcc
+# headers the IPC unit includes sit under vendor/flatcc/. The manifest's
+# own directory is always on the include path, so the two entries below
+# are the extra roots the bundle needs.
+include_dirs = ["vendor"]
 
 [[source]]
 path = "vendor/flatcc.c"
