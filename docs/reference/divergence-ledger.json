@@ -97,10 +97,10 @@
       "pyscriptc": {
         "stage": "run",
         "exit": 0,
-        "stdout": "{\"k\": \"café\"}\n",
+        "stdout": "{\"k\": \"caf\\u00e9\"}\n",
         "stderr": ""
       },
-      "status": "divergent"
+      "status": "identical"
     },
     {
       "id": "D6",
@@ -1300,10 +1300,10 @@
       "pyscriptc": {
         "stage": "run",
         "exit": 0,
-        "stdout": "{\"k\": \"café\"}\n",
+        "stdout": "{\"k\": \"caf\\u00e9\"}\n",
         "stderr": ""
       },
-      "status": "divergent"
+      "status": "identical"
     },
     {
       "id": "AUDIT-D12",
