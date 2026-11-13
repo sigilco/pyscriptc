@@ -486,7 +486,7 @@
     },
     {
       "id": "D29",
-      "seam": "socket, ssl, http.client, http.server and selectors do not compile (PS2001)",
+      "seam": "socket, ssl, http.client and http.server do not compile (PS2001)",
       "listed": true,
       "docs": "docs/reference/divergences.md#29",
       "probe": "probes/divergences/d29_socket.py",
@@ -1067,23 +1067,23 @@
     },
     {
       "id": "D63",
-      "seam": "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
+      "seam": "the random subset is a CPython-compatible Mersenne Twister; the Random class and rarer draws are refused",
       "listed": true,
       "docs": "docs/reference/divergences.md#63",
-      "probe": "probes/divergences/d63_csv_dict_reader.py",
+      "probe": "probes/divergences/d63_random.py",
       "cpython": {
         "stage": "run",
         "exit": 0,
-        "stdout": "1 2\n",
+        "stdout": "vonmisesvariate\n",
         "stderr": ""
       },
       "pyscriptc": {
-        "stage": "run",
-        "exit": 1,
+        "stage": "compile",
+        "exit": 3,
         "stdout": "",
-        "stderr": "ValueError: dict reader has more fields than fieldnames\n"
+        "stderr": "probes/divergences/d63_random.py:3:7: PS2001: random.vonmisesvariate.__name__ is not in the lowered subset of random\n  print(random.vonmisesvariate.__name__)\n        ^\n"
       },
-      "status": "divergent"
+      "status": "fenced"
     },
     {
       "id": "AUDIT-D1",

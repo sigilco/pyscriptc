@@ -72,6 +72,7 @@ from pyscriptc.restlower._pathlib import _buffer, _one
 from pyscriptc.restlower._queue import _queue_call, _queue_method
 from pyscriptc.restlower._random import _random_call
 from pyscriptc.restlower._secrets import _secrets_call
+from pyscriptc.restlower._selectors import _selector_method, _selectors_call
 from pyscriptc.restlower._shlex import _shlex_call
 from pyscriptc.restlower._subprocess import _call as _sub_call
 from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
@@ -109,6 +110,7 @@ __all__ = [
     "_lock_method",
     "_mk_iter",
     "_queue_method",
+    "_selector_method",
     "_thread_method",
     "_static_builtin_fold",
     "alias_name",
@@ -180,6 +182,7 @@ _MODULES_BEFORE_SPEC: dict[str, Handler] = {
     "itertools": lambda lo, node, span, expect, attr: _itertools(lo, node, span, attr),
     "threading": lambda lo, node, span, expect, attr: _threading_call(lo, node, span, attr),
     "queue": lambda lo, node, span, expect, attr: _queue_call(lo, node, span, expect, attr),
+    "selectors": lambda lo, node, span, expect, attr: _selectors_call(lo, node, span, expect, attr),
 }
 
 # Whole-module handlers, consulted after `fixed_spec`.

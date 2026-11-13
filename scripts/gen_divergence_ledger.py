@@ -221,7 +221,7 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D29",
-        "socket, ssl, http.client, http.server and selectors do not compile (PS2001)",
+        "socket, ssl, http.client and http.server do not compile (PS2001)",
         "d29_socket.py",
         docs=f"{DOC}#29",
     ),
@@ -439,9 +439,15 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D63",
-        "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
-        "d63_csv_dict_reader.py",
+        "the random subset is a CPython-compatible Mersenne Twister; the Random class and rarer draws are refused",
+        "d63_random.py",
         docs=f"{DOC}#63",
+    ),
+    _row(
+        "D64",
+        "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
+        "d64_csv_dict_reader.py",
+        docs=f"{DOC}#64",
     ),
     _row(
         "AUDIT-D1",

@@ -741,6 +741,10 @@ class AbiMixin(EmitterBase):
                     "AsyncSemaphore",
                     "AsyncQueue",
                     "ThreadCall",
+                    # The selectors records (#485): the runtime owns the
+                    # selector and its keys, so the value is the record pointer.
+                    "DefaultSelector",
+                    "SelectorKey",
                 }
                 or symbol.startswith("ps_ffi_")
                 # boxed:begin
