@@ -1,17 +1,7 @@
 {
-<<<<<<< HEAD
   "schema": "2",
-  "generated": "2026-11-12",
-  "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
-=======
-  "schema": "1",
-  "generated": "2026-10-30",
-<<<<<<< HEAD
-  "commit": "3b4a72345c60c1b7c6a121a668bc9487d96b5e1d",
->>>>>>> 55c4b109 (feat(stdlib): json dumps writes non-ASCII per ensure_ascii (#495))
-=======
-  "commit": "55c4b10903e7f537223d9a46f14cd35407978adc",
->>>>>>> e6de66d6 (feat(stdlib): json.JSONDecodeError is a catchable exception class (#495))
+  "generated": "2026-11-13",
+  "commit": "1060bfc208993c9d6b6ad285b5dba2a8df2c1c47",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -27,8 +17,8 @@
     "measured": 18,
     "packages": 18,
     "runs": 18,
-    "date": "2026-11-12",
-    "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+    "date": "2026-11-13",
+    "commit": "1060bfc208993c9d6b6ad285b5dba2a8df2c1c47",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -2575,33 +2565,18 @@
       "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
       "weighted_pass": 0.0,
       "packages_full": 2,
-<<<<<<< HEAD
       "packages_partial": 8,
       "packages_none": 8,
       "fences": 2585
-=======
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
     },
     {
-      "date": "2026-10-28",
-      "commit": "7f67db8da943c78d0e124b579b83740723326a1f",
+      "date": "2026-11-13",
+      "commit": "1060bfc208993c9d6b6ad285b5dba2a8df2c1c47",
       "weighted_pass": 0.0,
       "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
-    },
-    {
-      "date": "2026-10-30",
-      "commit": "55c4b10903e7f537223d9a46f14cd35407978adc",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 7,
-      "packages_none": 9,
-      "fences": 2719
->>>>>>> 55c4b109 (feat(stdlib): json dumps writes non-ASCII per ensure_ascii (#495))
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
     }
   ]
 }
