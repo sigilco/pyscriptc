@@ -6,6 +6,7 @@ import LumioCarousel from "../components/LumioCarousel";
 import IsometricSurfaceStack from "../components/IsometricSurfaceStack";
 import CrossCompileSection from "../components/CrossCompileSection.astro";
 import FinalCTA from "../components/FinalCTA.astro";
+import CompareLinkSection from "../components/CompareLinkSection.astro";
 import Footer from "../components/Footer.astro";
 import PlaygroundModal from "../components/PlaygroundModal.astro";
 import Analytics from "../components/Analytics.astro";
@@ -76,7 +77,12 @@ import "../styles/global.css";
         <CrossCompileSection />
       </section>
 
-      <!-- Section 5: Minimal Final Call to Action (CTA + GitHub, KISS) -->
+      <!-- Section 5: How it compares (one line, points at /compare/) -->
+      <section class="w-full border-t border-white/5">
+        <CompareLinkSection />
+      </section>
+
+      <!-- Section 6: Minimal Final Call to Action (CTA + GitHub, KISS) -->
       <section class="w-full border-t border-white/5">
         <FinalCTA />
       </section>

@@ -34,6 +34,7 @@ test("deploy tree carries the three site parts", { skip: !hasDeploy }, () => {
     "compat/data/ladder.json",
     "compat/data/what_will_fail.json",
     "compat/data/support.json",
+    "compare/index.html",
   ]) {
     assert.ok(existsSync(join(deploy, rel)), `missing ${rel}`);
   }
@@ -43,6 +44,7 @@ test("deploy redirect rules are present", { skip: !hasDeploy }, () => {
   const text = readFileSync(join(deploy, "_redirects"), "utf8");
   assert.ok(text.includes("/docs    /docs/    308"));
   assert.ok(text.includes("/compat  /compat/  308"));
+  assert.ok(text.includes("/compare  /compare/  308"));
 });
 
 test("theme.css ships next to the docs index (docmd customCss gap)", { skip: !hasDeploy }, () => {
@@ -129,6 +131,22 @@ test("the compat page shows the R0 rate with its denominator", () => {
   assert.ok(page.includes("data.ladder.r0"), "the page reads the r0 section");
   assert.ok(page.includes("r0.total"), "the page shows the corpus size");
   assert.ok(page.includes("r0.history"), "the page shows the trend");
+});
+
+test("the compare page claims only the reproducible baseline", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "compare", "index.astro"), "utf8");
+  assert.ok(page.includes("benchmarks/baseline/reference.json"), "the page reads the baseline file");
+  assert.ok(page.includes("benchmarks.baseline.run --check"), "the page names the reproduce command");
+  assert.ok(page.includes("13,798"), "the page states the conformance corpus size");
+  assert.ok(!/blazing|faster than (codon|nuitka|pypy)|beats (codon|nuitka|pypy)/i.test(page), "no marketing claims");
+});
+
+test("the compare page states where pyscriptc loses", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "compare", "index.astro"), "utf8");
+  for (const tool of ["PyInstaller", "Nuitka", "Cython", "mypyc", "Codon", "PyPy"]) {
+    assert.ok(page.includes(tool), `${tool} missing from the compare page`);
+  }
+  assert.ok(page.includes("Codon covers more of the"), "the Codon trade-off is stated");
 });
 
 // -- scripts keep working (the check that caught theme.css) --

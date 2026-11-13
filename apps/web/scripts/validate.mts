@@ -36,10 +36,11 @@ const deploy =
 
 // The site map: a URL path prefix and the directory under deploy/ that
 // serves it. The landing page is the root, the docs under /docs, the compat
-// page under /compat.
+// page under /compat, the compare page under /compare.
 const SITE_MAP: Array<[prefix: string, directory: string]> = [
   ["/docs/", "docs"],
   ["/compat/", "compat"],
+  ["/compare/", "compare"],
 ];
 
 interface CheckResult {
