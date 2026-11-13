@@ -36,6 +36,12 @@ EXPECTED = [
     # A wait with no rows and a 10 s cap returns as soon as a worker thread
     # writes the self-pipe byte.
     (re.compile(r"^self_pipe waited=(\d+)ms$"), lambda ms: ms < 5000),
+    # A signal inside a bounded wait must not end the wait: the wait runs
+    # out its own deadline (2 s), well past the 1 s SIGALRM. A wait that
+    # gives up at the signal ends near the 1 s mark, so the floor keeps the
+    # regression out: the wait must survive the signal, not merely end
+    # after it.
+    (re.compile(r"^signal_wait ready=0 waited=(\d+)ms$"), lambda ms: 1800 <= ms < 4000),
     # The selector's keys carry the fd and the event bits.
     (re.compile(r"^keys fd=(\d+) events=(\d+) fd=(\d+) events=(\d+)$"), None),
     # get_key finds the registered fd.
