@@ -7,11 +7,17 @@ pinned release tarball (see vendor/VENDOR.toml), namespaced `PsArrow` so the
 vendored symbols cannot collide with another nanoarrow in the process. The
 script needs the tarball only; nanoarrow's bundle.py is deterministic, so two
 regenerations are byte-identical and the hashes below hold.
+
+The bundle carries the IPC half (`--with-ipc --with-flatcc`): the Arrow C
+Stream wire form is what a compiled program exchanges with a live Arrow
+implementation. The IPC unit includes the flatcc headers, so the flatcc
+runtime and its header tree travel with it.
 """
 
 from __future__ import annotations
 
 import hashlib
+import io
 import sys
 import tarfile
 import tempfile
@@ -19,32 +25,71 @@ import tomllib
 import urllib.request
 from pathlib import Path
 
-VENDOR = Path(__file__).resolve().parent
+VENDOR = Path(__file__).resolve().parent / "vendor"
+
+# The C units the bundle writes, each with its pin key. The order is the
+# link order: flatcc first (the IPC unit depends on it), then the IPC
+# unit, then nanoarrow itself.
+UNITS = (
+    ("flatcc.c", "flatcc.c_sha256"),
+    ("nanoarrow_ipc.c", "nanoarrow_ipc.c_sha256"),
+    ("nanoarrow.c", "nanoarrow.c_sha256"),
+)
+
+# The header trees the bundle writes, each with its pin key.
+HEADERS = (
+    ("nanoarrow/nanoarrow.h", "nanoarrow.h_sha256"),
+    ("nanoarrow/nanoarrow_ipc.h", "nanoarrow_ipc.h_sha256"),
+)
 
 
 def _sha256(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
-def is_fetched(pin: dict[str, str]) -> bool:
-    """True when both files exist and match the pinned hashes."""
-    pairs = (("nanoarrow.c", VENDOR / "nanoarrow.c"), ("nanoarrow.h", VENDOR / "nanoarrow" / "nanoarrow.h"))
-    for name, path in pairs:
-        if not path.is_file() or _sha256(path.read_bytes()) != pin[f"{name}_sha256"]:
+def _expected(pin: dict[str, object], name: str, key: str) -> str:
+    """The pinned hash of one bundle file."""
+    if key == "flatcc_headers":
+        return str(pin["flatcc_headers"][name])  # type: ignore[index]
+    return str(pin[key])
+
+
+def _key_for(name: str) -> str:
+    """The pin key of one bundle file."""
+    if name.startswith("flatcc/"):
+        return "flatcc_headers"
+    return f"{Path(name).name}_sha256"
+
+
+def is_fetched(pin: dict[str, object]) -> bool:
+    """True when every file exists and matches the pinned hashes."""
+    for name, key in UNITS + HEADERS:
+        path = VENDOR / name
+        if not path.is_file() or _sha256(path.read_bytes()) != _expected(pin, name, key):
+            return False
+    for name in pin["flatcc_headers"]:  # type: ignore[union-attr]
+        path = VENDOR / name
+        if not path.is_file() or _sha256(path.read_bytes()) != _expected(pin, name, "flatcc_headers"):
             return False
     return True
 
 
-def _generate(pin: dict[str, str], tarball: bytes, out: Path) -> None:
+def _generate(pin: dict[str, object], tarball: bytes, out: Path) -> None:
     """Extract bundle.py from the tarball and run it against the pinned tree."""
     import subprocess
 
     with tempfile.TemporaryDirectory() as workdir:
-        tree = Path(workdir) / "nanoarrow"
-        tree.mkdir()
-        with tarfile.open(fileobj=__import__("io").BytesIO(tarball), mode="r:gz") as archive:
+        tree = Path(workdir)
+        with tarfile.open(fileobj=io.BytesIO(tarball), mode="r:gz") as archive:
             archive.extractall(tree, filter="data")
-        script = tree / "ci" / "scripts" / "bundle.py"
+        # The tarball unpacks into a versioned directory, so the bundle
+        # script is one level down from the extraction root.
+        roots = [entry for entry in tree.iterdir() if entry.is_dir()]
+        if len(roots) != 1:
+            raise SystemExit("the nanoarrow tarball did not unpack into exactly one directory")
+        script = roots[0] / "ci" / "scripts" / "bundle.py"
+        if not script.is_file():
+            raise SystemExit("the nanoarrow tarball has no ci/scripts/bundle.py")
         out.mkdir(parents=True, exist_ok=True)
         subprocess.run(
             [
@@ -53,7 +98,7 @@ def _generate(pin: dict[str, str], tarball: bytes, out: Path) -> None:
                 f"--source-output-dir={out}",
                 f"--include-output-dir={out}",
                 f"--symbol-namespace={pin['bundle_namespace']}",
-                *pin["bundle_flags"].split(),
+                *str(pin["bundle_flags"]).split(),
             ],
             check=True,
             capture_output=True,
@@ -66,23 +111,26 @@ def fetch(force: bool = False) -> Path:
     pin = tomllib.loads((VENDOR / "VENDOR.toml").read_text(encoding="utf-8"))
     if not force and is_fetched(pin):
         return VENDOR
-    with urllib.request.urlopen(pin["url"], timeout=120) as response:  # noqa: S310 - pinned https URL
+    with urllib.request.urlopen(str(pin["url"]), timeout=120) as response:  # noqa: S310 - pinned https URL
         tarball = response.read()
     if _sha256(tarball) != pin["tar_sha256"]:
         raise SystemExit("nanoarrow tarball sha256 mismatch")
     with tempfile.TemporaryDirectory() as stage:
         staged = Path(stage)
         _generate(pin, tarball, staged)
-        produced = {
-            "nanoarrow.c": (staged / "nanoarrow.c").read_bytes(),
-            "nanoarrow.h": (staged / "nanoarrow" / "nanoarrow.h").read_bytes(),
-        }
+        produced: dict[str, bytes] = {}
+        for name, _key in UNITS + HEADERS:
+            produced[name] = (staged / name).read_bytes()
+        for name in pin["flatcc_headers"]:  # type: ignore[union-attr]
+            produced[name] = (staged / name).read_bytes()
     for name, data in produced.items():
-        if _sha256(data) != pin[f"{name}_sha256"]:
+        key = _key_for(name)
+        if _sha256(data) != _expected(pin, name, key):
             raise SystemExit(f"{name} sha256 mismatch (bundle.py output drifted from the pin)")
-    (VENDOR / "nanoarrow.c").write_bytes(produced["nanoarrow.c"])
-    (VENDOR / "nanoarrow").mkdir(exist_ok=True)
-    (VENDOR / "nanoarrow" / "nanoarrow.h").write_bytes(produced["nanoarrow.h"])
+    for name, data in produced.items():
+        target = VENDOR / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(data)
     return VENDOR
 
 

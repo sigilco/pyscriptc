@@ -1,4 +1,6 @@
 nanoarrow.c
 nanoarrow_ipc.c
+flatcc.c
 nanoarrow/nanoarrow.h
 nanoarrow/nanoarrow_ipc.h
+flatcc/
