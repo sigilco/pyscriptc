@@ -32,6 +32,8 @@ pyscriptc run hello.py
 
 Live per-module and per-library support status: the [compat site](https://pyscriptc.pages.dev/compat/).
 
+How pyscriptc compares with the bundlers, the other Python compilers and PyPy: the [comparison page](https://pyscriptc.pages.dev/compare/).
+
 
 pyscriptc is experimental, aims for CPython compatibility, and supports a subset of Python, its builtins and standard library, and selected PyPI packages. Code outside the subset stops the build with a diagnostic code (`PSxxxx`) that names the exact line, or runs through embedded CPython (fallback mode) when you opt in with `--island` or `--fallback=cpython`. Fallback mode links against the host CPython: it is not bundled, and a Python installation is expected on the machine.
 
@@ -86,6 +88,8 @@ The examples above need no C toolchain; building a binary needs clang or `zig` o
 ## Documentation
 
 [Documentation site](https://pyscriptc.pages.dev/), including the [CLI reference](https://pyscriptc.pages.dev/reference/cli/), the [Python subset](https://pyscriptc.pages.dev/guide/python-subset/) and how pyscriptc [compares with other tools](https://pyscriptc.pages.dev/guide/comparison/).
+
+The shorter editorial version of that comparison, with the measured baseline and the trade-offs stated, is the [comparison page](https://pyscriptc.pages.dev/compare/).
 
 For agents: [llms.txt](https://pyscriptc.pages.dev/llms.txt) and [llms-full.txt](https://pyscriptc.pages.dev/llms-full.txt).
 
