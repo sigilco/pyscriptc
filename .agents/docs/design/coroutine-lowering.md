@@ -10,7 +10,7 @@ Resumable functions are lowered as stackless state machines by a typed-IR pass (
 
 ## Why the IR guard transform
 
-- The output is existing IR. No new IR kinds, no change to `llvm.py`, the validator, `canonical.py` or `IR_HASHES.json`, which are frozen gates. The P0 exit criterion is a byte-identical `irscore` A/B run on all existing probes.
+- The output is existing IR. No new IR kinds, no change to `llvm.py`, the validator or the IR hash baseline, which are frozen gates. The P0 exit criterion is a byte-identical hash A/B run on all existing probes.
 - Try re-entry is free. Re-entering a structured `try` re-runs `ps_try_call` and re-establishes the setjmp frame, which is what a suspended frame needs. A `yield` inside `try` returns through the existing flow code 1.
 - `gen.throw` and cancellation are just the `pending` field checked right after the resume label.
 - A suspension never crosses a live setjmp frame, so `ps_top` stays consistent.

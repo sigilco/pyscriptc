@@ -32,7 +32,7 @@
 #   docs:diagnostics  regenerate docs/reference/diagnostics.md from the registry
 #   boxed:cost      boxed ledger window (add --reach/--probe-times when you have them)
 #   divergence:ledger  regenerate docs/reference/divergence-ledger.json from the probes
-#   ir:hashes       canonical IR hash compare against the committed baseline (linux only, see below)
+#   tir:hashes      canonical IR hash compare against the committed baseline (linux only, see below)
 #   compile         pyscriptc compile, args pass through (mise run compile FILE --emit bin)
 #   run             pyscriptc run, args pass through (mise run run FILE -- args)
 #   wheel:smoke     build the wheel, install it in a fresh venv, compile+run hello
@@ -194,16 +194,13 @@ run = "uv run python -m benchmarks.compat2.census --top 10"
 description = "Boxed ledger window, per AGENTS.md (append --reach/--probe-times when you have them)"
 run = "uv run python benchmarks/compat2/boxed_cost.py --window-commits 10"
 
-# Linux only, like the ir-hashes workflow: the canonical IR folds host
+# Linux only, like the tir-hashes workflow: the canonical IR folds host
 # constants (socket, errno, os, ssl, time, ctypes, pathlib), so a macOS run
 # diffs against the committed linux baseline as noise, not a regression.
 # The baseline header carries the oracle stamp (cpython-3.14.9 today), so a
 # newer interpreter micro reports exit 2 (stale header): that is the regen
-# signal, not a hash mismatch. Regenerate with .github/workflows/ir-hashes.yml
+# signal, not a hash mismatch. Regenerate with .github/workflows/tir-hashes.yml
 # (generate mode), then copy the artifact over the baseline.
-[tasks."ir:hashes"]
-description = "Canonical IR hash compare against the committed baseline (linux oracle)"
-run = "uv run python -m benchmarks.compat2.irscore benchmarks/compat2/probes --baseline benchmarks/compat2/probes/IR_HASHES.json"
 
 [tasks."tir:hashes"]
 description = "Streaming TIR hash compare against the committed baseline (linux oracle, #830 P1)"

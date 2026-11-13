@@ -43,8 +43,8 @@ The version axis touches the repo in these places:
 - IR: `ir.py::cpython_version` stamps `2/cpython-<x.y.z>` on the module and
   `emit_llvm` hard-errors on a stamp≠running-interpreter mismatch
   (`VersionError`). Cache keys in `compat2/cache.py` embed the oracle version,
-  so `IR_HASHES.json` regen is per-oracle, not per-axis-version — dropping an
-  axis version does not change regen cost, which is already "run irscore twice
+  so the IR hash baseline regen is per-oracle, not per-axis-version — dropping an
+  axis version does not change regen cost, which is already "run tirscore twice
   and `cmp`" per oracle.
 - Semantics: lowered behavior tracks CPython per call, so version-specific
   stdlib changes are real surface. `parse_qs` splits on `&` only "which is

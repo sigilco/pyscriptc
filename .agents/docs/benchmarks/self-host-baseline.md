@@ -3,7 +3,7 @@
 Baseline for the S1/S2/S3 self-compile track, measured on the post-E0-move-2 tree (master 62624ef, 2026-10-16; `expr` lowering landed in `lower/_expr.py`). Two instruments, both regenerable:
 
 - `python -m benchmarks.compat2.census_self --json benchmarks/compat2/census-self.json` — parse-only fence census (`pyscriptc coverage` on `src/pyscriptc`). The `ranking` key orders fence families by unblocked-modules payoff and is the iteration plan.
-- `python -m benchmarks.compat2.selfhost_matrix --json benchmarks/compat2/selfhost-matrix.json` — deepest stage per module, single-file `pyscriptc compile` at `--emit ir`, then `llvm`, then `bin --call main` where a `def main` exists. Records the first PS code or stop detail. This is also the S2 substrate: when a built backend exists, the same per-module ladder drives the byte-identical-IR comparison (`canonical.py`/`irscore.py` are the comparator).
+- `python -m benchmarks.compat2.selfhost_matrix --json benchmarks/compat2/selfhost-matrix.json` — deepest stage per module, single-file `pyscriptc compile` at `--emit ir`, then `llvm`, then `bin --call main` where a `def main` exists. Records the first PS code or stop detail. This is also the S2 substrate: when a built backend exists, the same per-module ladder drives the byte-identical-IR comparison (`tirhash.py`/`tirscore.py` are the comparator).
 
 ## Current numbers
 
@@ -37,7 +37,7 @@ The expected "rewrite the compiler toward the subset" lane is thin: almost every
 - Now (E0 window): this baseline only — no `src/` edits. `lower/` is E0's write track and E0's "next 3 features" median-diff sample must stay clean.
 - After E0 lands: E1 (module-level statements, `print`, `sys.argv`) and Wave F seams attack the second wall the census cannot see — `cli.py`/`package.py` need argparse, fs, json, subprocess to ever *run*, not just parse. `subprocess.check_output` island is already proven (C11).
 - S1 (after E3b): leaf modules `errors.py`/`ir.py`-class join the corpus as a `self` area, one probe per definition. E3b (`super`, single inheritance) and E3c (unions) are the dominant unblockers in the emit matrix today; E2 (exception hierarchy, `str(e)`, args) covers `errors.py`/`check.py`.
-- S2 (after E6): frontend/backend split; the emit matrix plus `irscore --baseline` becomes the byte-identical gate.
+- S2 (after E6): frontend/backend split; the emit matrix plus `tirscore --baseline` becomes the byte-identical gate.
 - S3: full self host, research.
 
 Watch item: the 6 checker-level stops in the matrix are single-file-mode artifacts (mixin attrs resolve only on the composed `Lowerer`, cross-module types unresolvable without the package). If S1 wants single-file semantics, the `self` area needs either package-mode probes or a census-style resolver; record that decision when the area is added.
