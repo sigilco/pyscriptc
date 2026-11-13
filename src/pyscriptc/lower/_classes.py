@@ -21,6 +21,7 @@ from pyscriptc.lower._annotations import (
     AnnotationMixin,
     _type_slug,
 )
+from pyscriptc.lower._class_attrs import ClassAttrsMixin
 from pyscriptc.lower._classes_more import ClassesMoreMixin
 from pyscriptc.lower._core import (
     Fence,
@@ -40,6 +41,7 @@ from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.reflection import annotation_note, metaclass_note
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower import path_attr
+from pyscriptc.restlower._uuid import uuid_hex_attr
 from pyscriptc.sigrec import T, type_to_dict
 from pyscriptc.stdmore import (
     ALWAYS_CLASSES,
@@ -256,7 +258,7 @@ _REFUSED_HOOKS: dict[str, str] = {
 }
 
 
-class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
+class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
     def _install_class_export(self, local: str, item: dict[str, Any], stmt: ast.AST, fences: list[Fence]) -> None:
         name = str(item["name"])
         if name in self.classes and not self.classes[name].get("imported"):
@@ -414,6 +416,12 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
             ancestor_constants = self.classes.get(ancestor, {}).get("constants")
             if ancestor_constants:
                 class_constants.update(ancestor_constants)
+        # Class-body assignments with a runtime value (`x = f()`, a
+        # comprehension, a container of computed elements): the value lowers
+        # after the signature pass into the class's initializer, and the
+        # attribute reads through a runtime slot keyed `C.x`. The statements
+        # are recorded here; `_lower_class_attrs` lowers them.
+        runtime_attrs: list[tuple[str, ast.stmt]] = []
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
@@ -422,7 +430,14 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
                     if stmt.value is not None and deco != "dataclass":
                         const = self._module_fold(stmt.value)
                         if const is None or const.get("kind") != "const":
-                            self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
+                            typ = self._annotation(stmt.annotation)
+                            if _type_kind(typ) not in {"str", "int", "list", "dict"}:
+                                self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
+                            if stmt.target.id in seen or stmt.target.id in inherited_types:
+                                self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
+                            runtime_attrs.append((stmt.target.id, stmt))
+                            seen.add(stmt.target.id)
+                            continue
                         typ = self._annotation(stmt.annotation)
                         if typ.get("optional"):
                             if _type_kind(const["type"]) != "none" and not types_equal(const["type"], typ["elem"]):
@@ -503,6 +518,13 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
                     const = self._module_fold(stmt.value)
                     if const is not None and const.get("kind") == "const":
                         class_constants[stmt.targets[0].id] = const
+                        continue
+                    if stmt.targets[0].id not in seen and stmt.targets[0].id not in inherited_types:
+                        # A runtime class attribute: the value lowers after the
+                        # signature pass, and reads go through the slot. The
+                        # type is proven when the value lowers.
+                        runtime_attrs.append((stmt.targets[0].id, stmt))
+                        seen.add(stmt.targets[0].id)
                         continue
                 self.fail(stmt, "PS1204", f"{type(stmt).__name__} in a class body is not lowered")
             except Fence as exc:
@@ -648,6 +670,11 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
             info["typevars"] = type_params
         if protocol:
             info["protocol"] = True
+        if runtime_attrs:
+            # The class-body assignments whose value the compiler computes.
+            # They lower after the signature pass (the value may call a
+            # module function), into the class's initializer.
+            info["runtime_attrs"] = runtime_attrs
         self.classes[node.name] = info
 
     def _init_fields(
@@ -1323,6 +1350,11 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
                 return obj
             self.fail(node, "PS2001", f"type(e) has no attribute {name}")
         if _type_kind(obj["type"]) != "class":
+            # A lowered uuid call keeps the `.hex` attribute CPython's UUID
+            # holds: the canonical text without the dashes.
+            hexed = uuid_hex_attr(self, obj, name, span)
+            if hexed is not None:
+                return hexed
             note = annotation_note(name)
             if note is not None:
                 self.fail(node, "PS2001", note)
@@ -1365,6 +1397,12 @@ class ClassesMixin(ClassesMoreMixin, AnnotationMixin):
         const = self._class_const(class_name, name)
         if const is not None:
             return {**const, "span": span}
+        # A runtime class attribute reads through the instance too: the value
+        # lives in the class's slot, not in the instance's field table.
+        runtime = self._class_runtime_attr(class_name, name)
+        if runtime is not None:
+            owner, attr_type = runtime
+            return self._class_attr_read(owner, name, attr_type, span)
         if info.get("method_kind", {}).get(name) == "property":
             sig = info["methods"][name]
             owner = self._emit_owner(class_name, name)

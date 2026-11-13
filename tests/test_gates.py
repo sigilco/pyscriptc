@@ -71,6 +71,11 @@ QUEUE = (
     "calendar",
     "zipfile",
     "tarfile",
+    "uuid",
+    "binascii",
+    "shlex",
+    "secrets",
+    "selectors",
 )
 
 

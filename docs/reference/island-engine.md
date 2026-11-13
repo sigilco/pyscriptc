@@ -7,9 +7,11 @@ always resolvable); issue #668 targets PyPy as the first external engine.
 The selection resolves and validates the descriptor, records it in the
 debug summary, and, for a PyPy-kind descriptor (`kind =
 "pypy-interpreter"` or `[abi] libpython = "pypy-c"`), emits
-`-DPS_ENGINE_PYPY` into the island runtime compile (#667). No external
-engine pack ships yet, so end to end the CPython path is still the only
-one exercised.
+`-DPS_ENGINE_PYPY` into the island runtime compile (#667). A PyPy-kind
+descriptor may instead name the pinned PyPy **runtime pack**
+(`[abi] pack = "pypy"`, issue #668): the compiler fetches the pack,
+compiles `ps_island.c` against its headers, links its `libpypy<lang>-c`
+and stages a relocatable bundle with the engine's own runtime.
 
 ## Format
 
@@ -154,12 +156,95 @@ changes nothing in the emitted binary.
 
 Under `PS_ENGINE_PYPY`, `PS_ENGINE_START()` calls
 `rpython_startup_code()`, `pypy_setup_home(home, 1)` and
-`pypy_init_threads()` instead of `Py_InitializeEx(0)`. The init order is
-documented in the source as **assumed, not verified**: no PyPy SDK is
-available in CI, so the first real PyPy pack (#668) is the verification
-gate. Exception arguments are read with
-`PyObject_GetAttrString(val, "args")`, which is portable across both
-engines' C APIs. The CPython path is unchanged and fully tested.
+`pypy_init_threads()` instead of `Py_InitializeEx(0)`. The order is
+verified against the real PyPy 7.3.23 pack (issue #668): the fractions
+program of the acceptance test runs through it. Exception arguments are
+read with `PyObject_GetAttrString(val, "args")`, which is portable
+across both engines' C APIs. The CPython path is unchanged and fully
+tested.
+
+The GIL discipline is engine-specific and lives entirely in the
+`ps_island_acquire` / `ps_island_release` seam (see the source comment
+for the measured disagreement on every step: `PyEval_SaveThread` aborts
+under PyPy, `PyGILState_Ensure` on the main thread segfaults on the next
+Python call; a foreign thread registers with `pypy_thread_attach`).
+`PyImport_AddModuleObject` does not exist in cpyext; the seam calls the
+byte-name `PyImport_AddModule` entry under PyPy.
+
+
+## The conformance corpus (issue #670)
+
+Every shipped engine must behave the same on the island surface, so the
+corpus is a set of island programs that run on each engine and must match
+CPython byte for byte (stdout, stderr and the exit code).
+
+| Program | What it covers |
+| --- | --- |
+| `fractions` | `fractions.Fraction` arithmetic and `str()` of the result |
+| `json` | `json.dumps` with sort keys and `ensure_ascii=False`, `json.loads` |
+| `re` | `re.match` with groups, `re.findall`, `re.sub` |
+| `dataclasses` | a dataclass with a nested dataclass, `dataclasses.fields`, `asdict` |
+| `exceptions` | a caught exception, a chained one, a locally defined exception class |
+| `bytes` | empty, embedded-NUL and non-ASCII byte strings across the seam |
+| `lists` | int and str element kinds, the empty list, a list built island-side |
+
+The programs live in `benchmarks/engine_corpus/programs/<name>/`: an
+island module (declared `island` in the program's `pyscriptc.toml`, so
+every definition in it runs on the selected engine) and a thin typed entry
+that calls it.
+
+```bash
+uv run python -m benchmarks.engine_corpus.run            # the whole matrix
+uv run python -m benchmarks.engine_corpus.run --only re  # one program
+```
+
+The matrix is **descriptor-driven**: every `*.toml` under
+`benchmarks/engine_corpus/engines/` is one engine of the matrix, so the
+PyPy leg turns on by itself when #668 ships a PyPy descriptor — the file
+lands in the directory, and neither the runner nor the CI workflow needs
+an edit. A descriptor opts out with a top-level `conformance = false`
+key (an engine without an island seam yet); the runner reports it as
+skipped and does not fail.
+
+The CI lane is `.github/workflows/engine-conformance.yml`: one Linux cell
+runs the matrix and the marshalling micro-benchmark, writes both reports
+into the job summary and uploads them as artifacts.
+
+### Marshalling cost per call
+
+`benchmarks/engine_corpus/marshalling.py` measures the seam itself: the
+per-call cost of an island call for each type the ABI carries, against a
+no-argument baseline that covers the GIL re-entry, the namespace lookup
+and the call machinery. Each case runs a warm-up loop first and is then
+timed five times inside the binary; the best run is reported, because the
+first call pays the embedded interpreter's initialization and a single
+timed run on a shared machine is dominated by scheduling noise.
+
+The numbers are the release receipt for the embed epic, not a gate: they
+are recorded in the PR body of #670 and re-measured at release
+boundaries. Measured on a quiet Linux x86_64 runner (CPython 3.14.9,
+20 000 calls x 5 repeats, best run):
+
+| case | ns/call | marshalling share |
+| --- | --- | --- |
+| base (no payload) | 26.4 | baseline |
+| int | 28.3 | +2 ns |
+| float | 28.2 | +2 ns |
+| bool | 26.9 | +0 ns |
+| str | 27.8 | +1 ns |
+| bytes | 29.5 | +3 ns |
+| list (4 ints) | 52.0 | +26 ns |
+
+Reading: the scalars cost one to three nanoseconds over the seam itself —
+the copy is not the interesting cost. A list is the first structurally
+bigger case (an element copy per item plus a fresh list object), and it
+is the one to watch when the ABI grows.
+
+The absolute figures are noise-sensitive: on a loaded host the same run
+reports a baseline near 245 ns/call with the same shape (scalars within a
+few nanoseconds of the baseline, the list an order of magnitude above it).
+Compare shapes across hosts, not absolutes; the CI job re-measures on a
+quiet runner and writes its numbers into the job summary.
 
 ## Open questions (deferred to later embed issues)
 

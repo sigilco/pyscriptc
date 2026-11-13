@@ -79,9 +79,9 @@ def test_codec_fences_stay_closed(tmp_path: Path) -> None:
         ),
         (
             "calcsize.py",
-            "import struct\n\ndef f() -> int:\n    return struct.calcsize('<H')\n",
+            "import struct\n\ndef f() -> int:\n    return struct.calcsize('H')\n",
             "PS2001",
-            "struct.calcsize",
+            "native alignment",
         ),
         (
             "groups.py",
@@ -413,9 +413,9 @@ def test_wave_fences_stay_closed(tmp_path: Path) -> None:
     cases = [
         (
             "gauss.py",
-            "import random\n\ndef f() -> float:\n    return random.gauss(0, 1)\n",
+            "import random\n\ndef f() -> float:\n    return random.vonmisesvariate(0.0, 1.0)\n",
             "PS2001",
-            "random.gauss",
+            "random.vonmisesvariate",
         ),
         (
             "seedstr.py",

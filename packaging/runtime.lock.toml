@@ -27,3 +27,24 @@ sha256 = "9f8c3480b8f0db553c270db548e8a21ae8e39df412e5661d66e8050c5c6ed2a8"
 [runtime."3.14.9".linux-x86_64]
 pbs_asset = "cpython-3.14.9+20261021-x86_64-unknown-linux-gnu-install_only_stripped.tar.gz"
 sha256 = "561e91c1cadf30e84aec94d1917384ae3267e5f3e6e135e51fd1578bb19f4064"
+
+# The PyPy runtime packs for the island engine (issue #668). Opt-in through
+# the engine descriptor (`--island-engine`); the default path never reads
+# these rows. The asset is the official release archive from
+# downloads.python.org/pypy, `sha256` is its hash, `python` is the language
+# level the library name embeds (`libpypy3.11-c`). Bumping a release is a
+# pack change like a CPython micro: re-hash the new asset and paste it here.
+[pypy]
+schema = 1
+
+[pypy.releases.linux-x86_64]
+version = "7.3.23"
+python = "3.11"
+asset = "pypy3.11-v7.3.23-linux64.tar.bz2"
+sha256 = "16f9f56e82d1f4ec95a324c1a8cacfd78afc7f0656c0a809a18725ef4391453a"
+
+[pypy.releases.macos-arm64]
+version = "7.3.23"
+python = "3.11"
+asset = "pypy3.11-v7.3.23-macos_arm64.tar.bz2"
+sha256 = "4747b3aceba4c1c6104cddc0fe5ea302101d32955f0957347b9ecc4fbd7aed05"

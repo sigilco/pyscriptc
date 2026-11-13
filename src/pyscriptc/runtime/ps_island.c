@@ -42,6 +42,107 @@ void ps_global_set_ptr(int64_t n, const char *name, void *value);
    Py_InitializeEx aborts with "global import state already initialized"). */
 static pthread_once_t ps_island_once = PTHREAD_ONCE_INIT;
 
+#ifdef PS_ENGINE_PYPY
+extern void rpython_startup_code(void);
+extern int pypy_setup_home(char *home, int verbose);
+extern void pypy_init_threads(void);
+/* PyPy's own thread registration (its embedding docs, "Threading"): a
+   thread PyPy did not create must call `pypy_thread_attach` before it
+   runs Python code, so the GC tracks it. The function is `void` (the
+   header declares `int`, which is wrong but harmless: the caller reads
+   no value). */
+extern void pypy_thread_attach(void);
+#endif
+
+/* Issue #668: the two engines do not expose the same import surface.
+   `PyImport_AddModuleObject` (CPython 3.3+) takes the module name as a
+   `PyObject*`; PyPy's cpyext exposes only the older
+   `PyImport_AddModule(const char*)`. The helper keeps the call site
+   engine-agnostic: under PyPy it encodes the name as UTF-8 and calls the
+   byte-name entry, under CPython it calls the object entry unchanged (the
+   CPython build keeps its exact behavior). The reference the helper
+   returns is a new one in both cases, so the caller's `Py_INCREF` after
+   the call is right on both engines. */
+static PyObject *ps_island_add_module(PyObject *name_obj) {
+#ifdef PS_ENGINE_PYPY
+    const char *utf8 = PyUnicode_AsUTF8(name_obj);
+    if (utf8 == NULL) {
+        return NULL;
+    }
+    return PyImport_AddModule(utf8);
+#else
+    return PyImport_AddModuleObject(name_obj);
+#endif
+}
+
+/* Issue #668: the GIL discipline is engine-specific, and the two engines
+   disagree on every step of it. Measured on the real PyPy 7.3.23 pack
+   (not on the docs alone):
+
+   - CPython: `Py_InitializeEx` leaves the calling thread holding the GIL,
+     so the init releases it with `PyEval_SaveThread()` and every entry
+     point re-enters with `PyGILState_Ensure`. That is the path below,
+     unchanged and byte for byte.
+
+   - PyPy: `pypy_init_threads` leaves the **main** thread holding the GIL
+     and does not want it released. `PyEval_SaveThread` is a CPython
+     extension-module API: PyPy aborts with "GIL not held when a CPython
+     C extension module calls 'PyEval_SaveThread'", so the CPython
+     release step cannot run at all. `PyGILState_Ensure` on the main
+     thread returns `PyGILState_LOCKED` and then segfaults on the next
+     Python call, because the main thread's thread state is already the
+     running one.
+
+   So under PyPy the main thread runs Python code directly (it already
+   holds the GIL from the init) and never calls `PyGILState_Ensure` or
+   `PyGILState_Release`; a **foreign** thread (one the engine did not
+   create) calls `pypy_thread_attach` first, which is what makes
+   `PyGILState_Ensure` safe there. The helpers below are the seam: they
+   are the only place the two disciplines meet.
+
+   `ps_island_attach_thread` is called by `ps_island_acquire`, which
+   every native thread that reaches the island goes through; on CPython
+   it is a no-op (the CPython discipline is `PyGILState_Ensure`, which
+   creates the thread state itself), on PyPy it registers the thread
+   with the GC. */
+static void ps_island_attach_thread(void) {
+#ifdef PS_ENGINE_PYPY
+    pypy_thread_attach();
+#endif
+}
+
+/* Take the GIL for the current thread, the engine's way. Under PyPy the
+   answer is "it already has it": the main thread holds the GIL from
+   `pypy_init_threads`, and a foreign thread registers itself with
+   `pypy_thread_attach`, after which PyPy's cpyext acquires the GIL
+   internally around every C-API call (measured: a `pypy_thread_attach`
+   thread imports and calls concurrently with the main thread without an
+   explicit `Ensure`; an explicit `Ensure` on either thread returns LOCKED
+   and segfaults on the next Python call). The returned state is the dummy
+   `PyGILState_UNLOCKED`: `ps_island_done` releases nothing under PyPy. */
+/* Release the GIL the entry point took. Under PyPy the main thread never
+   took it through `PyGILState_Ensure` (it holds it from the init), so
+   there is nothing to release there; under CPython the release is the
+   `PyGILState_Release` the CPython discipline needs. */
+static void ps_island_release(PyGILState_STATE gstate) {
+#ifndef PS_ENGINE_PYPY
+    PyGILState_Release(gstate);
+#else
+    (void)gstate;
+#endif
+}
+
+static PyGILState_STATE ps_island_acquire(void) {
+    ps_island_attach_thread();
+#ifdef PS_ENGINE_PYPY
+    return PyGILState_UNLOCKED;
+#else
+    return PyGILState_Ensure();
+#endif
+}
+
+
+
 /* Issue #679: island-side `atexit.register` lands on the embedded
    interpreter's callback list, but the process leaves through libc exit()
    without Py_FinalizeEx, so CPython's own exitfuncs never ran and a handler
@@ -59,7 +160,7 @@ static void ps_island_run_exitfuncs(void) {
     if (!Py_IsInitialized()) {
         return;
     }
-    PyGILState_STATE gstate = PyGILState_Ensure();
+    PyGILState_STATE gstate = ps_island_acquire();
     mod = PyImport_ImportModule("atexit");
     if (mod != NULL) {
         fn = PyObject_GetAttrString(mod, "_run_exitfuncs");
@@ -111,7 +212,7 @@ static void ps_island_run_exitfuncs(void) {
     } else {
         PyErr_Clear();
     }
-    PyGILState_Release(gstate);
+    ps_island_release(gstate);
 }
 
 /* The engine seam (issue #667). The default path is the embedded CPython:
@@ -128,11 +229,6 @@ static void ps_island_run_exitfuncs(void) {
    PyPy run and may still need to adjust the order there. The home search
    is verbose (1) so a missing stdlib reports itself instead of leaving
    the island to fail later with no message. */
-#ifdef PS_ENGINE_PYPY
-extern void rpython_startup_code(void);
-extern int pypy_setup_home(char *home, int verbose);
-extern void pypy_init_threads(void);
-#endif
 
 static void ps_island_init(void) {
 #ifdef PS_ENGINE_PYPY
@@ -161,12 +257,15 @@ static void ps_island_init(void) {
            running image, then argv[0] - the first that yields a real file. */
         PyObject *executable = NULL;
         char argv0[PATH_MAX];
+        char image_path[PATH_MAX];
+        image_path[0] = '\0';
 #if defined(_WIN32)
         char image[MAX_PATH];
         DWORD image_n = GetModuleFileNameA(NULL, image, sizeof image);
         if (image_n > 0 && image_n < sizeof image) {
             image[image_n] = '\0';
             executable = PyUnicode_DecodeFSDefault(image);
+            memcpy(image_path, image, (size_t)image_n + 1);
         }
 #elif defined(__APPLE__)
         char image[PATH_MAX];
@@ -174,6 +273,7 @@ static void ps_island_init(void) {
         if (_NSGetExecutablePath(image, &image_size) == 0) {
             image[sizeof image - 1] = '\0';
             executable = PyUnicode_DecodeFSDefault(image);
+            memcpy(image_path, image, strlen(image) + 1);
         }
 #else
         char image[PATH_MAX];
@@ -181,6 +281,7 @@ static void ps_island_init(void) {
         if (image_n > 0) {
             image[image_n] = '\0';
             executable = PyUnicode_DecodeFSDefaultAndSize(image, (Py_ssize_t)image_n);
+            memcpy(image_path, image, (size_t)image_n + 1);
         }
 #endif
         if (executable == NULL) {
@@ -229,6 +330,40 @@ static void ps_island_init(void) {
             }
             PyErr_Clear();
             Py_DECREF(out);
+        }
+        /* A relocated program bundle stages its pure dependencies in the
+           bundle's own lib/pythonX.Y/site-packages next to the stdlib. Neither
+           VIRTUAL_ENV nor PYTHONPATH names it, so derive it from the running
+           image (<prefix>/bin/<name>) and seed it when it exists. */
+        if (site != NULL && image_path[0] != '\0') {
+            char bundle_site[PATH_MAX];
+            char *bin = strrchr(image_path, '/');
+#ifdef _WIN32
+            char *bwin = strrchr(image_path, '\\');
+            if (bwin != NULL && (bin == NULL || bwin > bin)) {
+                bin = bwin;
+            }
+#endif
+            if (bin != NULL) {
+                /* image is <prefix>/bin/<name>; the bundle site sits at
+                   <prefix>/lib/..., so the /bin component comes off too. */
+                char *sep = bin;
+                while (sep > image_path && *(sep - 1) != '/' && *(sep - 1) != '\\') {
+                    sep--;
+                }
+                size_t prefix_len = (size_t)(sep - image_path);
+#ifdef _WIN32
+                snprintf(bundle_site, sizeof bundle_site, "%.*s\\Lib\\site-packages", (int)prefix_len, image_path);
+#else
+                snprintf(bundle_site, sizeof bundle_site, "%.*s/lib/python%d.%d/site-packages", (int)prefix_len, image_path, PY_MAJOR_VERSION, PY_MINOR_VERSION);
+#endif
+                struct stat bst;
+                if (stat(bundle_site, &bst) == 0 && S_ISDIR(bst.st_mode)) {
+                    PyObject *res = PyObject_CallMethod(site, "addsitedir", "s", bundle_site);
+                    Py_XDECREF(res);
+                    PyErr_Clear();
+                }
+            }
         }
         Py_DECREF(sys);
         PyErr_Clear();
@@ -350,19 +485,27 @@ static void ps_island_init(void) {
         Py_DECREF(site);
         PyErr_Clear();
     }
+#ifndef PS_ENGINE_PYPY
     PyEval_SaveThread();
+#endif
 }
 
+/* Take the GIL for the island's entry points. The once-guard stops two
+   threads from racing the init itself (the second Py_InitializeEx aborts
+   with "global import state already initialized"; the second
+   `pypy_init_threads` is equally wrong). */
 static void ps_island_ensure(void) {
     pthread_once(&ps_island_once, ps_island_init);
-    PyGILState_Ensure();
+    ps_island_acquire();
 }
 
 /* Leave the island. Release the GIL the entry point took. Failure paths
    release through ps_island_fail before the raise unwinds the thread, so a
    thread that unwinds never leaves the interpreter locked. */
 static void ps_island_done(void) {
+#ifndef PS_ENGINE_PYPY
     PyGILState_Release(PyGILState_UNLOCKED);
+#endif
 }
 
 static int32_t ps_island_exc_code(PyObject *typ) {
@@ -1473,7 +1616,7 @@ static PyObject *ps_island_mod_ns(int64_t n, const char *name, int create) {
             PyErr_Format(PyExc_NameError, "island module %s is not seeded", name);
             goto fail;
         }
-        module = PyImport_AddModuleObject(name_obj);
+        module = ps_island_add_module(name_obj);
         if (module == NULL) {
             goto fail;
         }

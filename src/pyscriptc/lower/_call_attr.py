@@ -46,6 +46,7 @@ from pyscriptc.restlower import (
     _lock_method,
     _mk_iter,
     _queue_method,
+    _selector_method,
     _thread_method,
 )
 from pyscriptc.restlower import method_spec as synth_method
@@ -400,6 +401,8 @@ class CallAttrMixin:
                 "PS2001",
                 f"pyscriptc_ndarray.{node.func.attr} is not in the lowered subset of pyscriptc_ndarray",
             )
+        if kind == "class" and receiver["type"]["name"] == "DefaultSelector":
+            return _selector_method(self, node, span, receiver)
         if kind == "class" and synth_method(receiver["type"]["name"], node.func.attr) is not None:
             return self._synth_call(node, span, receiver)
         if kind == "dict" and node.func.attr == "keys":

@@ -5,6 +5,7 @@
 #include "ps_rt.h"
 
 #include <pthread.h>
+#include <math.h>
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
@@ -16,6 +17,9 @@
 static uint32_t mt[MT_N];
 static int mt_idx = MT_N;
 static int mt_seeded = 0;
+/* The cached second normal of gauss(): reset by every seed, as CPython does. */
+static double gauss_next = 0.0;
+static int gauss_has_next = 0;
 /* CPython's module-level random is one shared instance, so its sequence is
    shared across threads. One mutex keeps the state coherent; interleaved
    draws stay ordered, which is all CPython promises. */
@@ -100,6 +104,7 @@ static void ps_rand_seed_auto_locked(void) {
     key[1] = (uint32_t)(x >> 32);
     mt_init_array(key, 2);
     mt_seeded = 1;
+    gauss_has_next = 0;
 }
 
 static void ps_rand_seed_locked(int64_t v) {
@@ -113,6 +118,7 @@ static void ps_rand_seed_locked(int64_t v) {
     }
     mt_init_array(key, klen);
     mt_seeded = 1;
+    gauss_has_next = 0;
 }
 
 /* The public seeds: the lowerer calls these, so they take the lock. */
@@ -241,4 +247,310 @@ void ps_seq_shuffle(PsSeq *s) {
         memcpy(b, tmp, (size_t)s->elem);
     }
     free(tmp);
+}
+
+/* ---- randbytes: getrandbits(8 * n).to_bytes(n, "little") --------------- */
+
+void ps_rand_bytes(int64_t n, PsBuf *out) {
+    char *q;
+    int64_t i;
+    if (n < 0) {
+        ps_raise_cstr(PS_VALUE, "number of bits must be non-negative");
+    }
+    q = malloc((size_t)n + 1);
+    if (q == NULL) {
+        abort();
+    }
+    pthread_mutex_lock(&ps_rand_lock);
+    if (!mt_seeded) {
+        ps_rand_seed_auto_locked();
+    }
+    for (i = 0; i < n; i += 4) {
+        int64_t take = n - i < 4 ? n - i : 4;
+        uint32_t r = mt_next();
+        int64_t b;
+        if (take < 4) {
+            r >>= 32 - 8 * take;
+        }
+        for (b = 0; b < take; b++) {
+            q[i + b] = (char)((r >> (8 * b)) & 0xffU);
+        }
+    }
+    pthread_mutex_unlock(&ps_rand_lock);
+    q[n] = '\0';
+    out->len = n;
+    out->data = q;
+}
+
+/* ---- choices and sample ------------------------------------------------ */
+
+static void seq_copy_elem(PsSeq *dst, int64_t di, PsSeq *src, int64_t si) {
+    memcpy((char *)dst->data + di * dst->elem, (char *)src->data + si * src->elem, (size_t)src->elem);
+}
+
+static PsSeq *seq_empty_like(PsSeq *pop, int64_t n) {
+    PsSeq *out = ps_seq_new(pop->elem, n);
+    return out;
+}
+
+/* choices(pop, k=k): floor(random() * n) per draw. */
+PsSeq *ps_rand_choices(PsSeq *pop, int64_t k) {
+    int64_t n = pop->len;
+    int64_t i;
+    PsSeq *out;
+    if (k < 0) {
+        k = 0;
+    }
+    out = seq_empty_like(pop, k);
+    for (i = 0; i < k; i++) {
+        int64_t j = (int64_t)floor(ps_rand_f64() * ((double)n + 0.0));
+        if (j < 0 || j >= n) {
+            ps_raise_cstr(PS_INDEX, "list index out of range");
+        }
+        seq_copy_elem(out, i, pop, j);
+    }
+    return out;
+}
+
+/* choices(pop, weights=w, k=k): bisect_right over the cumulative weights.
+   is_float selects the weight cell type (int64 or double). */
+PsSeq *ps_rand_choices_w(PsSeq *pop, PsSeq *weights, int64_t k, int64_t is_float) {
+    int64_t n = pop->len;
+    int64_t i;
+    int64_t hi;
+    double total;
+    double *cum;
+    PsSeq *out;
+    if (weights->len != n) {
+        ps_raise_cstr(PS_VALUE, "The number of weights does not match the population");
+    }
+    if (n == 0) {
+        ps_raise_cstr(PS_INDEX, "list index out of range");
+    }
+    cum = malloc((size_t)n * sizeof(double));
+    if (cum == NULL) {
+        abort();
+    }
+    if (is_float) {
+        double acc = 0.0;
+        for (i = 0; i < n; i++) {
+            acc = i == 0 ? ((double *)weights->data)[0] : acc + ((double *)weights->data)[i];
+            cum[i] = acc;
+        }
+    } else {
+        int64_t acc = 0;
+        for (i = 0; i < n; i++) {
+            acc += ((int64_t *)weights->data)[i];
+            cum[i] = (double)acc;
+        }
+    }
+    total = cum[n - 1] + 0.0;
+    if (total <= 0.0) {
+        free(cum);
+        ps_raise_cstr(PS_VALUE, "Total of weights must be greater than zero");
+    }
+    if (!isfinite(total)) {
+        free(cum);
+        ps_raise_cstr(PS_VALUE, "Total of weights must be finite");
+    }
+    if (k < 0) {
+        k = 0;
+    }
+    hi = n - 1;
+    out = seq_empty_like(pop, k);
+    for (i = 0; i < k; i++) {
+        double x = ps_rand_f64() * total;
+        int64_t lo = 0;
+        int64_t h = hi;
+        while (lo < h) {
+            int64_t mid = (lo + h) / 2;
+            if (x < cum[mid]) {
+                h = mid;
+            } else {
+                lo = mid + 1;
+            }
+        }
+        seq_copy_elem(out, i, pop, lo);
+    }
+    free(cum);
+    return out;
+}
+
+/* sample(pop, k): CPython's pool branch for small populations and the
+   selected-set branch otherwise, so a seeded run draws the same indexes. */
+PsSeq *ps_rand_sample(PsSeq *pop, int64_t k) {
+    int64_t n = pop->len;
+    int64_t i;
+    int64_t setsize = 21;
+    PsSeq *out;
+    if (k < 0 || k > n) {
+        ps_raise_cstr(PS_VALUE, "Sample larger than population or is negative");
+    }
+    if (k > 5) {
+        setsize += (int64_t)pow(4.0, ceil(log((double)(k * 3)) / log(4.0)));
+    }
+    out = seq_empty_like(pop, k);
+    if (n <= setsize) {
+        int64_t *pool = malloc((size_t)(n > 0 ? n : 1) * sizeof(int64_t));
+        if (pool == NULL) {
+            abort();
+        }
+        for (i = 0; i < n; i++) {
+            pool[i] = i;
+        }
+        for (i = 0; i < k; i++) {
+            int64_t j = rand_below(n - i);
+            seq_copy_elem(out, i, pop, pool[j]);
+            pool[j] = pool[n - i - 1];
+        }
+        free(pool);
+    } else {
+        unsigned char *selected = calloc((size_t)n, 1);
+        if (selected == NULL) {
+            abort();
+        }
+        for (i = 0; i < k; i++) {
+            int64_t j = rand_below(n);
+            while (selected[j]) {
+                j = rand_below(n);
+            }
+            selected[j] = 1;
+            seq_copy_elem(out, i, pop, j);
+        }
+        free(selected);
+    }
+    return out;
+}
+
+/* ---- the distribution draws (CPython 3.14 random.py, same libm calls) -- */
+
+#define PS_TWOPI 6.283185307179586
+#define PS_LOG4 1.3862943611198906
+#define PS_NV_MAGICCONST 1.7155277699214135
+#define PS_SG_MAGICCONST 2.504077396776274
+
+double ps_rand_normalvariate(double mu, double sigma) {
+    double z;
+    for (;;) {
+        double u1 = ps_rand_f64();
+        double u2 = 1.0 - ps_rand_f64();
+        double zz;
+        z = PS_NV_MAGICCONST * (u1 - 0.5) / u2;
+        zz = z * z / 4.0;
+        if (zz <= -log(u2)) {
+            break;
+        }
+    }
+    return mu + z * sigma;
+}
+
+double ps_rand_gauss(double mu, double sigma) {
+    double z;
+    int have;
+    pthread_mutex_lock(&ps_rand_lock);
+    have = gauss_has_next;
+    z = gauss_next;
+    gauss_has_next = 0;
+    pthread_mutex_unlock(&ps_rand_lock);
+    if (!have) {
+        double x2pi = ps_rand_f64() * PS_TWOPI;
+        double g2rad = sqrt(-2.0 * log(1.0 - ps_rand_f64()));
+        z = cos(x2pi) * g2rad;
+        pthread_mutex_lock(&ps_rand_lock);
+        gauss_next = sin(x2pi) * g2rad;
+        gauss_has_next = 1;
+        pthread_mutex_unlock(&ps_rand_lock);
+    }
+    return mu + z * sigma;
+}
+
+double ps_rand_lognormvariate(double mu, double sigma) { return exp(ps_rand_normalvariate(mu, sigma)); }
+
+double ps_rand_expovariate(double lambd) {
+    double u = ps_rand_f64();
+    if (lambd == 0.0) {
+        ps_raise_cstr(PS_ZERO_DIV, "division by zero");
+    }
+    return -log(1.0 - u) / lambd;
+}
+
+double ps_rand_triangular(double low, double high, double mode, int64_t has_mode) {
+    double u = ps_rand_f64();
+    double c = 0.5;
+    if (has_mode) {
+        if (high - low == 0.0) {
+            return low;
+        }
+        c = (mode - low) / (high - low);
+    }
+    if (u > c) {
+        double t = low;
+        u = 1.0 - u;
+        c = 1.0 - c;
+        low = high;
+        high = t;
+    }
+    return low + (high - low) * sqrt(u * c);
+}
+
+double ps_rand_gammavariate(double alpha, double beta) {
+    if (alpha <= 0.0 || beta <= 0.0) {
+        ps_raise_cstr(PS_VALUE, "gammavariate: alpha and beta must be > 0.0");
+    }
+    if (alpha > 1.0) {
+        double ainv = sqrt(2.0 * alpha - 1.0);
+        double bbb = alpha - PS_LOG4;
+        double ccc = alpha + ainv;
+        for (;;) {
+            double u1 = ps_rand_f64();
+            double u2;
+            double v;
+            double x;
+            double z;
+            double r;
+            if (!(1e-7 < u1 && u1 < 0.9999999)) {
+                continue;
+            }
+            u2 = 1.0 - ps_rand_f64();
+            v = log(u1 / (1.0 - u1)) / ainv;
+            x = alpha * exp(v);
+            z = u1 * u1 * u2;
+            r = bbb + ccc * v - x;
+            if (r + PS_SG_MAGICCONST - 4.5 * z >= 0.0 || r >= log(z)) {
+                return x * beta;
+            }
+        }
+    } else if (alpha == 1.0) {
+        return -log(1.0 - ps_rand_f64()) * beta;
+    } else {
+        double x;
+        for (;;) {
+            double u = ps_rand_f64();
+            double b = (2.718281828459045 + alpha) / 2.718281828459045;
+            double p = b * u;
+            double u1;
+            if (p <= 1.0) {
+                x = pow(p, 1.0 / alpha);
+            } else {
+                x = -log((b - p) / alpha);
+            }
+            u1 = ps_rand_f64();
+            if (p > 1.0) {
+                if (u1 <= pow(x, alpha - 1.0)) {
+                    break;
+                }
+            } else if (u1 <= exp(-x)) {
+                break;
+            }
+        }
+        return x * beta;
+    }
+}
+
+double ps_rand_betavariate(double alpha, double beta) {
+    double y = ps_rand_gammavariate(alpha, 1.0);
+    if (y != 0.0) {
+        return y / (y + ps_rand_gammavariate(beta, 1.0));
+    }
+    return 0.0;
 }

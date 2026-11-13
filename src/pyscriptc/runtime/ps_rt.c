@@ -2207,6 +2207,109 @@ int64_t ps_math_floor(double x) { return ps_double_to_i64(floor(x)); }
 int64_t ps_math_ceil(double x) { return ps_double_to_i64(ceil(x)); }
 int64_t ps_math_trunc(double x) { return ps_double_to_i64(trunc(x)); }
 
+double ps_math_asin(double x) {
+    if (isnan(x)) {
+        return x;
+    }
+    if (x < -1.0 || x > 1.0) {
+        ps_raise_cstr(PS_VALUE, "expected a number in range from -1 up to 1");
+    }
+    return asin(x);
+}
+
+double ps_math_acos(double x) {
+    if (isnan(x)) {
+        return x;
+    }
+    if (x < -1.0 || x > 1.0) {
+        ps_raise_cstr(PS_VALUE, "expected a number in range from -1 up to 1");
+    }
+    return acos(x);
+}
+
+double ps_math_atan(double x) { return atan(x); }
+
+static double ps_hyperbolic(double x, double (*fn)(double)) {
+    double r = fn(x);
+    if (isfinite(x) && isinf(r)) {
+        ps_raise_cstr(PS_OVERFLOW, "math range error");
+    }
+    return r;
+}
+
+double ps_math_sinh(double x) { return ps_hyperbolic(x, sinh); }
+double ps_math_cosh(double x) { return ps_hyperbolic(x, cosh); }
+double ps_math_tanh(double x) { return tanh(x); }
+double ps_math_asinh(double x) { return asinh(x); }
+
+double ps_math_acosh(double x) {
+    if (isnan(x)) {
+        return x;
+    }
+    if (x < 1.0) {
+        ps_raise_cstr(PS_VALUE, "expected argument value not less than 1");
+    }
+    return acosh(x);
+}
+
+double ps_math_atanh(double x) {
+    if (isnan(x)) {
+        return x;
+    }
+    if (x <= -1.0 || x >= 1.0) {
+        ps_raise_cstr(PS_VALUE, "expected a number between -1 and 1");
+    }
+    return atanh(x);
+}
+
+double ps_math_degrees(double x) { return x * (180.0 / 3.14159265358979323846); }
+double ps_math_radians(double x) { return x * (3.14159265358979323846 / 180.0); }
+
+double ps_math_fmod(double x, double y) {
+    if (isnan(y)) {
+        return y;
+    }
+    if (isinf(x) || y == 0.0) {
+        ps_raise_cstr(PS_VALUE, "math domain error");
+    }
+    return fmod(x, y);
+}
+
+int64_t ps_math_factorial(int64_t n) {
+    if (n < 0) {
+        ps_raise_cstr(PS_VALUE, "factorial() not defined for negative values");
+    }
+    uint64_t acc = 1;
+    for (int64_t i = 2; i <= n; i++) {
+        uint64_t next = acc * (uint64_t)i;
+        if (next / (uint64_t)i != acc) {
+            ps_raise_cstr(PS_OVERFLOW, "Python int too large to convert to C long");
+        }
+        acc = next;
+    }
+    return (int64_t)acc;
+}
+
+int64_t ps_math_lcm(int64_t a, int64_t b) {
+    uint64_t ua = a < 0 ? 0 - (uint64_t)a : (uint64_t)a;
+    uint64_t ub = b < 0 ? 0 - (uint64_t)b : (uint64_t)b;
+    if (ua == 0 || ub == 0) {
+        return 0;
+    }
+    uint64_t x = ua;
+    uint64_t y = ub;
+    while (y != 0) {
+        uint64_t t = x % y;
+        x = y;
+        y = t;
+    }
+    uint64_t prod = (ua / x) * ub;
+    if (prod > (uint64_t)INT64_MAX) {
+        ps_raise_cstr(PS_OVERFLOW, "Python int too large to convert to C long");
+    }
+    return (int64_t)prod;
+}
+
 double ps_math_sqrt(double x) {
     if (isnan(x)) {
         return x;

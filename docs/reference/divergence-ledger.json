@@ -486,7 +486,7 @@
     },
     {
       "id": "D29",
-      "seam": "socket, ssl, http.client, http.server and selectors do not compile (PS2001)",
+      "seam": "socket, ssl, http.client and http.server do not compile (PS2001)",
       "listed": true,
       "docs": "docs/reference/divergences.md#29",
       "probe": "probes/divergences/d29_socket.py",
@@ -915,7 +915,7 @@
       "status": "divergent"
     },
     {
-      "id": "D55",
+      "id": "D64",
       "seam": "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view",
       "listed": true,
       "docs": "docs/reference/divergences.md#55",
@@ -924,6 +924,157 @@
       "cpython": null,
       "pyscriptc": null,
       "status": "unprobed"
+    },
+    {
+      "id": "D56",
+      "seam": "the binascii subset covers unhexlify and hexlify; every other name is refused",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#56",
+      "probe": "probes/divergences/d56_binascii.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "<class 'binascii.Error'>\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d56_binascii.py:3:7: PS2001: binascii.Error is not in the lowered subset of binascii\n  print(binascii.Error)\n        ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D57",
+      "seam": "the shlex subset covers split, quote and join; the shlex class and modes are refused",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#57",
+      "probe": "probes/divergences/d57_shlex.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "<class 'shlex.shlex'>\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d57_shlex.py:3:7: PS2001: shlex.shlex is not in the lowered subset of shlex\n  print(shlex.shlex)\n        ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D58",
+      "seam": "the secrets subset covers token_hex, token_bytes and randbelow; every other name is refused",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#58",
+      "probe": "probes/divergences/d58_secrets.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "token_urlsafe\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d58_secrets.py:3:7: PS2001: secrets.token_urlsafe.__name__ is not in the lowered subset of secrets\n  print(secrets.token_urlsafe.__name__)\n        ^\n"
+      },
+      "status": "fenced"
+    },
+    {
+      "id": "D59",
+      "seam": "the island plan is conservative past the module that forced it: untyped imports demote the whole module top level and, transitively through calls, every function naming them",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#59",
+      "probe": null,
+      "note": "needs a multi-module package shape, which single-file probes do not cover",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D60",
+      "seam": "math.factorial(n) is an i64 overflow past 20 instead of growing a big int",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#60",
+      "probe": "probes/divergences/d60_factorial_overflow.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2432902008176640000\n51090942171709440000\nValueError\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2432902008176640000\nOverflowError\nValueError\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D61",
+      "seam": "float text output is shortest-round-trip without CPython's fixed-exponent rule: 180.0 prints as 1.8e+02",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#61",
+      "probe": "probes/divergences/d61_float_print.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "180.0\n57.29577951308232\n1.1752011936438014\n485165195.4097903\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1.8e+02\n57.29577951308232\n1.1752011936438014\n485165195.4097903\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D62",
+      "seam": "struct.calcsize and struct.unpack_from need a literal format with an explicit byte-order prefix; a short buffer raises ValueError, not struct.error",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#62",
+      "probe": "probes/divergences/d62_struct_unpack_from.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d62_struct_unpack_from.py\", line 4, in <module>\n    head: list[int] = struct.unpack_from(\"<I\", data)\n                      ~~~~~~~~~~~~~~~~~~^^^^^^^^^^^^\nstruct.error: unpack_from requires a buffer of at least 4 bytes for unpacking 4 bytes at offset 0 (actual buffer size is 2)\n"
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "ValueError: struct.unpack_from buffer is too small\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D63",
+      "seam": "the random subset is a CPython-compatible Mersenne Twister; the Random class and rarer draws are refused",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#63",
+      "probe": "probes/divergences/d63_random.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "vonmisesvariate\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d63_random.py:3:7: PS2001: random.vonmisesvariate.__name__ is not in the lowered subset of random\n  print(random.vonmisesvariate.__name__)\n        ^\n"
+      },
+      "status": "fenced"
     },
     {
       "id": "AUDIT-D1",

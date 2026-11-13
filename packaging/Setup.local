@@ -1,0 +1,48 @@
+# Curated builtin extension list for the static island interpreter (#672).
+#
+# This file is copied to Modules/Setup.local of the pinned CPython source
+# tree by `scripts/build_static_cpython.py` before configure runs. Modules
+# listed here are compiled into libpython instead of being built as shared
+# objects under lib-dynload, which is what makes a single-file
+# `--disable-shared` island binary possible: a default source build ships
+# `math` (and friends) as `.so` files, and an island binary run without the
+# build tree fails with "No module named 'math'".
+#
+# Semantics (Modules/makesetup): the first rule for a module wins and later
+# rules are skipped with a warning, so a `*static*` block here overrides the
+# shared builds that Modules/Setup.stdlib would otherwise generate. The flag
+# variables (`MODULE_<NAME>_CFLAGS`/`_LDFLAGS`) are resolved from the Makefile
+# configure generated, so `-lm` (math, cmath, _statistics, _datetime),
+# `$SOCKET_LIBS` (_socket) and `$TIMEMODULE_LIB` (time) are carried over —
+# each becomes a `LIBS` entry of the static link.
+#
+# Selection rule: every extension the island runtime's import closure can
+# hit on a desktop/server target, and nothing that drags in an external
+# library we would then have to ship or statically link twice. That means:
+# no _ssl/_hashlib (OpenSSL), no _sqlite3, no readline, no curses, no
+# _ctypes (libffi), no zlib/bz2/lzma/zstd (a stored stdlib zip needs no
+# zlib, per the embedding plan; the pure `zlib`/`gzip` modules import but
+# their compression backends stay missing, see the doc's divergence note).
+# Add a row here only with a differential probe and a note in the PR; the
+# list is intentionally short.
+#
+# Format: one `*static*` block, one module per line (name, source files under
+# Modules/). See Modules/Setup.stdlib.in for the full catalogue of buildable
+# modules and their flag requirements; this list tracks it per pinned micro.
+*static*
+array arraymodule.c
+binascii binascii.c
+cmath cmathmodule.c
+math mathmodule.c
+_statistics _statisticsmodule.c
+_datetime _datetimemodule.c
+_bisect _bisectmodule.c
+_heapq _heapqmodule.c
+_json _json.c
+_pickle _pickle.c
+_random _randommodule.c
+_struct _struct.c
+_zoneinfo _zoneinfo.c
+_socket socketmodule.c
+select selectmodule.c
+unicodedata unicodedata.c
