@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import sys
+import time
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -17,6 +18,8 @@ from pyscriptc.log import get_logger, tail
 
 if TYPE_CHECKING:
     import argparse
+
+    from pyscriptc.engine_manifest import EngineManifest
 
 log = get_logger()
 
@@ -45,13 +48,267 @@ def coverage_cmd(args: argparse.Namespace) -> int:
     return 0
 
 
+def _family_fences(by_family: dict[str, dict[str, int]]) -> dict[str, int]:
+    """The fence count of every family row in a coverage summary."""
+
+    return {family: row["fences"] for family, row in by_family.items()}
+
+
+def _fence_deltas(base: dict[str, int], inferred: dict[str, int]) -> dict[str, dict[str, int]]:
+    """Per-key fence counts, baseline against inferred, with the delta.
+
+    The coverage report keys its fences two ways: `byFamily` (a family row
+    with a `fences` count) and `byCode` (a bare count). Both are keyed the
+    same way here, so a run answers "how much does inference help
+    `param-inference` fences specifically" without a second pass. A key
+    missing from one side counts as zero, so a family that disappears
+    under inference reads as a negative delta rather than vanishing.
+    """
+
+    deltas: dict[str, dict[str, int]] = {}
+    keys: list[str] = []
+    for key in base:
+        keys.append(key)
+    for key in inferred:
+        if key not in base:
+            keys.append(key)
+    for key in sorted(keys):
+        base_count = base.get(key, 0)
+        inferred_count = inferred.get(key, 0)
+        deltas[key] = {
+            "baseline": base_count,
+            "inferred": inferred_count,
+            "delta": inferred_count - base_count,
+        }
+    return deltas
+
+
+def infer_cmd(args: argparse.Namespace) -> int:
+    """`pyscriptc infer`: what the checker proves for a package, and what lowering gains.
+
+    The command is a report first: it runs the checker over the tree,
+    reduces the call sites to the pins every caller agrees on, lowers
+    with the pins and the bridge applied, and prints the per-lever delta
+    (native definitions with and without inference). `--overlay` writes
+    the accepted annotations as a sidecar; the report never edits the
+    source.
+    """
+    from pyscriptc.coverage import build_report
+    from pyscriptc.inferrunner import build_facts
+
+    source = Path(args.source)
+    own = args.bridge == "own"
+    started = time.perf_counter()
+    if own:
+        from pyscriptc.owninfer import build_own_result
+
+        result = build_own_result(source)
+        facts = result.facts
+        facts_by_file = result.per_file
+        pinned_seconds = 0.0
+    else:
+        facts = build_facts(source)
+    fact_seconds = time.perf_counter() - started
+
+    # Baseline: the package as it lowers today, no inference.
+    started = time.perf_counter()
+    base_report = build_report(source)
+    base_seconds = time.perf_counter() - started
+    base_summary = base_report["summary"]
+
+    # With inference: the pins lower through `_checker_pin_type`, the
+    # bridge (per file) proves returns and locals the checker types. The
+    # bridge facts come from a pinned re-check: the checker's own return
+    # inference reads the pinned parameters, so its answer is consistent
+    # with what the lowerer will apply.
+    from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
+    from pyscriptc.inferrunner import facts_as_pins, pinned_facts
+    from pyscriptc.lower import _record_kind
+
+    pin_map = facts_as_pins(facts)
+    if own:
+        provider = BridgeProvider("own", strict=False, pins=pin_map, pinned=facts_by_file)
+    else:
+        started = time.perf_counter()
+        facts_by_file = pinned_facts(source, facts)
+        pinned_seconds = time.perf_counter() - started
+
+        class _ProviderWithPins(BridgeProvider):
+            def for_file(self, path: Path):  # noqa: ANN202 - matches the base shape
+                found = facts_by_file.get(path.resolve())
+                if found is not None:
+                    bridge = CheckerBridge(found, provider.records)
+                else:
+                    bridge = super().for_file(path)
+                bridge.call_site_facts = pin_map
+                return bridge
+
+        provider = _ProviderWithPins(args.bridge, strict=False)
+    # The pyrefly arm's shared `tsp` server serves the whole tree: the
+    # per-file bridge builds reuse it instead of spawning a server per
+    # file. The own arm has no server; `open` is a no-op there.
+    provider.open()
+    try:
+        started = time.perf_counter()
+        inferred_report = build_report(source, bridge=provider)
+        infer_seconds = time.perf_counter() - started
+    finally:
+        provider.close()
+    inferred_summary = inferred_report["summary"]
+
+    # The records the lowerer accepted, gathered through the provider.
+    # The catalog passes lower a unit more than once, so the same fact is
+    # recorded per pass; dedupe by the record's identity.
+    seen_records: set[tuple[Any, ...]] = set()
+    records = []
+    for record in provider.records:
+        key = (_record_kind(record), record["module"], record["name"], record["type"])
+        if key in seen_records:
+            continue
+        seen_records.add(key)
+        records.append(record)
+    pins = facts.pins
+    summary = {
+        "source": str(source),
+        "provider": facts.provider,
+        "checker_seconds": round(fact_seconds, 2),
+        "pinned_facts_seconds": round(pinned_seconds, 2),
+        "baseline_seconds": round(base_seconds, 2),
+        "inferred_seconds": round(infer_seconds, 2),
+        "pins": facts.pin_summary(),
+        "native_baseline": base_summary["nativeDefinitions"],
+        "native_inferred": inferred_summary["nativeDefinitions"],
+        "native_delta": inferred_summary["nativeDefinitions"] - base_summary["nativeDefinitions"],
+        "fences_baseline": base_summary["fences"],
+        "fences_inferred": inferred_summary["fences"],
+        "fences_delta": inferred_summary["fences"] - base_summary["fences"],
+        "fences_by_family": _fence_deltas(
+            _family_fences(base_summary["byFamily"]), _family_fences(inferred_summary["byFamily"])
+        ),
+        "fences_by_code": _fence_deltas(base_summary["byCode"], inferred_summary["byCode"]),
+        "definitions": base_summary["definitions"],
+        "pinned_params": sorted({f"{callee}.{param}" for callee, param in pins}),
+        "records": len(records),
+        "records_detail": records,
+    }
+    if args.overlay:
+        lines = ["# pyscriptc inferred overlay: checker-proved, package-wide pins."]
+        lines.append("# Apply by hand; a pin the checker proved at every call site is sound")
+        lines.append("# only while those call sites stay the same.")
+        for callee, param in sorted(pins):
+            pin = pins[(callee, param)]
+            lines.append(f"# {callee}: {param}: {pin.kind} ({pin.sites} call site(s))")
+        Path(args.overlay).write_text("\n".join(lines) + "\n", encoding="utf-8")
+        summary["overlay"] = args.overlay
+    if args.json:
+        print(json.dumps(summary, indent=2))
+        return 0
+    print(f"source: {summary['source']}")
+    print(f"provider: {summary['provider']} ({summary['checker_seconds']:.2f}s to collect facts)")
+    print(f"call sites resolved: {summary['pins']['call_sites']}")
+    print(f"parameters pinned: {summary['pins']['pinned_params']}")
+    print(
+        f"native definitions: {summary['native_baseline']} -> {summary['native_inferred']}"
+        f" ({summary['native_delta']:+d}) of {summary['definitions']}"
+    )
+    print(f"fences: {summary['fences_baseline']} -> {summary['fences_inferred']} ({summary['fences_delta']:+d})")
+    if summary["pinned_params"]:
+        print("pinned parameters:")
+        for item in summary["pinned_params"]:
+            print(f"  {item}")
+    return 0
+
+
+def _engine_selection(args: argparse.Namespace, config: Any) -> str | None:
+    """The engine selection for a report command: explicit flag, then config."""
+    flag = getattr(args, "island_engine", None)
+    if flag:
+        return flag
+    try:
+        return config.island_engine()
+    except Exception:
+        return None
+
+
+def _resolve_manifest(source: Path, engine: str | None) -> EngineManifest | None:
+    """The capability manifest of the selected engine, or None without one.
+
+    Reads the  key of the engine descriptor (a JSON path, relative
+    to the descriptor file); a bare  has no
+    descriptor file and therefore no manifest. An engine that does not
+    resolve is not a report failure (the manifest is additive); a manifest
+    that does not parse warns and falls back to native-only.
+    """
+    if not engine or engine == "cpython":
+        return None
+    from pyscriptc import engine_manifest, island_engine
+
+    try:
+        descriptor = island_engine.resolve(engine)
+    except island_engine.EngineError:
+        return None
+    manifest_ref = descriptor.manifest
+    if not isinstance(manifest_ref, str) or not manifest_ref.strip():
+        return None
+    manifest_path = Path(manifest_ref)
+    if not manifest_path.is_absolute() and descriptor.path is not None:
+        manifest_path = descriptor.path.parent / manifest_path
+    try:
+        return engine_manifest.load_manifest_file(manifest_path)
+    except engine_manifest.ManifestError as exc:
+        print(f"warning: {exc}", file=sys.stderr)
+        return None
+
+
+def _annotate_with_manifest(report: dict[str, Any], manifest: EngineManifest) -> None:
+    """Additive per-import engine availability against a manifest (issue #669).
+
+    Unknown stdlib names (third party) stay : existence in the
+    manifest is not loadability, packages need their own wheel/ABI check.
+    """
+    rows = report.get("imports")
+    if not isinstance(rows, list):
+        return
+    for item in rows:
+        if not isinstance(item, dict):
+            continue
+        name = item.get("name")
+        if not isinstance(name, str) or not name:
+            continue
+        root = name.split(".")[0]
+        item["engine"] = {"stdlib": manifest.stdlib_status(root)}
+
+
+def _engine_note(manifest: EngineManifest) -> str:
+    """One-line engine capability note for text reports."""
+    stdlib = manifest.stdlib_available
+    missing = manifest.stdlib_missing
+    return (
+        f"engine: {manifest.name} {manifest.version} "
+        f"(python {manifest.language_level}, platform {manifest.platform}, "
+        f"stdlib {len(stdlib)} available, {len(missing)} missing)"
+    )
+
+
 def imports_cmd(args: argparse.Namespace) -> int:
     _cli()._load_compiler()
     source = Path(args.source)
     config = load_config(source)
+    engine = _engine_selection(args, config)
+    manifest = _resolve_manifest(source, engine)
     report = _cli().build_import_report(source, policy=config.imports)
+    if manifest is not None:
+        _annotate_with_manifest(report, manifest)
     log.info("imports.report", source=args.source)
-    print(json.dumps(report, indent=2) if args.json else _cli().render_import_text(report))
+    if args.json:
+        if manifest is not None:
+            report["engine"] = manifest.as_dict()
+        print(json.dumps(report, indent=2))
+    else:
+        text = _cli().render_import_text(report)
+        if manifest is not None:
+            text = text + "\n" + _engine_note(manifest)
+        print(text)
     if args.reach:
         payload = _cli().export_reach(report, Path(args.reach))
         share = payload["boxed_only_reach"][-1]
@@ -112,9 +369,12 @@ def _scripts_of(source: Path) -> dict[str, str]:
 
     from pyscriptc import project
 
+    pyproject: Path | None = None
     try:
         pyproject = project.discover_pyproject(source)
     except project.ProjectError:
+        return {}
+    if pyproject is None:
         return {}
     try:
         return entry_points(pyproject)

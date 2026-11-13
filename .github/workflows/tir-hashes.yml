@@ -1,0 +1,64 @@
+name: tir-hashes
+
+# TIR_HASHES.json is the streaming canonicity gate (same 13,692 probes as the
+# dict-IR gate; see .agents/plans/decisions/2026-11-02-tir-gate-streaming-serializer.md).
+# Like canonical IR it folds host constants, so TIR_HASHES.json is only valid
+# when generated on Linux. Not a required check, matching ir-hashes.yml
+# (issue #830 P1 prerequisite).
+#
+# generate (workflow_dispatch): two runs (A, B), fails unless byte-identical,
+# uploads the file as the `tir-hashes` artifact. Copy it to
+# benchmarks/compat2/probes/TIR_HASHES.json to regenerate the baseline.
+# compare (pull_request): fails on any diff against the committed baseline.
+# The baseline header carries the oracle stamp (cpython-3.14.9 today), so a
+# runner micro bump reports exit 2 (stale header): regenerate then.
+#
+# The compare and generate steps run the raw commands, not `mise run <task>`,
+# for the same reason as ci.yml and ir-hashes.yml: the mise uv pin (`latest`)
+# would drop the `>= 0.13.4` uv floor this workflow holds. The compare command
+# is the one the `tir:hashes` task wraps.
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "src/pyscriptc/**"
+      - "benchmarks/compat2/probes/**"
+      - "benchmarks/compat2/tirscore.py"
+      - ".github/workflows/tir-hashes.yml"
+
+jobs:
+  tir-hashes:
+    name: tir hashes (${{ github.event_name == 'pull_request' && 'compare' || 'generate' }})
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"
+          enable-cache: true
+          python-version: "3.14"
+      - run: uv python install 3.14.9
+      - run: uv sync --frozen
+      - name: oracle is CPython 3.14.9
+        run: uv run python -c "import sys; assert sys.version_info[:3] == (3, 14, 9), sys.version"
+      - name: compare against committed baseline
+        if: github.event_name == 'pull_request'
+        run: uv run python -m benchmarks.compat2.tirscore benchmarks/compat2/probes --baseline benchmarks/compat2/probes/TIR_HASHES.json
+      - name: generate A and B
+        if: github.event_name != 'pull_request'
+        run: |
+          set -euo pipefail
+          uv run python -m benchmarks.compat2.tirscore benchmarks/compat2/probes --out "$RUNNER_TEMP/A.json"
+          uv run python -m benchmarks.compat2.tirscore benchmarks/compat2/probes --out "$RUNNER_TEMP/B.json"
+          cmp "$RUNNER_TEMP/A.json" "$RUNNER_TEMP/B.json"
+          cp "$RUNNER_TEMP/A.json" TIR_HASHES.json
+          head -5 TIR_HASHES.json
+      - name: upload
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@v4
+        with:
+          name: tir-hashes
+          path: TIR_HASHES.json
+          if-no-files-found: error

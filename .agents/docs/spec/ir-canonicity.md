@@ -118,7 +118,7 @@ Hash the canonical module as `json.dumps(canonical, sort_keys=True, separators=(
 
 ## 7. PROPOSED (2026-11-02, pending owner sign-off): the streaming canonical serializer and the TIR gate
 
-This section is the spec the draft recorded decision `.agents/plans/decisions/2026-11-02-tir-gate-streaming-serializer.md` points at. Nothing in sections 1-6 changes: `canonical.py` is frozen, `IR_HASHES.json` and `irscore.py` keep running, and the new gate is added beside them. Retirement of the old gate is the R5 decision, not this one.
+This section is the spec the draft recorded decision `.agents/plans/decisions/2026-11-02-tir-gate-streaming-serializer.md` points at. Nothing in sections 1-6 changes: `canonical.py` is frozen, `IR_HASHES.json` and `irscore.py` keep running, and the new gate is added beside them. Retirement of the old gate is the R5 decision, not this one; it is tracked in issue #830 and the retirement plan rides in open PRs #980 and #973 (not yet on master).
 
 ### 7.1 The serializer
 
@@ -149,7 +149,7 @@ Format (mirrors `IR_HASHES.json`'s header discipline):
 
 ### 7.4 The regen ritual (inherited unchanged)
 
-Exactly the 2026-10-22 ritual (`benchmarks/compat2/irscore.py` and note `.agents/notes/2026-10-22-ir-hashes-regen.md`), with `tirscore` in place of `irscore`: two independent runs A and B (`uv run python -m benchmarks.compat2.tirscore benchmarks/compat2/probes --out A.json`, then B), `cmp A B` must be byte-identical, then one copy lands in `probes/TIR_HASHES.json`. Generated on Linux only (ubuntu-24.04, CPython 3.14.x); never by hand on macOS, because canonical IR folds host constants and the macOS baseline differs by hundreds of hashes. Header mismatch (exit 2) means regenerate, never hand-edit.
+Exactly the 2026-10-22 ritual (`benchmarks/compat2/irscore.py` and note `.agents/notes/decisions-and-platform.md` (the IR_HASHES regeneration platform decision)), with `tirscore` in place of `irscore`: two independent runs A and B (`uv run python -m benchmarks.compat2.tirscore benchmarks/compat2/probes --out A.json`, then B), `cmp A B` must be byte-identical, then one copy lands in `probes/TIR_HASHES.json`. Generated on Linux only (ubuntu-24.04, CPython 3.14.x); never by hand on macOS, because canonical IR folds host constants and the macOS baseline differs by hundreds of hashes. Header mismatch (exit 2) means regenerate, never hand-edit.
 
 ### 7.5 The Stage-2 fixed-point lane
 

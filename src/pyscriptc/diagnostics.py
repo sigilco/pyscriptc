@@ -163,10 +163,28 @@ _ENTRIES = (
         "or use PEP 695 generics instead of metaclass synthesis.",
     ),
     Diagnostic(
+        "PS3099",
+        "decorator erased",
+        (
+            "A class decorator other than `@dataclass`, or a method/function decorator outside the closed set "
+            "that does not synthesize behavior, compiles as erased: the definition lowers undecorated and the "
+            "wrap never runs, where CPython applies the decorator to the object (or replaces the name). The "
+            "compile prints a note and succeeds; the binary keeps the definition's own behavior. A decorator "
+            "stack that carries a behavior-synthesizing member (`functools.lru_cache`, `cache`, `wraps`, "
+            "`singledispatchmethod`) keeps its fence instead: the erase would drop the synthesis with it."
+        ),
+        (
+            "Remove the decorator, or apply what it does explicitly after the definition. Under "
+            "`--fallback=cpython` the decorated definition runs through embedded CPython with the decorator applied."
+        ),
+    ),
+    Diagnostic(
         "PS1204",
         "class body statement",
-        "A class body holds only annotated fields without values and method definitions.",
-        "Move assignments into __init__ and declare fields with an annotation only.",
+        "A class body holds only annotated fields without values, method definitions, "
+        "assignments whose value has a runtime form (a call, a container, a comprehension, "
+        "a name bound at module scope), and assignments whose value folds to a constant.",
+        "Move an assignment the compiler cannot compute into __init__, or declare the field with an annotation only.",
     ),
     Diagnostic(
         "PS1205",
@@ -429,6 +447,21 @@ _ENTRIES = (
         "does not fit",
         "The emitted program exceeds a fixed limit of the backend.",
         "Reduce the offending size or count.",
+    ),
+    Diagnostic(
+        "PS4303",
+        "the engine's language level refuses this syntax",
+        (
+            "The island engine selected for this build implements an older "
+            "language level than the compiler targets (PyPy 3.11 has no PEP 649 "
+            "deferred annotations, no PEP 695 type parameter lists, no PEP 750 "
+            "t-strings and no PEP 758 `except A, B:`), so the construct cannot "
+            "run on that engine."
+        ),
+        (
+            "Rewrite the construct in syntax the engine's level has, or build "
+            "the program against the embedded CPython engine."
+        ),
     ),
     Diagnostic(
         "PS3101",

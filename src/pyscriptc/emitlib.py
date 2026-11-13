@@ -258,8 +258,8 @@ def build_library(
         detail = (proc.stderr or proc.stdout).strip()
         raise IRError(f"archiving the mobile library failed: {detail}")
 
-    header.write_text(render_header(), encoding="utf-8")
-    modulemap.write_text(render_modulemap(), encoding="utf-8")
+    header.write_text(render_header())
+    modulemap.write_text(render_modulemap())
     return {"archive": archive, "header": header, "modulemap": modulemap}
 
 

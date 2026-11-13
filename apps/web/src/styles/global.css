@@ -106,22 +106,32 @@ body {
 }
 
 /* Mesh vignette: dims the kinetic package words behind the hero copy zone so
-   the backdrop lens is reinforcement, not the only separation layer. */
+   the backdrop lens is reinforcement, not the only separation layer. The mask
+   keeps words fully lit above the copy zone but fades them to nothing lower
+   down, so nothing glows across the CTA row. */
 .mesh-vignette {
-  -webkit-mask-image: radial-gradient(
-    58% 52% at 30% 42%,
-    transparent 0%,
-    rgba(0, 0, 0, 0.35) 38%,
-    rgba(0, 0, 0, 0.85) 66%,
-    #000 100%
+  -webkit-mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.55) 0%,
+    #000 32%,
+    #000 58%,
+    rgba(0, 0, 0, 0.45) 72%,
+    transparent 86%
   );
-  mask-image: radial-gradient(
-    58% 52% at 30% 42%,
-    transparent 0%,
-    rgba(0, 0, 0, 0.35) 38%,
-    rgba(0, 0, 0, 0.85) 66%,
-    #000 100%
+  mask-image: linear-gradient(
+    to bottom,
+    rgba(0, 0, 0, 0.55) 0%,
+    #000 32%,
+    #000 58%,
+    rgba(0, 0, 0, 0.45) 72%,
+    transparent 86%
   );
+}
+
+/* Scrim behind the hero CTA row: a near-solid wash of --color-bg-base (no new
+   color) so both buttons keep AA contrast even when words drift behind them. */
+.hero-cta-scrim {
+  background: color-mix(in srgb, var(--color-bg-base) 78%, transparent);
 }
 
 @media (prefers-reduced-motion: reduce) {

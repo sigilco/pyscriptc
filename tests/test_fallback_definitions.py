@@ -657,7 +657,7 @@ def test_fallback_island_class_plane_map(tmp_path: Path) -> None:
         """import dataclasses
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(order=True)
 class Point:
     x: int
     y: int
@@ -702,7 +702,7 @@ if __name__ == "__main__":
     assert summary["fallback"]["classes"]["Point"] == "island"
     assert summary["fallback"]["classes"]["Pair"] == "native"
     module = json.loads((tmp_path / "planes.ir.json").read_text(encoding="utf-8"))
-    assert "@dataclasses.dataclass(frozen=True, slots=True)" in module["islandSource"]
+    assert "@dataclasses.dataclass(order=True)" in module["islandSource"]
 
 
 def test_fallback_island_class_total_ordering(tmp_path: Path) -> None:
@@ -742,7 +742,7 @@ def test_fallback_island_class_dataclass_unusual_args(tmp_path: Path) -> None:
     source_text = """import dataclasses
 
 
-@dataclasses.dataclass(frozen=True, slots=True)
+@dataclasses.dataclass(order=True)
 class Point:
     x: int
     y: int
@@ -752,17 +752,18 @@ def main() -> None:
     p = Point(10, 20)
     print(p.x, p.y)
     print(p)
-    p.x = 5
+    print(p < Point(11, 0))
 
 
 if __name__ == "__main__":
     main()
 """
     native, cpython = _compile_and_compare(tmp_path, source_text, name="frozen_dc")
-    # The frozen write raises CPython's FrozenInstanceError on the island.
-    assert cpython.returncode != 0
-    assert native.returncode != 0
-    assert native.stdout == cpython.stdout == "10 20\nPoint(x=10, y=20)\n"
+    # `order=True` is still outside the native dataclass form (frozen and
+    # slots lower natively since #815), so the class runs island-side.
+    assert cpython.returncode == 0, cpython.stderr
+    assert native.returncode == 0, native.stderr
+    assert native.stdout == cpython.stdout == "10 20\nPoint(x=10, y=20)\nTrue\n"
 
 
 def test_fallback_island_class_method_body_fence(tmp_path: Path) -> None:
@@ -906,6 +907,84 @@ if __name__ == "__main__":
     assert cpython.returncode == 0, cpython.stderr
     assert native.stdout == cpython.stdout
     assert native.stdout == "UTC\n"
+
+
+def test_fallback_island_top_level_demoted_by_names_the_fence(tmp_path: Path) -> None:
+    """Issue #678: an island module top level demotes every lowerable
+    function; the plane map records the top-level fence as the cause so
+    the owner can see which import to type or move."""
+    from pyscriptc import assess
+
+    source_text = """from datetime import datetime, timezone
+
+
+def helper() -> int:
+    return 41
+
+
+def main() -> None:
+    print(helper())
+    print(timezone.utc)
+
+
+if __name__ == "__main__":
+    main()
+"""
+    src = tmp_path / "demoted_by_top.py"
+    src.write_text(source_text, encoding="utf-8")
+    report = assess.assess(src)
+    plane_map = report["planeMap"]
+    assert plane_map["moduleTopLevel"] == "island"
+    assert plane_map["functions"]["helper"] == "island"
+    assert plane_map["demotedBy"]["helper"].startswith("module top level is island")
+    # `main` fences on its own (`timezone.utc`), so its cause is the fence,
+    # not the top level.
+    assert "main" not in plane_map["demotedBy"]
+
+
+def test_fallback_assess_plane_map_matches_compile_for_untyped_import(tmp_path: Path) -> None:
+    """Issue #678: an import outside the closed table island-binds under the
+    fallback tier, so the compile keeps a definition-only module native; the
+    assess plane map must not infer the top level island from the coverage
+    pass's import-table fence."""
+    from pyscriptc import assess
+
+    source_text = """import wave
+
+
+def add(x: int, y: int) -> int:
+    return x + y
+
+
+def mul(x: int, y: int) -> int:
+    return x * y
+"""
+    src = tmp_path / "untyped_import_defs.py"
+    src.write_text(source_text, encoding="utf-8")
+
+    report = assess.assess(src)
+    plane_map = report["planeMap"]
+    assert plane_map["moduleTopLevel"] == "native"
+    assert plane_map["functions"] == {"add": "native", "mul": "native"}
+    assert plane_map["demotedBy"] == {}
+
+    dbg = tmp_path / "dbg"
+    comp = _run_cli(
+        "compile",
+        str(src),
+        *FALLBACK_FLAGS,
+        "--emit",
+        "bin",
+        "--debug-dir",
+        str(dbg),
+        "-o",
+        str(tmp_path / "ub"),
+        cwd=tmp_path,
+    )
+    assert comp.returncode == 0, comp.stderr
+    compiled = json.loads((dbg / "summary.json").read_text(encoding="utf-8"))["fallback"]
+    assert compiled["moduleTopLevel"] == plane_map["moduleTopLevel"]
+    assert compiled["functions"] == plane_map["functions"]
 
 
 def test_fallback_module_import_fence_ps2002_relative_runs_island(tmp_path: Path) -> None:
@@ -1216,9 +1295,11 @@ print(isinstance(probe, property), probe.fget())
 
 
 def test_fallback_module_assignment_island_routes_to_island(tmp_path: Path) -> None:
-    """A module-level `Path(os.environ.get(...))` fences native (PS2002, "a
-    module assignment must be a constant") and runs island-side under the
-    fallback tier (issue #641 comment). The native tier keeps refusing."""
+    """A module-level `Path(os.environ.get(...))` with a body reader binds a
+    module slot (#502): the call lowers once at init and `where()` reads the
+    same Path object. A module whose call result no definition reads still
+    fences native (PS2002, "a module assignment must be a constant") and runs
+    island-side under the fallback tier (issue #641 comment)."""
     header = """import os
 from pathlib import Path
 
@@ -1228,15 +1309,23 @@ CONFIG_PATH = Path(os.environ.get("PYSC_FB641", ".")).expanduser()
 def where() -> str:
     return str(CONFIG_PATH)
 """
-    # The native tier refuses: the assignment is not a constant.
+    # The body read turns the assign into a #502 slot: the native tier now
+    # compiles the header, and the value is one Path for the process.
     native_src = tmp_path / "mod_assign_native.py"
     native_src.write_text(header, encoding="utf-8")
     native = _run_cli("compile", str(native_src), "--emit", "ir", "-o", str(tmp_path / "native.ir.json"))
-    assert native.returncode == 3, native.stderr
-    assert "PS2002: a module assignment must be a constant" in native.stderr
+    assert native.returncode == 0, native.stderr
 
-    # The fallback tier routes the assignment to the island: the seed execs
-    # the real statement, so the value is CPython's own.
+    # No definition reads the name: the ordinary constant path still fences,
+    # and the fallback tier routes the assignment to the island - the seed
+    # execs the real statement, so the value is CPython's own.
+    orphan = header.replace("def where() -> str:\n    return str(CONFIG_PATH)\n", "def probe() -> int:\n    return 0\n")
+    orphan_src = tmp_path / "mod_assign_orphan.py"
+    orphan_src.write_text(orphan, encoding="utf-8")
+    orphan_native = _run_cli("compile", str(orphan_src), "--emit", "ir", "-o", str(tmp_path / "orphan.ir.json"))
+    assert orphan_native.returncode == 3, orphan_native.stderr
+    assert "PS2002: a module assignment must be a constant" in orphan_native.stderr
+
     src = tmp_path / "mod_assign.py"
     src.write_text(header + "\n\nprint(where())\n", encoding="utf-8")
     binary = tmp_path / "mod_assign_bin"

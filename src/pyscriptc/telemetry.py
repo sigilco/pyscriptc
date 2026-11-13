@@ -104,7 +104,7 @@ def _read_config() -> dict[str, str]:
 def _write_config(values: dict[str, str]) -> None:
     path = _config_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    lines = [f"{key} = {_toml_value(value)}" for key, value in sorted(values.items())]
+    lines: list[str] = [f"{key} = {_toml_value(values[key])}" for key in sorted(values.keys())]
     path.write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
@@ -129,15 +129,15 @@ def _install_id() -> str:
         existing = path.read_text(encoding="utf-8").strip()
         if existing:
             return str(uuid.UUID(existing))
-    except OSError, ValueError:
+    except (OSError, ValueError):
         pass
     new_id = str(uuid.uuid4())
     try:
         path.parent.mkdir(parents=True, exist_ok=True)
-        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        fd = os.open(str(path), os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(new_id + "\n")
-        os.chmod(path, 0o600)
+        os.chmod(str(path), 0o600)
     except OSError:
         pass
     return new_id
@@ -240,7 +240,7 @@ def maybe_print_notice() -> None:
 def _stderr_tty() -> bool:
     try:
         return bool(sys.stderr.isatty())
-    except AttributeError, ValueError:
+    except (AttributeError, ValueError):
         return False
 
 
@@ -264,7 +264,7 @@ def track(event: str, properties: dict | None = None) -> None:
     """Queue one event on a daemon thread. Every failure is swallowed."""
     if not enabled() or not _notice_acknowledged():
         return
-    payload = {
+    payload: dict[str, Any] = {
         "api_key": _token(),
         "event": event,
         "distinct_id": _install_id(),
@@ -357,7 +357,7 @@ def compile_properties(
     `binary_bytes` is the size of the linked binary in bytes, or None when
     no binary was produced.
     """
-    props = dict(base_properties())
+    props = base_properties()
     props.update(
         duration_ms=duration_ms,
         outcome=outcome,
@@ -392,7 +392,7 @@ def run_properties(
     content-hash cache, the size of the linked binary and the toolchain
     flags. Never the program name, its path, its arguments or its output.
     """
-    props = dict(base_properties())
+    props = base_properties()
     props.update(
         duration_ms=duration_ms,
         exit_code=int(exit_code),
@@ -424,7 +424,7 @@ def coverage_properties(summary: dict) -> dict:
         if family.startswith("stdlib:"):
             family = "stdlib"
         families[family] = families.get(family, 0) + count
-    props = dict(base_properties())
+    props = base_properties()
     props.update(
         definitions=definitions,
         nativeDefinitions=native_definitions,

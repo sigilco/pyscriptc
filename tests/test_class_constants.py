@@ -1,0 +1,436 @@
+"""Class-body constants (#732): `name = <fold>` and `name: T = <fold>`.
+
+A class-body assignment whose value folds to a compile-time constant is a
+class attribute, not an instance field: `C.name` and `obj.name` (including
+`self.name` inside methods) read the constant, instance fields still
+shadow it, and ancestors' constants resolve through the MRO. Values that
+do not fold, annotation mismatches and instance writes keep their fences.
+"""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from tests.test_gates import compile_run, oracle, run_cli, write_case
+
+from pyscriptc.coverage import build_report
+from pyscriptc.lower import lower_source
+from pyscriptc.lower._classes_more import _DECO_ERASED_MESSAGE
+
+
+def _fences(source: str) -> list[dict[str, str]]:
+    return lower_source(source, "case.py")["fences"]
+
+
+def test_annotated_and_plain_constants_lower_clean() -> None:
+    module = lower_source(
+        'class C:\n    LIMIT: int = 3\n    NAME = "x"\n\n\ndef probe() -> int:\n    return C.LIMIT + len(C.NAME)\n',
+        "case.py",
+    )
+    assert module["fences"] == []
+
+
+def test_reads_via_class_instance_self_and_inheritance() -> None:
+    module = lower_source(
+        "class Base:\n"
+        '    KIND = "base"\n'
+        "\n"
+        "\n"
+        "class C(Base):\n"
+        "    LIMIT: int = 3\n"
+        "    NEG = -4\n"
+        "    EXPR = 1 + 2\n"
+        "\n"
+        "    def total(self) -> int:\n"
+        "        return self.LIMIT + C.NEG + C.EXPR\n"
+        "\n"
+        "\n"
+        "def probe() -> int:\n"
+        "    c: C = C()\n"
+        "    return c.total() + len(C.KIND) + len(c.KIND)\n",
+        "case.py",
+    )
+    assert module["fences"] == []
+
+
+def test_values_with_no_slot_form_keep_the_ps1204_fence() -> None:
+    # A tuple and a multi-target assign have no runtime slot form, so they
+    # keep the fence and the class routes to the island.
+    for stmt in ("x = (1, 2)", "x = y = 3"):
+        fences = _fences(f"class C:\n    {stmt}\n")
+        assert any(fence["code"] == "PS1204" for fence in fences), (stmt, fences)
+
+
+def test_an_annotation_mismatch_is_a_type_fence() -> None:
+    fences = _fences("class C:\n    x: str = 3\n")
+    assert any(fence["code"] == "PS1003" for fence in fences), fences
+
+
+def test_an_instance_write_to_a_constant_still_fences() -> None:
+    fences = _fences("class C:\n    X = 3\n\n\ndef wr(c: C) -> int:\n    c.X = 9\n    return c.X\n")
+    assert any(fence["code"] == "PS2001" and "not a field" in fence["message"] for fence in fences), fences
+
+
+def test_a_dataclass_default_reads_as_a_class_constant() -> None:
+    module = lower_source(
+        "from dataclasses import dataclass\n"
+        "\n"
+        "\n"
+        "@dataclass\n"
+        "class D:\n"
+        "    a: int = 7\n"
+        '    b: str = "hi"\n'
+        "\n"
+        "\n"
+        "def probe() -> int:\n"
+        "    return D.a + len(D.b)\n",
+        "case.py",
+    )
+    assert module["fences"] == []
+
+
+def test_constants_cross_a_sibling_import(tmp_path: Path) -> None:
+    (tmp_path / "defs.py").write_text('class Config:\n    LIMIT: int = 3\n    NAME = "cfg"\n', encoding="utf-8")
+    (tmp_path / "__main__.py").write_text(
+        "from defs import Config\n\n\nprint(Config.LIMIT, Config.NAME, Config().LIMIT)\n",
+        encoding="utf-8",
+    )
+    report = build_report(tmp_path)
+    assert report["fences"] == [], report["fences"]
+
+
+_PROBE = """
+class Base:
+    KIND = "base"
+    N: int = 1
+
+
+class C(Base):
+    LIMIT: int = 3
+    NAME = "x"
+    NEG = -4
+    EXPR = 1 + 2
+    CAT = "a" + "b"
+    FLAG = True
+    PI = 2.5
+    OTHER = Base.N + 1
+    OPT: int | None = None
+
+    def describe(self) -> str:
+        return f"{self.NAME}:{self.LIMIT}:{C.NEG}:{C.EXPR}"
+
+
+def probe() -> int:
+    print(C.LIMIT, C.NAME, C.NEG, C.EXPR, C.CAT, C.FLAG, C.PI, C.OTHER)
+    print(C().LIMIT, C().NAME, C().KIND, C().N, C().OPT is None)
+    print(C.OPT is None, C().describe())
+    return 0
+"""
+
+
+_RUNTIME_PROBE = """
+def make(n: int) -> list[int]:
+    return [i * n for i in range(3)]
+
+
+class Base:
+    SHARED = [1, 2]
+    KIND = "base"
+
+
+class C(Base):
+    a = make(2)
+    b = [x + 1 for x in make(1)]
+    c: list[str] = ["p", "q"]
+    d = Base.SHARED
+    e = len(Base.SHARED)
+
+    def total(self) -> int:
+        return len(self.a) + self.e + len(C.c)
+
+
+def probe() -> int:
+    print(C.a, C.b, C.c, C.d, C.e)
+    print(C().a, C().d, C().total())
+    print(Base.SHARED, Base.KIND)
+    seen = C.a
+    seen.append(99)
+    print(C.a)
+    return 0
+"""
+
+
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
+def test_class_constants_match_cpython(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "class_constants.py", _PROBE)
+    got = compile_run(tmp_path, path, "probe")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "probe")
+
+
+def test_non_constant_class_body_still_fences_the_compile(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "fenced.py", "class C:\n    x = (1, 2)\n")
+    got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "fenced.ll"))
+    assert got.returncode == 3, got.stdout + got.stderr
+    assert "PS1204" in got.stderr
+
+
+def test_a_call_value_lowers_as_a_runtime_class_attribute() -> None:
+    module = lower_source(
+        "def f() -> int:\n    return 7\n\n\nclass C:\n    a = f()\n\n\ndef probe() -> int:\n    return C.a\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+    assert "__clsattr_C" in {record["name"] for record in module["functions"]}, [f["name"] for f in module["functions"]]
+
+
+def test_runtime_attribute_reads_through_class_instance_and_self() -> None:
+    module = lower_source(
+        "def f() -> int:\n"
+        "    return 7\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    a = f()\n"
+        "\n"
+        "    def total(self) -> int:\n"
+        "        return self.a + C.a\n"
+        "\n"
+        "\n"
+        "def probe() -> int:\n"
+        "    return C().total()\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+
+
+def test_a_comprehension_value_lowers() -> None:
+    module = lower_source(
+        "class C:\n    a = [i * 2 for i in range(3)]\n\n\ndef probe() -> int:\n    return len(C.a)\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+
+
+def test_a_slot_storing_type_is_required() -> None:
+    # A tuple has no slot form: the fence names the class body statement.
+    module = lower_source("class C:\n    a = (1, 2)\n", "case.py")
+    assert any(fence["code"] == "PS1204" for fence in module["fences"]), module["fences"]
+
+
+def test_an_annotated_runtime_attribute_checks_its_annotation() -> None:
+    module = lower_source("class C:\n    a: int = (1, 2)\n", "case.py")
+    assert any(fence["code"] == "PS1003" for fence in module["fences"]), module["fences"]
+
+
+def test_the_initializer_runs_before_the_first_read(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "init_order.py", _RUNTIME_PROBE)
+    got = compile_run(tmp_path, path, "probe")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "probe")
+
+
+def test_a_user_class_decorator_is_erased() -> None:
+    module = lower_source(
+        "def deco(c: int) -> int:\n"
+        "    return c\n"
+        "\n"
+        "\n"
+        "print(deco(1))\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    def hi(self) -> str:\n"
+        '        return "hi"\n'
+        "\n"
+        "\n"
+        "@deco\n"
+        "class D(C):\n"
+        "    def __init__(self) -> None:\n"
+        "        pass\n"
+        "\n"
+        "\n"
+        "def probe() -> str:\n"
+        "    return D().hi()\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+    assert module.get("_notes") == [f"note: PS3099 (D): {_DECO_ERASED_MESSAGE}"], module.get("_notes")
+    names = {record["name"] for record in module["classes"]}
+    assert {"C", "D"} <= names, names
+    d = next(record for record in module["classes"] if record["name"] == "D")
+    assert d["fields"] == [], d
+    assert any(method["name"] == "__init__" for method in d["methods"]), d
+    c = next(record for record in module["classes"] if record["name"] == "C")
+    assert any(method["name"] == "hi" for method in c["methods"]), c
+    assert "deco" in {record["name"] for record in module["functions"]}
+
+
+def test_a_dataclass_keeps_lowering() -> None:
+    module = lower_source(
+        "from dataclasses import dataclass\n\n\n@dataclass\nclass P:\n    a: int\n    b: str = 'x'\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+
+
+def test_a_stacked_class_decorator_is_erased() -> None:
+    module = lower_source(
+        "def deco(c: int) -> int:\n    return c\n\n\n@deco\n@deco\nclass C:\n    a: int\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+    assert len(module.get("_notes", [])) == 1 and module["_notes"][0].startswith("note: PS3099 (C):"), module.get(
+        "_notes"
+    )
+
+
+def test_a_user_method_decorator_is_erased() -> None:
+    module = lower_source(
+        "def deco(fn: int) -> int:\n"
+        "    print('wrapped')\n"
+        "    return fn\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @deco\n"
+        "    def m(self) -> int:\n"
+        "        return 1\n"
+        "\n"
+        "    @staticmethod\n"
+        "    def s() -> int:\n"
+        "        return 2\n"
+        "\n"
+        "    @classmethod\n"
+        "    def c(cls) -> int:\n"
+        "        return 3\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+    notes = module.get("_notes", [])
+    assert len(notes) == 1 and notes[0].startswith("note: PS3099 (m): the method decorator is erased"), notes
+    c = next(record for record in module["classes"] if record["name"] == "C")
+    kinds = {method["name"] for method in c["methods"]}
+    assert {"m", "s", "c"} <= kinds, kinds
+
+
+def test_a_stacked_method_decorator_is_erased() -> None:
+    source = (
+        "def deco(fn: int) -> int:\n"
+        "    return fn\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @deco\n"
+        "    @deco\n"
+        "    def m(self) -> int:\n"
+        "        return 1\n"
+    )
+    module = lower_source(source, "case.py")
+    assert module["fences"] == [], module["fences"]
+    assert len(module.get("_notes", [])) == 1 and module["_notes"][0].startswith("note: PS3099 (m):"), module.get(
+        "_notes"
+    )
+
+
+def test_a_synthesizing_method_decorator_keeps_the_fence() -> None:
+    module = lower_source(
+        "import functools\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @functools.lru_cache(maxsize=8)\n"
+        "    def m(self, n: int) -> int:\n"
+        "        return n + 1\n",
+        "case.py",
+    )
+    assert any(fence["code"] == "PS1201" for fence in module["fences"]), module["fences"]
+    assert not module.get("_notes"), module.get("_notes")
+
+
+def test_a_stacked_synthesizing_method_decorator_keeps_the_fence() -> None:
+    # The stack would lower undecorated, so the memoization would be lost
+    # with it: the whole stack keeps the fence, no erase.
+    module = lower_source(
+        "import functools\n"
+        "\n"
+        "\n"
+        "def deco(fn: int) -> int:\n"
+        "    return fn\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @deco\n"
+        "    @functools.lru_cache(maxsize=8)\n"
+        "    def m(self, n: int) -> int:\n"
+        "        return n + 1\n",
+        "case.py",
+    )
+    assert any(fence["code"] == "PS1201" for fence in module["fences"]), module["fences"]
+    assert not module.get("_notes"), module.get("_notes")
+
+
+def test_a_user_module_function_decorator_is_erased() -> None:
+    module = lower_source(
+        "def deco(fn: int) -> int:\n    print('wrapped')\n    return fn\n\n\n@deco\ndef g() -> int:\n    return 7\n",
+        "case.py",
+    )
+    assert module["fences"] == [], module["fences"]
+    notes = module.get("_notes", [])
+    assert len(notes) == 1 and notes[0].startswith("note: PS3099 (g): the function decorator is erased"), notes
+    assert "g" in {record["name"] for record in module["functions"]}
+
+
+def test_a_stacked_synthesizing_module_decorator_keeps_the_fence() -> None:
+    # The module stack would lower undecorated, so the memoization would
+    # be lost with it: the stack keeps its fence, no erase.
+    module = lower_source(
+        "import functools\n"
+        "\n"
+        "\n"
+        "def deco(fn: int) -> int:\n"
+        "    return fn\n"
+        "\n"
+        "\n"
+        "@deco\n"
+        "@functools.lru_cache(maxsize=8)\n"
+        "def g(n: int) -> int:\n"
+        "    return n + 1\n",
+        "case.py",
+    )
+    assert module["fences"], module["fences"]
+    assert not module.get("_notes"), module.get("_notes")
+
+
+def test_a_from_imported_synthesizing_decorator_keeps_the_fence() -> None:
+    # `from functools import lru_cache` names the stdlib member even though
+    # the member is outside the lowered subset (the import fences): the
+    # decorator must not take the erase.
+    module = lower_source(
+        "from functools import lru_cache\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @lru_cache(maxsize=8)\n"
+        "    def m(self, n: int) -> int:\n"
+        "        return n + 1\n",
+        "case.py",
+    )
+    assert any(fence["code"] == "PS1201" for fence in module["fences"]), module["fences"]
+    assert not module.get("_notes"), module.get("_notes")
+
+
+def test_method_decorators_keep_the_closed_set() -> None:
+    module = lower_source(
+        "def deco(fn: int) -> int:\n"
+        "    return fn\n"
+        "\n"
+        "\n"
+        "class C:\n"
+        "    @deco\n"
+        "    def m(self) -> int:\n"
+        "        return 1\n",
+        "case.py",
+    )
+    assert not any(fence["code"] == "PS1201" for fence in module["fences"]), module["fences"]

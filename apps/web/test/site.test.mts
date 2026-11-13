@@ -30,6 +30,7 @@ test("deploy tree carries the three site parts", { skip: !hasDeploy }, () => {
     "docs/llms-full.txt",
     "compat/index.html",
     "compat/data/compat.json",
+    "compat/data/island.json",
     "compat/data/ladder.json",
     "compat/data/what_will_fail.json",
     "compat/data/support.json",
@@ -113,6 +114,21 @@ test("nightly opens a PR and never pushes to master", () => {
   assert.ok(!workflow.includes("git push origin master"));
   const dataPaths = /git add .*data\/compat\/compat\.json/.test(workflow);
   assert.ok(dataPaths, "nightly stages the canonical data/compat path");
+});
+
+test("the nightly carries the R0 lane", () => {
+  const workflow = readFileSync(join(repoRoot, ".github", "workflows", "nightly.yml"), "utf8");
+  assert.ok(workflow.includes("benchmarks.real_scripts.measure"));
+  assert.ok(workflow.includes("scripts/r0_lane.py"));
+  assert.ok(workflow.includes("r0-lane:"));
+  assert.ok(workflow.includes("nightly-failure"));
+});
+
+test("the compat page shows the R0 rate with its denominator", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "compat", "index.astro"), "utf8");
+  assert.ok(page.includes("data.ladder.r0"), "the page reads the r0 section");
+  assert.ok(page.includes("r0.total"), "the page shows the corpus size");
+  assert.ok(page.includes("r0.history"), "the page shows the trend");
 });
 
 // -- scripts keep working (the check that caught theme.css) --

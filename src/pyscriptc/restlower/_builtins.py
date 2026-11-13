@@ -5,9 +5,25 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc.lower._core import _const_bool
 from pyscriptc.reflection import getattr_note, type_read_note, type_synthesis_note
 from pyscriptc.restlower._folds import _STATIC_MISSING, _static_builtin_fold, _static_scalar
-from pyscriptc.restlower._shared import _pin, _span_to
+from pyscriptc.restlower._shared import (
+    _binary,
+    _const_text,
+    _field,
+    _flag,
+    _node_id,
+    _node_type,
+    _node_type_kind,
+    _node_value,
+    _pin,
+    _span_to,
+    _t_leaf,
+    _type_kind,
+    _type_name,
+    _type_value,
+)
 
 
 def _isinstance(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -15,25 +31,26 @@ def _isinstance(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
         lo.fail(node, "PS2003", "isinstance expects 2 argument(s)")
     obj = lo._expr(node.args[0])
     want = lo._isinstance_type(node.args[1])
-    if obj["type"].get("optional"):
+    operand = _node_type(obj)
+    if _flag(operand, "optional"):
         # `isinstance(x, T)` on `T | None` is the tag: the value is exactly
         # its element type or it is None.
-        if lo._isinstance_holds(obj["type"]["elem"], want):
-            return {"kind": "attr", "value": obj, "name": "_tag", "type": {"kind": "bool"}, "span": span}
-        return {"kind": "const", "value": False, "type": {"kind": "bool"}, "span": span}
-    if obj["type"]["kind"] == "exc":
+        if lo._isinstance_holds(operand["elem"], want):
+            return _field(obj, "_tag", _t_leaf("bool"), span)
+        return _const_bool(False, span)
+    if _type_kind(operand) == "exc":
         # `isinstance(e, Exc)` on a caught exception: the runtime parent chain
         # decides, because the caught value carries a code, not a static type.
-        if want["kind"] != "class":
+        if _type_kind(want) != "class":
             lo.fail(node, "PS2001", "isinstance type is not in the lowered subset")
-        name = want.get("name")
-        code = lo._exception_code_of(name) if isinstance(name, str) else None
+        name = _type_name(want)
+        code = lo._exception_code_of(name)
         if code is None:
             # A class that is not an exception: no exception instance matches it.
-            return {"kind": "const", "value": False, "type": {"kind": "bool"}, "span": span}
-        return lo._abi_call("builtins", "exc.isa", [obj], {"kind": "bool"}, f"ps_exc_isa_value:{code}", span)
-    flag = lo._isinstance_holds(obj["type"], want)
-    return {"kind": "const", "value": flag, "type": {"kind": "bool"}, "span": span}
+            return _const_bool(False, span)
+        return lo._abi_call("builtins", "exc.isa", [obj], _t_leaf("bool"), f"ps_exc_isa_value:{code}", span)
+    flag = lo._isinstance_holds(operand, want)
+    return _const_bool(flag, span)
 
 
 def _getattr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -49,7 +66,7 @@ def _hasattr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo.fail(node, "PS2003", "hasattr expects 2 argument(s)")
     obj = lo._expr(node.args[0])
     name = _literal_name(lo, node)
-    return {"kind": "const", "value": lo._has_attr(obj, name), "type": {"kind": "bool"}, "span": span}
+    return _const_bool(lo._has_attr(obj, name), span)
 
 
 def _literal_name(lo: Any, node: ast.Call) -> str:
@@ -68,11 +85,11 @@ def _abs(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     folded = _static_builtin_fold("abs", arg, span, fence=lo)
     if folded is not None:
         return folded
-    kind = arg["type"]["kind"]
+    kind = _node_type_kind(arg)
     if kind == "int":
-        return lo._abi_call("builtins", "abs", [arg], {"kind": "int"}, "ps_abs_i64", span)
+        return lo._abi_call("builtins", "abs", [arg], _t_leaf("int"), "ps_abs_i64", span)
     if kind == "float":
-        return lo._abi_call("builtins", "abs", [arg], {"kind": "float"}, "ps_abs_f64", span)
+        return lo._abi_call("builtins", "abs", [arg], _t_leaf("float"), "ps_abs_f64", span)
     lo.fail(node, "PS2003", "abs is lowered for int and float")
     raise AssertionError("unreachable")
 
@@ -89,8 +106,8 @@ def _divmod(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 2:
         lo.fail(node, "PS2003", "divmod expects 2 argument(s)")
     pinned = [_pin(lo, lo._expr(arg), span, "dv") for arg in node.args]
-    left = ast.Name(id=pinned[0]["id"], ctx=ast.Load())
-    right = ast.Name(id=pinned[1]["id"], ctx=ast.Load())
+    left = ast.Name(id=_node_id(pinned[0]), ctx=ast.Load())
+    right = ast.Name(id=_node_id(pinned[1]), ctx=ast.Load())
     elems = []
     for op in (ast.FloorDiv(), ast.Mod()):
         elems.append(lo._expr(_span_to(node, ast.BinOp(left=left, op=op, right=right))))
@@ -107,9 +124,9 @@ def _base_repr(lo: Any, node: ast.Call, span: dict[str, Any], name: str) -> dict
     if len(node.args) != 1:
         lo.fail(node, "PS2003", f"{name} expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    if arg["type"]["kind"] != "int":
+    if _node_type_kind(arg) != "int":
         lo.fail(node, "PS1003", f"{name} argument is int")
-    return lo._abi_call("builtins", name, [arg], {"kind": "str"}, _BASE_SYMS[name], span)
+    return lo._abi_call("builtins", name, [arg], _t_leaf("str"), _BASE_SYMS[name], span)
 
 
 def _pow_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -126,9 +143,9 @@ def _pow_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) == 2:
         return base
     mod = lo._expr(node.args[2])
-    if base["type"]["kind"] != "int" or mod["type"]["kind"] != "int":
+    if _node_type_kind(base) != "int" or _node_type_kind(mod) != "int":
         lo.fail(node, "PS2003", "pow with a modulus takes int arguments")
-    return {"kind": "binary", "op": "%", "left": base, "right": mod, "type": {"kind": "int"}, "span": span}
+    return _binary("%", base, mod, _t_leaf("int"), span)
 
 
 def _type_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -145,9 +162,9 @@ def _type_call(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
             lo.fail(node, "PS2003", type_synthesis_note())
         lo.fail(node, "PS2003", "type expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    if arg["type"]["kind"] != "exc":
+    if _node_type_kind(arg) != "exc":
         lo.fail(node, "PS2002", type_read_note())
-    expr = lo._abi_call("builtins", "exc.name", [arg], {"kind": "str"}, "ps_exc_class", span)
+    expr = lo._abi_call("builtins", "exc.name", [arg], _t_leaf("str"), "ps_exc_class", span)
     expr["attrtype"] = "type"
     return expr
 
@@ -162,13 +179,14 @@ def _repr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     folded = _static_builtin_fold("repr", arg, span, fence=lo)
     if folded is not None:
         return folded
-    kind = arg["type"]["kind"]
+    kind = _node_type_kind(arg)
     style = "percent"
     if kind == "exc":
-        return lo._abi_call("builtins", "exc.repr", [arg], {"kind": "str"}, "ps_exc_repr", span)
+        return lo._abi_call("builtins", "exc.repr", [arg], _t_leaf("str"), "ps_exc_repr", span)
     if kind == "dict":
         value_kinds = {"int", "float", "str", "bytes"}
-        if arg["type"]["key"]["kind"] not in {"int", "str"} or arg["type"]["value"]["kind"] not in value_kinds:
+        dtype = _node_type(arg)
+        if _type_kind(dtype["key"]) not in {"int", "str"} or _type_kind(_type_value(dtype)) not in value_kinds:
             lo.fail(node, "PS2002", "repr needs scalar dict keys and values")
         style = "map"
     elif kind == "class":
@@ -178,8 +196,8 @@ def _repr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo.fail(node, "PS2004", f"repr of {kind} is not lowered")
     elif kind not in {"int", "float", "str", "bool", "bytes"}:
         lo.fail(node, "PS2004", f"repr of {kind} is not lowered")
-    fmt = {"kind": "const", "value": "%r", "type": {"kind": "str"}, "span": span}
-    expr = lo._abi_call("builtins", "format", [fmt, arg], {"kind": "str"}, "ps_str_format", span)
+    fmt = _const_text("%r", "str", span)
+    expr = lo._abi_call("builtins", "format", [fmt, arg], _t_leaf("str"), "ps_str_format", span)
     expr["format_style"] = style
     return expr
 
@@ -191,9 +209,9 @@ def _ord(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     folded = _static_builtin_fold("ord", arg, span, fence=lo)
     if folded is not None:
         return folded
-    if arg["type"]["kind"] != "str":
+    if _node_type_kind(arg) != "str":
         lo.fail(node, "PS1003", "ord argument is str")
-    return lo._abi_call("builtins", "ord", [arg], {"kind": "int"}, "ps_ord", span)
+    return lo._abi_call("builtins", "ord", [arg], _t_leaf("int"), "ps_ord", span)
 
 
 def _chr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -207,29 +225,29 @@ def _chr(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if val is not _STATIC_MISSING and isinstance(val, int) and not isinstance(val, bool):
         if val < 0 or val > 0x10FFFF:
             lo.fail(node, "PS2003", "chr() arg not in range(0x110000)")
-    if arg["type"]["kind"] != "int":
+    if _node_type_kind(arg) != "int":
         lo.fail(node, "PS1003", "chr argument is int")
-    return lo._abi_call("builtins", "chr", [arg], {"kind": "str"}, "ps_chr", span)
+    return lo._abi_call("builtins", "chr", [arg], _t_leaf("str"), "ps_chr", span)
 
 
 def _round(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) not in {1, 2}:
         lo.fail(node, "PS2003", "round expects 1 or 2 argument(s)")
     arg = lo._expr(node.args[0])
-    if len(node.args) == 1 and arg["type"]["kind"] == "int":
+    if len(node.args) == 1 and _node_type_kind(arg) == "int":
         return arg
-    if arg["type"]["kind"] != "float":
+    if _node_type_kind(arg) != "float":
         lo.fail(node, "PS1003", "round argument is float")
     if len(node.args) == 1:
-        return lo._abi_call("builtins", "round", [arg], {"kind": "int"}, "ps_round_i64", span)
+        return lo._abi_call("builtins", "round", [arg], _t_leaf("int"), "ps_round_i64", span)
     digits = lo._expr(node.args[1])
-    if digits["type"]["kind"] != "int":
+    if _node_type_kind(digits) != "int":
         lo.fail(node, "PS1003", "round ndigits is int")
     folded = _static_builtin_fold("round", digits, span)
     if folded is not None:
-        nd = folded["value"]
+        nd = _node_value(folded)
         if isinstance(nd, str) and nd.lstrip("-").isdigit():
             nd = int(nd)
         if isinstance(nd, int) and not 0 <= nd <= 8:
             lo.fail(node, "PS2003", "round ndigits must be between 0 and 8; CPython also rounds by -8 <= ndigits < 0")
-    return lo._abi_call("builtins", "round", [arg, digits], {"kind": "float"}, "ps_round_nd", span)
+    return lo._abi_call("builtins", "round", [arg, digits], _t_leaf("float"), "ps_round_nd", span)

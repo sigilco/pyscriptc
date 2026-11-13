@@ -89,11 +89,17 @@ The CI job runs `packaging/zig/smoke.sh` on every supported version (the tier-A 
 
 `src/pyscriptc/zigshim.py` closes that gap: when no `zig` is on PATH, pyscriptc finds an interpreter that can `import ziglang`, writes a `zig` shim into `~/.cache/pyscriptc/shim` that execs `python -m ziglang`, and puts that directory on PATH for the compiler and its children. `pyscriptc doctor` then reports the shim and the version it wraps. The shim is what `--driver zig` and `--target` use, so after `pip install ziglang` the cross-compilation path works with no PATH surgery by the user.
 
+The wheel route also ships as a package extra, so one install command covers the tool and the toolchain: `uv tool install "pyscriptc[zig]"` (or `pip install "pyscriptc[zig]"`). The extra pins `ziglang>=0.16,<0.18`, the CI-verified range in the table above. The CI job `ziglang extra wheel shim` proves the full path: tool install with the extra on a runner with no zig, then a native `--driver zig` compile and a `--target` cross-compile through the shim.
+
 The wheel is a version of zig in its own right: `pip install ziglang==0.17.0` pins zig 0.17.0. The supported version range is the table above, and the wheel version and the zig version are the same number.
 
 ### Wheel platform coverage
 
-The `ziglang` wheel ships platform wheels for macOS (x86_64, arm64), Linux (x86_64, aarch64, i686, armv7l) and musl Linux. There is no Windows wheel, so on Windows the wheel path does not apply: install zig with `winget install zig.zig`, `scoop install zig` or `mise use -g zig`, and put it on PATH. The PATH shim is POSIX-only (`#!/bin/sh`) and is not used on Windows.
+The `ziglang` wheel ships platform wheels for macOS (x86_64, arm64), Linux (x86_64, aarch64, i686, armv7l, ppc64le, s390x, riscv64), musl Linux and Windows (win32, win_amd64, win_arm64).
+
+On Windows the wheel route works differently from POSIX. The wheel ships `site-packages/ziglang/zig.exe`, a real Win32 executable, and `src/pyscriptc/zigshim.py` resolves that path directly: the POSIX shim scripts are not subprocess-safe on Windows (`CreateProcess` runs neither a `.bat` without `cmd.exe` nor an extensionless `#!/bin/sh` script), so the compiler's own calls use the executable. The `zig` and `zig.bat` shim scripts are still written for interactive shells, where `cmd.exe` and PATHEXT do the dispatch. The CI lane `zig extra (windows shim)` proves the resolution on a `windows-2022` runner with no zig installed.
+
+Emitted Windows binaries are out of scope either way: no CI job runs the output, and Windows semantics are unverified (see the Windows rows above).
 
 ### Support matrix
 
@@ -102,7 +108,7 @@ The `ziglang` wheel ships platform wheels for macOS (x86_64, arm64), Linux (x86_
 | Linux x86_64 / aarch64 | yes (wheel) | yes | 0.16.0, 0.17.0 |
 | Linux musl | yes (musllinux wheel) | yes | 0.16.0, 0.17.0 |
 | macOS arm64 / x86_64 | yes (wheel) | yes | 0.16.0, 0.17.0 |
-| Windows | no wheel | yes (`winget`, `scoop`, `mise`) | not verified |
+| Windows | yes (wheel, `zig.exe` resolved directly) | yes (`winget`, `scoop`, `mise`) | not verified |
 
 ## Known issues
 

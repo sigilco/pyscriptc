@@ -251,6 +251,23 @@ void ps_map_del(PsMap *m, void *key) {
     }
 }
 
+void ps_dict_first_key(PsMap *m, void *out) {
+    /* The first key only: a full ps_dict_keys materialization is O(n) per
+       call and `next(iter(d))` LRU-style eviction patterns pay it every
+       step. ps_map_key_at(0) reuses the insertion-order walk (one order
+       rebuild at most, then O(1) reads); the empty map clears the present
+       flag so the lowering raises StopIteration. Layout: the optional
+       record is {i1 tag, key} and an int or str key (the only key kinds
+       the subset lowers) is 8-aligned, so the value sits at byte 8. */
+    unsigned char *cells = (unsigned char *)out;
+    if (m->len == 0) {
+        memset(cells, 0, 9);
+        return;
+    }
+    cells[0] = 1;
+    ps_map_key_at(m, 0, cells + 8);
+}
+
 void ps_map_clear(PsMap *m) { ps_map_reset(m); }
 
 void ps_map_update(PsMap *dst, PsMap *src) {
@@ -595,7 +612,7 @@ PsSeq *ps_str_split_m(
     seq = ps_seq_new(sizeof(PsBuf), 0);
     if (mode == 0) {
         /* separator mode */
-        if (maxsplit < 0 || right == 0) {
+        if (right == 0) {
             int64_t i = 0, left = maxsplit < 0 ? INT64_MAX : maxsplit;
             while (i <= n) {
                 int64_t j = i;
@@ -625,33 +642,48 @@ PsSeq *ps_str_split_m(
             }
             return seq;
         }
-        /* rsplit with maxsplit: collect match starts, then emit right pieces. */
+        /* rsplit: collect match starts right to left. Each match is
+           non-overlapping with the one before it, so the next search
+           ends where the previous match began. `cuts` ends up in
+           descending order, `cuts[0]` the rightmost. */
         {
             int64_t cap = n / (sn > 0 ? sn : 1) + 2;
             int64_t *cuts = malloc((size_t)cap * sizeof(int64_t));
-            int64_t count = 0, i = 0, k;
+            int64_t count = 0, pos = n;
             if (cuts == NULL) {
                 abort();
             }
-            while (i + sn <= n) {
-                if (memcmp(p + i, sp, (size_t)sn) == 0) {
-                    cuts[count++] = i;
-                    i += sn;
-                } else {
-                    i++;
+            while (pos >= sn) {
+                int64_t j = pos - sn, found = -1;
+                while (j >= 0) {
+                    if (memcmp(p + j, sp, (size_t)sn) == 0) {
+                        found = j;
+                        break;
+                    }
+                    j--;
                 }
+                if (found < 0) {
+                    break;
+                }
+                cuts[count++] = found;
+                pos = found;
             }
-            /* head ends at cuts[count - maxsplit]; pieces follow each cut. */
+            /* The rightmost min(maxsplit, count) cuts split (all of them
+               when maxsplit < 0); in `cuts` they are the first k entries,
+               ascending order runs k-1 down to 0. The head ends at the
+               smallest used cut and each piece follows one cut. */
             {
-                int64_t head_end = count > maxsplit ? cuts[count - maxsplit] : -1;
-                int64_t first = count > maxsplit ? count - maxsplit : 0;
-                if (head_end >= 0) {
-                    ps_push_view(seq, p, head_end);
-                }
-                for (k = first; k < count; k++) {
-                    int64_t start = cuts[k] + sn;
-                    int64_t end = k + 1 < count ? cuts[k + 1] : n;
-                    ps_push_view(seq, p + start, end - start);
+                int64_t k = maxsplit < 0 || maxsplit > count ? count : maxsplit;
+                int64_t j;
+                if (k > 0) {
+                    ps_push_view(seq, p, cuts[k - 1]);
+                    for (j = k - 1; j >= 0; j--) {
+                        int64_t start = cuts[j] + sn;
+                        int64_t end = j > 0 ? cuts[j - 1] : n;
+                        ps_push_view(seq, p + start, end - start);
+                    }
+                } else {
+                    ps_push_view(seq, p, n);
                 }
             }
             free(cuts);

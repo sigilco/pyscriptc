@@ -21,7 +21,26 @@ from pyscriptc.errors import IRError, VersionError
 IR_VERSION = 2
 SUBSET = "gates-v1"
 
-TYPE_KINDS = {"int", "float", "bool", "none", "str", "bytes", "list", "dict", "class", "exc", "unknown", "func", "any"}
+TYPE_KINDS = {
+    "int",
+    "float",
+    "bool",
+    "none",
+    "str",
+    "bytes",
+    "list",
+    "dict",
+    "class",
+    "exc",
+    "unknown",
+    "func",
+    "any",
+    "buffer",
+}
+# The element kinds a buffer may carry (issue #372): flat numeric arrays
+# only. Multi-dimensional shapes are ndarray surface over one flat buffer,
+# not nested IR types.
+BUFFER_ELEM_KINDS = {"int", "float"}
 # The unresolved value slot of an Any container (issue #781): the container's
 # shape is known, the value type is not, and the read site proves it.
 ANY_KIND = "any"
@@ -75,61 +94,126 @@ def target_minor() -> str:
     return TARGET_MINOR
 
 
+HOST_FLOOR = "3.11"
+
+
+def running_version() -> str:
+    """The running interpreter's CPython version, no gate."""
+    return sys.version.split()[0]
+
+
+def running_minor() -> str:
+    """The running interpreter's CPython minor (`3.14`)."""
+    return ".".join(running_version().split(".")[:2])
+
+
 def cpython_version() -> str:
-    """The running interpreter's CPython version, checking minor equality against the declared target."""
-    running = sys.version.split()[0]
-    running_min = ".".join(running.split(".")[:2])
-    target_min = target_minor()
-    if running_min != target_min:
-        target = target_cpython()
-        raise VersionError(
-            f"this process is CPython {running}, declared target is {target}; pyscriptc requires CPython 3.14"
-        )
+    """The running interpreter's CPython version, checked against the host floor.
+
+    The tool host may be 3.11 through 3.15 (the floor lives in `pyproject.toml`
+    and CI proves it); the emitted program's semantics target `target.json`'s
+    CPython regardless of the host, so this is a floor check, not an equality
+    gate on the declared target.
+    """
+    running = running_version()
+    major, minor = (int(part) for part in running.split(".")[:2])
+    floor_major, floor_minor = (int(part) for part in HOST_FLOOR.split("."))
+    if (major, minor) < (floor_major, floor_minor):
+        raise VersionError(f"this process is CPython {running}; pyscriptc requires CPython {HOST_FLOOR} or later")
     return running
 
 
 def zdi_variants() -> dict[str, int]:
-    """The ps_raise_zdi variant numbers for the running interpreter's CPython.
+    """The ps_raise_zdi variant numbers for the target CPython.
 
     CPython 3.13 and earlier name the operation in a ZeroDivisionError
     ("integer division or modulo by zero"); 3.14 unified every division
     into "division by zero". The compiled binary has to agree with the
-    interpreter that oracles the same source, so the variant follows the
-    one that runs the compiler.
+    interpreter that oracles the same source, and that oracle is the pinned
+    target interpreter (`target.json`), not whichever interpreter happens to
+    run the compiler: a 3.11 host still emits a program whose
+    ZeroDivisionError wording matches the 3.14 oracle.
     """
 
-    major, minor = cpython_version().split(".")[:2]
+    major, minor = target_minor().split(".")[:2]
     if int(major) > 3 or (int(major) == 3 and int(minor) >= 14):
         return {"idiv": 7, "imod": 7, "fdiv": 7, "fmod": 7, "ffloordiv": 7, "fpow": 8}
     return {"idiv": 1, "imod": 2, "fdiv": 3, "fmod": 5, "ffloordiv": 4, "fpow": 6}
 
 
 def type_key(typ: dict[str, Any]) -> str:
-    if typ["kind"] == "list":
+    kind = _kind(typ)
+    if kind == "list":
         if "elem" not in typ:
             # An accumulated list whose element is still unknown (a bare
             # `[]` before the first append): key on the shape alone.
             return "list[?]"
         head = "set" if typ.get("set") else "list"
         return f"{head}[{type_key(typ['elem'])}]"
-    if typ["kind"] == "dict":
+    if kind == "buffer":
+        if "elem" not in typ:
+            return "buffer[?]"
+        return f"buffer[{type_key(typ['elem'])}]"
+    if kind == "dict":
+        if "key" not in typ or "value" not in typ:
+            # A bare `dict` shape (the isinstance want record carries no
+            # parameters): key on the shape alone, like `list[?]`.
+            return "dict[?]"
         return f"dict[{type_key(typ['key'])}, {type_key(typ['value'])}]"
-    if typ["kind"] == "class":
+    if kind == "class":
         if "elem" in typ:
             return f"{typ['name']}[{type_key(typ['elem'])}]"
         return str(typ["name"])
-    if typ["kind"] == "func":
+    if kind == "func":
         args = ", ".join(type_key(param) for param in typ["params"])
         return f"({args}) -> {type_key(typ['return'])}"
-    if typ["kind"] == "any":
+    if kind == "any":
         # The unresolved slot matches only itself: an `any` value never
         # type-equal-checks against a concrete type.
         return "any"
-    return str(typ["kind"])
+    return str(kind)
 
 
 def types_equal(a: dict[str, Any], b: dict[str, Any]) -> bool:
     return type_key(a) == type_key(b)
+
+
+def _kind(typ: dict[str, Any]) -> str:
+    """The kind tag of a type record.
+
+    Every type dispatch reads the record through this accessor instead of
+    the raw dict key.
+    """
+    kind: str = typ["kind"]
+    return kind
+
+
+def _node_kind(node: dict[str, Any]) -> str:
+    """The kind tag of a typed IR node (assign, expr, raise, ...).
+
+    Statement and expression dispatch reads the node through this accessor
+    instead of the raw dict key.
+    """
+    kind: str = node["kind"]
+    return kind
+
+
+def _maybe_node_kind(node: dict[str, Any]) -> str | None:
+    """The kind tag of a typed IR node, or None when the node carries no kind.
+
+    Optional-shape dispatch reads the node through this accessor instead of
+    the raw dict key.
+    """
+    if "kind" not in node:
+        return None
+    kind = node["kind"]
+    return kind if isinstance(kind, str) else None
+
+
+def _node_type_kind(node: dict[str, Any]) -> str:
+    """The kind tag of the type record a typed IR node carries."""
+    typ: dict[str, Any] = node["type"]
+    return _kind(typ)
 
 
 def fits_i64(value: int) -> bool:
@@ -144,11 +228,19 @@ def _reject_forbidden(kind: str, where: str) -> None:
 def validate_type(typ: Any, where: str) -> None:
     if not isinstance(typ, dict) or "kind" not in typ:
         raise IRError(f"{where}: type must be an object with kind")
-    kind = typ["kind"]
+    kind = _kind(typ)
     _reject_forbidden(kind, where)
     if kind not in TYPE_KINDS:
         raise IRError(f"{where}: unknown type kind {kind!r}")
-    if kind == "list":
+    if kind == "buffer":
+        if "elem" not in typ:
+            raise IRError(f"{where}: buffer type needs elem")
+        elem = typ["elem"]
+        elem_kind = _kind(elem) if isinstance(elem, dict) else None
+        if elem_kind not in BUFFER_ELEM_KINDS:
+            raise IRError(f"{where}: buffer element must be one of {sorted(BUFFER_ELEM_KINDS)}, got {elem_kind!r}")
+        validate_type(elem, f"{where}.elem")
+    elif kind == "list":
         if "elem" not in typ:
             raise IRError(f"{where}: list type needs elem")
         validate_type(typ["elem"], f"{where}.elem")
@@ -174,7 +266,7 @@ def validate_type(typ: Any, where: str) -> None:
 def validate_expr(expr: Any, where: str) -> None:
     if not isinstance(expr, dict) or "kind" not in expr:
         raise IRError(f"{where}: expression must be an object with kind")
-    kind = expr["kind"]
+    kind = _node_kind(expr)
     _reject_forbidden(kind, where)
     if kind not in EXPR_KINDS:
         raise IRError(f"{where}: unknown expression kind {kind!r}")
@@ -242,7 +334,7 @@ def validate_expr(expr: Any, where: str) -> None:
     elif kind == "closure":
         if not isinstance(expr.get("name"), str) or not _dotted_identifier(expr["name"]):
             raise IRError(f"{where}: closure needs a function name")
-        if expr["type"]["kind"] != "func":
+        if _node_type_kind(expr) != "func":
             raise IRError(f"{where}: closure type must be func")
         env = expr.get("env")
         if not isinstance(env, list):
@@ -271,7 +363,7 @@ def validate_expr(expr: Any, where: str) -> None:
 def validate_stmt(stmt: Any, where: str) -> None:
     if not isinstance(stmt, dict) or "kind" not in stmt:
         raise IRError(f"{where}: statement must be an object with kind")
-    kind = stmt["kind"]
+    kind = _node_kind(stmt)
     _reject_forbidden(kind, where)
     if kind not in STMT_KINDS:
         raise IRError(f"{where}: unknown statement kind {kind!r}")
@@ -311,9 +403,9 @@ def validate_stmt(stmt: Any, where: str) -> None:
             validate_expr(message, f"{where}.message")
         cause = stmt.get("cause")
         if cause is not None:
-            if not isinstance(cause, dict) or cause.get("kind") not in {"name", "excmake"}:
+            if not isinstance(cause, dict) or _maybe_node_kind(cause) not in {"name", "excmake"}:
                 raise IRError(f"{where}: raise cause must be a name or excmake")
-            if cause["kind"] == "name":
+            if _node_kind(cause) == "name":
                 validate_expr(cause, f"{where}.cause")
             else:
                 if not isinstance(cause.get("exc"), str):
@@ -349,21 +441,22 @@ def validate_stmt(stmt: Any, where: str) -> None:
 def _validate_callee(callee: Any, where: str) -> None:
     if not isinstance(callee, dict):
         raise IRError(f"{where}: call callee must be an object")
-    kind = callee.get("kind")
+    node: dict[str, Any] = callee
+    kind = _maybe_node_kind(node)
     if kind in {"function", "builtin", "class"}:
-        if not isinstance(callee.get("name"), str):
+        if not isinstance(node.get("name"), str):
             raise IRError(f"{where}: call callee needs a name")
         return
     if kind == "module":
-        if not isinstance(callee.get("module"), str) or not isinstance(callee.get("name"), str):
+        if not isinstance(node.get("module"), str) or not isinstance(node.get("name"), str):
             raise IRError(f"{where}: module callee needs module and name")
         return
     if kind == "method":
-        if callee.get("receiver") not in {"str", "bytes"} or not isinstance(callee.get("name"), str):
+        if node.get("receiver") not in {"str", "bytes"} or not isinstance(node.get("name"), str):
             raise IRError(f"{where}: method callee needs a str or bytes receiver and a name")
         return
     if kind == "value":
-        validate_expr(callee.get("target"), f"{where}.callee")
+        validate_expr(node.get("target"), f"{where}.callee")
         return
     raise IRError(f"{where}: call callee must be function, builtin, module, method, or class")
 
@@ -491,28 +584,26 @@ def _dotted_identifier(name: str) -> bool:
 
 
 def assert_same_cpython(module: dict[str, Any]) -> None:
-    """LLVM emission refuses an IR stamped by a different CPython minor than the declared target.
+    """LLVM emission refuses an IR stamped by a different CPython minor than the emitter runs.
 
-    Re-run the corpus on the target interpreter, then lower again. The stamp is
-    not a hint the backend may ignore.
+    The stamp records the interpreter that lowered the module and the emitter
+    derives semantics (error wording, layout constants) from the one it runs
+    in, so the two minors must agree. Re-lower on this interpreter instead of
+    mixing IR across hosts. Target semantics stay the declared 3.14 target:
+    `zdi_variants()` and the host-surface tables key off `target.json`, so a
+    3.11-3.15 tool host emits the same program text a 3.14 host would (the
+    corpus A/B on 3.11 and 3.15 proves it byte-identical modulo the stamp).
     """
 
     validate_module(module)
     running = cpython_version()
-    target = target_cpython()
-    target_min = target_minor()
     stamped = module["cpython"]
 
     stamped_min = ".".join(stamped.split(".")[:2])
     running_min = ".".join(running.split(".")[:2])
 
-    if stamped_min != target_min:
+    if stamped_min != running_min:
         raise VersionError(
-            f"IR was lowered on CPython {stamped}, declared target is {target}; "
-            "re-lower and re-run the corpus before emitting LLVM"
-        )
-    if running_min != target_min:
-        raise VersionError(
-            f"this process is CPython {running}, declared target is {target}; "
-            "re-lower and re-run the corpus before emitting LLVM"
+            f"IR was lowered on CPython {stamped}, but this process is CPython {running}; "
+            "re-lower on this interpreter before emitting LLVM"
         )

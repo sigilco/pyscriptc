@@ -163,7 +163,10 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
             symbol = spec["symbol"]
             if not symbol:
                 continue
-            params = ", ".join(["double"] * len(spec["params"]))
+            # The int helpers carry i64 params (factorial, lcm); every other
+            # row is float-in float-out (or float-in int-out).
+            param_ty = "double" if spec["params"][0]["kind"] == "float" else "i64"
+            params = ", ".join([param_ty] * len(spec["params"]))
             lines.append(f"declare {spec['llvm']} @{symbol}({params})")
     if "fabs" in needed:
         lines.append("declare double @llvm.fabs.f64(double)")
@@ -222,6 +225,7 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
             [
                 "declare void @ps_struct_pack(i64, ptr, ptr, i64, ptr)",
                 "declare ptr @ps_struct_unpack(i64, ptr, i64, ptr, i32)",
+                "declare ptr @ps_struct_unpack_from(i64, ptr, i64, ptr, i64, i64, i32)",
             ]
         )
     return lines

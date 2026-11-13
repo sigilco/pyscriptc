@@ -5,19 +5,53 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _const_int, _const_text
+from pyscriptc.restlower._shared import (
+    _class,
+    _const_int,
+    _const_text,
+    _node_id,
+    _node_type,
+    _node_type_kind,
+    _t_leaf,
+    _type_name,
+)
+
+
+def _shutil_which(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`shutil.which(cmd)` -> the tagged `str | None`.
+
+    CPython returns the path of the first executable found walking PATH, or
+    None when there is none. The runtime call reports the hit as a flag and
+    fills the path buffer only on a hit, so the tagged optional follows the
+    same hit-then-fill shape as `os.getenv` and `re.search`.
+    """
+    from pyscriptc.lower._call_attr import _if_node, _opt_fill
+
+    lo._reject_keywords(node)
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", "shutil.which expects 1 argument(s)")
+    cmd = lo._expr(node.args[0])
+    if _node_type_kind(cmd) != "str":
+        lo.fail(node, "PS1003", "shutil.which takes str arguments")
+    opt_t = lo._opt_type(_t_leaf("str"), node)
+    res = lo._opt_box(None, opt_t, span)
+    dest = _node_id(res)
+    hit = lo._abi_call("shutil", "which.hit", [cmd], _t_leaf("bool"), "ps_shutil_which_hit", span)
+    got = lo._abi_call("shutil", "which.get", [cmd], _t_leaf("str"), "ps_shutil_which_get", span)
+    lo.prelude.append(_if_node(hit, _opt_fill(dest, opt_t, got, span), [], span))
+    return res
 
 
 def _getenv(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     lo._reject_keywords(node)
     args = [lo._expr(arg) for arg in node.args]
     for arg in args:
-        if arg["type"]["kind"] != "str":
+        if _node_type_kind(arg) != "str":
             lo.fail(node, "PS1003", "os.getenv takes str arguments")
     if len(args) == 1:
         return lo._opt_env_get(node, args[0], span)
     if len(args) == 2:
-        return lo._abi_call("os", "getenv", args, {"kind": "str"}, "ps_os_getenv_or", span)
+        return lo._abi_call("os", "getenv", args, _t_leaf("str"), "ps_os_getenv_or", span)
     lo.fail(node, "PS2003", "os.getenv expects 1 or 2 argument(s)")
     raise AssertionError("unreachable")
 
@@ -33,11 +67,11 @@ def _exit(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "sys.exit expects 1 argument(s)")
     arg = lo._expr(node.args[0])
-    kind = arg["type"]["kind"]
+    kind = _node_type_kind(arg)
     if kind == "int":
-        return lo._abi_call("sys", "exit", [arg], {"kind": "none"}, "exit", span)
+        return lo._abi_call("sys", "exit", [arg], _t_leaf("none"), "exit", span)
     if kind == "str":
-        expr = lo._abi_call("sys", "exit", [arg], {"kind": "none"}, "", span)
+        expr = lo._abi_call("sys", "exit", [arg], _t_leaf("none"), "", span)
         expr["exitMessage"] = True
         return expr
     lo.fail(node, "PS1003", "sys.exit argument is an int or a str")
@@ -48,17 +82,17 @@ def _unicode_name(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, An
     if not 1 <= len(node.args) <= 2:
         lo.fail(node, "PS2003", "unicodedata.name expects 1 or 2 argument(s)")
     char = lo._expr(node.args[0])
-    if char["type"]["kind"] != "str":
+    if _node_type_kind(char) != "str":
         lo.fail(node, "PS1003", "unicodedata.name argument is str")
     if len(node.args) == 2:
         default = lo._expr(node.args[1])
-        if default["type"]["kind"] != "str":
+        if _node_type_kind(default) != "str":
             lo.fail(node, "PS1003", "unicodedata.name default is str")
         has = _const_int(1, span)
     else:
         default = _const_text("", "str", span)
         has = _const_int(0, span)
-    return lo._abi_call("unicodedata", "name", [char, has, default], {"kind": "str"}, "ps_unicode_name", span)
+    return lo._abi_call("unicodedata", "name", [char, has, default], _t_leaf("str"), "ps_unicode_name", span)
 
 
 def _resource_search() -> str:
@@ -96,7 +130,7 @@ def _as_file_value(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, A
     if len(node.args) != 1 or node.keywords:
         lo.fail(node, "PS2003", "as_file expects 1 argument(s)")
     opened = lo._expr(node.args[0])
-    if opened["type"]["kind"] != "class" or opened["type"].get("name") != "Path":
+    if _node_type_kind(opened) != "class" or _type_name(_node_type(opened)) != "Path":
         lo.fail(node, "PS1003", "as_file takes a resource path")
     return opened
 
@@ -105,14 +139,14 @@ def _resource_files(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, 
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "importlib.resources.files expects 1 argument(s)")
     package = lo._expr(node.args[0])
-    if package["type"]["kind"] != "str":
+    if _node_type_kind(package) != "str":
         lo.fail(node, "PS1003", "importlib.resources.files package is str")
     search = _const_text(_resource_search(), "str", span)
     return lo._abi_call(
         "importlib.resources",
         "files",
         [package, search],
-        {"kind": "class", "name": "Path"},
+        _class("Path"),
         "ps_res_files",
         span,
     )
@@ -129,4 +163,4 @@ def _atexit_register(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str,
     if params:
         lo.fail(node, "PS2001", "atexit.register takes a no-argument function")
     target = _const_text(lo._ir_name(name), "str", span)
-    return lo._abi_call("atexit", "register", [target], {"kind": "none"}, "", span)
+    return lo._abi_call("atexit", "register", [target], _t_leaf("none"), "", span)

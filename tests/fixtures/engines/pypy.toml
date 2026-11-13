@@ -1,0 +1,18 @@
+# The PyPy island engine descriptor (issue #668).
+#
+# The `pack` entry names the pinned PyPy runtime pack of
+# `packaging/runtime.lock.toml`: the compiler fetches it, compiles
+# `ps_island.c` against its headers (`include/pypy3.11`) and links its
+# `libpypy3.11-c`. A descriptor that owns its own include directory
+# names `include` instead; the two are alternatives.
+schema_version = 1
+
+[engine]
+name = "pypy"
+version = "7.3.23"
+kind = "pypy-interpreter"
+manifest = "pypy-manifest.json"
+
+[abi]
+libpython = "pypy-c"
+pack = "pypy"

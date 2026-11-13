@@ -6,13 +6,23 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _llvm_type
+from pyscriptc.emit._ir import (
+    _elem_kind,
+    _elem_type,
+    _is_optional,
+    _kind,
+    _llvm_type,
+    _map_value_type,
+    _node_args,
+    _type_of,
+)
+from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import IRError
 from pyscriptc.sigrec import sig_for
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
 
 
-class StdlibMixin:
+class StdlibMixin(EmitterBase):
     def _emit_math(self, name: str, values: list[str]) -> str:
         spec = sig_for(MATH_FUNCTIONS[name])
         if name == "isnan":
@@ -42,11 +52,21 @@ class StdlibMixin:
         self.needed.add("math")
         return self._call_ret(spec["llvm"], spec["symbol"], [f"double {value}" for value in values])
 
+    def _emit_math_int(self, symbol: str, values: list[str]) -> str:
+        """The `_abi_call` math symbols (`factorial`, `lcm`): i64 params in
+        and out, declared from the call shape, not the `MATH_FUNCTIONS`
+        float table."""
+        self.needed.add("math")
+        self._abi_decl(symbol, "i64", ["i64"] * len(values))
+        return self._call_ret("i64", symbol, [f"i64 {value}" for value in values])
+
     def _emit_re(self, name: str, values: list[str]) -> str:
         if name == "compile":
             return self._emit_pattern(values)
         if name == "escape":
-            length, ptr = self._buf_parts(values[0])
+            parts: tuple[str, str] = self._buf_parts(values[0])
+            length = parts[0]
+            ptr = parts[1]
             return self._buf_out("ps_re_escape", [f"i64 {length}", f"ptr {ptr}"])
         if name == "findall":
             pattern_len, pattern_ptr = self._buf_parts(values[0])
@@ -130,7 +150,9 @@ class StdlibMixin:
             "standard_b64decode": "ps_b64_std_decode",
             "urlsafe_b64decode": "ps_b64_url_decode",
         }
-        length, ptr = self._buf_parts(values[0])
+        parts: tuple[str, str] = self._buf_parts(values[0])
+        length = parts[0]
+        ptr = parts[1]
         return self._buf_out(symbols[name], [f"i64 {length}", f"ptr {ptr}"])
 
     def _emit_hash(self, name: str, values: list[str]) -> str:
@@ -176,17 +198,33 @@ class StdlibMixin:
         self.line(f"{size_ptr} = getelementptr %cls.SplitResult, ptr null, i64 1")
         self.line(f"{size} = ptrtoint ptr {size_ptr} to i64")
         mem = self._call_ret("ptr", "ps_alloc", [f"i64 {size}"])
-        length, ptr = self._buf_parts(value)
+        parts: tuple[str, str] = self._buf_parts(value)
+        length = parts[0]
+        ptr = parts[1]
         self.line(f"call void @ps_url_split(i64 {length}, ptr {ptr}, ptr {mem})")
         return mem
 
     def _emit_struct(self, name: str, values: list[str], args: list[dict[str, Any]], typ: dict[str, Any]) -> str:
         if name == "pack":
             return self._emit_struct_pack(values, args)
-        elem = typ["elem"]["kind"]
+        elem = _elem_kind(typ)
         want = {"int": 1, "float": 2, "bytes": 3}[elem]
         fmt_len, fmt_ptr = self._buf_parts(values[0])
         data_len, data_ptr = self._buf_parts(values[1])
+        if name == "unpack_from":
+            return self._call_ret(
+                "ptr",
+                "ps_struct_unpack_from",
+                [
+                    f"i64 {fmt_len}",
+                    f"ptr {fmt_ptr}",
+                    f"i64 {data_len}",
+                    f"ptr {data_ptr}",
+                    f"i64 {values[2]}",
+                    f"i64 {values[3]}",
+                    f"i32 {want}",
+                ],
+            )
         return self._call_ret(
             "ptr",
             "ps_struct_unpack",
@@ -195,23 +233,24 @@ class StdlibMixin:
 
     def _emit_struct_pack(self, values: list[str], args: list[dict[str, Any]]) -> str:
         fmt_len, fmt_ptr = self._buf_parts(values[0])
-        payload = list(zip(values[1:], args[1:], strict=True))
-        if not payload:
+        count = len(args) - 1
+        if count < 1:
             arg_ptr = "null"
+            packed = 0
         else:
             self._ensure_arg_type()
-            count = len(payload)
             slot = self.tmp()
             self.line(f"{slot} = alloca [{count} x %ps.arg]")
-            for index, (value, arg) in enumerate(payload):
+            for index in range(count):
+                value = values[index + 1]
+                arg = args[index + 1]
                 base = self.tmp()
                 self.line(f"{base} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 {index}")
-                self._store_ps_arg(base, value, arg["type"])
+                self._store_ps_arg(base, value, _type_of(arg))
             arg_ptr = self.tmp()
             self.line(f"{arg_ptr} = getelementptr [{count} x %ps.arg], ptr {slot}, i64 0, i64 0")
-        return self._buf_out(
-            "ps_struct_pack", [f"i64 {fmt_len}", f"ptr {fmt_ptr}", f"ptr {arg_ptr}", f"i64 {len(payload)}"]
-        )
+            packed = count
+        return self._buf_out("ps_struct_pack", [f"i64 {fmt_len}", f"ptr {fmt_ptr}", f"ptr {arg_ptr}", f"i64 {packed}"])
 
     def _emit_json_loads(self, text: str, typ: dict[str, Any]) -> str:
         symbol, root = self._json_global(typ)
@@ -233,7 +272,7 @@ class StdlibMixin:
         def add(node: dict[str, Any]) -> int:
             idx = len(entries)
             entries.append(None)
-            kind = node["kind"]
+            kind = _kind(node)
             if kind == "int":
                 entries[idx] = (1, 0)
             elif kind == "bool":
@@ -241,22 +280,30 @@ class StdlibMixin:
             elif kind == "str":
                 entries[idx] = (3, 0)
             elif kind == "list":
-                child = add(node["elem"])
+                child = add(_elem_type(node))
                 entries[idx] = (4, child)
             elif kind == "dict":
-                child = add(node["value"])
+                child = add(_map_value_type(node))
                 entries[idx] = (5, child)
             elif kind == "float":
                 entries[idx] = (6, 0)
-            elif node.get("optional"):
-                child = add(node["elem"])
+            elif _is_optional(node):
+                child = add(_elem_type(node))
                 entries[idx] = (7, child)
             else:
                 raise IRError(f"no JSON type for {kind}")
             return idx
 
         root = add(typ)
-        typed = ", ".join(f"%ps.json.ty {{ i32 {kind}, i32 {child} }}" for kind, child in entries if kind is not None)
+        parts: list[str] = []
+        for index in range(len(entries)):
+            entry = entries[index]
+            if entry is None:
+                continue
+            kind = entry[0]
+            child = entry[1]
+            parts.append(f"%ps.json.ty {{ i32 {kind}, i32 {child} }}")
+        typed = ", ".join(parts)
         symbol = f"@ps.json.{self.json_n}"
         self.json_n += 1
         if "%ps.json.ty = type { i32, i32 }" not in self.globals:
@@ -265,7 +312,7 @@ class StdlibMixin:
         return symbol, root
 
     def _json_alloca(self, typ: dict[str, Any]) -> str:
-        kind = typ["kind"]
+        kind = _kind(typ)
         if kind == "bool":
             return self._alloca("i32")
         if kind in {"list", "dict"}:
@@ -273,7 +320,7 @@ class StdlibMixin:
         return self._alloca(_llvm_type(typ))
 
     def _json_read(self, typ: dict[str, Any], slot: str) -> str:
-        kind = typ["kind"]
+        kind = _kind(typ)
         if kind == "bool":
             raw = self._load("i32", slot)
             reg = self.tmp()
@@ -285,7 +332,7 @@ class StdlibMixin:
 
     def _json_write(self, typ: dict[str, Any], value: str) -> str:
         slot = self._json_alloca(typ)
-        kind = typ["kind"]
+        kind = _kind(typ)
         if kind == "bool":
             wide = self.tmp()
             self.line(f"{wide} = zext i1 {value} to i32")
@@ -298,7 +345,8 @@ class StdlibMixin:
         return slot
 
     def _emit_copy_deep(self, expr: dict[str, Any], values: list[str]) -> str:
-        symbol, root = self._copy_global(expr["args"][0]["type"])
+        copy_args: list[dict[str, Any]] = _node_args(expr)
+        symbol, root = self._copy_global(_type_of(copy_args[0]))
         self._abi_decl("ps_copy_deep", "ptr", ["ptr", "i32", "ptr"])
         return self._call_ret("ptr", "ps_copy_deep", [f"ptr {symbol}", f"i32 {root}", f"ptr {values[0]}"])
 
@@ -308,7 +356,7 @@ class StdlibMixin:
         def add(node: dict[str, Any]) -> int:
             idx = len(entries)
             entries.append(None)
-            kind = node["kind"]
+            kind = _kind(node)
             if kind == "int":
                 entries[idx] = (1, 0)
             elif kind == "float":
@@ -318,17 +366,25 @@ class StdlibMixin:
             elif kind == "bytes":
                 entries[idx] = (4, 0)
             elif kind == "list":
-                child = add(node["elem"])
+                child = add(_elem_type(node))
                 entries[idx] = (5, child)
             elif kind == "dict":
-                child = add(node["value"])
+                child = add(_map_value_type(node))
                 entries[idx] = (6, child)
             else:
                 raise IRError(f"no copy type for {kind}")
             return idx
 
         root = add(typ)
-        typed = ", ".join(f"%ps.copy.ty {{ i32 {kind}, i32 {child} }}" for kind, child in entries if kind is not None)
+        parts: list[str] = []
+        for index in range(len(entries)):
+            entry = entries[index]
+            if entry is None:
+                continue
+            kind = entry[0]
+            child = entry[1]
+            parts.append(f"%ps.copy.ty {{ i32 {kind}, i32 {child} }}")
+        typed = ", ".join(parts)
         symbol = f"@ps.copy.{self.copy_n}"
         self.copy_n += 1
         if "%ps.copy.ty = type { i32, i32 }" not in self.globals:

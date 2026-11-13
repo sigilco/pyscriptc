@@ -21,6 +21,7 @@ import pytest
 from pyscriptc.ir import validate_module
 from pyscriptc.lower import lower_source
 from pyscriptc.stdlib_queue import island_policy
+from pyscriptc.tirserde import dict_to_node
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -64,15 +65,20 @@ def test_nested_scope_frees_only_its_own_island_handles() -> None:
     module = _lower(NESTED_ISLAND)
     frames = {fn["name"]: fn for fn in module["functions"]}
 
-    def frees(body: list[dict]) -> list[str]:
+    def frees(body: list[object]) -> list[str]:
         out: list[str] = []
         for stmt in body:
-            if stmt["kind"] == "try":
-                for item in stmt.get("finalbody", []):
-                    expr = item.get("expr", {})
-                    if expr.get("symbol") == "ps_island_free":
-                        out.append(expr["args"][0]["id"])
-                out.extend(frees(stmt["body"]))
+            node = dict_to_node(stmt)
+            if getattr(node, "kind", None) == "try":
+                for item in node.finalbody or []:
+                    item = dict_to_node(item)
+                    expr = item.expr if not isinstance(item, dict) else item.get("expr", {})
+                    if isinstance(expr, dict):
+                        if expr.get("symbol") == "ps_island_free":
+                            out.append(expr["args"][0]["id"])
+                    elif expr is not None and expr.symbol == "ps_island_free":
+                        out.append(expr.args[0].id)
+                out.extend(frees(node.body or []))
         return out
 
     assert sorted(frees(frames["outer"]["body"])) == ["_ps_imod_1", "ctx"]

@@ -11,7 +11,7 @@
 
 Lowering does not consume this yet. The integration points (where
 `lower/_stdlib.py` would ask the registry before fencing PS2002 or PS2101)
-are listed in `.agents/plans/2026-10-21-stubs-typeshed-design.md`. Hand-written
+are listed in the stubs/typeshed design notes. Hand-written
 closed-table rows stay authoritative; the registry fills names they do not
 cover and cross-checks the ones they do.
 """
@@ -36,6 +36,7 @@ from pyscriptc.stubs import (
     find_stub,
     load_stub,
 )
+from pyscriptc.target import TARGET_MINOR_INFO
 from pyscriptc.typefacts import CallableFacts, ParameterFacts, StaticValue, TypeFacts, _parse_type_text
 
 _SCALARS = frozenset({"int", "float", "bool", "str", "bytes"})
@@ -84,7 +85,9 @@ class LoweringSignature:
             return None
         row: dict[str, Any] = {"params": list(self.params), "return": self.returns}
         if self.defaults:
-            row.update(min=self.min_args, defaults=list(self.defaults), names=list(self.names))
+            row["min"] = self.min_args
+            row["defaults"] = list(self.defaults)
+            row["names"] = list(self.names)
         return row
 
 
@@ -95,7 +98,7 @@ class SignatureRegistry:
         self, roots: Sequence[StubRoot], *, version: Version | None = None, platform: str | None = None
     ) -> None:
         self.roots = tuple(roots)
-        self.version = version or sys.version_info[:2]
+        self.version = version or TARGET_MINOR_INFO
         self.platform = platform or sys.platform
         self._modules: dict[tuple[str, bool], StubModule | None] = {}
 

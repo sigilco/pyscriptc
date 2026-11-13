@@ -193,3 +193,51 @@ def test_baseline_run_records_time_and_rss(tmp_path: Path) -> None:
     assert row["rss_ratio"] > 0
     assert "x CPython" in completed.stdout
     assert report["metrics"] == ["wall_ms", "rss_kb"]
+
+
+def test_spread_records_iqr_and_survives_a_single_sample() -> None:
+    from benchmarks.baseline.run import _percentile, _spread
+
+    values = [10.0, 12.0, 11.0, 13.0, 14.0, 10.0, 11.0, 12.0]
+    spread = _spread(values, mid=11.5)
+    # Linear interpolation between the two order statistics around the quartile.
+    assert spread["p25_ms"] == 10.75
+    assert spread["p75_ms"] == 12.25
+    assert spread["iqr_over_median"] == round((12.25 - 10.75) / 11.5, 4)
+    # One run (the --runs=1 path) has no interval: p25 == p75 == the sample, the
+    # relative spread is 0 and the field still exists so every report is uniform.
+    single = _spread([7.0], mid=7.0)
+    assert single == {"p25_ms": 7.0, "p75_ms": 7.0, "iqr_over_median": 0.0}
+    assert _percentile([1.0, 2.0, 3.0], 0.5) == 2.0
+    assert _percentile([1.0, 2.0], 0.25) == 1.25
+
+
+@pytest.mark.linux_container  # HEAVY=1 docker/run.sh
+def test_baseline_run_records_spread(tmp_path: Path) -> None:
+    report_path = tmp_path / "baseline.json"
+    completed = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "benchmarks.baseline.run",
+            "--runs",
+            "2",
+            "--workloads",
+            "sum-squares",
+            "--json",
+            str(report_path),
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stderr + completed.stdout
+    row = json.loads(report_path.read_text(encoding="utf-8"))["workloads"][0]
+    assert row["status"] == "ok"
+    spread = row["native_ms_spread"]
+    assert spread["p25_ms"] > 0
+    assert spread["p75_ms"] >= spread["p25_ms"]
+    assert spread["iqr_over_median"] >= 0
+    assert row["binary_bytes"] > 0
+    assert row["samples"] == 2

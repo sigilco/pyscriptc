@@ -5,10 +5,47 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import _const_bool
 from pyscriptc.reflection import kwargs_call_note
-from pyscriptc.restlower._shared import _asg, _cmp, _field, _incr, _int, _len_of, _nm, _pin, _set_field, _span_to, _sub
+from pyscriptc.restlower._shared import (
+    _asg,
+    _cmp,
+    _field,
+    _flag,
+    _if_stmt,
+    _incr,
+    _int,
+    _len_of,
+    _mk_span,
+    _nm,
+    _node_id,
+    _node_type,
+    _node_type_kind,
+    _pin,
+    _raise_stmt,
+    _set_field,
+    _span_to,
+    _sub,
+    _t_leaf,
+    _t_list,
+    _type_kind,
+    _type_name,
+)
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
+
+
+def _try_stop(body: list[dict[str, Any]], handler_body: list[dict[str, Any]], span: dict[str, Any]) -> dict[str, Any]:
+    """The try/except-StopIteration node the next() default paths spell."""
+
+    return node_to_dict(
+        _ir.try_stmt(
+            [dict_to_node(stmt) for stmt in body],
+            [_ir.Handler(["StopIteration"], [8], [dict_to_node(stmt) for stmt in handler_body])],
+            _mk_span(span),
+        )
+    )
 
 
 def _elem_list(lo: Any, node: ast.Call, source: dict[str, Any], span: dict[str, Any], hint: str) -> dict[str, Any]:
@@ -23,7 +60,7 @@ def _elem_list(lo: Any, node: ast.Call, source: dict[str, Any], span: dict[str, 
         generators=[
             ast.comprehension(
                 target=ast.Name(id=var, ctx=ast.Store()),
-                iter=ast.Name(id=held["id"], ctx=ast.Load()),
+                iter=ast.Name(id=_node_id(held), ctx=ast.Load()),
                 ifs=[],
                 is_async=False,
             )
@@ -37,16 +74,20 @@ def _mk_iter(lo: Any, seq: dict[str, Any], node: ast.AST, span: dict[str, Any]) 
     cursor `next()`/`for`/`list()` advance. R24's eager model — the elements
     are computed up front; the record only tracks position."""
 
-    it_t = lo._iter_type(seq["type"]["elem"], node)
+    it_t = lo._iter_type(_node_type(seq)["elem"], node)
     itn = lo._temp("it")
     lo.locals[itn] = it_t
-    made = {
-        "kind": "call",
-        "callee": {"kind": "class", "name": it_t["name"]},
-        "args": [],
-        "type": it_t,
-        "span": span,
-    }
+    made = node_to_dict(
+        _ir.call(
+            _ir.class_callee(_type_name(it_t)),
+            [],
+            dict_to_type(it_t),
+            _mk_span(span),
+            "",
+            "",
+            -1,
+        )
+    )
     lo.prelude.extend(
         [
             _asg(itn, made, span),
@@ -66,23 +107,73 @@ def _iter(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "iter expects 1 argument(s)")
     source = lo._expr(node.args[0])
-    src_t = source["type"]
-    if src_t["kind"] == "class" and lo.classes.get(src_t["name"], {}).get("iterator"):
+    src_t = _node_type(source)
+    if _type_kind(src_t) == "class" and lo.classes.get(_type_name(src_t), {}).get("iterator"):
         return source
-    if src_t["kind"] == "class":
+    if _type_kind(src_t) == "class":
         called = lo._dunder_call(node, source, "__iter__", [], span)
         if called is not None:
             return called
-    if src_t["kind"] == "list":
+    if _type_kind(src_t) == "list":
         seq = source
-    elif src_t["kind"] == "dict":
+    elif _type_kind(src_t) == "dict":
         key_t = src_t["key"]
-        if key_t["kind"] not in {"int", "str"}:
+        if _type_kind(key_t) not in {"int", "str"}:
             lo.fail(node.args[0], "PS2002", "dict keys are int or str")
-        seq = lo._abi_call("builtins", "dict.keys", [source], {"kind": "list", "elem": key_t}, "ps_dict_keys", span)
+        # `iter(d)` is O(n) either way, so the materialized key list is the
+        # right shape; only `next(iter(d))` without a drain takes the head
+        # fast path below.
+        seq = lo._abi_call("builtins", "dict.keys", [source], _t_list(key_t), "ps_dict_keys", span)
     else:
         seq = _elem_list(lo, node, source, span, "ivs")
     return _mk_iter(lo, seq, node, span)
+
+
+def _dict_first_key(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any] | None:
+    """`next(iter(d))` with no drain: the first key only. A plain
+    `iter(d)` materializes all keys; peeking position 0 is O(1) in the
+    map (one order rebuild at most) and skips the list entirely.
+    Returns None for every other shape."""
+    if not (
+        isinstance(node.args[0], ast.Call)
+        and isinstance(node.args[0].func, ast.Name)
+        and node.args[0].func.id == "iter"
+    ):
+        return None
+    inner = node.args[0]
+    if len(inner.args) != 1:
+        return None
+    src = lo._expr(inner.args[0])
+    src_t = _node_type(src)
+    if _type_kind(src_t) != "dict":
+        return None
+    key_t = src_t["key"]
+    if _type_kind(key_t) not in {"int", "str"}:
+        return None
+    opt_t = lo._opt_type(key_t, node)
+    call = lo._abi_call("builtins", "dict.first_key", [src], opt_t, "ps_dict_first_key", span)
+    box = lo._temp("dhead")
+    lo.locals[box] = opt_t
+    lo.prelude.append(_asg(box, call, span))
+    opt = _nm(box, opt_t, span)
+    # Empty map: StopIteration exactly like the drained cursor; the tag
+    # test catches it without a try block.
+    tag = _field(opt, "_tag", _t_leaf("bool"), span)
+    val = _field(opt, "_val", key_t, span)
+    out = lo._temp("nx")
+    lo.locals[out] = key_t
+    lo.prelude.extend(
+        [
+            _if_stmt(
+                _cmp("==", tag, _const_bool(False, span), span),
+                [_raise_stmt("StopIteration", None, span)],
+                [],
+                span,
+            ),
+            _asg(out, val, span),
+        ]
+    )
+    return _nm(out, key_t, span)
 
 
 def _next(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -92,9 +183,13 @@ def _next(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     lo._reject_keywords(node)
     if not 1 <= len(node.args) <= 2:
         lo.fail(node, "PS2003", "next takes an iterator and an optional default")
+    if len(node.args) == 1:
+        fast = _dict_first_key(lo, node, span)
+        if fast is not None:
+            return fast
     source = lo._expr(node.args[0])
-    src_t = source["type"]
-    if src_t["kind"] == "class" and not lo.classes.get(src_t["name"], {}).get("iterator"):
+    src_t = _node_type(source)
+    if _type_kind(src_t) == "class" and not lo.classes.get(_type_name(src_t), {}).get("iterator"):
         # A user class with __next__ is an iterator itself; the 2-arg form
         # catches its StopIteration for the default. A default of a different
         # type than the element boxes the result into the tagged optional
@@ -103,21 +198,14 @@ def _next(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if called is not None:
             if len(node.args) == 1:
                 return called
-            elem = called["type"]
+            elem = _node_type(called)
             default = lo._expr(node.args[1])
-            if types_equal(default["type"], elem):
+            if types_equal(_node_type(default), elem):
                 out = lo._temp("nx")
                 lo.locals[out] = elem
-                lo.prelude.append(
-                    {
-                        "kind": "try",
-                        "body": [_asg(out, called, span)],
-                        "handlers": [{"exc": ["StopIteration"], "codes": [8], "body": [_asg(out, default, span)]}],
-                        "span": span,
-                    }
-                )
+                lo.prelude.append(_try_stop([_asg(out, called, span)], [_asg(out, default, span)], span))
                 return _nm(out, elem, span)
-            if default["type"]["kind"] != "none":
+            if _node_type_kind(default) != "none":
                 # No union in the IR: the default must be the element type or
                 # None (`next(g, None)`), the common sentinel form.
                 lo.fail(node.args[1], "PS1003", "next's default must match the element type or be None")
@@ -125,50 +213,24 @@ def _next(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
             # The `__next__` call must sit inside the try body, so the box is
             # allocated in the prelude and filled in the guarded statement.
             box = lo._opt_box(None, opt_t, span)
+            box_id = _node_id(box)
             lo.prelude.append(
-                {
-                    "kind": "try",
-                    "body": [
-                        {
-                            "kind": "setattr",
-                            "object": _nm(box["id"], opt_t, span),
-                            "name": "_tag",
-                            "value": _const_bool(True, span),
-                            "span": span,
-                        },
-                        {
-                            "kind": "setattr",
-                            "object": _nm(box["id"], opt_t, span),
-                            "name": "_val",
-                            "value": called,
-                            "span": span,
-                        },
+                _try_stop(
+                    [
+                        _set_field(_nm(box_id, opt_t, span), "_tag", _const_bool(True, span), span),
+                        _set_field(_nm(box_id, opt_t, span), "_val", called, span),
                     ],
-                    "handlers": [
-                        {
-                            "exc": ["StopIteration"],
-                            "codes": [8],
-                            "body": [
-                                {
-                                    "kind": "setattr",
-                                    "object": _nm(box["id"], opt_t, span),
-                                    "name": "_tag",
-                                    "value": _const_bool(False, span),
-                                    "span": span,
-                                }
-                            ],
-                        }
-                    ],
-                    "span": span,
-                }
+                    [_set_field(_nm(box_id, opt_t, span), "_tag", _const_bool(False, span), span)],
+                    span,
+                )
             )
-            return _nm(box["id"], opt_t, span)
-    if src_t["kind"] != "class" or not lo.classes.get(src_t["name"], {}).get("iterator"):
+            return _nm(box_id, opt_t, span)
+    if _type_kind(src_t) != "class" or not lo.classes.get(_type_name(src_t), {}).get("iterator"):
         lo.fail(node.args[0], "PS2002", "next takes an iterator value")
     elem = src_t["elem"]
     itn = _pin(lo, source, span, "it")
-    int_t = {"kind": "int"}
-    seq_t = {"kind": "list", "elem": elem}
+    int_t = _t_leaf("int")
+    seq_t = _t_list(elem)
     seq_r = _field(itn, "seq", seq_t, span)
     idx_r = _field(itn, "idx", int_t, span)
     item = _sub(seq_r, idx_r, elem, span)
@@ -178,28 +240,26 @@ def _next(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) == 1:
         lo.prelude.extend(
             [
-                {
-                    "kind": "if",
-                    "cond": _cmp(">=", idx_r, _len_of(seq_r, span), span),
-                    "then": [{"kind": "raise", "exc": "StopIteration", "message": None, "span": span}],
-                    "else": [],
-                    "span": span,
-                },
+                _if_stmt(
+                    _cmp(">=", idx_r, _len_of(seq_r, span), span),
+                    [_raise_stmt("StopIteration", None, span)],
+                    [],
+                    span,
+                ),
                 _asg(out, item, span),
                 advance,
             ]
         )
         return _nm(out, elem, span)
     default = lo._expr(node.args[1])
-    lo._expect(node.args[1], default["type"], elem, "next")
+    lo._expect(node.args[1], _node_type(default), elem, "next")
     lo.prelude.append(
-        {
-            "kind": "if",
-            "cond": _cmp("<", idx_r, _len_of(seq_r, span), span),
-            "then": [_asg(out, item, span), advance],
-            "else": [_asg(out, default, span)],
-            "span": span,
-        }
+        _if_stmt(
+            _cmp("<", idx_r, _len_of(seq_r, span), span),
+            [_asg(out, item, span), advance],
+            [_asg(out, default, span)],
+            span,
+        )
     )
     return _nm(out, elem, span)
 
@@ -212,10 +272,10 @@ def _fn_ref(lo: Any, fn: ast.expr, span: dict[str, Any], who: str) -> ast.expr:
     if isinstance(fn, (ast.Name, ast.Attribute)):
         return fn
     value = lo._expr(fn)
-    if value["type"]["kind"] != "func":
+    if _node_type_kind(value) != "func":
         lo.fail(fn, "PS2003", f"{who} takes a function name or an inline lambda")
     temp = lo._temp("fn")
-    lo.locals[temp] = value["type"]
+    lo.locals[temp] = _node_type(value)
     lo.prelude.append(_asg(temp, value, span))
     return ast.Name(id=temp, ctx=ast.Load())
 
@@ -298,27 +358,27 @@ def _reversed(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "reversed expects 1 argument(s)")
     source = lo._expr(node.args[0])
-    src_t = source["type"]
-    if src_t["kind"] == "list" and not src_t.get("set"):
+    src_t = _node_type(source)
+    if _type_kind(src_t) == "list" and not _flag(src_t, "set"):
         seq = source
-    elif src_t["kind"] == "dict":
+    elif _type_kind(src_t) == "dict":
         key_t = src_t["key"]
-        if key_t["kind"] not in {"int", "str"}:
+        if _type_kind(key_t) not in {"int", "str"}:
             lo.fail(node.args[0], "PS2002", "dict keys are int or str")
-        seq = lo._abi_call("builtins", "dict.keys", [source], {"kind": "list", "elem": key_t}, "ps_dict_keys", span)
-    elif src_t["kind"] in {"str", "bytes"}:
+        seq = lo._abi_call("builtins", "dict.keys", [source], _t_list(key_t), "ps_dict_keys", span)
+    elif _type_kind(src_t) in {"str", "bytes"}:
         seq = _elem_list(lo, node, source, span, "rvs")
     else:
         lo.fail(node.args[0], "PS2002", "reversed takes a sequence")
         raise AssertionError("unreachable")
-    elem = seq["type"]["elem"]
-    if elem["kind"] == "bool":
+    elem = _node_type(seq)["elem"]
+    if _type_kind(elem) == "bool":
         lo.fail(node, "PS2002", "list[bool] is not lowered")
     rev = lo._abi_call(
         "builtins",
         "reversed",
         [seq, _int(0, span), _int(0, span), _int(0, span), _int(0, span), _int(-1, span)],
-        {"kind": "list", "elem": elem},
+        _t_list(elem),
         "ps_seq_slice",
         span,
     )

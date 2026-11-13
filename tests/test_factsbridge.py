@@ -18,6 +18,7 @@ import pytest
 from pyscriptc.check import CheckFailed
 from pyscriptc.factsbridge import CheckerBridge, MypyBridge, mypy_available
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_type
 
 needs_mypy = pytest.mark.skipif(not mypy_available(), reason="mypy >=2.4,<2.5 not installed")
 
@@ -163,9 +164,9 @@ def test_bridge_unfences_local_inference(tmp_path: Path) -> None:
     path = _write(tmp_path, LOCAL_SOURCE)
     module = lower_source(LOCAL_SOURCE, str(path), CheckerBridge.for_path(path))
     assert _fences(module) == []
-    locals_ = {local["name"]: local["type"] for local in module["functions"][0]["locals"]}
-    assert locals_["total"] == {"kind": "int"}
-    assert locals_["label"] == {"kind": "str"}
+    locals_ = {local["name"]: dict_to_type(local["type"]) for local in module["functions"][0]["locals"]}
+    assert locals_["total"].kind == "int"
+    assert locals_["label"].kind == "str"
 
 
 @needs_mypy
@@ -177,8 +178,8 @@ def test_bridge_infers_return_only_when_the_returns_agree(tmp_path: Path) -> Non
     assert "branch needs a return annotation" not in messages
     # `mixed` returns int then str: mypy proves no single type, the fence stands.
     assert "mixed needs a return annotation" in messages
-    returns = {fn["name"]: fn["returnType"] for fn in module["functions"]}
-    assert returns["branch"] == {"kind": "int"}
+    returns = {fn["name"]: dict_to_type(fn["returnType"]) for fn in module["functions"]}
+    assert returns["branch"].kind == "int"
 
 
 @needs_mypy

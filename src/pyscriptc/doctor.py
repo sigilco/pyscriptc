@@ -13,17 +13,18 @@ from typing import Any
 
 from pyscriptc import rtcache, zigshim
 from pyscriptc.check import _resolve_pyrefly
+from pyscriptc.emit._ir import _flag_of, _name_list, _opt_int, _opt_str, _opt_str_or_none
 from pyscriptc.log import log_dir
 
 
 def _version(argv: list[str], flag: str = "--version") -> str | None:
+    lines: list[str] = []
     try:
         proc = subprocess.run([*argv, flag], capture_output=True, text=True, timeout=15)
+        if proc.returncode == 0:
+            lines = (proc.stdout or proc.stderr).strip().splitlines()
     except Exception:
         return None
-    if proc.returncode != 0:
-        return None
-    lines = (proc.stdout or proc.stderr).strip().splitlines()
     return lines[0] if lines else None
 
 
@@ -36,7 +37,9 @@ def _zig_tool() -> dict[str, Any]:
     """Zig entry for doctor: like `_tool`, but the `ziglang` wheel counts.
 
     A wheel-only install (`pip install ziglang`) has no `zig` on PATH; the
-    shim installed here makes `which("zig")` succeed afterwards.
+    shim installed here makes `which("zig")` succeed afterwards. On Windows
+    the resolution is the wheel's own `zig.exe`, so the wheel counts there
+    too.
     """
     path = shutil.which("zig")
     if path is None:
@@ -48,6 +51,7 @@ def _zig_tool() -> dict[str, Any]:
         "path": path,
         "version": _version([path], "version") if path else None,
         "via_shim": zigshim.is_shim(path),
+        "via_wheel": zigshim.is_wheel_zig(path),
     }
 
 
@@ -84,11 +88,14 @@ def default_target() -> str:
 
 
 def gather() -> dict[str, Any]:
-    argv, source = _resolve_pyrefly()
+    pyrefly_res: tuple[list[str], str] = _resolve_pyrefly()
+    argv: list[str] = pyrefly_res[0]
+    source: str = pyrefly_res[1]
+    own: str = "unknown"
     try:
         own = metadata.version("pyscriptc")
     except metadata.PackageNotFoundError:
-        own = "unknown"
+        pass
     return {
         "pyscriptc": own,
         "python": platform.python_version(),
@@ -111,36 +118,51 @@ def gather() -> dict[str, Any]:
 
 def render(info: dict[str, Any]) -> str:
     def tool(entry: dict[str, Any]) -> str:
-        if not entry["found"]:
+        if not _flag_of(entry, "found"):
             return "not found"
-        return f"{entry['path']} ({entry['version'] or 'version unknown'})"
+        path = _opt_str(entry, "path")
+        version = _opt_str_or_none(entry, "version")
+        return f"{path} ({version or 'version unknown'})"
 
     def zig_line(entry: dict[str, Any]) -> str:
-        if not entry["found"]:
+        if not _flag_of(entry, "found"):
             return "not found"
         text = tool(entry)
-        if entry.get("via_shim"):
+        if _flag_of(entry, "via_shim"):
             text += " [PATH shim for `pip install ziglang`]"
+        elif _flag_of(entry, "via_wheel"):
+            text += " [ziglang wheel]"
         return text
 
-    checker = info["checker"]
-    rc = info["rt_cache"]
-    driver = info.get("driver", "zig")
+    checker: dict[str, Any] = info["checker"]
+    rc: dict[str, Any] = info["rt_cache"]
+    driver = _opt_str(info, "driver") or "zig"
     driver_str = f"{driver} (preferred)" if driver != "none" else "none (install zig or clang)"
+    psc: str = info["pyscriptc"]
+    pyv: str = info["python"]
+    install: str = info["install"]
+    argv = _name_list(checker, "argv")
+    cver = _opt_str_or_none(checker, "version")
+    csrc = _opt_str(checker, "source")
+    clang: dict[str, Any] = info["clang"]
+    zig: dict[str, Any] = info["zig"]
+    cache_dir = _opt_str(info, "cache_dir")
+    rc_dir = _opt_str(rc, "dir")
+    rc_log_dir = _opt_str(info, "log_dir")
+    target = _opt_str(info, "default_target")
     return "\n".join(
         [
-            f"pyscriptc {info['pyscriptc']} (python {info['python']})",
-            f"install:        {info['install']}",
-            f"checker:        {' '.join(checker['argv'])} ({checker['version'] or 'version unknown'}), "
-            f"source: {checker['source']}",
+            f"pyscriptc {psc} (python {pyv})",
+            f"install:        {install}",
+            f"checker:        {' '.join(argv)} ({cver or 'version unknown'}), source: {csrc}",
             f"driver:         {driver_str}",
-            f"clang:          {tool(info['clang'])}",
-            f"zig:            {zig_line(info['zig'])}",
-            f"cache dir:      {info['cache_dir']}",
-            f"rt cache:      {'on' if rc['enabled'] else 'off (PYSC_NO_RT_CACHE)'}, "
-            f"{rc['dir']} ({rc['entries']} objects, {rc['bytes']} bytes)",
-            f"log dir:        {info['log_dir']}",
-            f"default target: {info['default_target']}",
+            f"clang:          {tool(clang)}",
+            f"zig:            {zig_line(zig)}",
+            f"cache dir:      {cache_dir}",
+            f"rt cache:      {'on' if _flag_of(rc, 'enabled') else 'off (PYSC_NO_RT_CACHE)'}, "
+            f"{rc_dir} ({_opt_int(rc, 'entries', 0)} objects, {_opt_int(rc, 'bytes', 0)} bytes)",
+            f"log dir:        {rc_log_dir}",
+            f"default target: {target}",
         ]
     )
 

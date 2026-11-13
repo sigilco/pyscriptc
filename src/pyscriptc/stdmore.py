@@ -1,7 +1,10 @@
 """Closed surface for the rest of the stdlib queue, paths, io, and the island.
 
 Names that are not listed stay fences. Constants are read from the lowering
-interpreter so a baked `sys.platform` matches the CPython oracle on this host.
+interpreter so a baked `sys.platform` matches the CPython oracle on this host,
+except `sys.version`: the version string describes the target the program
+claims to be, not the machine that compiled it, so a 3.11-3.15 tool host
+bakes the target's answer.
 """
 
 from __future__ import annotations
@@ -82,6 +85,7 @@ _ERRNO = (
 # int that fits in signed 64-bit, on a module the 043 snapshot already marks
 # lowered. Values are read from this interpreter in `_load_constants`.
 _INT_SURFACE: dict[str, tuple[str, ...]] = {
+    "selectors": ("EVENT_READ", "EVENT_WRITE"),
     "calendar": (
         "MONDAY",
         "TUESDAY",
@@ -1227,6 +1231,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "urllib.error": ("HTTPError", "URLError"),
     "queue": ("Queue", "Empty", "Full"),
     "asyncio": ("CancelledError",),
+    "selectors": ("DefaultSelector", "SelectorKey"),
 }
 
 CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
@@ -1274,6 +1279,12 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # The parser holds the encoded spec rows; the namespace fields are
     # declared as the options are registered, so they start empty here.
     "ArgParser": [("_specs", _STR_LIST)],
+    # The selector record is an opaque runtime pointer; the key record carries
+    # the fd and the event bits, the two fields the int-fd surface exposes.
+    # CPython's SelectorKey also carries `fileobj` and `data`: the typed
+    # socket handle is #229, so those two stay fenced (divergence 29).
+    "DefaultSelector": [],
+    "SelectorKey": [("fd", _I), ("events", _I)],
     "Namespace": [],
     # The logger carries the name getLogger recorded.
     "Logger": [("_name", _S)],
@@ -1346,7 +1357,7 @@ ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSema
 
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
-PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser"}
+PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser", "DefaultSelector"}
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("datetime", "date"): "Date",
@@ -1391,6 +1402,8 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("asyncio", "Event"): "AsyncEvent",
     ("asyncio", "Semaphore"): "AsyncSemaphore",
     ("asyncio", "Queue"): "AsyncQueue",
+    ("selectors", "DefaultSelector"): "DefaultSelector",
+    ("selectors", "SelectorKey"): "SelectorKey",
 }
 
 # Instance methods. `elem` means the deque's element type.
@@ -1515,6 +1528,8 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
         "getpid": sig([], _I, "ps_os_getpid"),
         "chdir": sig([_S], _N, "ps_os_chdir"),
         "chmod": sig([_S, _I], _N, "ps_os_chmod"),
+        "symlink": sig([_S, _S], _N, "ps_os_symlink"),
+        "readlink": sig([_S], _S, "ps_os_readlink"),
         "mkdir": sig([_S], _N, "ps_os_mkdir"),
         "replace": sig([_S, _S], _N, "ps_os_replace"),
         "unlink": sig([_S], _N, "ps_os_remove"),
@@ -1592,6 +1607,10 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
     "shutil": {
         "copyfile": sig([_S, _S], _S, "ps_shutil_copyfile"),
         "rmtree": sig([_S], _N, "ps_shutil_rmtree"),
+        # `which` keeps its row for the call-table inventory (the probe
+        # census counts it), but the _EARLY handler in restlower takes the
+        # call first: the return is the tagged `str | None`, not the fixed
+        # str this row would hand the fixed-call path.
         "which": sig([_S], _S, "ps_shutil_which"),
         "copy": sig([_S, _S], _S, "ps_shutil_copy"),
         "copy2": sig([_S, _S], _S, "ps_shutil_copy2"),
@@ -1699,6 +1718,11 @@ REST_MODULES = frozenset(
         "calendar",
         "zipfile",
         "tarfile",
+        "uuid",
+        "binascii",
+        "shlex",
+        "secrets",
+        "selectors",
     }
 )
 
@@ -1720,6 +1744,48 @@ def _ir_const(value: Any) -> tuple[Any, dict[str, Any]] | None:
     return None
 
 
+def _target_version() -> str:
+    """The CPython version the emitted program claims to be ('3.14.9').
+
+    The declared target lives in `src/pyscriptc/target.json`; the tool host
+    may be 3.11 through 3.15 and does not change the program's identity.
+    """
+    from pyscriptc.target import TARGET_CPYTHON
+
+    return TARGET_CPYTHON
+
+
+def _target_sys_version() -> str:
+    """The `sys.version` string the emitted program reports.
+
+    CPython's own string carries the build date and the compiler that built
+    the interpreter (`3.14.9 (main, Oct 21 2026, 17:47:42) [Clang 23.1.3 ]`),
+    which is a property of the interpreter build, not of the program. The
+    emitted program reports the target version with the same shape, so a
+    3.11 tool host and a 3.14 tool host bake the same constant and the
+    program matches the 3.14 oracle. The build stamp is not reproducible
+    outside the interpreter that built it, so it is dropped.
+    """
+    version = _target_version()
+    if sys.version.startswith(version):
+        return sys.version
+    return version
+
+
+def _target_sys_executable() -> str:
+    """The `sys.executable` the emitted program reports: the compiler host's.
+
+    Deliberately not target-pinned. The canonical form already classifies an
+    environment-derived absolute path as incidental (`<PATH>` scrub,
+    decision 2026-10-16), and the one place a program's own `sys.executable`
+    must agree with a real interpreter is the island (#688, #690), where the
+    runtime sets it from the running image, never from this constant. A
+    target-pinned path would dangle in the common case (a 3.11 host with no
+    3.14 interpreter installed) and is not an honest answer either.
+    """
+    return sys.executable
+
+
 def _load_constants() -> tuple[dict[tuple[str, str], tuple[Any, dict[str, Any]]], dict[str, int]]:
     import asyncio
     import ctypes
@@ -1736,8 +1802,8 @@ def _load_constants() -> tuple[dict[tuple[str, str], tuple[Any, dict[str, Any]]]
 
     raw: dict[tuple[str, str], Any] = {
         ("sys", "platform"): sys.platform,
-        ("sys", "version"): sys.version,
-        ("sys", "executable"): sys.executable,
+        ("sys", "version"): _target_sys_version(),
+        ("sys", "executable"): _target_sys_executable(),
         ("sys", "maxsize"): sys.maxsize,
         ("socket", "AF_INET"): int(socket.AF_INET),
         ("socket", "AF_INET6"): int(socket.AF_INET6),
@@ -1834,7 +1900,7 @@ def type_alias(module: str, member: str) -> str | None:
 
 
 def slot_size(typ: dict[str, Any]) -> int:
-    kind = typ["kind"]
+    kind: str = typ["kind"]
     if kind in {"int", "float", "list", "dict", "class"}:
         return 8
     if kind in {"str", "bytes"}:
@@ -1882,7 +1948,13 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "io" and member in {"StringIO", "BytesIO"}:
         return True
-    if module == "bisect" and member in {"bisect_left", "bisect_right"}:
+    if module == "bisect" and member in {
+        "bisect_left",
+        "bisect_right",
+        "insort",
+        "insort_left",
+        "insort_right",
+    }:
         return True
     if module == "hmac" and member in {"new", "digest", "compare_digest"}:
         return True
@@ -1890,7 +1962,7 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "importlib.resources" and member == "files":
         return True
-    if module == "tempfile" and member == "NamedTemporaryFile":
+    if module == "tempfile" and member in {"NamedTemporaryFile", "mkstemp"}:
         return True
     if module == "atexit" and member == "register":
         return True
@@ -1907,11 +1979,29 @@ def member_callable(module: str, member: str) -> bool:
         "getrandbits",
         "choice",
         "shuffle",
+        "choices",
+        "sample",
+        "randbytes",
+        "gauss",
+        "normalvariate",
+        "lognormvariate",
+        "expovariate",
+        "triangular",
+        "gammavariate",
+        "betavariate",
     }:
         return True
     if module == "csv" and member in {"reader", "writer"}:
         return True
     if module == "textwrap" and member in {"fill", "wrap", "shorten"}:
+        return True
+    if module == "uuid" and member in {"uuid1", "uuid4", "uuid5", "UUID"}:
+        return True
+    if module == "binascii" and member in {"unhexlify", "hexlify"}:
+        return True
+    if module == "shlex" and member in {"split", "quote", "join"}:
+        return True
+    if module == "secrets" and member in {"token_hex", "token_bytes", "randbelow"}:
         return True
     if module == "tomllib" and member == "loads":
         return True
@@ -1940,6 +2030,12 @@ def member_callable(module: str, member: str) -> bool:
         "chain.from_iterable",
         "starmap",
         "filterfalse",
+        "pairwise",
+        "batched",
+        "dropwhile",
+        "compress",
+        "tee",
+        "permutations",
     }:
         return True
     if module == "argparse" and member == "ArgumentParser":
@@ -1947,5 +2043,7 @@ def member_callable(module: str, member: str) -> bool:
     if module == "queue" and member in {"Queue", "LifoQueue", "SimpleQueue", "Empty", "Full"}:
         return True
     if module == "urllib.request" and member in {"urlopen", "Request"}:
+        return True
+    if module == "selectors" and member in {"DefaultSelector", "SelectorKey"}:
         return True
     return False

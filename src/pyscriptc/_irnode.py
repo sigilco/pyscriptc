@@ -43,9 +43,16 @@ F_RERAISE = 8
 F_BARE = 16
 F_FROZEN = 32
 
-# type-dict flags.
+# type-dict flags. The marker bits spell the extra keys a type dict can
+# carry (handle/island on a class, counter/defaultdict/ordered on a dict);
+# the serializer emits only the set ones, so the key spellings round trip.
 F_TOPT = 1
 F_TSET = 2
+F_TMARK_HANDLE = 4
+F_TMARK_ISLAND = 8
+F_TMARK_COUNTER = 16
+F_TMARK_DEFAULTDICT = 32
+F_TMARK_ORDERED = 64
 
 # const payload tags. The dict IR stores the JSON value directly (True,
 # None, a decimal str for int, a repr str for float); the typed node
@@ -81,7 +88,9 @@ class T:
     `exc`, `typevar`) carry nothing; `class` carries `name` and, for the
     `X | None` spelling, `label`/`elem`/the optional bit; `list` carries
     `elem` and the set bit; `dict` carries `key`/`value`; `func` carries
-    `params`/`return`. Build through the `t_*` helpers.
+    `params`/`return`. The `flags` word also carries the marker bits
+    (`handle`, `island`, `counter`, `defaultdict`, `ordered`) that spell
+    the extra keys a type dict can carry. Build through the `t_*` helpers.
     """
 
     kind: str
@@ -145,7 +154,10 @@ class Handler:
     body, and the optional bind/slot/bare spellings."""
 
     exc: list[str]
-    codes: list[int]
+    # None spells the dict form WITHOUT a "codes" key (the with-open/io/cm
+    # close handlers); [] spells "codes": [] present and empty (the try
+    # statement spelling). The distinction must survive the round trip.
+    codes: list[int] | None
     body: list[IrNode]
     excslot: str = ""
     bind: str = ""
@@ -222,9 +234,21 @@ def t_leaf(kind: str) -> T:
     return T(kind=kind, elem=None, key=None, value=None, params=None, ret=None)
 
 
-def t_class(name: str, label: str = "", elem: T | None = None, optional: bool = False) -> T:
-    """A `class` type dict; `optional` spells the `X | None` bit."""
+def t_class(
+    name: str,
+    label: str = "",
+    elem: T | None = None,
+    optional: bool = False,
+    handle: bool = False,
+    island: bool = False,
+) -> T:
+    """A `class` type dict; `optional` spells the `X | None` bit and the
+    marker bits spell the `handle` and `island` keys."""
     flags = F_TOPT if optional else 0
+    if handle:
+        flags |= F_TMARK_HANDLE
+    if island:
+        flags |= F_TMARK_ISLAND
     return T(kind="class", elem=elem, key=None, value=None, params=None, ret=None, name=name, label=label, flags=flags)
 
 
@@ -234,9 +258,23 @@ def t_list(elem: T, set_: bool = False) -> T:
     return T(kind="list", elem=elem, key=None, value=None, params=None, ret=None, flags=flags)
 
 
-def t_dict(key: T, value: T) -> T:
-    """A `dict` type dict."""
-    return T(kind="dict", elem=None, key=key, value=value, params=None, ret=None)
+def t_buffer(elem: T) -> T:
+    """A `buffer` type dict: the contiguous numeric array of issue #372,
+    flat by definition (the element is int or float)."""
+    return T(kind="buffer", elem=elem, key=None, value=None, params=None, ret=None)
+
+
+def t_dict(key: T, value: T, counter: bool = False, defaultdict: bool = False, ordered: bool = False) -> T:
+    """A `dict` type dict; the marker bits spell the `counter`,
+    `defaultdict` and `ordered` keys."""
+    flags = 0
+    if counter:
+        flags |= F_TMARK_COUNTER
+    if defaultdict:
+        flags |= F_TMARK_DEFAULTDICT
+    if ordered:
+        flags |= F_TMARK_ORDERED
+    return T(kind="dict", elem=None, key=key, value=value, params=None, ret=None, flags=flags)
 
 
 def t_func(params: list[T], ret: T) -> T:

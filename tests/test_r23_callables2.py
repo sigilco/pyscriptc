@@ -194,6 +194,34 @@ def test_nested_user_decorator(tmp_path: Path) -> None:
     )
 
 
+def test_nested_stacked_user_decorators(tmp_path: Path) -> None:
+    _oracle_diff(
+        tmp_path,
+        "r23_nested_stacked.py",
+        "\n".join(
+            [
+                "from typing import Callable",
+                "",
+                "def dec(f: Callable[[int], int]) -> Callable[[int], int]:",
+                "    def wrapped(x: int) -> int:",
+                "        return f(x) * 10",
+                "    return wrapped",
+                "",
+                "def outer() -> int:",
+                "    @dec",
+                "    @dec",
+                "    def g(x: int) -> int:",
+                "        return x + 1",
+                "    return g(4)",
+                "",
+                "def probe() -> int:",
+                "    return outer()",
+                "",
+            ]
+        ),
+    )
+
+
 def test_rebind_to_different_function(tmp_path: Path) -> None:
     _oracle_diff(
         tmp_path,
@@ -238,13 +266,42 @@ def test_partial_through_value_call(tmp_path: Path) -> None:
     )
 
 
-def test_stacked_user_decorators_stay_fenced(tmp_path: Path) -> None:
-    _fence(
+def test_stacked_user_decorators(tmp_path: Path) -> None:
+    _oracle_diff(
+        tmp_path,
+        "r23_stacked_ok.py",
+        "\n".join(
+            [
+                "from typing import Callable",
+                "",
+                "def dec(f: Callable[[], int]) -> Callable[[], int]:",
+                "    def wrapped() -> int:",
+                "        return f() + 1",
+                "    return wrapped",
+                "",
+                "@dec",
+                "@dec",
+                "def g() -> int:",
+                "    return 1",
+                "",
+                "def probe() -> int:",
+                "    return g()",
+                "",
+            ]
+        ),
+    )
+
+
+def test_stacked_unlowerable_decorator_erases_with_a_note(tmp_path: Path) -> None:
+    # A stack the wrap pass cannot apply takes the advisory erase now
+    # (divergence 54, issue #732): it compiles with the PS3099 note, never
+    # a traceback.
+    path = write_case(
         tmp_path,
         "r23_stacked.py",
         "\n".join(
             [
-                "def dec(f):",
+                "def dec(f: int) -> int:",
                 "    return f",
                 "",
                 "@dec",
@@ -254,12 +311,25 @@ def test_stacked_user_decorators_stay_fenced(tmp_path: Path) -> None:
                 "",
             ]
         ),
-        "stacked decorators are not lowered",
     )
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / "r23_stacked.ll"),
+    )
+    assert got.returncode == 0, got.stderr
+    assert "PS3099" in got.stderr, got.stderr
+    assert "Traceback" not in got.stderr, got.stderr
 
 
-def test_mismatched_decorator_stays_fenced(tmp_path: Path) -> None:
-    _fence(
+def test_mismatched_decorator_erases_with_a_note(tmp_path: Path) -> None:
+    # A decorator whose signature does not match the wrap's parameter list
+    # takes the advisory erase now (divergence 54, issue #732).
+    path = write_case(
         tmp_path,
         "r23_bad_dec.py",
         "\n".join(
@@ -273,5 +343,16 @@ def test_mismatched_decorator_stays_fenced(tmp_path: Path) -> None:
                 "",
             ]
         ),
-        "user decorators are not lowered",
     )
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / "r23_bad_dec.ll"),
+    )
+    assert got.returncode == 0, got.stderr
+    assert "PS3099" in got.stderr, got.stderr
+    assert "Traceback" not in got.stderr, got.stderr

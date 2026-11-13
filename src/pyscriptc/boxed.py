@@ -24,6 +24,8 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
+from pyscriptc.emit._ir import _flag_of, _has, _node_name, _opt_record, _str_map
+
 # The execution planes of the plane map (plan Decision D).
 NATIVE = "native"
 ISLAND = "island"
@@ -38,6 +40,7 @@ INVOKE_SYMBOL = "ps_island_fn_invoke"
 # site reuses `ps_island_fn_invoke`; a class-level attribute read or a class
 # taken as a value needs the object first, which this trampoline returns.
 DEF_HANDLE_SYMBOL = "ps_island_def_handle"
+MOD_DEF_HANDLE_SYMBOL = "ps_island_mod_def_handle"
 
 
 def _annotation_is_mutable(node: ast.expr | None) -> bool:
@@ -80,18 +83,30 @@ def plane_map(
 
     fenced: set[str] = set()
     top_import_fences = 0
+    top_fence_message = ""
     for fence in fences:
         owner = fence.get("function") or fence.get("definition")
         if owner is not None:
             fenced.add(owner)
         elif fence.get("code") in ("PS2001", "PS2002"):
-            top_import_fences += 1
+            message = str(fence.get("message") or "")
+            # Issue #678: an import outside the closed table island-binds
+            # under the fallback tier (`island_policy` default), so the
+            # lowerer's fence list never carries it and the compiler keeps
+            # the top level native. The coverage pass lowers without that
+            # policy and still reports the fence, so the inference must not
+            # read it as a top-level trigger. A refused import keeps its
+            # own PS2002 wording and still counts.
+            if fence.get("family") != "import-table" and "is not in the closed import table" not in message:
+                top_import_fences += 1
+                if not top_fence_message:
+                    top_fence_message = message or str(fence.get("code") or "")
 
     if not top_level_island and top_import_fences > 0:
         top_level_island = True
     planes = {}
     for record in functions:
-        name = record["name"] if isinstance(record, dict) else str(record)
+        name = _node_name(record) if isinstance(record, dict) else str(record)
         if name == entry or (name.startswith("__") and name.endswith("__")):
             continue
         planes[name] = ISLAND if name in fenced or top_level_island else NATIVE
@@ -104,8 +119,11 @@ def plane_map(
     class_planes: dict[str, str] = {}
     island_classes: set[str] = set()
     for record in classes or []:
-        name = record["name"] if isinstance(record, dict) else str(record)
-        decided = record.get("island") if isinstance(record, dict) else None
+        name = _node_name(record) if isinstance(record, dict) else str(record)
+        if isinstance(record, dict) and _has(record, "island"):
+            decided = _flag_of(record, "island")
+        else:
+            decided = None
         if decided is not None:
             is_island = bool(decided)
         else:
@@ -115,6 +133,18 @@ def plane_map(
             island_classes.add(name)
 
     demotions: dict[str, str] = dict(demoted_by or {})
+    if top_level_island:
+        # Issue #678: an island top level demotes every definition that
+        # would otherwise lower native (there is no island-to-native call
+        # seam for the seed body). Record the cause per definition so
+        # `assess` and the plane map name the top-level fence - usually an
+        # untyped import - that collapsed the module's native share.
+        reason = (
+            f"module top level is island ({top_fence_message})" if top_fence_message else "module top level is island"
+        )
+        for name in planes:
+            if name not in fenced:
+                demotions.setdefault(name, reason)
     fn_nodes: dict[str, Any] = {}
     if tree is not None:
         fn_nodes = {
@@ -207,7 +237,7 @@ def island_class_type(name: str) -> dict[str, Any]:
 def island_names(planes: dict[str, Any]) -> list[str]:
     """The definitions the plane map routes to the island, in map order."""
 
-    return [name for name, plane in planes.get("functions", {}).items() if plane == ISLAND]
+    return [name for name, plane in _str_map(planes, "functions").items() if plane == ISLAND]
 
 
 # The fallback tier of the running compile, module-level like the island
@@ -287,8 +317,24 @@ def is_island_diagnostic(
         target_file = source_path
     elif err_path_str:
         candidate = Path(err_path_str)
-        if not candidate.is_absolute() and tmp_dir is not None:
-            candidate = (tmp_dir / candidate).resolve()
+        if not candidate.is_absolute():
+            # The checker prints paths relative to the compiler's working
+            # directory (it runs with that CWD); the temp dir anchor is the
+            # fallback for a path it relativized against its own scratch
+            # config. A `..` chain past the root resolves against the CWD
+            # and lands on the real file (found on yt_dlp: every one of
+            # 8,379 diagnostics in a `--program` compile of a package kept
+            # the whole preflight failing because the anchor was wrong).
+            anchors = [Path.cwd(), *([tmp_dir] if tmp_dir is not None else [])]
+            resolved = None
+            for anchor in anchors:
+                found = (anchor / candidate).resolve()
+                if found.is_file():
+                    resolved = found
+                    break
+            if resolved is None:
+                resolved = candidate.resolve()
+            candidate = resolved
         else:
             candidate = candidate.resolve()
         if candidate.is_file():
@@ -310,8 +356,8 @@ def is_island_diagnostic(
     if enclosing is None:
         return top_level_island
 
-    fns = plane_map.get("functions", {})
-    cls = plane_map.get("classes", {})
+    fns = _str_map(plane_map, "functions")
+    cls = _str_map(plane_map, "classes")
     if enclosing in fns:
         return fns[enclosing] == ISLAND
     if enclosing in cls:
@@ -344,12 +390,24 @@ def is_island_diagnostic(
 # and `sys.path[0]` are rebased onto the staged tree, resolved at run time
 # from the running image (`sys.executable`), so a relocated output
 # directory keeps working.
+# Issue #782: the compiler may also embed the entry's compiled code object
+# (`__pyscriptc_seedcache__.codes`, a zlib-compressed marshalled `{name:
+# code}` mapping built for the exact interpreter the binary links). The
+# loader validates the header (the running interpreter's magic number and
+# a matching source hash); a missing, stale or invalid entry falls back to
+# compiling the embedded source, so a foreign-magic binary never breaks -
+# it starts slower. Issue #712: the other units ship as marshalled code
+# slices in `__pyscriptc_seed__`'s index and body blobs - no source text.
 _PROGRAM_BOOTSTRAP = """\
-import os as _os, sys as _sys, importlib.abc as _abc, importlib.util as _iu
-_PS_MODULES = %(modules)s
+import os as _os, sys as _sys, importlib.abc as _abc, importlib.util as _iu, marshal as _ma, zlib as _zl, hashlib as _ha
+_PS_SEED = _sys.modules.get('__pyscriptc_seed__')
+_PS_INDEX = _ma.loads(_PS_SEED.index) if _PS_SEED is not None else {}
+_PS_BODY = _PS_SEED.body if _PS_SEED is not None else b''
 _PS_DATA_DIR = %(data_dir)s
 _PS_PROG_NAME = %(prog_name)s
 _PS_BASE = %(base)s
+_PS_SELFPACK = %(selfpack)s
+_PS_SELFPACK_DIR = %(selfpack_dir)s
 
 
 def _ps_staged():
@@ -362,29 +420,124 @@ def _ps_staged():
     return _os.path.join(root, _PS_DATA_DIR, _PS_PROG_NAME)
 
 
+# The selfpack (issue #678 follow-up): the compiled compiler carries its own
+# package data (the runtime C sources, target.json, native_packages.json,
+# the vendored typeshed) as one compressed payload. The first compiler
+# command materializes it under one cache directory and rewrites the module
+# origins of the embedded finder onto the copy, so every
+# `Path(__file__).with_name(...)` and `runtime_dir()` lookup resolves there.
+def _ps_selfpack():
+    if not _PS_SELFPACK:
+        return None
+    from io import BytesIO as _io_BytesIO
+    import zipfile as _zipfile
+    import base64 as _base64
+    import shutil as _shutil
+    import hashlib as _hashlib
+    override = _os.environ.get("PYSC_SELFPACK_DIR")
+
+    raw = _base64.b64decode(_PS_SELFPACK)
+    digest = _hashlib.sha256(raw).hexdigest()[:16]
+    if override:
+        base = _os.path.join(override, "pyscriptc-selfpack")
+    else:
+        cache = _os.environ.get("PYSC_CACHE_DIR")
+        if not cache:
+            cache = _os.path.join(_os.path.expanduser("~"), ".cache", "pyscriptc")
+        base = _os.path.join(cache, "selfpack")
+    target = _os.path.join(base, digest)
+    marker = _os.path.join(target, ".selfpack-complete")
+    if not _os.path.isfile(marker):
+        scratch = _os.path.join(base, "." + digest + ".extracting")
+        _shutil.rmtree(scratch, ignore_errors=True)
+        _os.makedirs(scratch, exist_ok=True)
+        with _zipfile.ZipFile(_io_BytesIO(raw)) as _archive:
+            _archive.extractall(scratch)
+        with open(_os.path.join(scratch, ".selfpack-complete"), "w"):
+            pass
+        _shutil.rmtree(target, ignore_errors=True)
+        _os.makedirs(base, exist_ok=True)
+        _os.rename(scratch, target)
+    return target
+
+
+_PS_SELFPACK_ROOT = None
+try:
+    _PS_SELFPACK_ROOT = _ps_selfpack()
+except Exception:
+    _PS_SELFPACK_ROOT = None
+
+
 def _ps_rebase(path):
     staged = _ps_staged()
-    if staged is None:
-        return path
-    if path == _PS_BASE:
-        return staged
-    if path.startswith(_PS_BASE + _os.sep):
-        return _os.path.join(staged, path[len(_PS_BASE) + 1 :])
-    parent = _os.path.dirname(_PS_BASE)
-    if path == parent:
-        return _os.path.dirname(staged)
+    if staged is not None:
+        if path == _PS_BASE:
+            return staged
+        if path.startswith(_PS_BASE + _os.sep):
+            return _os.path.join(staged, path[len(_PS_BASE) + 1 :])
+        parent = _os.path.dirname(_PS_BASE)
+        if path == parent:
+            return _os.path.dirname(staged)
+    if _PS_SELFPACK_ROOT:
+        # The selfpack active: every package origin resolves into the
+        # extracted tree. The module bodies still come from _PS_INDEX (the
+        # loader serves them from memory); only the Path(__file__) the
+        # compiled code reads back resolves there, so runtime_dir(),
+        # target.json and the typeshed lookups land on the extracted copy.
+        if path.startswith(_PS_BASE + _os.sep):
+            return _os.path.join(_PS_SELFPACK_ROOT, path[len(_PS_BASE) + 1 :])
+        if path == _PS_BASE:
+            return _PS_SELFPACK_ROOT
     return path
+
+
+# Issue #782: the precompiled code cache the runtime registered before the
+# seed ran (or None when this binary carries none). One decompress, then
+# one unmarshal per module, on the module's first import.
+_PS_CODES = None
+try:
+    import __pyscriptc_seedcache__ as _sc
+
+    _raw = getattr(_sc, "codes", None)
+    if _raw is not None:
+        _PS_CODES = _ma.loads(_zl.decompress(_raw))
+except Exception:
+    _PS_CODES = None
+
+
+def _ps_code(name, path, source):
+    # The module's code object: from the embedded cache when the entry is
+    # present, was built for this interpreter (the `.pyc` magic number) and
+    # was built from this exact source (sha256); the source compile is the
+    # fallback, never trusted blindly from a stale cache.
+    entry = _PS_CODES.get(name) if _PS_CODES else None
+    if entry is not None:
+        try:
+            magic, digest, body = entry
+            if magic == _iu.MAGIC_NUMBER and digest == _ha.sha256(source.encode("utf-8")).digest():
+                return _ma.loads(body)
+        except Exception:
+            pass
+    return compile(source, path, "exec")
+
+
+def _ps_seed_code(name):
+    # The module body is marshalled bytecode, deflated on its own: the body
+    # blob stays in the binary's read-only pages and only the modules a run
+    # imports are inflated and unmarshalled.
+    _origin, _is_pkg, _offset, _length = _PS_INDEX[name]
+    _raw = bytes(_PS_BODY[_offset:_offset + _length])
+    return _ma.loads(_zl.decompress(_raw))
 
 
 class _PsLoader(_abc.Loader):
     def create_module(self, spec):
         return None
     def exec_module(self, module):
-        path, _is_pkg, source = _PS_MODULES[module.__name__]
-        exec(compile(source, path, "exec"), module.__dict__)
+        exec(_ps_seed_code(module.__name__), module.__dict__)
 class _PsFinder(_abc.MetaPathFinder):
     def find_spec(self, name, path=None, target=None):
-        found = _PS_MODULES.get(name)
+        found = _PS_INDEX.get(name)
         if found is None:
             return None
         origin = _ps_rebase(found[0])
@@ -397,8 +550,120 @@ _sys.meta_path.insert(0, _PsFinder())
 _sys.path.insert(0, _ps_rebase(%(path0)s))
 __file__ = _ps_rebase(%(main_path)s)
 __package__ = %(package)s
-exec(compile(%(main_source)s, __file__, "exec"), globals())
+if %(package_mode)s:
+    # The `python -m pkg` shape (issue #765): CPython records the entry
+    # module's own path as argv[0], so argparse's default `prog` is
+    # `__main__.py` and the usage line names the script, not the binary.
+    # `__file__` is that path, rebased onto the staged tree when the
+    # program staged data.
+    if _sys.argv:
+        _sys.argv[0] = __file__
+    else:
+        _sys.argv = [__file__]
+exec(_ps_code(%(main_name)s, __file__, %(main_source)s), globals())
 """
+
+
+def _module_code_entry(source: str, path: str) -> tuple[bytes, bytes, bytes] | None:
+    """One cache body for a module: `(magic number, source digest, marshalled code)`.
+
+    The marshalled code object is pinned to the compiling interpreter's
+    `.pyc` magic number; the entry carries the source's sha256 so a stale
+    cache (source changed after the cache was built) is refused, and the
+    loader re-checks the magic at run time against the interpreter that
+    actually runs the binary. None when the module does not compile.
+    """
+    import hashlib
+    import marshal
+    from importlib.util import MAGIC_NUMBER
+
+    try:
+        code = compile(source, path, "exec", dont_inherit=True)
+    except ValueError:
+        return None
+    except SyntaxError:
+        return None
+    return (
+        MAGIC_NUMBER,
+        hashlib.sha256(source.encode("utf-8")).digest(),
+        marshal.dumps(code),
+    )
+
+
+def code_cache_blob(entries: dict[str, tuple[bytes, bytes, bytes]]) -> bytes:
+    """The zlib-compressed marshalled code cache of a program's units.
+
+    `entries` maps each module name to its `_module_code_entry` triple (the
+    magic number of the compiling interpreter and the marshalled code
+    object, with the source digest inside). The outer marshal keeps the
+    insertion order, so the same inputs give the same bytes; the caller
+    sorts before calling when it wants a canonical order. Empty input
+    returns an empty blob, which the run-time loader treats as no cache.
+    """
+    import marshal
+    import zlib
+
+    return zlib.compress(marshal.dumps(entries), 9)
+
+
+# The island group's bootstrap (the plane split's cycle rule): one exec
+# under CPython that installs a finder over the group's own module sources
+# and imports every group module, so the cycle resolves the way CPython
+# always resolves it. The group is closed under imports, so no group module
+# reaches for a native definition of another module; the native lane reaches
+# the group through the boxed seam, which reads `sys.modules` under the
+# group's real names.
+_ISLAND_GROUP_BOOTSTRAP = """\
+import sys as _sys, importlib.abc as _abc, importlib.util as _iu
+_PS_GROUP = %(modules)s
+
+
+class _PsGroupLoader(_abc.Loader):
+    def create_module(self, spec):
+        return None
+    def exec_module(self, module):
+        path, _is_pkg, source = _PS_GROUP[module.__name__]
+        exec(compile(source, path, "exec"), module.__dict__)
+
+
+class _PsGroupFinder(_abc.MetaPathFinder):
+    def find_spec(self, name, path=None, target=None):
+        found = _PS_GROUP.get(name)
+        if found is None:
+            return None
+        origin = found[0]
+        spec = _iu.spec_from_loader(name, _PsGroupLoader(), origin=origin, is_package=found[1])
+        spec.has_location = True
+        if found[1]:
+            import os as _os
+            spec.submodule_search_locations = [_os.path.dirname(origin)]
+        return spec
+
+
+_sys.meta_path.insert(0, _PsGroupFinder())
+for _name in %(order)s:
+    __import__(_name)
+"""
+
+
+def island_group_bootstrap(
+    sources: dict[str, str],
+    packages: dict[str, bool],
+    paths: dict[str, str],
+) -> str:
+    """The island group's bootstrap source: the finder plus the import order.
+
+    `sources` maps each group module's real name to its source text,
+    `packages` to whether it is a package unit, `paths` to its compile-time
+    path (the origin the finder hands out). The import order is the group's
+    finish order (a module after the modules it imports), so a module body
+    that reads a sibling's binding finds it; a cycle member's body may read a
+    partially initialized sibling, exactly as under CPython.
+    """
+
+    modules = {name: (paths[name], packages[name], sources[name]) for name in sources}
+    order = sorted(sources, key=lambda n: (n.count("."), n))
+    return _ISLAND_GROUP_BOOTSTRAP % {"modules": repr(modules), "order": repr(order)}
 
 
 def program_island_source(
@@ -409,42 +674,101 @@ def program_island_source(
     root: Path,
     path0: Path,
     staged_data: tuple[str, str] | None = None,
-) -> str:
+    selfpack: str = "",
+    selfpack_dir: str = "",
+    package_mode: bool = False,
+) -> tuple[str, tuple[bytes, bytes], bytes | None]:
     """The island seed of a whole program: finder bootstrap plus the entry.
+
+    Returns the `(bootstrap source, (index blob, body blob), code cache)`
+    triple the binary carries. The bootstrap is a small finder program; the
+    module bodies live in the two blobs as marshalled bytecode (issue #712),
+    so the binary does not compile a 10 MB source blob at startup and does
+    not hold the program text in memory.
+
+    The index blob is the marshalled `{name: (origin, is_package, offset,
+    length)}` table; the body blob is the concatenation of the per-module
+    deflated code objects the index points into. A run inflates and
+    unmarshals only the modules it imports.
 
     `staged_data` is the `(data directory name, program name)` pair of the
     staged data tree (issue #665), or None when the program staged nothing.
     The bootstrap resolves it against the running image, so a relocated
     output directory still finds its data files.
+
+    `selfpack` is the base64 payload of the compiled package's own data
+    files (issue #678 follow-up): the compiler embedding itself carries
+    its runtime sources and tables so the binary is self-contained. The
+    bootstrap extracts it once under the digest directory and rebases the
+    data-file origins onto the copy.
+
+    `code cache` (issue #782) is the zlib-compressed marshalled code cache
+    of the entry unit (None when it did not compile, in which case the
+    bootstrap compiles the entry's source at start exactly as before the
+    cache existed); the other units need no cache, their bodies are already
+    marshalled code in the body blob.
     """
 
-    modules: dict[str, tuple[str, bool, str]] = {}
+    import marshal
+    import zlib
+
+    index: dict[str, tuple[str, bool, int, int]] = {}
+    body = bytearray()
     main_path = ""
     main_source = ""
     for name, path, is_package in units:
-        text = path.read_text(encoding="utf-8")
         if name == entry:
-            main_path, main_source = str(path), text
+            main_path, main_source = str(path), path.read_text(encoding="utf-8")
             continue
-        modules[name] = (str(path), is_package, text)
-    return _PROGRAM_BOOTSTRAP % {
-        "modules": repr(modules),
+        text = path.read_text(encoding="utf-8")
+        # The optimizer level is pinned to 0 so the bytecode does not depend
+        # on how the compiler itself was invoked (`python -O`).
+        code = compile(text, str(path), "exec", dont_inherit=True, optimize=0)
+        blob = zlib.compress(marshal.dumps(code), 9)
+        index[name] = (str(path), is_package, len(body), len(blob))
+        body.extend(blob)
+    source = _PROGRAM_BOOTSTRAP % {
         "data_dir": repr(staged_data[0] if staged_data is not None else None),
         "prog_name": repr(staged_data[1] if staged_data is not None else None),
         "base": repr(str(root.resolve())),
         "path0": repr(str(path0)),
         "main_path": repr(main_path),
         "package": repr(main_package),
+        "package_mode": repr(package_mode),
         "main_source": repr(main_source),
+        "selfpack": repr(selfpack),
+        "selfpack_dir": repr(selfpack_dir),
+        "main_name": repr(entry),
     }
+    # The code cache covers the entry only: every other unit already ships
+    # as a marshalled code slice in the body blob, so a second marshalled
+    # copy under the source-digest guard would be dead bytes.
+    main_built = _module_code_entry(main_source, main_path)
+    cache = code_cache_blob({entry: main_built}) if main_built is not None else None
+    return source, (marshal.dumps(index), bytes(body)), cache
 
 
-def program_island_module(source: str, root: Path) -> dict[str, Any]:
-    """The merged IR module of a program-wide island: no native code at all."""
+def program_island_module(
+    source: str, root: Path, seed: tuple[bytes, bytes], code_cache: bytes | None = None
+) -> dict[str, Any]:
+    """The merged IR module of a program-wide island: no native code at all.
+
+    `seed` is the `(index blob, body blob)` pair of the bytecode-backed module
+    table (issue #712); the IR carries it base64-encoded, the only encoding a
+    JSON IR can hold bytes in.
+
+    `code_cache` (issue #782) is the zlib-compressed marshalled code cache
+    of the entry unit, or None when the running interpreter produced none;
+    the emitter embeds it and registers it before the seed execs, and the
+    bootstrap falls back to compiling the entry's source without it.
+    """
+
+    from base64 import b64encode
 
     from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 
-    return {
+    index_blob, body_blob = seed
+    module: dict[str, Any] = {
         "irVersion": IR_VERSION,
         "subset": SUBSET,
         "cpython": cpython_version(),
@@ -461,16 +785,21 @@ def program_island_module(source: str, root: Path) -> dict[str, Any]:
             "demotedBy": {},
         },
         "islandSource": source,
+        "islandSeedIndex": b64encode(index_blob).decode("ascii"),
+        "islandSeedBody": b64encode(body_blob).decode("ascii"),
     }
+    if code_cache is not None:
+        module["islandCodeCache"] = code_cache.hex()
+    return module
 
 
 def unit_needs_island(module: dict[str, Any]) -> bool:
     """True when one unit's own plan put anything on the island."""
 
-    plan = module.get("fallback") or {}
+    plan = _opt_record(module, "fallback") or {}
     return (
         plan.get("moduleTopLevel") == ISLAND
-        or ISLAND in plan.get("functions", {}).values()
-        or ISLAND in plan.get("classes", {}).values()
+        or ISLAND in _str_map(plan, "functions").values()
+        or ISLAND in _str_map(plan, "classes").values()
         or bool(module.get("islandSource"))
     )

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ast
 import json
 import os
 import subprocess
@@ -72,7 +73,8 @@ def test_debug_does_not_flip_ir(tmp_path: Path) -> None:
     src = EXAMPLES / "sum_squares.py"
     proc_plain = run_cli("compile", str(src), "--emit", "llvm", "-o", str(out), env=env)
     ll_plain = out.read_text()
-    ir_plain = Path(str(out) + ".ir.json").read_text()
+    ir_ref = tmp_path / "ref.ir.json"
+    proc_ir = run_cli("compile", str(src), "--emit", "ir", "-o", str(ir_ref), env=env)
     proc_debug = run_cli(
         "compile",
         str(src),
@@ -85,9 +87,9 @@ def test_debug_does_not_flip_ir(tmp_path: Path) -> None:
         str(tmp_path / "d"),
         env=env,
     )
-    assert proc_plain.returncode == proc_debug.returncode == 0
+    assert proc_plain.returncode == proc_ir.returncode == proc_debug.returncode == 0
     assert ll_plain == out.read_text()
-    assert ir_plain == Path(str(out) + ".ir.json").read_text()
+    assert ir_ref.read_text() == (tmp_path / "d" / "ir.json").read_text()
     # No debug noise on stdout either way.
     assert proc_debug.stdout == proc_plain.stdout
 
@@ -131,7 +133,7 @@ def test_timings_flag_prints_stage_table(tmp_path: Path) -> None:
     assert "[debug] total" in proc.stderr
     # parse is the part of the lower stage that went into the parser:
     # the lower row must not repeat it.
-    lower = float(next(line for line in proc.stderr.splitlines() if line.startswith("[debug] lower")).split()[-1])
+    lower = float(next(line for line in proc.stderr.splitlines() if line.startswith("[debug] lower")).split()[2])
     assert lower > 0.0
 
 
@@ -161,3 +163,75 @@ def test_timings_without_debug_stays_quiet(tmp_path: Path) -> None:
     proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out))
     assert proc.returncode == 0, proc.stderr
     assert "[debug]" not in proc.stderr
+
+
+def test_stage_table_prints_metrics(tmp_path: Path) -> None:
+    out = tmp_path / "main.ll"
+    proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out), "--debug")
+    assert proc.returncode == 0, proc.stderr
+    header = next(line for line in proc.stderr.splitlines() if line.startswith("[debug] stage"))
+    for column in ("ms", "rssKB", "nodes", "funcs"):
+        assert column in header, header
+    lower = next(line for line in proc.stderr.splitlines() if line.startswith("[debug] lower"))
+    fields = lower.split()
+    # name, ms, rssKb, nodes, functions
+    assert len(fields) == 6, lower
+    assert int(fields[4]) > 0
+    assert int(fields[5]) >= 1
+
+
+def test_summary_json_carries_stage_stats(tmp_path: Path) -> None:
+    out = tmp_path / "main.ll"
+    dbg = tmp_path / "dbg"
+    proc = run_cli(
+        "compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out), "--debug-dir", str(dbg)
+    )
+    assert proc.returncode == 0, proc.stderr
+    summary = json.loads((dbg / "summary.json").read_text())
+    stats = {entry["name"]: entry for entry in summary["stageStats"]}
+    for stage in ("check", "validate", "emit_llvm"):
+        assert stage in stats, stats
+        assert stats[stage]["ms"] >= 0.0
+        assert stats[stage]["rssKb"] >= 0
+        assert stats[stage]["nodes"] > 0, stats[stage]
+        assert stats[stage]["functions"] >= 1, stats[stage]
+    # stageStats only covers primary stages; every one must appear in timings.
+    for name in stats:
+        assert name in summary["timings"]
+
+
+def test_stage_stats_absent_without_debug(tmp_path: Path) -> None:
+    out = tmp_path / "main.ll"
+    proc = run_cli("compile", str(EXAMPLES / "sum_squares.py"), "--emit", "llvm", "-o", str(out))
+    assert proc.returncode == 0, proc.stderr
+    assert "[debug]" not in proc.stderr
+
+
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
+_SRC = ROOT / "src" / "pyscriptc"
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_debug_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "debug.py") == 0
+
+
+def test_report_cli_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "cli" / "_report.py") == 0

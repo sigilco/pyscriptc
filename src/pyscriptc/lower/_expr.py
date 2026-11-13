@@ -2,9 +2,11 @@
 
 Split out of `__init__.py` as E0 move 2. `Lowerer` composes this mixin in.
 The area owns the `_expr` dispatch and its expression-form methods: names,
-constants, unary/binary/compare (including chains and membership), list and
-dict displays, subscripts and slices, attributes, calls, `and`/`or`,
-conditionals, f-strings and `%` formatting.
+constants, unary/binary, list and dict displays, subscripts and slices,
+attributes, calls, `and`/`or`, conditionals, f-strings and `%` formatting.
+The compare family (`_compare`, chains and membership, the optional equality
+paths) and the node builders it spells with moved verbatim to
+`lower._expr_compare`, which composes here as `ExprCompareMixin`.
 
 Tables shared with the statement, call, and typing paths (`_CMP`, `_SCALAR`,
 `_TRUTHY`, `_LIST_FORMS`, `_DICT_FORMS`, `_SET_FORMS`) live in `_core.py`;
@@ -17,13 +19,12 @@ from __future__ import annotations
 import ast
 from typing import Any
 
+from pyscriptc import _irnode as _ir
 from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.errors import span_of
 from pyscriptc.ffi_manifest import type_ir
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import (
-    _CMP,
-    _SCALAR,
     _TRUTHY,
     _any_contains,
     _assign,
@@ -31,19 +32,32 @@ from pyscriptc.lower._core import (
     _binary_int,
     _compare,
     _concat_str,
-    _const_bool,
     _const_int,
     _const_list_concat,
     _const_none,
     _const_str_join,
-    _len_call,
     _name,
     _node_text,
     _op_text,
-    _plain_const_kind,
     _show,
     _static_int,
     _zero,
+)
+from pyscriptc.lower._expr_compare import (
+    _NUMERIC,
+    ExprCompareMixin,
+    _assign_node,
+    _attr_node,
+    _cast_node,
+    _compare_node,
+    _contains_node,
+    _expr_stmt_node,
+    _if_node,
+    _mk_span,
+    _mk_type,
+    _subscript_node,
+    _unary_node,
+    _while_node,
 )
 from pyscriptc.reflection import inspect_note, typing_note
 from pyscriptc.restlower._argparse import path_attribute
@@ -54,7 +68,8 @@ from pyscriptc.stdlib_queue import (
     SPECIAL_FUNCTIONS,
     wave_function,
 )
-from pyscriptc.stdmore import COMPARE_CLASSES, class_constant, member_callable, module_constant
+from pyscriptc.stdmore import class_constant, member_callable, module_constant
+from pyscriptc.tirserde import dict_to_node, node_to_dict
 
 _INT_BIN = {
     ast.Add: "+",
@@ -69,10 +84,121 @@ _INT_BIN = {
     ast.RShift: ">>",
 }
 _FLOAT_BIN = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/", ast.Mod: "%", ast.FloorDiv: "//"}
-_NUMERIC = {"int", "float"}
 
 
-class ExprMixin:
+def _const_node(value: Any, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The const node one dict-IR const spells."""
+    kind = typ["kind"]
+    if kind == "bool":
+        ptag, svalue = _ir.P_BOOL, "true" if value else "false"
+    elif kind == "none":
+        ptag, svalue = _ir.P_NONE, ""
+    else:
+        ptag = _PTAGS[kind]
+        svalue = value
+    return node_to_dict(_ir.const_node(ptag, svalue, _mk_type(typ), _mk_span(span)))
+
+
+_PTAGS = {"str": _ir.P_STR, "int": _ir.P_INT, "float": _ir.P_FLOAT, "bytes": _ir.P_BYTES}
+
+
+def _const_of(value: Any, kind: str, span: dict[str, Any]) -> dict[str, Any]:
+    """The const node with the leaf type `kind` spells."""
+    return _const_node(value, {"kind": kind}, span)
+
+
+def _binary_node(
+    op: str, left: dict[str, Any], right: dict[str, Any], typ: dict[str, Any], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The binary operation node."""
+    return node_to_dict(_ir.binary(op, dict_to_node(left), dict_to_node(right), _mk_type(typ), _mk_span(span)))
+
+
+def _call_node(
+    callee: dict[str, Any],
+    args: list[dict[str, Any]],
+    typ: dict[str, Any],
+    span: dict[str, Any],
+    *,
+    format_style: str = "",
+) -> dict[str, Any]:
+    """The call node one dict-IR call spells."""
+    return node_to_dict(
+        _ir.call(
+            dict_to_node(callee),
+            [dict_to_node(arg) for arg in args],
+            _mk_type(typ),
+            _mk_span(span),
+            "",
+            format_style,
+            -1,
+        )
+    )
+
+
+def _builtin_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The call to a builtin."""
+    return _call_node({"kind": "builtin", "name": name}, args, typ, span)
+
+
+def _class_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The call to a class constructor."""
+    return _call_node({"kind": "class", "name": name}, args, typ, span)
+
+
+def _value_call(
+    target: dict[str, Any], args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The indirect call through a callable value."""
+    return _call_node({"kind": "value", "target": target}, args, typ, span)
+
+
+def _closure_node(name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The closure node with the empty environment."""
+    return node_to_dict(_ir.closure(name, [], _mk_type(typ), _mk_span(span)))
+
+
+def _setattr_node(obj: dict[str, Any], name: str, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The attribute write node."""
+    return node_to_dict(_ir.setattr_stmt(dict_to_node(obj), name, dict_to_node(value), _mk_span(span)))
+
+
+def _setitem_node(
+    container: dict[str, Any], index: dict[str, Any], value: dict[str, Any], span: dict[str, Any]
+) -> dict[str, Any]:
+    """The container store node."""
+    return node_to_dict(
+        _ir.setitem_stmt(dict_to_node(container), dict_to_node(index), dict_to_node(value), _mk_span(span))
+    )
+
+
+def _name_node(name: str, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The local read node."""
+    return node_to_dict(_ir.name_expr(name, _mk_type(typ), _mk_span(span)))
+
+
+def _list_node(elems: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The list display node."""
+    return node_to_dict(_ir.list_lit([dict_to_node(elem) for elem in elems], _mk_type(typ), _mk_span(span)))
+
+
+def _dict_node(pairs: list[Any], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict display node; a pair is the `{"key": .., "value": ..}` dict."""
+    return node_to_dict(
+        _ir.dict_lit(
+            [_ir.Pair(dict_to_node(pair["key"]), dict_to_node(pair["value"])) for pair in pairs],
+            _mk_type(typ),
+            _mk_span(span),
+        )
+    )
+
+
+def _raise_node(exc: str, span: dict[str, Any]) -> dict[str, Any]:
+    """The bare raise node with no message."""
+    return node_to_dict(_ir.raise_stmt(exc, _mk_span(span), -1))
+
+
+class ExprMixin(ExprCompareMixin):
     def _expr(self, node: ast.expr, expect: dict[str, Any] | None = None) -> dict[str, Any]:
         value = self._expr_any(node, expect)
         # boxed:begin
@@ -98,34 +224,12 @@ class ExprMixin:
             value = None
         dest = self._temp("opt")
         self.locals[dest] = typ
-        made = {
-            "kind": "call",
-            "callee": {"kind": "class", "name": typ["name"]},
-            "args": [],
-            "type": typ,
-            "span": span,
-        }
-        self.prelude.append(_assign(dest, made, span))
-        box = _name(dest, typ, span)
+        made = _class_call(typ["name"], [], typ, span)
+        self.prelude.append(_assign_node(dest, made, span))
+        box = _name_node(dest, typ, span)
         if value is not None:
-            self.prelude.append(
-                {
-                    "kind": "setattr",
-                    "object": box,
-                    "name": "_tag",
-                    "value": _const_bool(True, span),
-                    "span": span,
-                }
-            )
-            self.prelude.append(
-                {
-                    "kind": "setattr",
-                    "object": _name(dest, typ, span),
-                    "name": "_val",
-                    "value": value,
-                    "span": span,
-                }
-            )
+            self.prelude.append(_setattr_node(box, "_tag", _const_of(True, "bool", span), span))
+            self.prelude.append(_setattr_node(_name_node(dest, typ, span), "_val", value, span))
         return box
 
     def _opt_truthy(self, expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
@@ -134,19 +238,17 @@ class ExprMixin:
         Heap elements are truthy whenever they exist, so the tag alone decides.
         """
         typ = expr["type"]
-        tag = _attr(expr, "_tag", {"kind": "bool"}, span)
+        tag = _attr_node(expr, "_tag", {"kind": "bool"}, span)
         if typ["elem"]["kind"] in {"class", "exc"}:
             return tag
-        val = _attr(expr, "_val", typ["elem"], span)
+        val = _attr_node(expr, "_val", typ["elem"], span)
         res = self._temp("optcond")
         self.locals[res] = {"kind": "bool"}
-        self.prelude.append(_assign(res, tag, span))
-        retag = _attr(expr, "_tag", {"kind": "bool"}, span)
+        self.prelude.append(_assign_node(res, tag, span))
+        retag = _attr_node(expr, "_tag", {"kind": "bool"}, span)
         inner = self._truthy(val, span)
-        self.prelude.append(
-            {"kind": "if", "cond": retag, "then": [_assign(res, inner, span)], "else": [], "span": span}
-        )
-        return _name(res, {"kind": "bool"}, span)
+        self.prelude.append(_if_node(retag, [_assign_node(res, inner, span)], [], span))
+        return _name_node(res, {"kind": "bool"}, span)
 
     def _expr_any(self, node: ast.expr, expect: dict[str, Any] | None = None) -> dict[str, Any]:
         span = span_of(node, self.filename)
@@ -191,7 +293,7 @@ class ExprMixin:
             # the point of evaluation, like the iterator builtins do.
             return self._comp(node, span, expect)
         if isinstance(node, ast.IfExp):
-            return self._ifexp(node, span)
+            return self._ifexp(node, span, expect)
         if isinstance(node, ast.Lambda):
             return self._lambda(node, span, expect)
         self.fail(node, "PS2002", f"{_node_text(node)} is not lowered")
@@ -215,7 +317,7 @@ class ExprMixin:
             narrowed = self.opt_unwrap.get(node.id)
             if narrowed is not None:
                 # Inside `if x is not None:` a read of x is its tagged value.
-                return _attr(_name(node.id, narrowed, span), "_val", narrowed["elem"], span)
+                return _attr_node(_name(node.id, narrowed, span), "_val", narrowed["elem"], span)
             return _name(node.id, self.locals[node.id], span)
         elif node.id in self.captures:
             return _name(node.id, self.captures[node.id], span)
@@ -228,7 +330,7 @@ class ExprMixin:
                 return self._materialize_tuple(found["elems"], span)
             return {**found, "span": span}
         if node.id == "__name__":
-            return {"kind": "const", "value": self.module_name or "__main__", "type": {"kind": "str"}, "span": span}
+            return _const_of(self.module_name or "__main__", "str", span)
         if node.id in self.type_aliases:
             note = typing_note(node.id)
             if note is not None:
@@ -255,12 +357,11 @@ class ExprMixin:
                     found_const = manifest.const(binding.attr)
                     if found_const is None:
                         self.fail(node, "PS2001", f"{binding.module}.{binding.attr} is not a constant")
-                    return {
-                        "kind": "const",
-                        "value": found_const.value,
-                        "type": type_ir(found_const.type, manifest.handle_names),
-                        "span": span,
-                    }
+                    return _const_node(
+                        found_const.value,
+                        type_ir(found_const.type, manifest.handle_names),
+                        span,
+                    )
                 if binding.module == "math":
                     value: Any = MATH_CONSTANTS[binding.attr]
                     typ: dict[str, Any] = {"kind": "float"}
@@ -269,7 +370,7 @@ class ExprMixin:
                     if found is None:
                         self.fail(node, "PS2001", f"{binding.module}.{binding.attr} is not a constant")
                     value, typ = found
-                return {"kind": "const", "value": value, "type": typ, "span": span}
+                return _const_node(value, typ, span)
             if binding.kind in {"module", "pkg", "island", "island_member"}:
                 self.fail(node, "PS2002", f"module {node.id} is not a value in the static subset")
             self.fail(node, "PS2002", f"{node.id} is a function and is not a value")
@@ -280,6 +381,12 @@ class ExprMixin:
         # `ps_island_fn_invoke`, like any other island definition.
         if node.id in self.island_classes:
             return self._island_class_handle(node.id, span)
+        # An island class of another module taken as a value: the same
+        # opaque handle, fetched from the defining module's namespace.
+        floor = self.island_floor_classes.get(node.id)
+        if floor is not None:
+            module, cls = floor
+            return self._island_floor_class_handle(node.id, module, cls, span)
         # boxed:end
         if node.id in self.classes:
             self.fail(node, "PS2002", f"class {node.id} is not a value")
@@ -304,13 +411,7 @@ class ExprMixin:
             # empty environment (the emitter adds a lazy env-first shim).
             params, ret = self.sigs[node.id]
             ftype = {"kind": "func", "params": [param["type"] for param in params], "return": ret}
-            return {
-                "kind": "closure",
-                "name": self._ir_name(node.id),
-                "env": [],
-                "type": ftype,
-                "span": span,
-            }
+            return _closure_node(self._ir_name(node.id), ftype, span)
         if node.id in EXCEPTIONS:
             self.fail(node, "PS2002", f"{node.id} is only lowered in raise and except")
         self.fail(node, "PS2002", f"{node.id} is not a local or parameter")
@@ -319,20 +420,20 @@ class ExprMixin:
     def _const(self, node: ast.Constant, span: dict[str, Any]) -> dict[str, Any]:
         value = node.value
         if isinstance(value, bool):
-            return {"kind": "const", "value": value, "type": {"kind": "bool"}, "span": span}
+            return _const_of(value, "bool", span)
         if isinstance(value, int):
-            return {"kind": "const", "value": str(value), "type": {"kind": "int"}, "span": span}
+            return _const_of(str(value), "int", span)
         if isinstance(value, float):
-            return {"kind": "const", "value": repr(value), "type": {"kind": "float"}, "span": span}
+            return _const_of(repr(value), "float", span)
         if isinstance(value, str):
             # S2: str is a code-point sequence stored UTF-8, so any scalar
             # code point lowers; lone surrogates have no UTF-8 bytes and
             # stay fenced (the surrogate policy, divergences item 8).
             if any(0xD800 <= ord(ch) <= 0xDFFF for ch in value):
                 self.fail(node, "PS2005", "string literals with lone surrogates are not lowered")
-            return {"kind": "const", "value": value, "type": {"kind": "str"}, "span": span}
+            return _const_of(value, "str", span)
         if isinstance(value, bytes):
-            return {"kind": "const", "value": value.decode("latin1"), "type": {"kind": "bytes"}, "span": span}
+            return _const_of(value.decode("latin1"), "bytes", span)
         if value is None:
             return _const_none(span)
         self.fail(node, "PS2002", f"literal {type(value).__name__} is not lowered")
@@ -342,20 +443,20 @@ class ExprMixin:
         operand = self._expr(node.operand)
         kind = operand["type"]["kind"]
         if isinstance(node.op, ast.USub) and kind == "int":
-            return {"kind": "unary", "op": "-", "operand": operand, "type": {"kind": "int"}, "span": span}
+            return _unary_node("-", operand, {"kind": "int"}, span)
         if isinstance(node.op, ast.USub) and kind == "float":
-            return {"kind": "unary", "op": "-", "operand": operand, "type": {"kind": "float"}, "span": span}
+            return _unary_node("-", operand, {"kind": "float"}, span)
         if isinstance(node.op, ast.Not) and kind == "bool":
-            return {"kind": "unary", "op": "not", "operand": operand, "type": {"kind": "bool"}, "span": span}
+            return _unary_node("not", operand, {"kind": "bool"}, span)
         if isinstance(node.op, ast.Not) and (kind in _TRUTHY or operand["type"].get("optional")):
             inner = self._truthy(operand, span)
-            return {"kind": "unary", "op": "not", "operand": inner, "type": {"kind": "bool"}, "span": span}
+            return _unary_node("not", inner, {"kind": "bool"}, span)
         if isinstance(node.op, ast.USub) and kind == "class" and operand["type"].get("name") == "TimeDelta":
-            return {"kind": "unary", "op": "-", "operand": operand, "type": operand["type"], "span": span}
+            return _unary_node("-", operand, operand["type"], span)
         if isinstance(node.op, ast.UAdd) and kind in _NUMERIC:
             return operand
         if isinstance(node.op, ast.Invert) and kind == "int":
-            return {"kind": "unary", "op": "~", "operand": operand, "type": {"kind": "int"}, "span": span}
+            return _unary_node("~", operand, {"kind": "int"}, span)
         self.fail(node, "PS2004", f"unary {_op_text(node.op)} on {kind} is not lowered")
         raise AssertionError("unreachable")
 
@@ -401,26 +502,12 @@ class ExprMixin:
                 # sitofp, the same promotion `float(x)` emits.
                 float_t = {"kind": "float"}
                 if left_kind == "int":
-                    left = {"kind": "cast", "op": "int_to_float", "value": left, "type": float_t, "span": span}
+                    left = _cast_node("int_to_float", left, float_t, span)
                 if right_kind == "int":
-                    right = {"kind": "cast", "op": "int_to_float", "value": right, "type": float_t, "span": span}
-                return {
-                    "kind": "binary",
-                    "op": _FLOAT_BIN[op_type],
-                    "left": left,
-                    "right": right,
-                    "type": float_t,
-                    "span": span,
-                }
+                    right = _cast_node("int_to_float", right, float_t, span)
+                return _binary_node(_FLOAT_BIN[op_type], left, right, float_t, span)
         if left_kind == right_kind and left_kind in {"str", "bytes"} and isinstance(node.op, ast.Add):
-            return {
-                "kind": "binary",
-                "op": "+",
-                "left": left,
-                "right": right,
-                "type": {"kind": left_kind},
-                "span": span,
-            }
+            return _binary_node("+", left, right, {"kind": left_kind}, span)
         if left_kind == "class" or right_kind == "class":
             return self._class_binary(node, left, right, span)
         joined = _const_list_concat(left, right, span)
@@ -474,10 +561,10 @@ class ExprMixin:
         float_t = {"kind": "float"}
         if left_kind == "float" or right_kind == "float" or (_static_int(right) or 0) < 0:
             if left_kind == "int":
-                left = {"kind": "cast", "op": "int_to_float", "value": left, "type": float_t, "span": span}
+                left = _cast_node("int_to_float", left, float_t, span)
             if right_kind == "int":
-                right = {"kind": "cast", "op": "int_to_float", "value": right, "type": float_t, "span": span}
-            return {"kind": "binary", "op": "**", "left": left, "right": right, "type": float_t, "span": span}
+                right = _cast_node("int_to_float", right, float_t, span)
+            return _binary_node("**", left, right, float_t, span)
         int_t = {"kind": "int"}
         base = self._temp("powb")
         exp = self._temp("powe")
@@ -493,633 +580,34 @@ class ExprMixin:
             [
                 _assign(base, left, span),
                 _assign(exp, right, span),
-                {
-                    "kind": "if",
-                    "cond": _compare("<", exp_n, _const_int(0, span), span),
-                    "then": [{"kind": "raise", "exc": "ValueError", "message": None, "span": span}],
-                    "else": [],
-                    "span": span,
-                },
+                _if_node(
+                    _compare_node("<", exp_n, _const_int(0, span), span),
+                    [_raise_node("ValueError", span)],
+                    [],
+                    span,
+                ),
                 _assign(acc, _const_int(1, span), span),
                 _assign(idx, _const_int(0, span), span),
-                {
-                    "kind": "while",
-                    "cond": _compare("<", idx_n, exp_n, span),
-                    "body": [
+                _while_node(
+                    _compare_node("<", idx_n, exp_n, span),
+                    [
                         _assign(acc, _binary_int("*", acc_n, base_n, span), span),
                         _assign(idx, _binary_int("+", idx_n, _const_int(1, span), span), span),
                     ],
-                    "span": span,
-                },
+                    span,
+                ),
             ]
         )
         return _name(acc, int_t, span)
-
-    def _compare(self, node: ast.Compare, span: dict[str, Any]) -> dict[str, Any]:
-        if len(node.ops) != 1 or len(node.comparators) != 1:
-            return self._compare_chain(node, span)
-        if isinstance(node.ops[0], (ast.In, ast.NotIn)):
-            return self._contains(node, span, isinstance(node.ops[0], ast.NotIn))
-        if isinstance(node.ops[0], (ast.Is, ast.IsNot)):
-            return self._is_none(node, span, isinstance(node.ops[0], ast.IsNot))
-        op = _CMP.get(type(node.ops[0]))
-        if op is None:
-            self.fail(node, "PS2004", f"{_op_text(node.ops[0])} is not lowered")
-        left = self._expr(node.left)
-        right = self._expr(node.comparators[0])
-        return self._compare_values(node, op, left, right, span)
-
-    def _compare_values(
-        self,
-        node: ast.AST,
-        op: str,
-        left: dict[str, Any],
-        right: dict[str, Any],
-        span: dict[str, Any],
-    ) -> dict[str, Any]:
-        """The two-operand compare on already-lowered values.
-
-        Container `==`/`!=` synthesizes its loop here so container element
-        types recurse through the same dispatch. `node` is only the
-        fence-reporting anchor; recursion hands back the original compare.
-        """
-        if left["type"].get("ordered") or right["type"].get("ordered"):
-            self.fail(node, "PS2004", "OrderedDict equality is not lowered")
-        left_kind = left["type"]["kind"]
-        right_kind = right["type"]["kind"]
-        same_class = (
-            left_kind == "class" and right_kind == "class" and left["type"].get("name") == right["type"].get("name")
-        )
-        if same_class and left["type"].get("name") in COMPARE_CLASSES:
-            return _compare(op, left, right, span)
-        if left["type"].get("optional") or right["type"].get("optional"):
-            return self._opt_compare(node, op, left, right, span)
-        if op in {"==", "!="}:
-            if same_class:
-                info = self.classes.get(str(left["type"]["name"]))
-                if info is not None and "__eq__" in info["methods"]:
-                    called = self._dunder_call(node, left, "__eq__", [right], span)
-                    if called is not None:
-                        if op == "!=":
-                            return {
-                                "kind": "unary",
-                                "op": "not",
-                                "operand": called,
-                                "type": {"kind": "bool"},
-                                "span": span,
-                            }
-                        return called
-                if info is not None and info.get("tuple"):
-                    return self._tuple_eq(node, left, right, span, negated=op == "!=")
-                if info is not None:
-                    # No __eq__ on a user class: CPython falls back to identity.
-                    return _compare(op, left, right, span)
-            if types_equal(left["type"], right["type"]):
-                if left["type"]["kind"] == "list":
-                    return self._seq_eq(node, left, right, span, negated=op == "!=")
-                if left["type"]["kind"] == "dict":
-                    return self._dict_eq(node, left, right, span, negated=op == "!=")
-        if left_kind != right_kind or left_kind not in {
-            "int",
-            "float",
-            "bool",
-            "str",
-            "bytes",
-        }:
-            if left_kind in _NUMERIC and right_kind in _NUMERIC:
-                # int vs float promotes through sitofp, then fcmp.
-                float_t = {"kind": "float"}
-                if left_kind == "int":
-                    left = {"kind": "cast", "op": "int_to_float", "value": left, "type": float_t, "span": span}
-                else:
-                    right = {"kind": "cast", "op": "int_to_float", "value": right, "type": float_t, "span": span}
-                return _compare(op, left, right, span)
-            self.fail(node, "PS2004", "comparisons need two values of the same scalar type")
-        if left_kind == "bool" and op not in {"==", "!="}:
-            self.fail(node, "PS2004", "bool ordering is not lowered")
-        return _compare(op, left, right, span)
-
-    def _identity(self, node: ast.Compare, span: dict[str, Any], negated: bool) -> dict[str, Any]:
-        """`x is y` / `x is not y` where neither operand is the `None` literal.
-
-        Heap objects (list, dict, set, class instances, exceptions) compare by
-        pointer; str/bytes by backing-buffer pointer. int/float/bool carry no
-        runtime address, so `is` lowers to value equality — matching CPython
-        for singletons (True/False), constant-dedup'd literals, and the
-        small-int cache, but answering True where CPython built two distinct
-        objects. Different runtime kinds can never be the same object, so the
-        compare folds to a constant.
-        """
-        left = self._expr(node.left)
-        right = self._expr(node.comparators[0])
-        lk = left["type"]["kind"]
-        rk = right["type"]["kind"]
-        if lk != rk:
-            return _const_bool(negated, span)
-        if lk in {"int", "float", "bool"}:
-            return _compare("!=" if negated else "==", left, right, span)
-        if lk == "none":
-            return _const_bool(not negated, span)
-        if lk in {"str", "bytes", "list", "dict", "class", "exc"}:
-            return _compare("is not" if negated else "is", left, right, span)
-        self.fail(node, "PS2004", "is is not lowered")
-        raise AssertionError("unreachable")
-
-    def _compare_chain(self, node: ast.Compare, span: dict[str, Any]) -> dict[str, Any]:
-        """`a < b < c` is the existing compares joined by the existing `and`.
-
-        Evaluate the left, then the first middle, and compare. Each later
-        middle is stored once, inside the `and` branch, so a false link does
-        not evaluate the rest. `is` stays fenced. A link the one-op compare
-        rejects still fences.
-        """
-        if len(node.ops) != len(node.comparators) or len(node.ops) < 2:
-            self.fail(node, "PS2004", "chained comparisons are not lowered")
-        if any(isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops):
-            self.fail(node, "PS2004", "is is not lowered")
-        bool_t = {"kind": "bool"}
-        result = self._temp("chain")
-        self.locals[result] = bool_t
-        left_ref = self._chain_pin(node.left)
-        prev_ref: ast.expr = self._chain_pin(node.comparators[0])
-        first = self._one_link(node, node.ops[0], left_ref, prev_ref)
-        self.prelude.append(_assign(result, first, span))
-        for index in range(1, len(node.ops)):
-            saved = self.prelude
-            self.prelude = []
-            try:
-                operand = node.comparators[index]
-                if index + 1 < len(node.ops):
-                    right_ref: ast.expr = self._chain_pin(operand)
-                else:
-                    right_ref = operand
-                link = self._one_link(node, node.ops[index], prev_ref, right_ref)
-                if index + 1 < len(node.ops):
-                    prev_ref = right_ref
-            finally:
-                inner = self.prelude
-                self.prelude = saved
-            inner.append(_assign(result, link, span))
-            cond = self._truthy(_name(result, bool_t, span), span)
-            self.prelude.append({"kind": "if", "cond": cond, "then": inner, "else": [], "span": span})
-        return _name(result, bool_t, span)
-
-    def _chain_pin(self, expr: ast.expr) -> ast.Name:
-        value = self._expr(expr)
-        temp = self._temp("cmp")
-        self.locals[temp] = value["type"]
-        pinned = ast.Name(id=temp, ctx=ast.Load())
-        ast.copy_location(pinned, expr)
-        self.prelude.append(_assign(temp, value, span_of(expr, self.filename)))
-        return pinned
-
-    def _one_link(self, origin: ast.Compare, op: ast.cmpop, left: ast.expr, right: ast.expr) -> dict[str, Any]:
-        compare = ast.Compare(left=left, ops=[op], comparators=[right])
-        ast.copy_location(compare, origin)
-        return self._compare(compare, span_of(origin, self.filename))
-
-    def _seq_eq(
-        self,
-        node: ast.AST,
-        left: dict[str, Any],
-        right: dict[str, Any],
-        span: dict[str, Any],
-        *,
-        negated: bool,
-    ) -> dict[str, Any]:
-        """`a == b` on two list or set values is length equality plus a loop.
-
-        A set compares order-insensitively (`a[i] in b`); a list compares
-        pairwise (`a[i] == b[i]`), recursing through `_compare_values` so
-        nested containers work. Both operands are pinned so they evaluate
-        once before the loop; a False `res` short-circuits the rest.
-        """
-        bool_t: dict[str, Any] = {"kind": "bool"}
-        int_t: dict[str, Any] = {"kind": "int"}
-        a = self._temp("eqa")
-        b = self._temp("eqb")
-        res = self._temp("eqr")
-        idx = self._temp("eqi")
-        self.locals[a] = left["type"]
-        self.locals[b] = right["type"]
-        self.locals[res] = bool_t
-        self.locals[idx] = int_t
-        a_n = _name(a, left["type"], span)
-        b_n = _name(b, right["type"], span)
-        res_n = _name(res, bool_t, span)
-        idx_n = _name(idx, int_t, span)
-        self.prelude.append(_assign(a, left, span))
-        self.prelude.append(_assign(b, right, span))
-        self.prelude.append(_assign(res, _compare("==", _len_call(a_n, span), _len_call(b_n, span), span), span))
-        self.prelude.append(_assign(idx, _const_int(0, span), span))
-        elem = left["type"]["elem"]
-        sub_a = {"kind": "subscript", "value": a_n, "index": idx_n, "type": elem, "span": span}
-        if left["type"].get("set"):
-            pair: dict[str, Any] = {
-                "kind": "contains",
-                "hay": b_n,
-                "needle": sub_a,
-                "negated": False,
-                "type": bool_t,
-                "span": span,
-            }
-            inner: list[dict[str, Any]] = []
-        else:
-            sub_b = {"kind": "subscript", "value": b_n, "index": idx_n, "type": elem, "span": span}
-            saved = self.prelude
-            self.prelude = []
-            try:
-                pair = self._compare_values(node, "==", sub_a, sub_b, span)
-            finally:
-                inner = self.prelude
-                self.prelude = saved
-        then = [*inner, _assign(res, pair, span)]
-        body = [
-            {
-                "kind": "if",
-                "cond": self._truthy(res_n, span),
-                "then": then,
-                "else": [],
-                "span": span,
-            },
-            _assign(idx, _binary_int("+", idx_n, _const_int(1, span), span), span),
-        ]
-        loop = {
-            "kind": "while",
-            "cond": _compare("<", idx_n, _len_call(a_n, span), span),
-            "body": body,
-            "span": span,
-        }
-        # `a is a` skips the loop: CPython's identity-implies-equal fast path
-        # (a NaN element equals itself only under it).
-        self.prelude.append(
-            {
-                "kind": "if",
-                "cond": _compare("is not", a_n, b_n, span),
-                "then": [
-                    {
-                        "kind": "if",
-                        "cond": self._truthy(res_n, span),
-                        "then": [loop],
-                        "else": [],
-                        "span": span,
-                    }
-                ],
-                "else": [],
-                "span": span,
-            }
-        )
-        if negated:
-            return {"kind": "unary", "op": "not", "operand": _name(res, bool_t, span), "type": bool_t, "span": span}
-        return _name(res, bool_t, span)
-
-    def _dict_eq(
-        self,
-        node: ast.AST,
-        left: dict[str, Any],
-        right: dict[str, Any],
-        span: dict[str, Any],
-        *,
-        negated: bool,
-    ) -> dict[str, Any]:
-        """`a == b` on two dicts: equal lengths, every `a` key in `b`, equal values.
-
-        Iterates `a`'s key list (the `dict.keys` ABI call returns the runtime's
-        insertion-ordered seq). The value lookup runs only while `res` is True,
-        so a missing key never subscripts `b`.
-        """
-        bool_t: dict[str, Any] = {"kind": "bool"}
-        int_t: dict[str, Any] = {"kind": "int"}
-        key_t = left["type"]["key"]
-        val_t = left["type"]["value"]
-        a = self._temp("eqa")
-        b = self._temp("eqb")
-        ks = self._temp("eqk")
-        res = self._temp("eqr")
-        idx = self._temp("eqi")
-        key = self._temp("eqq")
-        self.locals[a] = left["type"]
-        self.locals[b] = right["type"]
-        self.locals[ks] = {"kind": "list", "elem": key_t}
-        self.locals[res] = bool_t
-        self.locals[idx] = int_t
-        self.locals[key] = key_t
-        a_n = _name(a, left["type"], span)
-        b_n = _name(b, right["type"], span)
-        ks_n = _name(ks, self.locals[ks], span)
-        res_n = _name(res, bool_t, span)
-        idx_n = _name(idx, int_t, span)
-        key_n = _name(key, key_t, span)
-        self.prelude.append(_assign(a, left, span))
-        self.prelude.append(_assign(b, right, span))
-        self.prelude.append(_assign(res, _compare("==", _len_call(a_n, span), _len_call(b_n, span), span), span))
-        self.prelude.append(
-            _assign(
-                ks,
-                self._abi_call("builtins", "dict.keys", [a_n], self.locals[ks], "ps_dict_keys", span),
-                span,
-            )
-        )
-        self.prelude.append(_assign(idx, _const_int(0, span), span))
-        sub_a = {"kind": "subscript", "value": a_n, "index": key_n, "type": val_t, "span": span}
-        sub_b = {"kind": "subscript", "value": b_n, "index": key_n, "type": val_t, "span": span}
-        saved = self.prelude
-        self.prelude = []
-        try:
-            pair = self._compare_values(node, "==", sub_a, sub_b, span)
-        finally:
-            inner = self.prelude
-            self.prelude = saved
-        value_cmp = {
-            "kind": "if",
-            "cond": self._truthy(res_n, span),
-            "then": [*inner, _assign(res, pair, span)],
-            "else": [],
-            "span": span,
-        }
-        member_cmp = {
-            "kind": "if",
-            "cond": self._truthy(res_n, span),
-            "then": [
-                _assign(
-                    res,
-                    {
-                        "kind": "contains",
-                        "hay": b_n,
-                        "needle": key_n,
-                        "negated": False,
-                        "type": bool_t,
-                        "span": span,
-                    },
-                    span,
-                ),
-                value_cmp,
-            ],
-            "else": [],
-            "span": span,
-        }
-        body = [
-            _assign(
-                key,
-                {"kind": "subscript", "value": ks_n, "index": idx_n, "type": key_t, "span": span},
-                span,
-            ),
-            member_cmp,
-            _assign(idx, _binary_int("+", idx_n, _const_int(1, span), span), span),
-        ]
-        loop = {
-            "kind": "while",
-            "cond": _compare("<", idx_n, _len_call(ks_n, span), span),
-            "body": body,
-            "span": span,
-        }
-        self.prelude.append(
-            {
-                "kind": "if",
-                "cond": _compare("is not", a_n, b_n, span),
-                "then": [
-                    {
-                        "kind": "if",
-                        "cond": self._truthy(res_n, span),
-                        "then": [loop],
-                        "else": [],
-                        "span": span,
-                    }
-                ],
-                "else": [],
-                "span": span,
-            }
-        )
-        if negated:
-            return {"kind": "unary", "op": "not", "operand": _name(res, bool_t, span), "type": bool_t, "span": span}
-        return _name(res, bool_t, span)
-
-    def _tuple_eq(
-        self,
-        node: ast.AST,
-        left: dict[str, Any],
-        right: dict[str, Any],
-        span: dict[str, Any],
-        *,
-        negated: bool,
-    ) -> dict[str, Any]:
-        """`a == b` on a synthetic tuple class is fieldwise equality.
-
-        Each field compare runs only while `res` is True, so the first
-        mismatch short-circuits the rest; field types recurse through
-        `_compare_values`, so a field that is itself a container still works.
-        """
-        bool_t: dict[str, Any] = {"kind": "bool"}
-        name = str(left["type"]["name"])
-        fields = self.classes[name]["fields"]
-        a = self._temp("eqa")
-        b = self._temp("eqb")
-        res = self._temp("eqr")
-        self.locals[a] = left["type"]
-        self.locals[b] = right["type"]
-        self.locals[res] = bool_t
-        res_n = _name(res, bool_t, span)
-        a_n = _name(a, left["type"], span)
-        b_n = _name(b, right["type"], span)
-        self.prelude.append(_assign(a, left, span))
-        self.prelude.append(_assign(b, right, span))
-        self.prelude.append(_assign(res, _const_bool(True, span), span))
-        field_stmts: list[dict[str, Any]] = []
-        for field in fields:
-            f_a = {
-                "kind": "attr",
-                "value": a_n,
-                "name": field["name"],
-                "type": field["type"],
-                "span": span,
-            }
-            f_b = {
-                "kind": "attr",
-                "value": b_n,
-                "name": field["name"],
-                "type": field["type"],
-                "span": span,
-            }
-            saved = self.prelude
-            self.prelude = []
-            try:
-                pair = self._compare_values(node, "==", f_a, f_b, span)
-            finally:
-                inner = self.prelude
-                self.prelude = saved
-            field_stmts.append(
-                {
-                    "kind": "if",
-                    "cond": self._truthy(res_n, span),
-                    "then": [*inner, _assign(res, pair, span)],
-                    "else": [],
-                    "span": span,
-                }
-            )
-        self.prelude.append(
-            {
-                "kind": "if",
-                "cond": _compare("is not", a_n, b_n, span),
-                "then": field_stmts,
-                "else": [],
-                "span": span,
-            }
-        )
-        if negated:
-            return {"kind": "unary", "op": "not", "operand": _name(res, bool_t, span), "type": bool_t, "span": span}
-        return _name(res, bool_t, span)
-
-    def _contains(self, node: ast.Compare, span: dict[str, Any], negated: bool) -> dict[str, Any]:
-        folded = self._const_tuple_membership(node, span, negated)
-        if folded is not None:
-            return folded
-        if self._is_environ(node.comparators[0]):
-            needle = self._expr(node.left)
-            if needle["type"]["kind"] != "str":
-                self.fail(node, "PS1003", "in on os.environ takes str")
-            call = self._abi_call("os", "environ.contains", [needle], {"kind": "bool"}, "ps_env_has", span)
-            if negated:
-                return {"kind": "unary", "op": "not", "operand": call, "type": {"kind": "bool"}, "span": span}
-            return call
-        needle = self._expr(node.left)
-        hay = self._expr(node.comparators[0])
-        hay_kind = hay["type"]["kind"]
-        if hay_kind in {"str", "bytes"}:
-            if needle["type"]["kind"] != hay_kind:
-                self.fail(node, "PS1003", f"in on {hay_kind} takes {hay_kind}")
-        elif hay_kind == "list":
-            if hay["type"]["elem"]["kind"] not in _SCALAR or not types_equal(needle["type"], hay["type"]["elem"]):
-                self.fail(node, "PS1003", "in on a list takes an element of that list")
-        elif hay_kind == "dict":
-            if not types_equal(needle["type"], hay["type"]["key"]):
-                self.fail(node, "PS1003", "in on a dict takes a key")
-        else:
-            self.fail(node, "PS2002", "in is lowered for str, bytes, list, and dict")
-        if hay_kind == "list" and not hay["type"].get("set") and hay["type"]["elem"]["kind"] == "float":
-            return self._float_list_membership(needle, hay, span, negated)
-        return {
-            "kind": "contains",
-            "hay": hay,
-            "needle": needle,
-            "negated": negated,
-            "type": {"kind": "bool"},
-            "span": span,
-        }
-
-    def _float_list_membership(
-        self, needle: dict[str, Any], hay: dict[str, Any], span: dict[str, Any], negated: bool
-    ) -> dict[str, Any]:
-        """Float list membership is ==, so NaN is not a member of a list of NaNs.
-
-        Int and str lists stay on the contains helper. A set stays there too.
-        """
-        int_t = {"kind": "int"}
-        float_t = {"kind": "float"}
-        bool_t = {"kind": "bool"}
-        held = self._temp("fneedle")
-        src = self._temp("fseq")
-        idx = self._temp("fidx")
-        length = self._temp("flen")
-        found = self._temp("fhas")
-        item = self._temp("felt")
-        self.locals[held] = float_t
-        self.locals[src] = hay["type"]
-        self.locals[idx] = int_t
-        self.locals[length] = int_t
-        self.locals[found] = bool_t
-        self.locals[item] = float_t
-        self.prelude.extend(
-            [
-                _assign(held, needle, span),
-                _assign(src, hay, span),
-                _assign(length, _len_call(_name(src, hay["type"], span), span), span),
-                _assign(idx, _const_int(0, span), span),
-                _assign(found, _const_bool(False, span), span),
-                {
-                    "kind": "while",
-                    "cond": _compare("<", _name(idx, int_t, span), _name(length, int_t, span), span),
-                    "body": [
-                        _assign(
-                            item,
-                            {
-                                "kind": "subscript",
-                                "value": _name(src, hay["type"], span),
-                                "index": _name(idx, int_t, span),
-                                "type": float_t,
-                                "span": span,
-                            },
-                            span,
-                        ),
-                        {
-                            "kind": "if",
-                            "cond": _compare("==", _name(item, float_t, span), _name(held, float_t, span), span),
-                            "then": [_assign(found, _const_bool(True, span), span)],
-                            "else": [],
-                            "span": span,
-                        },
-                        _assign(idx, _binary_int("+", _name(idx, int_t, span), _const_int(1, span), span), span),
-                    ],
-                    "span": span,
-                },
-            ]
-        )
-        result = _name(found, bool_t, span)
-        if negated:
-            return {"kind": "unary", "op": "not", "operand": result, "type": bool_t, "span": span}
-        return result
-
-    def _const_tuple_membership(self, node: ast.Compare, span: dict[str, Any], negated: bool) -> dict[str, Any] | None:
-        """`value in (c0, c1, ...)` of one const type is `==` joined by `or`.
-
-        The tuple is not a class. Empty is false. One element is one `==`.
-        `not in` is `not` of that test. A name, a list, a mix, or a non-constant
-        element stays on the ordinary path.
-        """
-        hay = node.comparators[0]
-        if not isinstance(hay, ast.Tuple) or any(isinstance(elt, ast.Starred) for elt in hay.elts):
-            return None
-        kinds = [_plain_const_kind(elt) for elt in hay.elts]
-        if any(kind is None for kind in kinds) or len(set(kinds)) > 1:
-            return None
-        needle = self._expr(node.left)
-        if not hay.elts:
-            self.prelude.append({"kind": "expr", "expr": needle, "span": span})
-            return _const_bool(negated, span)
-        elem = kinds[0]
-        if needle["type"]["kind"] != elem:
-            if len(hay.elts) < 2:
-                self.fail(hay, "PS2002", "tuples need at least two fields")
-            self.fail(node, "PS2002", "in is lowered for str, bytes, list, and dict")
-        temp = self._temp("in")
-        self.locals[temp] = needle["type"]
-        self.prelude.append(_assign(temp, needle, span))
-        compares: list[ast.expr] = []
-        for elt in hay.elts:
-            left = ast.Name(id=temp, ctx=ast.Load())
-            ast.copy_location(left, node.left)
-            compare = ast.Compare(left=left, ops=[ast.Eq()], comparators=[elt])
-            ast.copy_location(compare, node)
-            compares.append(compare)
-        if len(compares) == 1:
-            test = self._expr(compares[0])
-        else:
-            chain = ast.BoolOp(op=ast.Or(), values=compares)
-            ast.copy_location(chain, node)
-            test = self._boolop(chain, span)
-        if negated:
-            return {"kind": "unary", "op": "not", "operand": test, "type": {"kind": "bool"}, "span": span}
-        return test
 
     def _list(self, node: ast.List, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         if not node.elts:
             if expect is None or expect["kind"] != "list":
                 self.fail(node, "PS1001", "an empty list needs a list annotation")
-            return {"kind": "list", "elems": [], "type": expect, "span": span}
+            return _list_node([], expect, span)
         elem_expect = expect["elem"] if expect and expect["kind"] == "list" else None
         elems = [self._expr(elt, elem_expect) for elt in node.elts]
         elem = elems[0]["type"]
-        if elem["kind"] == "bool":
-            self.fail(node, "PS2002", "list[bool] is not lowered")
         for item in elems[1:]:
             if not types_equal(item["type"], elem):
                 self.fail(node, "PS1003", "list elements have one type")
@@ -1128,9 +616,9 @@ class ExprMixin:
             if _any_contains(expect) and not _any_contains(typ):
                 # Issue #781: a concrete display satisfies an Any container
                 # annotation; the display's element type is the answer.
-                return {"kind": "list", "elems": elems, "type": typ, "span": span}
+                return _list_node(elems, typ, span)
             self._expect(node, typ, expect, "list")
-        return {"kind": "list", "elems": elems, "type": typ, "span": span}
+        return _list_node(elems, typ, span)
 
     def _dict(self, node: ast.Dict, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         if not node.keys or any(key is None for key in node.keys):
@@ -1138,7 +626,7 @@ class ExprMixin:
                 self.fail(node, "PS1001", "an empty dict needs a dict annotation")
             if any(key is None for key in node.keys):
                 self.fail(node, "PS2002", "dict unpacking is not lowered")
-            return {"kind": "dict", "pairs": [], "type": expect, "span": span}
+            return _dict_node([], expect, span)
         key_expect = expect["key"] if expect and expect["kind"] == "dict" else None
         val_expect = expect["value"] if expect and expect["kind"] == "dict" else None
         pairs = []
@@ -1162,9 +650,9 @@ class ExprMixin:
                 # Issue #781: a concrete display satisfies an Any container
                 # annotation; the display's type is the answer, and the
                 # annotation's shape rode down as the element expectation.
-                return {"kind": "dict", "pairs": pairs, "type": typ, "span": span}
+                return _dict_node(pairs, typ, span)
             self._expect(node, typ, expect, "dict")
-        return {"kind": "dict", "pairs": pairs, "type": typ, "span": span}
+        return _dict_node(pairs, typ, span)
 
     def _subscript(
         self, node: ast.Subscript, span: dict[str, Any], expect: dict[str, Any] | None = None
@@ -1212,7 +700,7 @@ class ExprMixin:
             result = value["type"]["elem"]
         else:
             self.fail(node, "PS2002", "subscript is lowered for list, dict, str, and bytes")
-        return {"kind": "subscript", "value": value, "index": index, "type": result, "span": span}
+        return _subscript_node(value, index, result, span)
 
     def _resolve_any_read(self, node: ast.expr, elem: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         """The value type of a read out of an Any container (issue #781).
@@ -1261,37 +749,18 @@ class ExprMixin:
         self.locals[k_t] = key_t
         self.locals[v_t] = val_t
         for t, v in ((d_t, value), (k_t, index)):
-            self.prelude.append({"kind": "assign", "target": t, "value": v, "span": span})
-        getitem = {
-            "kind": "subscript",
-            "value": _name(d_t, dtyp, span),
-            "index": _name(k_t, key_t, span),
-            "type": val_t,
-            "span": span,
-        }
-        then = [_assign(v_t, getitem, span)]
+            self.prelude.append(_assign_node(t, v, span))
+        getitem = _subscript_node(_name(d_t, dtyp, span), _name(k_t, key_t, span), val_t, span)
+        then = [_assign_node(v_t, getitem, span)]
         if dtyp.get("counter"):
-            other = [_assign(v_t, _zero(val_t, span), span)]
+            other = [_assign_node(v_t, _zero(val_t, span), span)]
         else:
             other = [
-                {
-                    "kind": "setitem",
-                    "container": _name(d_t, dtyp, span),
-                    "index": _name(k_t, key_t, span),
-                    "value": _zero(val_t, span),
-                    "span": span,
-                },
-                _assign(v_t, getitem, span),
+                _setitem_node(_name(d_t, dtyp, span), _name(k_t, key_t, span), _zero(val_t, span), span),
+                _assign_node(v_t, getitem, span),
             ]
-        cond = {
-            "kind": "contains",
-            "hay": _name(d_t, dtyp, span),
-            "needle": _name(k_t, key_t, span),
-            "negated": False,
-            "type": {"kind": "bool"},
-            "span": span,
-        }
-        self.prelude.append({"kind": "if", "cond": cond, "then": then, "else": other, "span": span})
+        cond = _contains_node(_name(d_t, dtyp, span), _name(k_t, key_t, span), span, negated=False)
+        self.prelude.append(_if_node(cond, then, other, span))
         return _name(v_t, val_t, span)
 
     def _attribute(
@@ -1326,11 +795,11 @@ class ExprMixin:
             if status == "value":
                 self.fail(node, "PS2002", f"module {dotted} is not a value in the static subset")
             if module == "math" and member in MATH_CONSTANTS:
-                return {"kind": "const", "value": MATH_CONSTANTS[member], "type": {"kind": "float"}, "span": span}
+                return _const_of(MATH_CONSTANTS[member], "float", span)
             constant = module_constant(module, member)
             if constant is not None:
                 value, typ = constant
-                return {"kind": "const", "value": value, "type": typ, "span": span}
+                return _const_node(value, typ, span)
             if module == "sys" and member == "argv":
                 return self._abi_call("sys", "argv", [], {"kind": "list", "elem": {"kind": "str"}}, "ps_argv_get", span)
             class_const = class_constant(module, member)
@@ -1345,12 +814,11 @@ class ExprMixin:
             if manifest is not None:
                 found_const = manifest.const(member)
                 if found_const is not None:
-                    return {
-                        "kind": "const",
-                        "value": found_const.value,
-                        "type": type_ir(found_const.type, manifest.handle_names),
-                        "span": span,
-                    }
+                    return _const_node(
+                        found_const.value,
+                        type_ir(found_const.type, manifest.handle_names),
+                        span,
+                    )
                 if manifest.handle(member) is not None:
                     # A handle name is a type, not a value (issue #224).
                     self.fail(node, "PS4014", f"{dotted} is a handle type, not a value")
@@ -1368,9 +836,23 @@ class ExprMixin:
                 member = info["members"].get(node.attr)
                 if member is None:
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
-                return {"kind": "const", "value": str(member), "type": {"kind": "int"}, "span": span}
+                return _const_of(str(member), "int", span)
+            const = self._class_const(class_name, node.attr)
+            if const is not None:
+                return {**const, "span": span}
+            runtime = self._class_runtime_attr(class_name, node.attr)
+            if runtime is not None:
+                owner, attr_type = runtime
+                return self._class_attr_read(owner, node.attr, attr_type, span)
         value = self._expr(node.value)
-        return path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
+        read = path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
+        if isinstance(node.value, ast.Name):
+            # A `base.attr is not None` proof narrows the attribute read to
+            # the tagged value, the same rule a narrowed local name follows.
+            narrowed = self.opt_unwrap.get(f"{node.value.id}.{node.attr}")
+            if narrowed is not None:
+                return _attr_node(read, "_val", narrowed["elem"], span)
+        return read
 
     def _call(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None = None) -> dict[str, Any]:
         if isinstance(node.func, ast.Name):
@@ -1383,13 +865,7 @@ class ExprMixin:
             # cell. Callable annotations carry bare types, no names.
             params = [{"name": f"_{index}", "type": typ} for index, typ in enumerate(target["type"]["params"])]
             args = self._fill_args(node, params, "call")
-            return {
-                "kind": "call",
-                "callee": {"kind": "value", "target": target},
-                "args": args,
-                "type": target["type"]["return"],
-                "span": span,
-            }
+            return _value_call(target, args, target["type"]["return"], span)
         self.fail(node, "PS2002", "this call is not lowered")
         raise AssertionError("unreachable")
 
@@ -1402,16 +878,10 @@ class ExprMixin:
         if kind == "int":
             return _compare("!=", expr, _const_int(0, span), span)
         if kind == "float":
-            zero = {"kind": "const", "value": "0.0", "type": {"kind": "float"}, "span": span}
+            zero = _const_of("0.0", "float", span)
             return _compare("!=", expr, zero, span)
         if kind in {"str", "bytes", "list", "dict"}:
-            length = {
-                "kind": "call",
-                "callee": {"kind": "builtin", "name": "len"},
-                "args": [expr],
-                "type": {"kind": "int"},
-                "span": span,
-            }
+            length = _builtin_call("len", [expr], {"kind": "int"}, span)
             return _compare("!=", length, _const_int(0, span), span)
         self.fail(ast.Pass(), "PS2004", f"and/or on {kind} is not lowered")
         raise AssertionError("unreachable")
@@ -1444,7 +914,7 @@ class ExprMixin:
             self.fail(node, "PS2004", f"and/or on {typ['kind']} is not lowered")
         temp = self._temp("boolop")
         self.locals[temp] = typ
-        self.prelude.append(_assign(temp, first, span))
+        self.prelude.append(_assign_node(temp, first, span))
         proven: set[str] = set()
         for index, value_node in enumerate(node.values[1:], start=1):
             when_true, when_false = self._narrow_names(node.values[index - 1])
@@ -1462,19 +932,19 @@ class ExprMixin:
                 if typ["kind"] != "bool":
                     bool_temp = self._temp("cond")
                     self.locals[bool_temp] = {"kind": "bool"}
-                    self.prelude.append(_assign(bool_temp, self._truthy(_name(temp, typ, span), span), span))
+                    self.prelude.append(_assign_node(bool_temp, self._truthy(_name(temp, typ, span), span), span))
                     temp = bool_temp
                     typ = {"kind": "bool"}
-                inner.append(_assign(temp, self._truthy(right, span), span))
+                inner.append(_assign_node(temp, self._truthy(right, span), span))
             else:
-                inner.append(_assign(temp, right, span))
+                inner.append(_assign_node(temp, right, span))
             cond = self._truthy(_name(temp, typ, span), span)
             if not op_and:
-                cond = {"kind": "unary", "op": "not", "operand": cond, "type": {"kind": "bool"}, "span": span}
-            self.prelude.append({"kind": "if", "cond": cond, "then": inner, "else": [], "span": span})
+                cond = _unary_node("not", cond, {"kind": "bool"}, span)
+            self.prelude.append(_if_node(cond, inner, [], span))
         return _name(temp, typ, span)
 
-    def _ifexp(self, node: ast.IfExp, span: dict[str, Any]) -> dict[str, Any]:
+    def _ifexp(self, node: ast.IfExp, span: dict[str, Any], expect: dict[str, Any] | None = None) -> dict[str, Any]:
         """`a if cond else b` is the if statement BoolOp already uses.
 
         The condition is whatever `if` already accepts. Both operands lower to
@@ -1486,10 +956,10 @@ class ExprMixin:
         self.prelude = []
         when_true, when_false = self._narrow_names(node.test)
         try:
-            body = self._narrowed(when_true, node, lambda: self._expr(node.body))
+            body = self._narrowed(when_true, node, lambda: self._expr(node.body, expect))
             body_pre = self.prelude
             self.prelude = []
-            orelse = self._narrowed(when_false, node, lambda: self._expr(node.orelse))
+            orelse = self._narrowed(when_false, node, lambda: self._expr(node.orelse, expect))
             orelse_pre = self.prelude
         finally:
             self.prelude = saved
@@ -1535,13 +1005,13 @@ class ExprMixin:
         else_body = self._ifexp_branch(orelse_pre, orelse, span)
         if typ["kind"] == "none":
             # None is not a register. The if still runs the taken operand.
-            self.prelude.append({"kind": "if", "cond": cond, "then": then_body, "else": else_body, "span": span})
+            self.prelude.append(_if_node(cond, then_body, else_body, span))
             return _const_none(span)
         temp = self._temp("ifexp")
         self.locals[temp] = typ
-        then_body.append(_assign(temp, body, span))
-        else_body.append(_assign(temp, orelse, span))
-        self.prelude.append({"kind": "if", "cond": cond, "then": then_body, "else": else_body, "span": span})
+        then_body.append(_assign_node(temp, body, span))
+        else_body.append(_assign_node(temp, orelse, span))
+        self.prelude.append(_if_node(cond, then_body, else_body, span))
         return _name(temp, typ, span)
 
     def _ifexp_branch(
@@ -1551,7 +1021,7 @@ class ExprMixin:
             return list(prelude)
         body = list(prelude)
         if value["kind"] != "const":
-            body.append({"kind": "expr", "expr": value, "span": span})
+            body.append(_expr_stmt_node(value, span))
         return body
 
     def _opt_boolop(
@@ -1568,7 +1038,7 @@ class ExprMixin:
         bool_t = {"kind": "bool"}
         o = self._temp("opt")
         self.locals[o] = o_typ
-        self.prelude.append(_assign(o, first, span))
+        self.prelude.append(_assign_node(o, first, span))
         oname = _name(o, o_typ, span)
         cond = self._opt_truthy(oname, span)
         saved = self.prelude
@@ -1587,12 +1057,10 @@ class ExprMixin:
                 self.prelude = saved
             res = self._temp("opt")
             self.locals[res] = o_typ
-            self.prelude.append(_assign(res, oname, span))
+            self.prelude.append(_assign_node(res, oname, span))
             if not op_and:
-                cond = {"kind": "unary", "op": "not", "operand": cond, "type": bool_t, "span": span}
-            self.prelude.append(
-                {"kind": "if", "cond": cond, "then": [*right_pre, _assign(res, right, span)], "else": [], "span": span}
-            )
+                cond = _unary_node("not", cond, bool_t, span)
+            self.prelude.append(_if_node(cond, [*right_pre, _assign_node(res, right, span)], [], span))
             return _name(res, o_typ, span)
         if not types_equal(right["type"], elem):
             self.fail(node, "PS2004", "and/or across two types is not lowered")
@@ -1604,128 +1072,15 @@ class ExprMixin:
             then_body = self.prelude
             self.prelude = saved
             self.locals[res] = o_typ
-            self.prelude.append(_assign(res, oname, span))
-            self.prelude.append(
-                {"kind": "if", "cond": cond, "then": [*then_body, _assign(res, boxed, span)], "else": [], "span": span}
-            )
+            self.prelude.append(_assign_node(res, oname, span))
+            self.prelude.append(_if_node(cond, [*then_body, _assign_node(res, boxed, span)], [], span))
             return _name(res, o_typ, span)
         self.locals[res] = elem
         val = _attr(oname, "_val", elem, span)
         self.prelude.append(
-            {
-                "kind": "if",
-                "cond": cond,
-                "then": [_assign(res, val, span)],
-                "else": [*right_pre, _assign(res, right, span)],
-                "span": span,
-            }
+            _if_node(cond, [_assign_node(res, val, span)], [*right_pre, _assign_node(res, right, span)], span)
         )
         return _name(res, elem, span)
-
-    def _opt_compare(
-        self,
-        node: ast.AST,
-        op: str,
-        left: dict[str, Any],
-        right: dict[str, Any],
-        span: dict[str, Any],
-    ) -> dict[str, Any]:
-        """`==`/`!=` on a tagged optional: compare tags, then values.
-
-        Both-untagged compares equal (None == None). Against a bare value the
-        tag must be set and the value equal; a non-optional operand of another
-        type can never equal it, so the compare folds to a constant.
-        """
-        bool_t = {"kind": "bool"}
-        if op not in {"==", "!="}:
-            self.fail(node, "PS2004", "ordering an optional is not lowered")
-        if left["type"].get("optional") and right["type"].get("optional"):
-            return self._opt_opt_eq(node, left, right, span, negated=op == "!=")
-        side, other = (left, right) if left["type"].get("optional") else (right, left)
-        if other["type"]["kind"] == "none":
-            tag = _attr(side, "_tag", bool_t, span)
-            if op == "!=":
-                return tag
-            return {"kind": "unary", "op": "not", "operand": tag, "type": bool_t, "span": span}
-        if not types_equal(other["type"], side["type"]["elem"]):
-            return _const_bool(op == "!=", span)
-        o = self._temp("optcmp")
-        self.locals[o] = side["type"]
-        self.prelude.append(_assign(o, side, span))
-        oname = _name(o, side["type"], span)
-        tag = _attr(oname, "_tag", bool_t, span)
-        val = _attr(oname, "_val", side["type"]["elem"], span)
-        saved = self.prelude
-        self.prelude = []
-        inner = self._compare_values(node, "==", val, other, span)
-        inner_pre = self.prelude
-        self.prelude = saved
-        res = self._temp("optcmp")
-        self.locals[res] = bool_t
-        self.prelude.append(_assign(res, tag, span))
-        self.prelude.append(
-            {
-                "kind": "if",
-                "cond": _attr(oname, "_tag", bool_t, span),
-                "then": [*inner_pre, _assign(res, inner, span)],
-                "else": [],
-                "span": span,
-            }
-        )
-        base = _name(res, bool_t, span)
-        if op == "!=":
-            return {"kind": "unary", "op": "not", "operand": base, "type": bool_t, "span": span}
-        return base
-
-    def _opt_opt_eq(
-        self,
-        node: ast.AST,
-        left: dict[str, Any],
-        right: dict[str, Any],
-        span: dict[str, Any],
-        *,
-        negated: bool,
-    ) -> dict[str, Any]:
-        bool_t = {"kind": "bool"}
-        la = self._temp("optcmp")
-        lb = self._temp("optcmp")
-        self.locals[la] = left["type"]
-        self.locals[lb] = right["type"]
-        self.prelude.append(_assign(la, left, span))
-        self.prelude.append(_assign(lb, right, span))
-        aname = _name(la, left["type"], span)
-        bname = _name(lb, right["type"], span)
-        tag_a = _attr(aname, "_tag", bool_t, span)
-        tag_b = _attr(bname, "_tag", bool_t, span)
-        if types_equal(left["type"]["elem"], right["type"]["elem"]):
-            saved = self.prelude
-            self.prelude = []
-            val_eq = self._compare_values(
-                node,
-                "==",
-                _attr(aname, "_val", left["type"]["elem"], span),
-                _attr(bname, "_val", right["type"]["elem"], span),
-                span,
-            )
-            val_pre = self.prelude
-            self.prelude = saved
-        else:
-            # `int | None` vs `str | None` can still tie on both-None; the
-            # value arms never equal each other.
-            val_eq = _const_bool(False, span)
-            val_pre = []
-        res = self._temp("optcmp")
-        self.locals[res] = bool_t
-        then_b = [
-            _assign(res, tag_b, span),
-            {"kind": "if", "cond": tag_b, "then": [*val_pre, _assign(res, val_eq, span)], "else": [], "span": span},
-        ]
-        else_b = [_assign(res, {"kind": "unary", "op": "not", "operand": tag_b, "type": bool_t, "span": span}, span)]
-        self.prelude.append({"kind": "if", "cond": tag_a, "then": then_b, "else": else_b, "span": span})
-        base = _name(res, bool_t, span)
-        if negated:
-            return {"kind": "unary", "op": "not", "operand": base, "type": bool_t, "span": span}
-        return base
 
     def _joined(self, node: ast.JoinedStr, span: dict[str, Any]) -> dict[str, Any]:
         if any(
@@ -1764,7 +1119,7 @@ class ExprMixin:
                 template.append(self._fstring_field(value, args))
                 continue
             self.fail(value, "PS2002", "f-strings are not lowered")
-        fmt = {"kind": "const", "value": "".join(template), "type": {"kind": "str"}, "span": span}
+        fmt = _const_of("".join(template), "str", span)
         expr = self._abi_call("builtins", "format", [fmt, *args], {"kind": "str"}, "ps_str_format", span)
         expr["format_style"] = "dot"
         return expr
@@ -1778,15 +1133,7 @@ class ExprMixin:
                 self.fail(value, "PS2002", "f-string conversion is not lowered")
             if arg["type"].get("name") == "Path":
                 if conv == "s":
-                    args.append(
-                        {
-                            "kind": "call",
-                            "callee": {"kind": "builtin", "name": "str"},
-                            "args": [arg],
-                            "type": {"kind": "str"},
-                            "span": arg["span"],
-                        }
-                    )
+                    args.append(_builtin_call("str", [arg], {"kind": "str"}, arg["span"]))
                     converted = True
                 else:
                     self.fail(value, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
@@ -1803,15 +1150,7 @@ class ExprMixin:
             if conv not in "sra":
                 self.fail(value, "PS2002", "f-string conversion is not lowered")
             if conv == "s":
-                args.append(
-                    {
-                        "kind": "call",
-                        "callee": {"kind": "builtin", "name": "str"},
-                        "args": [arg],
-                        "type": {"kind": "str"},
-                        "span": arg["span"],
-                    }
-                )
+                args.append(_builtin_call("str", [arg], {"kind": "str"}, arg["span"]))
                 converted = True
             else:
                 self.fail(value, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
@@ -1873,13 +1212,7 @@ class ExprMixin:
                 self.fail(node, "PS2002", "f-string formatting needs scalar dict keys and values")
         elif kind == "class":
             if arg["type"].get("name") == "Path":
-                return {
-                    "kind": "call",
-                    "callee": {"kind": "builtin", "name": "str"},
-                    "args": [arg],
-                    "type": {"kind": "str"},
-                    "span": arg["span"],
-                }
+                return _builtin_call("str", [arg], {"kind": "str"}, arg["span"])
             called = self._dunder_call(node, arg, "__str__", [], arg["span"])
             if called is None:
                 called = self._dunder_call(node, arg, "__repr__", [], arg["span"])
@@ -1887,13 +1220,7 @@ class ExprMixin:
                 self.fail(node, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
             return called
         elif kind == "exc":
-            return {
-                "kind": "call",
-                "callee": {"kind": "builtin", "name": "str"},
-                "args": [arg],
-                "type": {"kind": "str"},
-                "span": arg["span"],
-            }
+            return _builtin_call("str", [arg], {"kind": "str"}, arg["span"])
         elif kind not in {"int", "float", "str", "bool", "bytes"}:
             self.fail(node, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
         return arg
@@ -1904,35 +1231,17 @@ class ExprMixin:
         if kind == "str":
             return expr
         if kind in {"int", "float"}:
-            return {
-                "kind": "call",
-                "callee": {"kind": "builtin", "name": "str"},
-                "args": [expr],
-                "type": {"kind": "str"},
-                "span": span,
-            }
+            return _builtin_call("str", [expr], {"kind": "str"}, span)
         if kind == "class":
             if expr["type"].get("name") == "Path":
-                return {
-                    "kind": "call",
-                    "callee": {"kind": "builtin", "name": "str"},
-                    "args": [expr],
-                    "type": {"kind": "str"},
-                    "span": span,
-                }
+                return _builtin_call("str", [expr], {"kind": "str"}, span)
             called = self._dunder_call(node, expr, "__str__", [], span)
             if called is None:
                 called = self._dunder_call(node, expr, "__repr__", [], span)
             if called is not None:
                 return called
         if kind == "exc":
-            return {
-                "kind": "call",
-                "callee": {"kind": "builtin", "name": "str"},
-                "args": [expr],
-                "type": {"kind": "str"},
-                "span": span,
-            }
+            return _builtin_call("str", [expr], {"kind": "str"}, span)
         # boxed:begin
         # An island call as the whole placeholder, `{digest(p)}` with no
         # conversion or spec (issue #733): same want-on-the-call rewrite as
@@ -2027,5 +1336,5 @@ class ExprMixin:
             return expr
         temp = self._temp("sl")
         self.locals[temp] = {"kind": "int"}
-        self.prelude.append(_assign(temp, expr, span))
+        self.prelude.append(_assign_node(temp, expr, span))
         return _name(temp, {"kind": "int"}, span)

@@ -155,4 +155,4 @@ by `irscore --bridge` is the pyrefly wheel version for this lane and the
 pinned mypy version for the other.
 - Extend lowering's own inference instead. Rejected: it duplicates the
   checker and drifts from it; the checker is the oracle by design
-  (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`).
+  (the tiered-lowering decision, `.agents/decisions.md`).

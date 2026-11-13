@@ -6,7 +6,25 @@ import ast
 from typing import Any
 
 from pyscriptc.reflection import kwargs_call_note
-from pyscriptc.restlower._shared import _class, _const_int
+from pyscriptc.reprspec import type_spec
+from pyscriptc.restlower._shared import (
+    _asg,
+    _call_builtin,
+    _call_module,
+    _class,
+    _const_int,
+    _const_json,
+    _const_text,
+    _field,
+    _flag,
+    _nm,
+    _node_span,
+    _node_type,
+    _node_type_kind,
+    _t_leaf,
+    _type_kind,
+    _type_name,
+)
 
 _OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6}
 
@@ -17,20 +35,50 @@ _OPEN_ENCODINGS = {"utf-8", "utf8", "ascii", "latin-1", "latin1"}
 
 
 # NamedTemporaryFile adds the read/write `+` modes; `open` keeps _OPEN only.
-_TEMP_OPEN = {**_OPEN, "w+": 7, "w+b": 8}
+_TEMP_OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6, "w+": 7, "w+b": 8}
 
 
-_PRINT_KINDS = {"str", "int", "float", "bool", "bytes"}
+_PRINT_KINDS = {"str", "int", "float", "bool", "bytes", "exc"}
 
 
 def _printable(lo: Any, typ: dict[str, Any]) -> bool:
-    """printable: a scalar or a tuple class whose fields are all printable."""
+    """printable: a scalar (an exc prints its str()), or a tuple class whose fields are all printable."""
 
-    if typ["kind"] in _PRINT_KINDS:
+    if _type_kind(typ) in _PRINT_KINDS:
         return True
-    if typ["kind"] == "class" and lo.classes.get(typ["name"], {}).get("tuple"):
-        return all(_printable(lo, field["type"]) for field in lo.classes[typ["name"]]["fields"])
+    if _type_kind(typ) == "class":
+        name = _type_name(typ)
+        if lo.classes.get(name, {}).get("tuple"):
+            return all(_printable(lo, _node_type(field)) for field in lo.classes[name]["fields"])
     return False
+
+
+def _container_repr(lo: Any, arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
+    """A print argument that is a list, set or dict rewrites to its repr str.
+
+    `str(container)` is `repr(container)` for these types, so the argument
+    becomes a `ps_seq_repr`/`ps_map_repr` abi call whose str result the
+    ordinary print walk emits. The element type rides as a recursive spec
+    string (`pyscriptc.reprspec`); every shape outside the printable set
+    keeps the PS2003 fence.
+    """
+
+    typ = _node_type(arg)
+    kind = _type_kind(typ)
+    if kind == "dict":
+        spec = type_spec(typ, lo.classes)
+        if spec is None:
+            return None
+        spec_arg = _const_text(spec, "str", span)
+        return lo._abi_call("builtins", "map_repr", [arg, spec_arg], _t_leaf("str"), "ps_map_repr", span)
+    if kind == "list":
+        elem_spec = type_spec(typ["elem"], lo.classes)
+        if elem_spec is None:
+            return None
+        spec_arg = _const_text(elem_spec, "str", span)
+        is_set = _const_int(1 if _flag(typ, "set") else 0, span)
+        return lo._abi_call("builtins", "seq_repr", [arg, spec_arg, is_set], _t_leaf("str"), "ps_seq_repr", span)
+    return None
 
 
 def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -59,37 +107,35 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
                 f"print keyword argument {kw.arg} is not lowered; print supports sep= and end= only",
             )
         value = lo._expr(kw.value)
-        if value["type"]["kind"] != "str":
+        if _node_type_kind(value) != "str":
             lo.fail(kw, "PS1003", f"print {kw.arg}= takes a str")
         extras[kw.arg] = value
     expanded = lo._expand_starred(node)
     args = [lo._expr(arg) for arg in expanded]
     for index, arg in enumerate(args):
-        if arg["type"]["kind"] == "class" and lo.classes.get(arg["type"]["name"], {}).get("namedtuple"):
+        if _node_type_kind(arg) == "class" and lo.classes.get(_type_name(_node_type(arg)), {}).get("namedtuple"):
             # A namedtuple prints `P(x=1, y=2)` in CPython; the tuple-class
             # print here would show `(1, 2)`. Fence instead of diverging.
             lo.fail(node, "PS2003", "print of a namedtuple is not lowered; print its fields")
-        if not _printable(lo, arg["type"]):
-            if arg["type"]["kind"] == "class":
-                called = lo._dunder_call(node, arg, "__str__", [], arg["span"]) or lo._dunder_call(
-                    node, arg, "__repr__", [], arg["span"]
+        if not _printable(lo, _node_type(arg)):
+            if _node_type_kind(arg) == "class":
+                called = lo._dunder_call(node, arg, "__str__", [], _node_span(arg)) or lo._dunder_call(
+                    node, arg, "__repr__", [], _node_span(arg)
                 )
                 if called is not None:
                     args[index] = called
                     continue
+            container = _container_repr(lo, arg, span)
+            if container is not None:
+                args[index] = container
+                continue
             lo.fail(
                 node,
                 "PS2003",
-                f"print is lowered for str, int, float, bool, and bytes values, not {arg['type']['kind']};"
-                " wrap it in str(...)",
+                f"print is lowered for str, int, float, bool, bytes and list/dict/set values,"
+                f" not {_node_type_kind(arg)}; wrap it in str(...)",
             )
-    expr = {
-        "kind": "call",
-        "callee": {"kind": "builtin", "name": "print"},
-        "args": args,
-        "type": {"kind": "none"},
-        "span": span,
-    }
+    expr = _call_builtin("print", args, _t_leaf("none"), span)
     expr.update(extras)
     return expr
 
@@ -105,14 +151,7 @@ def _input(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         lo._reject_keywords(node)
     if node.args:
         lo.fail(node, "PS2003", "input expects 0 argument(s)")
-    return {
-        "kind": "call",
-        "callee": {"kind": "module", "module": "builtins", "name": "input"},
-        "args": [],
-        "symbol": "ps_input_line",
-        "type": {"kind": "str"},
-        "span": span,
-    }
+    return _call_module("builtins", "input", "ps_input_line", [], _t_leaf("str"), span)
 
 
 def _named_temp(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -143,11 +182,30 @@ def _named_temp(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
         mode = arg.value
     code = _TEMP_OPEN[mode]
     cls = "BytesIO" if "b" in mode else "TextIO"
-    args = [
-        {"kind": "const", "value": code, "type": {"kind": "int"}, "span": span},
-        {"kind": "const", "value": keep, "type": {"kind": "int"}, "span": span},
-    ]
+    args = [_const_json(code, span), _const_json(keep, span)]
     return lo._abi_call("tempfile", "NamedTemporaryFile", args, _class(cls), "ps_temp_named", span)
+
+
+def _mkstemp(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`tempfile.mkstemp()` returns the `(fd, path)` pair as the synthetic
+    tuple. Like the lowered `mkdtemp`, the file lands in the system temp
+    directory; CPython's `suffix`/`prefix`/`dir`/`text` arguments stay
+    fenced. The caller owns the fd and unlinks the file itself, so the
+    probe prints booleans (the path differs between runs).
+    """
+    if node.keywords:
+        lo.fail(node, "PS2003", "tempfile.mkstemp lowers the 0-argument form only")
+    if len(node.args) > 0:
+        lo.fail(node, "PS2003", "tempfile.mkstemp lowers the 0-argument form only")
+    record = lo._tuple_type([_t_leaf("int"), _t_leaf("str")], node)
+    call = lo._abi_call("tempfile", "mkstemp", [], record, "ps_temp_mkstemp", span)
+    box = lo._temp("mkst")
+    lo.locals[box] = record
+    lo.prelude.append(_asg(box, call, span))
+    rec = _nm(box, record, span)
+    fd = _field(rec, "_0", _t_leaf("int"), span)
+    path = _field(rec, "_1", _t_leaf("str"), span)
+    return lo._materialize_tuple([fd, path], span, node)
 
 
 def _open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
@@ -174,7 +232,7 @@ def _open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if slots[0] is None:
         lo.fail(node, "PS2003", "open expects a path and an optional mode literal")
     path = lo._expr(slots[0])
-    if path["type"]["kind"] != "str":
+    if _node_type_kind(path) != "str":
         lo.fail(node, "PS1003", "open path is str")
     mode = "r"
     if slots[1] is not None:

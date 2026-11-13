@@ -14,7 +14,9 @@ from pathlib import Path
 import pytest
 from tests.test_gates import oracle, run_cli, write_case
 
+from pyscriptc._irnode import F_TOPT
 from pyscriptc.lower import lower_source
+from pyscriptc.tirserde import dict_to_type
 
 
 def _param_type(source: str) -> dict:
@@ -26,16 +28,16 @@ def _param_type(source: str) -> dict:
 
 @pytest.mark.parametrize("annotation", ["int | None", "None | int", "int | None | None", "None | int | None"])
 def test_pipe_forms_share_one_optional_type(annotation: str) -> None:
-    typ = _param_type(f"def f(x: {annotation}) -> int:\n    return 1\n")
-    assert typ["optional"] is True
-    assert typ["name"] == "opt_int"
-    assert typ["elem"] == {"kind": "int"}
+    typ = dict_to_type(_param_type(f"def f(x: {annotation}) -> int:\n    return 1\n"))
+    assert typ.flags & F_TOPT
+    assert typ.name == "opt_int"
+    assert typ.elem.kind == "int"
 
 
 def test_optional_inside_list_annotation() -> None:
-    typ = _param_type("def f(xs: list[int | None]) -> int:\n    return len(xs)\n")
-    assert typ["kind"] == "list"
-    assert typ["elem"]["optional"] is True and typ["elem"]["elem"] == {"kind": "int"}
+    typ = dict_to_type(_param_type("def f(xs: list[int | None]) -> int:\n    return len(xs)\n"))
+    assert typ.kind == "list"
+    assert typ.elem.flags & F_TOPT and typ.elem.elem.kind == "int"
 
 
 def test_boolop_join_of_two_optionals_is_optional() -> None:

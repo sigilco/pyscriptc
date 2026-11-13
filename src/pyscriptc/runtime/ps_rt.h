@@ -198,6 +198,10 @@ typedef struct PsMap {
     int32_t *order; /* live rows in insertion order */
     int64_t order_len;
     int32_t order_dirty;
+    /* Per dense row: the row's position in order[] while the cache is in
+       sync. Only read when order_dirty is clear, so a stale entry on a
+       dead row is never consulted. */
+    int32_t *orderpos;
     int64_t rows; /* dense rows written so far; len is the live subset */
 } PsMap;
 
@@ -213,6 +217,10 @@ PsIO *ps_io_take_fd(int fd, const char *path, int64_t mode, int64_t keep);
 PsIO *ps_temp_named(int64_t mode, int64_t keep);
 void ps_io_read(PsIO *io, PsBuf *out);
 int64_t ps_io_write(PsIO *io, int64_t n, const char *s);
+/* tempfile.mkstemp: the (fd, path) pair the lowering unpacks into the
+   synthetic (int, str) tuple. The fd rides the int slot; the path rides
+   the 16-byte PsBuf prefix a str field stores. */
+void ps_temp_mkstemp(int64_t *fd, PsBuf *path);
 
 /* ps_path.c: abspath normalization, shared with the tempfile tempdir pick. */
 void ps_path_abs(int64_t n, const char *s, PsBuf *out);
@@ -363,6 +371,11 @@ PsSeq *ps_seq_slice(PsSeq *s, int64_t start, int64_t stop, int64_t has_start, in
 PsSeq *ps_str_split(int64_t n, const char *p, int64_t sn, const char *sp, int64_t mode);
 void ps_str_join(int64_t n, const char *sep, PsSeq *parts, PsBuf *out);
 void ps_repr_quoted(int64_t n, const char *p, PsBuf *out);
+/* The container reprs behind `print(list/dict/set)`: the element type
+   rides as a recursive spec string (`pyscriptc.reprspec.type_spec`)
+   since a PsSeq cell carries only a byte size. */
+void ps_seq_repr(PsSeq *s, int64_t spec_len, const char *spec, int64_t is_set, PsBuf *out);
+void ps_map_repr(PsMap *m, int64_t spec_len, const char *spec, PsBuf *out);
 void ps_utf8_encode(int64_t n, const char *p, PsBuf *out);
 void ps_utf8_decode(int64_t n, const char *p, PsBuf *out);
 void ps_latin1_encode(int64_t n, const char *p, PsBuf *out);
@@ -435,6 +448,7 @@ void ps_stream_write(void *stream, const char *data, int64_t len);
 void ps_map_del(PsMap *m, void *key);
 void ps_map_clear(PsMap *m);
 void ps_map_update(PsMap *dst, PsMap *src);
+void ps_dict_first_key(PsMap *m, void *out);
 PsSeq *ps_dict_values(PsMap *m);
 PsSeq *ps_dict_items(PsMap *m, int64_t voff, int64_t esz);
 PsSeq *ps_str_split_m(
@@ -472,6 +486,10 @@ void ps_loop_run(void);
 void ps_loop_run_root(void *frame);
 void ps_loop_sleep(void *frame, double delay);
 void ps_loop_wait(void *child, void *parent);
+void ps_loop_wait_fd(int fd);
+/* `ps_loop_wait_fd(fd)`: park the running task on a descriptor. The loop
+   wakes the task when the descriptor is readable, ahead of the timers on
+   the same drive. */
 /* `await child`: drive the child once under the loop's catch. 0 pending,
    1 done, 2 failed (the child raised; ps_await_raise re-raises it in the
    awaiting parent, whose own try sees it). */
@@ -539,5 +557,20 @@ void ps_to_thread_result(void *box, int64_t size, void *out);
 void ps_to_thread_pump(void);
 void ps_to_thread_park(void *box);
 int32_t ps_threads_pending(void);
+
+/* ps_select.c: the closed `selectors` subset (#485), the `DefaultSelector`
+   record set over the #177 poller. `register` takes a bare int fd, not a
+   `fileobj`: the typed `socket` handle is #229, and until it lands the
+   fd-carrying surface is this int form (divergence 29 names it). */
+void *ps_select_new(void);
+void *ps_select_register(void *sel, int64_t fd, int64_t events);
+void *ps_select_unregister(void *sel, int64_t fd);
+void *ps_select_modify(void *sel, int64_t fd, int64_t events);
+void *ps_select_get_key(void *sel, int64_t fd);
+int32_t ps_select_get_key_hit(void *sel, int64_t fd);
+int64_t ps_select_key_fd(void *key);
+int64_t ps_select_key_events(void *key);
+PsSeq *ps_select_select(void *sel, double timeout);
+void ps_select_close(void *sel);
 
 #endif

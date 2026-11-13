@@ -49,6 +49,17 @@ Checks by class:
 - Minor and major: user-visible `feat` count, days since the previous minor, 0 open issues in the milestone titled `vX.Y.Z` (a title like `v0.5.0` or `v0.4.1 alpha` matches; no milestone is a failure), and a rehearsal. The measured receipt is a manual line.
 - Prerelease, rc: rc number at most `MAX_PRE`, and a rehearsal. Use an rc for packaging changes and before any minor.
 - Prerelease, beta: beta number at most `MAX_PRE`, at least `MINOR_MIN_FEATURES` user-visible `feat` commits since the last stable tag, a rehearsal, and the manual triage line: every open issue on the milestone is either in the beta or moved to `Future`. The minor-only gates (0 open issues, 5-day gap, measured receipt) do not apply to a beta; they apply again when the beta is promoted to the stable minor.
+- Checkpoint (a beta tag, `vX.Y.Z-beta.N`): the same bar as a beta, plus the line that says the tag never reaches PyPI. The class name is what the publish job refuses, not the bar.
+
+## Checkpoints
+
+A beta tag carries the release class `checkpoint`: an internal mark between releases. It gets the release matrix, the draft GitHub Release and the benchmark artifact (`bench-vX.Y.Z-beta.N.json`, written by the `bench` workflow), and nothing reaches PyPI. The `publish` job in `release.yml` is skipped for that class and, if it runs anyway, the first step refuses the class by name. An rc tag keeps the `prerelease` class and stays publishable behind the approval gate.
+
+`release_bar.py` owns the mapping: `release_class` and `tag_class` name the class, `refuses_publish` names the classes the publish job refuses, and the `class` subcommand prints the class of a tag and exits non-zero for a class that never publishes.
+
+```sh
+uv run python .github/scripts/release_bar.py class v0.8.0-beta.1
+```
 
 ## Guards
 
@@ -74,7 +85,7 @@ The bolo `repository_dispatch` step is a stub. It is not wired until a token dec
 
 ## Release notes
 
-`CHANGELOG.md` is the source of truth. Every version has a `## [X.Y.Z] - date` heading and sections in this order, each omitted when empty (see `.agents/plans/2026-10-21-changelog-structure.md` for the reasoning):
+`CHANGELOG.md` is the source of truth. Every version has a `## [X.Y.Z] - date` heading and sections in this order, each omitted when empty (decision 2026-10-21: conventional-commit sections only, theme paragraph on top, Internal collapsed last):
 
 1. One theme paragraph under the heading, only when the release has a theme.
 2. `### Breaking changes`, first when present. One line per entry: what changed, who is affected, the migration.
@@ -100,7 +111,7 @@ Every release body opens with this standard line:
 
 ## Release classes and bar
 
-See the Release policy section in `AGENTS.md` for the thresholds (patch, hotfix, minor, rc) and `.agents/plans/2026-10-21-release-cadence-strategy.md` for the data behind them. The rehearsal and the automated bar are described above in "Rehearse before tagging" and "The bar".
+See the Release policy section in `AGENTS.md` for the thresholds (patch, hotfix, minor, beta, rc) and the beta gates (decision 2026-10-23: `pre_kind=beta` cuts `vX.Y.Z-beta.N` tags with `X.Y.ZbN` in `pyproject.toml`, one mapping helper in `release_bar.py`; the beta bar is a green rehearsal on the exact commit, at least 2 user-visible features since the last stable, beta number at most `MAX_PRE`, and the open-issue list triaged; beta and rc GitHub releases are drafts flagged prerelease, never Latest; testers follow `docs/getting-started/beta.md` and file the `beta-feedback` template). The go-public gate (typed demo program compiles and runs from the README, the compat site current, install and first-run verified on all three platforms) is a milestone exit criterion. The rehearsal and the automated bar are described above in "Rehearse before tagging" and "The bar".
 
 ## Starting thresholds in plain language
 

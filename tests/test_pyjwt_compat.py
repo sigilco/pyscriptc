@@ -51,10 +51,17 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
     # 93 after the local, parameter and return inference (#500): the vendored
     # tree's own unannotated locals and defaulted parameters now bind from
     # their values, clearing two fences in jwt/math_.py.
+    # 80 after the PEP 585 self-host fix (#855) and the typed-HIR fence work: the
+    # vendored tree lowers ten more annotations.
+    # 79 after class-body constants (#732): one class attribute fence clears.
+    # 73 after the uuid/binascii/shlex/secrets stdlib subsets: two import
+    # fences in the vendored tree clear.
+    # 72 after class-body runtime values (#732): the `Algorithm` base class's
+    # `prepare_key`/`algorithm` method table assignment no longer fences.
     # Shrinking means a backlog lowering cleared fences here; update the pin
     # when that happens. `compile` prints at most 3 root fences and counts the rest.
     assert proc.stderr.count("PS") == 3
-    assert "(and 90 more fences)" in proc.stderr
+    assert "(and 72 more fences)" in proc.stderr
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh

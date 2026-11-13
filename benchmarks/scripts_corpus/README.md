@@ -2,7 +2,7 @@
 
 The R1 rung of the adoption ladder: single-file CLI scripts, the smallest unit a user adopts.
 
-The plan that asks for this lives in `.agents/plans/2026-10-21-adoption-compat-ffi-strategy.md`, section B. R1 is the whole-file pass rate: the share of scripts that compile and match CPython on stdout, stderr and exit code for a recorded invocation. This directory holds the scripts, the CPython recordings and the runner that produces `REPORT.md`.
+R1 is the whole-file pass rate: the share of scripts that compile and match CPython on stdout, stderr and exit code for a recorded invocation. This directory holds the scripts, the CPython recordings and the runner that produces `REPORT.md`.
 
 This directory sits outside the frozen v2 gates. It never writes to `benchmarks/compat2/`, it does not import `outcomes.py` for anything but the outcome names, and it reuses the frozen `coverage_map` only through the public `pyscriptc.coverage` API. The v2 scorer and its corpus are untouched.
 
@@ -86,6 +86,10 @@ The first `--exec` run found a soundness bug that no fence report shows: `sys.ex
 
 The ladder has six rungs. This directory is the evidence for R1 and the shape the other rungs will follow.
 
+**R0, vendored real script.** The metric is the same pass rate over third-party scripts, measured in
+`benchmarks/real_scripts/`. The nightly measures that corpus and merges the point into the same
+`compat/data/ladder.json`, under the `r0` key, with the last 30 nightly values as its trend.
+
 **R1, single-file script.** The metric is the whole-file pass rate. `REPORT.md` holds the current number and the family ranking underneath it. A family that blocks many scripts is the next compiler epic: the ranking is a set cover over the corpus, the same shape as the compat2 census, so the two lists can be compared.
 
 **R2, multi-module tree.** The metric is the same pass rate over `trees/`: a thin `__main__.py` over sibling modules, compiled as one binary and compared with the CPython recording. `REPORT_R2.md` holds the current number. The tree shapes stay inside the lowered subset on purpose: a tree that fences on the same family as its scripts would measure the family, not the rung.
@@ -96,7 +100,7 @@ The ladder has six rungs. This directory is the evidence for R1 and the shape th
 
 **What a blocker means.** A fence family in the report is a named compiler epic with a hint attached, the same hints `pyscriptc coverage` prints. The corpus does not decide which family to fix first. It measures how many scripts each family holds back, so the decision is made on reach rather than on taste. The families that dominate here are the ones a single-file CLI user hits on the first day: `argparse` is not in the closed import table, `sys.argv` and keyword arguments have narrow surfaces, and the stdlib subset covers `os`, `re` and `json` only partly.
 
-**The corpus feeds the public page.** The v0.6.0 `/compat` page shows R1 and R2 first, then the R4 lane shares. The numbers it shows come from this directory: `ladder.py` writes `compat/data/ladder.json`, and the site builder carries that into the page data. A PR that changes the compiler and moves the R1 rate is a PR that moves a published number, so the report is committed with every change that moves it.
+**The corpus feeds the public page.** The `/compat` page shows R0, R1 and R2 first, then the R4 lane shares. The numbers it shows come from this directory: `ladder.py` writes `compat/data/ladder.json`, and the site builder carries that into the page data. A PR that changes the compiler and moves the R1 rate is a PR that moves a published number, so the report is committed with every change that moves it.
 
 ## The rules this directory follows
 

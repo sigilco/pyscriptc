@@ -1,0 +1,3 @@
+# T2 import/module surface note (refs #817)
+
+The self-host census still carries the `ast` import-table fences on purpose. `ast` is in `sys.stdlib_module_names` but not in the closed `pyscriptc.stdlib_queue` table, so every compiler module that parses Python source fences at `import ast`. Clearing those fences means deciding whether the self-hosted compiler consumes CPython's `ast` surface natively or through the island/stdlib lane; that is an architecture choice owned by the island-or-stdlib work, not a mechanical T2 sweep. T2 therefore leaves `ast` fenced and only moves the module-assign/module-value rows that already have a typed-HIR/MIR lowering path.

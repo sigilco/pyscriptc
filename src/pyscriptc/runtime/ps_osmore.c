@@ -663,6 +663,7 @@ typedef struct PsGlobal {
     int is_int;
     int is_ptr;
     int64_t ival;
+    double dval;
     void *pval;
     PsBuf buf;
 } PsGlobal;
@@ -755,6 +756,31 @@ void ps_global_set_i64(int64_t n, const char *name, int64_t value) {
     pthread_mutex_unlock(&ps_global_lock);
 }
 
+void ps_global_set_f64(int64_t n, const char *name, double value) {
+    PsGlobal *slot = ps_global_slot(n, name, 1);
+    pthread_mutex_lock(&ps_global_lock);
+    slot->dval = value;
+    slot->is_int = 1;
+    slot->is_ptr = 0;
+    slot->set = 1;
+    pthread_mutex_unlock(&ps_global_lock);
+}
+
+double ps_global_get_f64(int64_t n, const char *name) {
+    PsGlobal *slot = ps_global_slot(n, name, 0);
+    if (slot == NULL) {
+        ps_raise_cstr(PS_RUNTIME, "global is unset");
+    }
+    pthread_mutex_lock(&ps_global_lock);
+    double value = slot->dval;
+    int ok = slot->set && slot->is_int && !slot->is_ptr;
+    pthread_mutex_unlock(&ps_global_lock);
+    if (!ok) {
+        ps_raise_cstr(PS_RUNTIME, "global is unset");
+    }
+    return value;
+}
+
 int64_t ps_global_get_i64(int64_t n, const char *name) {
     PsGlobal *slot = ps_global_slot(n, name, 0);
     if (slot == NULL) {
@@ -820,10 +846,13 @@ void ps_global_get_path(int64_t n, const char *name, PsPath *out) {
 }
 
 /* shutil.which(cmd): first executable regular file found walking PATH left
-   to right, or KeyError — the subset stand-in for CPython's None. An empty
+   to right. The shared walker returns 1 and copies the path into `out`, or
+   0 (out untouched) for a missing executable: `ps_shutil_which_hit` exposes
+   the flag and `ps_shutil_which_get` the path, so the lowerer can build
+   CPython's `str | None` with the hit-then-fill optional shape. An empty
    PATH entry means the current directory; a cmd that already contains a
    slash is checked directly, like CPython. */
-void ps_shutil_which(int64_t n, const char *s, PsBuf *out) {
+static int32_t ps_shutil_walk(int64_t n, const char *s, PsBuf *out) {
     char *cmd = ps_cstr(n, s);
     const char *env = getenv("PATH");
     const char *dir;
@@ -836,12 +865,14 @@ void ps_shutil_which(int64_t n, const char *s, PsBuf *out) {
     }
     if (strchr(cmd, '/') != NULL) {
         if (stat(cmd, &st) == 0 && S_ISREG(st.st_mode) && access(cmd, X_OK) == 0) {
-            ps_buf_copy(out, cmd, (int64_t)strlen(cmd));
+            if (out != NULL) {
+                ps_buf_copy(out, cmd, (int64_t)strlen(cmd));
+            }
             free(cmd);
-            return;
+            return 1;
         }
         free(cmd);
-        ps_raise_cstr(PS_KEY, "which found no executable");
+        return 0;
     }
     dir = env;
     for (;;) {
@@ -862,9 +893,11 @@ void ps_shutil_which(int64_t n, const char *s, PsBuf *out) {
             }
         }
         if (stat(cand, &st) == 0 && S_ISREG(st.st_mode) && access(cand, X_OK) == 0) {
-            ps_buf_copy(out, cand, (int64_t)strlen(cand));
+            if (out != NULL) {
+                ps_buf_copy(out, cand, (int64_t)strlen(cand));
+            }
             free(cmd);
-            return;
+            return 1;
         }
     next:
         if (end == NULL) {
@@ -873,7 +906,41 @@ void ps_shutil_which(int64_t n, const char *s, PsBuf *out) {
         dir = end + 1;
     }
     free(cmd);
-    ps_raise_cstr(PS_KEY, "which found no executable");
+    return 0;
+}
+
+int32_t ps_shutil_which_hit(int64_t n, const char *s) {
+    return ps_shutil_walk(n, s, NULL);
+}
+
+void ps_shutil_which_get(int64_t n, const char *s, PsBuf *out) {
+    ps_shutil_walk(n, s, out);
+}
+
+/* mkstemp: the (fd, path) pair the lowering unpacks into the synthetic
+   (int, str) tuple. The fd rides the int slot; the path rides the 16-byte
+   PsBuf prefix a str field stores. The caller owns the fd and the path
+   bytes, like CPython's mkstemp. */
+void ps_temp_mkstemp(int64_t *fd_out, PsBuf *path_out) {
+    char dir[4096];
+    char path[4200];
+    int fd;
+    int wrote;
+    ps_copy_tempdir(dir, sizeof dir);
+    wrote = snprintf(path, sizeof path, "%s/tmpXXXXXX", dir);
+    if (wrote < 0 || (size_t)wrote >= sizeof path) {
+        ps_os_fail("mkstemp failed");
+    }
+    /* wasi-libc declares no mkstemp (TODO(zig-0.18): still true upstream),
+       so the portable ps_mkstemp opens with O_CREAT|O_EXCL on a randomized
+       suffix: the same unique-file guarantee, and mode 0600 matches musl's
+       mkstemp. */
+    fd = ps_mkstemp(path);
+    if (fd < 0) {
+        ps_os_fail("mkstemp failed");
+    }
+    *fd_out = fd;
+    ps_buf_copy(path_out, path, (int64_t)strlen(path));
 }
 
 PsIO *ps_temp_named(int64_t mode, int64_t keep) {

@@ -14,6 +14,7 @@ from pyscriptc.coro import EXC, STATE, STOP, YIELD_MARKER
 from pyscriptc.ir import validate_module
 from pyscriptc.lower import lower_source
 from pyscriptc.package import lower_directory
+from pyscriptc.tirserde import dict_to_type
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV = {**os.environ, "PYTHONPATH": str(ROOT / "src")}
@@ -339,7 +340,10 @@ def test_package_generator_lowers_and_cross_module_consumes(tmp_path: Path) -> N
     # The consumer module binds the frame class through the export table
     # (its for-loop local `.ps_it_1` carries the `gen.count` shape).
     user = next(fn for fn in module["functions"] if fn["name"] == "pkg.user.run")
-    assert any(local["type"] == {"kind": "class", "name": "gen.count"} for local in user["locals"])
+    assert any(
+        dict_to_type(local["type"]).kind == "class" and dict_to_type(local["type"]).name == "gen.count"
+        for local in user["locals"]
+    )
 
 
 def test_package_generator_runs_across_modules(tmp_path: Path) -> None:
@@ -708,6 +712,9 @@ def test_contextmanager_kill_switch_restores_the_old_fence(monkeypatch: pytest.M
 
 
 def test_contextmanager_decorator_must_resolve_to_the_stdlib() -> None:
+    # A local `contextmanager` is not the stdlib one: it never lowers as a
+    # context manager. The user decorator takes the advisory erase now
+    # (divergence 54, issue #732); the generator body's own fence stays.
     source = """\
 from typing import Iterator
 
@@ -721,8 +728,11 @@ def track(name: str) -> Iterator[str]:
     yield name
 """
     module = lower_source(source, "cm_local.py")
-    messages = [fence["message"] for fence in module["fences"]]
-    assert any("is not a lowered callable" in message for message in messages)
+    notes = module.get("_notes", [])
+    assert any(
+        "the method decorator is erased" in note or "the function decorator is erased" in note for note in notes
+    ), notes
+    assert not any("contextmanager" in note for note in notes), notes
 
 
 # --- try/except/finally (issue #164) ----------------------------------------
@@ -1118,3 +1128,106 @@ def test_send_value_must_match_the_annotation() -> None:
     assert [(f["code"], f["message"]) for f in module["fences"]] == [
         ("PS1003", "the sent value is str, annotation says int")
     ]
+
+
+# --- Unannotated generator element inference ---------------------------------
+
+INFER = """\
+def squares(n: int):
+    for i in range(n):
+        yield i * i
+
+
+def words(text: str):
+    for w in text.split(" "):
+        yield w.upper()
+
+
+def pairs(n: int):
+    for a in range(n):
+        for b in range(a):
+            yield a * 10 + b
+
+
+total: int = 0
+for x in squares(4):
+    total += x
+for w in words("a bc"):
+    print(w)
+for p in pairs(3):
+    total += p
+print(total)
+"""
+
+INFER_FENCED = """\
+def yf(n: int):
+    yield 1
+    yield from [2]
+
+
+def ret(n: int):
+    yield n
+    return n
+
+
+def mixed(n: int):
+    yield n
+    yield "s"
+
+
+def bare(n: int):
+    yield
+"""
+
+
+def test_unannotated_generator_infers_the_element_type(tmp_path: Path) -> None:
+    got, expected = _run_both(tmp_path, "infer", INFER)
+    assert expected
+    assert got == expected
+    module = lower_source(INFER, "infer.py")
+    assert module["fences"] == []
+    validate_module(module)
+    frames = {cls["name"] for cls in module["classes"] if cls["name"].startswith("gen.")}
+    assert frames == {"gen.squares", "gen.words", "gen.pairs"}
+    for name in frames:
+        frame = next(cls for cls in module["classes"] if cls["name"] == name)
+        assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close"}
+
+
+def test_unannotated_generator_refusals_keep_the_annotation_fence() -> None:
+    module = lower_source(INFER_FENCED, "inferfenced.py")
+    got = sorted((f["span"]["line"], f["code"], f["message"]) for f in module["fences"])
+    assert got == [
+        (1, "PS1001", "yf needs a return annotation"),
+        (6, "PS1001", "ret needs a return annotation"),
+        (11, "PS1001", "mixed needs a return annotation"),
+        (16, "PS1001", "bare needs a return annotation"),
+    ]
+
+
+def test_unannotated_send_form_reads_none(tmp_path: Path) -> None:
+    source = """\
+def g(n: int):
+    x = yield n
+
+
+total: int = 0
+for v in g(3):
+    total += v
+print(total)
+"""
+    got, expected = _run_both(tmp_path, "sendnone", source)
+    assert expected
+    assert got == expected
+    module = lower_source(source, "sendnone.py")
+    assert module["fences"] == []
+    validate_module(module)
+
+
+def test_iterator_send_form_recv_is_the_none_singleton() -> None:
+    module = lower_source(
+        "from typing import Iterator\n\n\ndef g(n: int) -> Iterator[int]:\n    x = yield n\n",
+        "iternone.py",
+    )
+    assert module["fences"] == []
+    validate_module(module)

@@ -58,12 +58,9 @@ def test_module_decorators_stay_fenced(tmp_path: Path) -> None:
             "@staticmethod()\ndef probe() -> int:\n    return 1\n",
             "a decorator expression is not lowered",
         ),
-        (
-            "user.py",
-            "def deco(fn: int) -> int:\n    return fn\n@deco\ndef probe() -> int:\n    return 1\n",
-            "user decorators are not lowered",
-        ),
     ]
+    # The untyped user decorator case takes the advisory erase now
+    # (divergence 54, issue #732): it compiles with the PS3099 note.
     for name, source, text in cases:
         path = write_case(tmp_path, name, source)
         got = run_cli(
@@ -94,35 +91,57 @@ def test_untyped_decorator_expression_fences(tmp_path: Path) -> None:
         "    return Command()",
         "",
     ]
-    cases = {
-        "module_dec_cls.py": [
-            *body,
-            "@command()",
-            "def probe() -> int:",
-            "    return 1",
-            "",
-        ],
-        "nested_dec_cls.py": [
-            *body,
-            "def probe() -> int:",
-            "    @command()",
-            "    def inner() -> int:",
-            "        return 1",
-            "    return inner()",
-            "",
-        ],
-    }
-    for name, lines in cases.items():
-        path = write_case(tmp_path, name, "\n".join(lines))
-        got = run_cli(
-            "compile",
-            str(path),
-            "--skip-check",
-            "--emit",
-            "llvm",
-            "-o",
-            str(tmp_path / f"{name}.ll"),
-        )
-        assert got.returncode == 3, f"{name}\n{got.stderr}"
-        assert "PS2006: decorator command() is not a lowered callable" in got.stderr, f"{name}\n{got.stderr}"
-        assert "Traceback" not in got.stderr, f"{name}\n{got.stderr}"
+    # The nested def still fences (`PS2006` from `_apply_decorator`). The
+    # module-level case takes the advisory erase now (divergence 54, issue
+    # #732): it compiles with the PS3099 note, never a traceback.
+    nested = [
+        *body,
+        "def probe() -> int:",
+        "    @command()",
+        "    def inner() -> int:",
+        "        return 1",
+        "    return inner()",
+        "",
+    ]
+    path = write_case(tmp_path, "nested_dec_cls.py", "\n".join(nested))
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / "nested_dec_cls.ll"),
+    )
+    assert got.returncode == 3, got.stderr
+    assert "PS2006: decorator command() is not a lowered callable" in got.stderr, got.stderr
+    assert "Traceback" not in got.stderr, got.stderr
+
+
+def test_module_decorator_expression_erases_with_a_note(tmp_path: Path) -> None:
+    body = [
+        "class Command:",
+        "    def __call__(self, fn: int) -> int:",
+        "        return fn",
+        "",
+        "def command() -> Command:",
+        "    return Command()",
+        "",
+        "@command()",
+        "def probe() -> int:",
+        "    return 1",
+        "",
+    ]
+    path = write_case(tmp_path, "module_dec_cls.py", "\n".join(body))
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / "module_dec_cls.ll"),
+    )
+    assert got.returncode == 0, got.stderr
+    assert "PS3099" in got.stderr, got.stderr
+    assert "Traceback" not in got.stderr, got.stderr

@@ -15,7 +15,7 @@ This page is the licensing and provenance contract that the pack and every outpu
 The pack for each supported platform (macOS arm64 and Linux x86_64 in the first slice) is a tarball produced from the pinned [python-build-standalone](https://github.com/astral-sh/python-build-standalone) release recorded in `packaging/runtime.lock.toml`:
 
 - `libpython3.14` shared library and the version headers,
-- the standard library as a safe-trimmed zip (modules a program can import; test, idle, tkinter and similar trees are not bundled),
+- the standard library as a safe-trimmed zip (modules a program can import; test, idle, tkinter and similar trees are not bundled, and neither is the pack interpreter's own `site-packages` tooling such as pip),
 - the `licenses/` directory from the matching `full` archive: the CPython license text plus the license of every third-party component compiled into libpython (for example expat, libffi, mpdecimal, OpenSSL, SQLite, zlib, zstd; the authoritative list is the inventory in the pack, not this page).
 
 The lock file pins the release tag, the asset name, the sha256 and the CPython micro version. A pack that does not match the lock is refused before anything is linked.
@@ -47,3 +47,156 @@ The compiler itself is Apache-2.0; the preflight checker (pyrefly, MIT) ships in
 ## Asking before shipping
 
 The third-party inventory of the first pack build is confirmed with the project owner before the first public release that ships a pack (the inventory check, not legal advice).
+
+## The self-compiled pyscriptc
+
+pyscriptc can compile itself into a binary that needs no Python, uv or pip on the host. The build is one command from a checkout:
+
+```sh
+pyscriptc compile src/pyscriptc --program --skip-check --island --emit bin \
+  --embed-python bundle --embed-headers --bundle-exclude mypy -o dist/selfbin
+```
+
+The output is a relocatable directory, `dist/selfbin/`, laid out as:
+
+- `bin/selfbin`, the compiler itself (about 3 MB; every module of `src/pyscriptc` is compiled into it, and the program's non-Python files live in `bin/pyscriptc-data/`: the C runtime sources `ps_*.c`, the vendored typeshed, the pyright stubs and the runtime lock),
+- `lib/`, the pinned runtime: `libpython3.14.so`, the stdlib zip and `lib/python3.14/` (dynload modules plus the bundled pure-Python dependencies),
+- `include/`, the CPython headers, staged by `--embed-headers`, so the binary can compile island programs (which include `Python.h`) at run time,
+- `share/licenses/`, the license texts of the bundled runtime.
+
+This is a two-file layout in spirit: the directory is the artifact, and it runs from any path. It is not a single file because the interpreter is a shared library and the stdlib is a zip; both must sit on disk next to the binary for the dynamic loader and the import system.
+
+What the binary needs at run time, and what it does not:
+
+- No Python, uv or pip. The interpreter and the stdlib travel in `lib/`. `env -i PATH=/nonexistent dist/selfbin/bin/selfbin` prints its usage, and compiling a program that does not touch the island needs nothing else.
+- A C toolchain on PATH (clang or zig) for `--emit bin` and `run`, exactly like the installed compiler. A compile with no toolchain fails with PS0001, which names the install options.
+- pyrefly for `check` and the preflight of a compile without `--skip-check`. The binary resolves it like the installed compiler: the `PYREFLY_BIN` override, then a `pyrefly` on PATH. When none is found the compile says so instead of half-running.
+- No network and no pack cache for `--embed-python bundle` compiles: the binary links user programs against the runtime it carries.
+
+`--bundle-exclude mypy` declares the optional mypy bridge an extern dependency: the import stays in the compiled compiler, and the host answers it exactly like CPython answers a dead import. Without the exclusion the bundle refuses the compile, because mypy ships a compiled extension and a bundle carries pure Python only (PS4302).
+
+## The onefile output
+
+`--onefile` writes the bundle as one executable instead of a directory. The
+flag needs `--embed-python=bundle`.
+
+```sh
+pyscriptc compile src/pyscriptc --program --skip-check --island --emit bin \
+  --embed-python bundle --embed-headers --embed-stdlib minimal \
+  --onefile --strip-runtime -o dist/selfbin-onefile
+```
+
+The output is `dist/selfbin-onefile/selfbin-onefile.onefile`, one file. It holds:
+
+- the compiled program, the pinned runtime and the staged data tree, in one
+  zlib-compressed payload,
+- a small C stub in front of it (about 17 KB compiled) that finds the payload
+  appended to its own file.
+
+The stub is the whole runtime story of the onefile. On the first run it
+inflates the payload into a cache directory and execs the extracted binary
+with the process argv; on every later run it finds the cache directory and
+execs straight away. The cache directory is named after the payload's
+sha256, so:
+
+- a rebuild whose payload differs extracts beside the old tree instead of
+  over it, and both keep working,
+- two hosts that run the same file for the first time at the same time race
+  for the extraction; the loser of the atomic rename execs the winner's
+  tree, which holds the same bytes.
+
+The cache root is `$PYSC_ONEFILE_CACHE` when it is set, then
+`$XDG_CACHE_HOME/pyscriptc/onefile`, then `~/.cache/pyscriptc/onefile`.
+
+The stub links zlib and nothing else, and it needs no `tar` and no Python: a
+container image with only libc runs the onefile as it runs the bundle. The
+build host needs zlib's development files (`libz-dev` on Debian, `zlib-devel`
+on Fedora) and a C compiler, because the stub is built from source on the
+machine that builds the onefile.
+
+The cost of the shape is one decompression on the first run: about 0.4 s for
+the 19 MB yt-dlp payload on the VPS. The warm run adds a `stat` and an
+`execv` to the program's own startup, which is under a millisecond.
+
+The measured cold and warm starts of the 18.8 MB yt-dlp onefile on the VPS
+(2026-11-02) are 0.91 s cold and 0.48 s to 0.61 s warm, against 0.45 s for
+the unpacked bundle, so the extraction costs about 0.4 s once and nothing
+after that.
+
+### What the host still needs
+
+The onefile carries the interpreter, the stdlib and the program's own data.
+It does not carry the tools around the compiler, and a self-compiled
+pyscriptc still needs them on the host:
+
+- A C toolchain on PATH (clang or zig) for `--emit bin` and `run`, exactly
+  like the installed compiler. This is the known gap of the onefile: the
+  compiler shells out to `cc` to build the emitted LLVM IR and the onefile
+  stub, and a onefile that carries a toolchain would carry a second copy of
+  a compiler.
+- `pyrefly` for `check` and for the preflight of a compile without
+  `--skip-check`. The binary resolves it like the installed compiler: the
+  `PYREFLY_BIN` override, then a `pyrefly` on PATH. When none is found the
+  compile says so and names the remedy instead of half-running.
+- No Python, uv or pip, and no pack cache and no network.
+
+The two gaps are the tools around the compiler, not the compiler itself: the
+14.5 MB self-compiled onefile runs its usage with `PATH=/nonexistent` and
+compiles a hello world to a working native binary with only `cc` on PATH.
+Closing the C-toolchain gap means shipping a second compiler inside the
+onefile, which costs more than the runtime it would carry; closing the
+pyrefly gap means shipping the checker, which is a separate program with
+its own release cadence. Both stay host tools for now.
+
+### Shrinking the output
+
+Two flags cut the size, and neither is an executable compressor (zstd and
+upx are not used, and the note that froze the benchmark's size levers
+forbids them):
+
+- `--strip-runtime` strips the staged `libpython`. Plain `strip` keeps
+  `.dynsym`, where every `PyInit_*` extension entry point and the
+  interpreter's exported API live, and drops the debug and static symbol
+  tables: about 12 MB off the 32 MB Linux libpython.
+- `--embed-stdlib minimal` trims the stdlib zip to a frozen closure over the
+  CPython import graph instead of the safe trim's "everything except the
+  developer-facing trees". On the yt-dlp tree it takes the zip from 6.8 MB
+  to 4.1 MB.
+
+The size of a onefile is therefore the sum of the program, the runtime and
+the trimmed stdlib, compressed once with zlib.
+
+### What the onefile measures
+
+The yt-dlp composite (`benchmarks/ytdlp_composite/`, the frozen definition
+in `.agents/notes/2026-10-30-ytdlp-composite.md`) measures the onefile as a
+candidate. The run of 2026-11-02 (CPython 3.14.9, 6 cores, load average 3.55
+during the run, min of 7 interleaved samples after 2 warmups):
+
+| Variant | `--version` s | `--list-extractors` s | extract s | download s | RSS MiB | files | installed bytes | shipped bytes | needs Python | relocatable | clean container |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| V-bundle (safe trim) | 0.453 | 0.550 | 1.441 | 1.468 | 57.7 | 170 | 82 441 773 | 82 441 773 | no | yes | yes |
+| V-minimal (minimal trim) | 0.453 | 0.625 | 1.396 | 1.472 | 57.4 | 170 | 79 231 932 | 79 231 932 | no | yes | yes |
+| V-onefile (minimal trim, stripped runtime) | 0.463 | 0.545 | 1.496 | 1.447 | 57.4 | 1 | 18 766 651 | 18 766 651 | no | yes | yes |
+| B1 (uv venv) | 0.287 | 0.468 | 1.228 | 1.353 | 49.1 | 1181 | 111 710 283 | 111 710 283 | yes | no | no |
+| B2 (`yt-dlp_linux`, PyInstaller onefile) | 1.429 | 1.561 | 2.373 | 2.482 | 73.4 | 1 | 41 166 968 | 41 166 968 | no | yes | yes |
+
+Composite (geometric mean over the 11 dimensions, lower is better; a PASS
+needs it below 1.0 against both baselines and no dimension worse than 2x):
+
+| Candidate | vs B1 | vs B2 |
+|---|---|---|
+| V-bundle | 1.009 | 0.994 |
+| V-minimal | 1.010 | 0.996 |
+| V-onefile | 0.644 | 0.635 |
+
+The onefile is the first candidate to pass on both sides. The bundle loses
+`files_n` (170 files against one) and `install_bytes` (4.4x B2); the onefile
+turns both into wins (1.0x and 0.46x) and pays for them with nothing, since
+its timings are the bundle's timings plus the extraction.
+
+Its output is the bundle's output: the `-j` extract of the local sample is
+byte-identical to B1's once the `epoch` key is removed, and
+`--list-extractors` is identical (1755 lines) to B1, B2 and the bundle. The
+onefile also runs in `debian:trixie-slim` (glibc 2.41, no Python), which is
+the `clean_container` answer the note asks for.

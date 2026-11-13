@@ -1,5 +1,221 @@
 # Changelog
 
+## [0.10.0b1] - 2026-11-12
+
+v0.10.0 widens what compiles and runs without a Python install. The tool host now runs on any CPython 3.11-3.15 host with the C toolchain one `zig` extra away, while compiled programs still target 3.14. More of the stdlib lowers natively (bisect, the finite itertools names, os.symlink and readlink, tempfile.mkstemp, uuid, binascii, shlex and secrets), inference picks up chained facts from pyrefly and an own-inference arm, decorators and class bodies lower further, and the embed engine grows a capability manifest, an engine descriptor with `--island-engine` and a PyPy seam. This is the first beta of the 0.10.0 line: it is a checkpoint tag, it never reaches PyPI, and the stable promotion comes with the remaining milestone items.
+
+### Highlights
+
+- **The tool runs on any CPython 3.11-3.15 host** while compiled programs still target 3.14 (#1202); `pip install pyscriptc[zig]` pulls the C toolchain in one step (#1196, #1198).
+- **The embed engine grows a seam:** capability manifest v1 with the imports and assess consumers (#669), engine descriptor schema v1 with the loader and `--island-engine` (#1181), and the `ps_island.c` engine seam for PyPy with the driver-emitted `-DPS_ENGINE_PYPY` (#1193).
+- **More of the stdlib lowers natively:** bisect.insort over int, float and str lists (#945), the remaining finite itertools eager names (#946), os.symlink and os.readlink (#1164), tempfile.mkstemp returning the (fd, path) tuple (#1177), and the uuid, binascii, shlex and secrets subsets (#806).
+- **Class bodies and decorators lower further:** class-body assignments with a runtime value become class attributes (#1204), class-body constants lower (#1166), stacked user decorators lower (#1163), and method and function decorators outside the closed set are erased (#1200).
+- **Inference grows two arms:** chained param and return facts arrive via pyrefly infer, and `infer --bridge own` runs the own-inference arm (#731, #1165, #1184).
+
+### Receipt
+
+- Visible corpus score on the release commit (`nightly` visible-score job, CPython 3.14.9 oracle): 13,798 probes scored, 1,671 pass, 10,721 fence, 1,396 excluded, 10 build-error, weighted pass 972.1.
+- Self-host fences (`tests/census_pins/` pin sum): 3,414 at v0.9.0 down to 3,178 on the release commit.
+- Boxed ledger window (`mise run boxed:cost`, newest window `466c29f91097..e4c713b61e96`, 10 commits): code 5.2%, churn 0.0%, bugs 0.0%, tax 10.0%, drop flag false.
+- Release rehearsal on the release commit `e4c713b61e967334233b4a163695629cf62281f7`: the build matrix, smoke and wheel verify pass.
+
+### Features
+- publish the island verdict and the plane split next to the native verdict (#804)
+- onefile output for island bundles, composite passes both baselines (#802)
+- class-body assignments with a runtime value lower as class attributes (#732) (#1204)
+- uuid, binascii, shlex and secrets subsets, and the yt-dlp wall measurement (#806)
+- module-scope call results bind a global slot (#502) (#1183)
+- the tool host runs on CPython 3.11-3.15, the program still targets 3.14 (#1202)
+- the zig extra, one install for the tool and the C toolchain (#1196, #1198)
+- hash typed nodes in schema field order without the dict round-trip (#830 P2) (#1201)
+- erase method and function decorators outside the closed set (#732) (#1200)
+- ps_island.c engine seam for PyPy, driver-emitted -DPS_ENGINE_PYPY (#1193)
+- capability manifest v1 and the imports and assess consumers (#669) (#1192)
+- the own-inference arm as infer --bridge own (#731) (#1184)
+- erase non-dataclass class decorators with a PS3099 divergence note (#732) (#1188)
+- engine descriptor schema v1, loader and --island-engine (#1181)
+- lower the remaining finite itertools eager names (#946)
+- tempfile.mkstemp returns the (fd, path) tuple natively (#1177)
+- an R0 real-scripts lane in the nightly ladder (#1172)
+- lower bisect.insort over int, float and str lists (#945)
+- break the infer fence delta down by family and code (#1173)
+- privacy-respecting PostHog analytics for the public site (#760)
+- Polar sponsor link, badges and CTA button (#755)
+- a Flask and a FastAPI app compiled to one binary, with the bundle walk fixed (#775)
+- lower class-body constant attributes (#1166)
+- lower os.symlink and os.readlink (#1164)
+- supply chained param and return facts via pyrefly infer (#731) (#1165)
+- lower stacked user decorators on module and nested defs (#1163)
+
+### Fixes
+- stop inferring an island top level from closed-import-table fences (#1175)
+- next(iter(d)) peeks the first key instead of materializing it (#1170)
+- a module island-value binding adopts the seed's object (#769)
+- keep the hero backdrop behind the CTA row (#754)
+- count four doc-coupled seams tests after the first_class_scripts removal (#762)
+- skip .py files CPython cannot name in tree scans (#764) (#1162)
+- hash the scorer cache key once, the cache post step failed re-evaluating hashFiles (#1143) (#1148)
+- do not stage a bundle for programs without island references (#1146)
+
+### Internal
+- the emit/llvm mixins read the typed `_irnode` record on the `_stmts`, `_exprs` and `_funcs` slices, with the TIR hash gate on the PR path (#829, #830).
+- the architecture inventory, the plane-map guide and the v0.10.0 release-notes draft land as documents (#785, #799, #1205).
+
+## [0.9.0] - 2026-11-08
+
+0.9.0 makes the new compiler architecture the default. Programs now compile through the typed HIR, a three-address MIR with a control-flow graph, a verifier (MVS codes) and a printable IR, and `PYSC_MIR=0` keeps the old direct path as an escape hatch until it is removed in 0.10.0. Output speed is unchanged against the old path (geomean 1.02); the gains are in what compiles natively, the island floor, and compile-side speed and distribution.
+
+### Highlights
+
+- **New architecture is the default:** the MIR lane, its verifier and printable IR replace the direct path (#1067).
+- **Mixed programs stay mostly native:** a fenced module no longer demotes the whole program, and island classes cross module boundaries (86% of yt-dlp top levels native) (#793, #1071, #1099).
+- **No Python needed to run the compiler:** a self-compiled `pyscriptc` bundle (#1068).
+- **More code lowers natively:** unannotated code via `--infer` pins and global export slots, inferred generator element types, bare `list`/`dict`/`set` annotations (#792, #1042, #1107).
+- **Faster compile steps:** cached typeshed, overlapped type check and emit, and a precompiled island code cache (#1077, #1082, #1083).
+
+### Receipt
+
+- Flip receipts: MIR slice coverage 42/42; `runtime_ab` (stdout, stderr, exit code) 67 PASS, 0 FAIL, 0 ERROR, 1 SKIP (`json_like_dump`, PS1104/PS2002 on `object`/`isinstance`).
+- Speed: MIR versus the direct path, perf geomean 1.02 (`scripts/mir_perf_ratio.py`). No speedup is claimed.
+- Self-host fences (`benchmarks.compat2.census_self`): about 4041 to 3328 on the new architecture.
+- Boxed ledger (`mise run boxed:cost`, window `13163f86b304..15ca4f824cfe`): code 5.4%, churn 0%, bugs 0%, tax 0%, drop flag false.
+- Release rehearsal: build matrix, smoke and wheel verify passed on `5048a563`.
+
+### Features
+- native lowering for binary_trees, exceptions_flow, generators_comp (runtime_ab 64->67 PASS) (#1124)
+- a divergence ledger with a probe per entry (#1109)
+- fence mutations and copy-aliases of module-scope container constants (#1111)
+- bare list/dict/set annotations as Any-slot containers (#1107)
+- coverage and assess survive a real package tree (#1102)
+- a bytecode-backed lazy island seed (#1101)
+- route import cycles island-side so the plane split engages on yt-dlp (#1099)
+- strict corpus A/B lane over unstripped stdout bytes (#1095)
+- island classes cross the module boundary, 86% of yt-dlp top levels native (#1071)
+- self-host fence batch B2 (-61: attribute receivers for append/add, write_text/update kwargs) (#1079)
+- verdict ratchet ages persistent wrong-output rows into findings (#1090)
+- MIR lane becomes the default (MIR_DEFAULT = True) (#1067)
+- self-compiled pyscriptc bundle that runs with no Python installed (#1068)
+- per-module plane split, clean modules stay native beside a fenced module (#793)
+- global export slots and --infer pins, so unannotated code lowers natively (#792)
+- resolve global-aliased imports at module scope (fence T4) (#1064)
+- admit linked_list and quicksort into the MIR leaf slice (#1047)
+- infer unannotated generator element types; fix send-None recv path (#1042)
+- lower print() of list, dict and set values (#1049)
+- admit list[bool] into the slice, unfencing sieve and nqueens (#1031)
+- zip() over 2+ sources and str sources, enumerate() over str (#1046)
+- admit dict ops and str.split into the leaf slice (#1037)
+- admit user-class values and non-module callees in the leaf slice (#1035)
+- admit str subscript, chr and ord into the leaf slice (#1033)
+- lower try statements and exception flow through the MIR lane (#1030)
+- admit dict values, list[str], str.join and builtins.format into the leaf slice (#1029)
+- admit str values, concat, compares and builtins through the MIR lane (#1022)
+- lower tuple-class values through newobj/setattr/getattr (#1025)
+- admit recursive calls and int bitwise ops into the leaf slice (#1023)
+- per-function MIR-or-direct adapter with fallback telemetry (B11) (#1018)
+- admit runtime-ABI module calls and nested list shapes (#1021)
+- lower none-typed print builtin calls into the leaf slice (#1017)
+- lower list[int] and list[float] through the MIR lane (A9 step 1) (#1019)
+- admit int & and int_to_float casts into the leaf slice (#1016)
+- str value type (A8 step 1, M-1) (#1015)
+- admit short-circuit, ternary and augmented assignment into the leaf slice (A6/A7) (#1014)
+- lower calls of scalar user functions through the MIR lane (#1013)
+- add MIR_CALL with builder emission and verifier rules (#1012)
+- --emit mir prints the leaf-slice MIR as text (#991)
+- compat_mir_flip receipt driver for the MIR default flip (#1009)
+- out-of-slice reasons table in compiler_progress (#993)
+- MIR vs direct perf ratio receipt (#977)
+- report outcome flips both directions (#982)
+- MIR slice coverage metric in the compiler trend table (#944)
+- accept None returns in the MIR leaf slice (#941)
+
+### Performance
+- idle-skip the dict conversion; typed constructors for the coro helpers (#1118)
+- persist compiler identity and overlap pyrefly with emit/link (#1082)
+- write .ir.json only when asked (#1092)
+- cache the patched typeshed content-addressed (#1077)
+- embed a validated precompiled code cache for the program island (#1083)
+- reuse a name's live value for reads inside one block (#1063)
+
+### Fixes
+- rewrite the stdlib.sys.argv probe without len(argv[0]) (#924) (#1135)
+- disable the uv cache in the release checksums job (post-step failed with nothing to cache) (#1142)
+- run the release notes script on Python 3.14, the runner python3 rejects PEP 758 syntax (#935)
+- int() separator, Unicode strip and repr'd message for the base form (#1119)
+- run a peeked call value once, not twice (#1098) (#1117)
+- run multiprocessing -c children inside the island (#1105)
+- read dotted class names in attr keys; unfence sum over generators (#1103)
+- str.rsplit maxsplit; print() of nested list/dict/set values (#1084)
+- defer resolution diagnostics to the lowerer (#1088)
+- __name__/pickle/atexit island floor fix (#1087)
+- a bare isinstance dict target no longer crashes type_key (#1085)
+- realpath keeps the resolved prefix; triage of the #924 nightly rows (#1080)
+- island argv[0] keeps the binary path; report why the plane map demotes a function (#1076)
+- unblock flip receipt tooling (#1060)
+- pkg class export on module.Class calls, isinstance bare-container fold (#1061)
+- compile and run yt-dlp end to end on the island tier (#791)
+- unfence augmented assignment on subscript/attribute targets and str-iterating accumulators (#1028)
+- skip shared ast context singletons when picking the deepest-node span (#1026)
+- CPython 3.14 int() literal parity and shutil.which None (#965)
+- sort synthetic class install so .ll is PYTHONHASHSEED independent (#817) (#936)
+
+### Internal
+- Internal changes: 49 areas (agents, assess,reduce, binding,boxed, check, ci, cli, config, coro, coverage, debug, decisions, docs, dwarf, e1, emit/llvm, emit/llvm _abi,_calls, emit/llvm _calls, emit/llvm _core, emit/llvm _exprs, emit/llvm _funcs, emit/llvm _print, emit/llvm _stdlib, emit/llvm _stmts, factsbridge, ffi, ffi_manifest, ir, irverify, lower, mir, mirverify, module, nightly, notes, p6, package, plan, plans, project, refactor, release, restlower, runtime-ab, selfhost, stdlib_queue, stubs, test, tests, verify). Summarize before publishing.
+- bench(ytdlp): composite benchmark, first result FAIL (1.36 to 1.47) (#1100)
+- selfpack: the self-hosted compiler as a single binary, and the PS1104 receipt (#773)
+- test+docs: TIR/IR hash coverage pin and retirement cross-links (#830 follow-through) (#1006)
+## [0.8.0] - 2026-11-05
+
+0.8.0 is the architecture release. The compiler's lowering stage is split into typed HIR and MIR slices behind opt-in lanes, with fixed-point, per-function IR digest and TIR gates guarding that the output stays byte-identical. Users get `https://` over libcurl, native `super()` with two arguments, frozen and slots dataclasses, `while` and `for range` loops in the MIR lane, an opt-in project bundler and a Windows install script. Measured against 0.7.0 on the same scorer, probes and workloads, compat outcomes and speed are unchanged within noise (see Receipt).
+
+### Highlights
+
+- **https:// works natively,** over libcurl linked at build time and a registered TLS backend interface (#881, #884, #235).
+- **More Python lowers natively:** two-argument `super()`, frozen and slots dataclasses, statically-lengthed starred call arguments and `dict[K, Any]` / `list[Any]` bridge reads (#815, #814, #837).
+- **Opt-in MIR lane (`PYSC_MIR`)** emits byte-identical output to the direct path and now covers `while`, `break`, `continue` and `for range` (#813, #906, #911, #916).
+- **Opt-in AST-level project bundler** and a Windows install script (#846).
+- **Debuggable compiler:** per-stage rss and IR counters in `--debug=stages`, and per-function IR digests that name the first differing unit (#847, #866).
+
+### Receipt
+
+- Compat (scorer v2, 13,798 visible probes, CPython 3.14.9 oracle, baseline v0.7.0): pass 1635 and weighted pass 919.0 of 8429.4 (10.90%) on both 0.7.0 and this release, with 0 outcome flips in either direction. Expected for a behavior-preserving architecture release.
+- Speed (`benchmarks.baseline`, 20 runs per workload, ratio pyscriptc / CPython, lower is faster, baseline v0.7.0): kernel 0.0358 to 0.0363, stdlib 0.0764 to 0.0757, scripting 0.0454 to 0.0435, island 0.4697 to 0.4640. All inside the noise: no regression and no gain.
+- Release rehearsal: build matrix, runtime packs, smoke and wheel verify passed on the base commit `f782151c`.
+- The full tables are recorded on #852 and #924.
+
+### Features
+
+- **https://** over libcurl linked at build time, on a transport interface with a registered TLS backend (#235, #881, #884).
+- **Native `super()`** with two arguments, and frozen and slots dataclasses (#815).
+- **Starred call arguments** of known length lower natively (#814).
+- **Bridge-resolved reads** of `dict[K, Any]` and `list[Any]` (PS1104 option B) (#837).
+- **`text=True` and `encoding=`** are honored in native `run` (#736).
+- **MIR leaf lane:** the `PYSC_MIR` opt-in lane, plus `while`, `break`, `continue` and `for range` (#813, #906, #911, #916).
+- **`--debug=stages`** reports per-stage rss and IR counters (#847).
+- **Per-function IR digests** name the first differing unit (#820, #866).
+- **Opt-in AST-level project bundler** (R7) (#846).
+- **Windows install script**, and generated CLI, config and diagnostics reference pages.
+- **Streaming TIR gate, stage-2 fixed-point lane and progress tables** in the nightly and fixpoint job summaries (#834, #841, #840, #867, #887).
+- **Typed HIR node module** and the first `lower/_core` slice (#839).
+- **Landing page** redesign with new Open Graph cards.
+
+### Fixes
+
+- **Binary operands** evaluate in source order (#905).
+- **Typed lowering regressions** restored: subscript, call extras, `ffi_manifest` and island call keys (#869, #861).
+- **MIR leaf emitter:** bool consts, helper-copy result tags and negative leaf constants (#889, #873).
+- **PEP 585 `dict`** spelling lowers like the `typing` spelling (#855).
+- **Protocol receiver dispatch** and the memoized self census (#801, #835).
+- **Island call inside an f-string** placeholder lowers (#734).
+- **Linux bundle** is trimmed under the size gate and a red embed acceptance is surfaced (#888).
+- **Release and nightly pipeline:** compat site data step, TIR hash baselines, rehearsal version stamp, Windows stamp shell and runtime pack extraction (#790, #925, #926, #928, #929, #930, #931).
+- **Landing copy** corrected to measured claims.
+
+### Internal
+
+- Lowering split into mixin modules under `lower/`, with per-seam fences and a progress table (#852).
+- Release preflight job and macos-26 runners (#932, #933).
+- Nightly builds the site over the exact snapshot the bot PR carries.
+
 ## [0.7.0] - 2026-10-27
 
 ### Receipt
@@ -427,3 +643,7 @@ Initial release.
 - CPython island: calls outside the subset (`subprocess`, `socket`, `threading`, `inspect`, `logging`, `asyncio`, `ssl`, `ctypes`) embed libpython only when the emitted code uses them.
 - Closed stdlib surface: `math`, `re`, `json`, `urllib.parse`, `base64`, `hashlib`, `hmac`, `struct`, `datetime`, `collections`, `itertools`, `os`, `pathlib`, `tempfile`, `atexit`, `shutil`, `enum`, `dataclasses`. Anything outside the table fences instead of guessing.
 - `try`/`except` for builtin exceptions and user subclasses; `sys.argv` as `list[str]`.
+
+[0.9.0]: https://github.com/sigilco/pyscriptc/compare/v0.8.0...v0.9.0
+[0.10.0b1]: https://github.com/sigilco/pyscriptc/compare/v0.9.0...v0.10.0-beta.1
+[0.8.0]: https://github.com/sigilco/pyscriptc/compare/v0.7.0...v0.8.0

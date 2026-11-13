@@ -1,7 +1,7 @@
 """Checker-facts seam.
 
 Lowering never consumes a checker's internal type objects, so pyscriptc owns
-a narrow facts IR (`.agents/plans/2026-10-18-tiered-lowering-and-typefacts.md`).
+a narrow facts IR (the tiered-lowering decision; see `.agents/docs/design/checker-bridge.md`).
 A `FactsProvider` reports what the checker decided (optional/union members,
 callable signatures, overload choices, generic arguments) and tier-2
 lowering queries it. `PyreflyTspFactsAdapter` is the default oracle since
@@ -30,12 +30,15 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Protocol, runtime_checkable
 
-from pyscriptc.check import CheckFailed, _resolve_pyrefly_binary
+from pyscriptc.check import _resolve_pyrefly_binary
+from pyscriptc.errors import CheckFailed
 
 # A default value a checker could prove constant at compile time.
 StaticValue = int | float | bool | str | bytes | None
 
-_MISSING = object()
+# The sentinel `_MISSING`: a constant tuple compared by identity, so a
+# default no checker could prove constant never matches a real literal.
+_MISSING: tuple[str, str] = ("", "\x00pyscriptc-missing")
 
 
 @dataclass(frozen=True)
@@ -114,7 +117,7 @@ class ModuleFacts:
         return self.callables.get(name)
 
     def overload_choices(self, name: str) -> tuple[CallableFacts, ...]:
-        return self.overloads.get(name, ())
+        return self.overloads.get(name, [])
 
 
 @runtime_checkable
@@ -134,15 +137,6 @@ def facts_provider(checker: str = "pyrefly-tsp") -> FactsProvider:
     if checker == "pyrefly":
         return PyreflyFactsAdapter()
     raise CheckFailed(f"checker {checker!r} has no facts adapter; use 'pyrefly-tsp' or 'pyrefly'")
-
-
-# Named tuples because ruff (target-version py314) strips except-parens
-# into `except A, B:` — valid only on 3.14+, broken on the 3.13 dev venv.
-_PIPE_ERRORS = (OSError, CheckFailed)
-_SHUTDOWN_ERRORS = _PIPE_ERRORS + (subprocess.TimeoutExpired,)
-_CLI_ERRORS = (OSError, subprocess.TimeoutExpired)
-_READ_ERRORS = (OSError, ValueError, json.JSONDecodeError)
-_EVAL_ERRORS = (ValueError, SyntaxError)
 
 
 class _LspConnection:
@@ -181,7 +175,7 @@ class _LspConnection:
             ) from exc
         threading.Thread(target=self._read_loop, daemon=True).start()
 
-    def request(self, method: str, params: Any, timeout: float = 30.0) -> dict[str, Any] | None:
+    def request(self, method: str, params: dict[str, Any] | None, timeout: float = 30.0) -> dict[str, Any] | None:
         """Send a request and return its `result`, or None on LSP error."""
         self._ensure_live()
         with self._lock:
@@ -203,12 +197,12 @@ class _LspConnection:
             return None
         return response.get("result")
 
-    def notify(self, method: str, params: Any) -> None:
+    def notify(self, method: str, params: dict[str, Any] | None) -> None:
         if self._dead:
             return
         try:
             self._send({"jsonrpc": "2.0", "method": method, "params": params})
-        except _PIPE_ERRORS:
+        except (OSError, CheckFailed):
             self._dead = True
 
     def wait_notification(
@@ -240,7 +234,7 @@ class _LspConnection:
             self.request("shutdown", None, timeout=10)
             self.notify("exit", None)
             proc.wait(timeout=5)
-        except _SHUTDOWN_ERRORS:
+        except (OSError, CheckFailed, subprocess.TimeoutExpired):
             pass
         if proc.poll() is None:
             proc.kill()
@@ -288,7 +282,7 @@ class _LspConnection:
                     self._mark_dead()
                     return
                 message = json.loads(body)
-            except _READ_ERRORS:
+            except (OSError, ValueError):
                 self._mark_dead()
                 return
             self._dispatch(message)
@@ -318,8 +312,28 @@ class _LspConnection:
 
 def _utf16_col(line_text: str, byte_col: int) -> int:
     """ast col_offset is a UTF-8 byte offset; LSP wants UTF-16 units."""
-    prefix = line_text.encode("utf-8")[:byte_col].decode("utf-8", errors="ignore")
-    return len(prefix.encode("utf-16-le")) // 2
+    cur_bytes = 0
+    u16_units = 0
+    for idx in range(len(line_text)):
+        ch = line_text[idx]
+        code = ord(ch)
+        if code < 0x80:
+            ch_bytes = 1
+            ch_u16 = 1
+        elif code < 0x800:
+            ch_bytes = 2
+            ch_u16 = 1
+        elif code < 0x10000:
+            ch_bytes = 3
+            ch_u16 = 1
+        else:
+            ch_bytes = 4
+            ch_u16 = 2
+        if cur_bytes + ch_bytes > byte_col:
+            break
+        cur_bytes += ch_bytes
+        u16_units += ch_u16
+    return u16_units
 
 
 def _split_top(text: str, sep: str) -> list[str]:
@@ -385,6 +399,25 @@ def _short_name(name: str) -> str:
     return name.rsplit(".", 1)[-1]
 
 
+def _is_ident_part(part: str) -> bool:
+    if not part:
+        return False
+    if not (part[0].isalpha() or part[0] == "_"):
+        return False
+    for index in range(1, len(part)):
+        ch = part[index]
+        if not (ch.isalnum() or ch == "_"):
+            return False
+    return True
+
+
+def _is_dotted_identifier(text: str) -> bool:
+    for part in text.split("."):
+        if not _is_ident_part(part):
+            return False
+    return True
+
+
 def _parse_type_text(text: str) -> TypeFacts | None:
     """Parse one rendered type string into TypeFacts; None when unintelligible.
 
@@ -399,7 +432,7 @@ def _parse_type_text(text: str) -> TypeFacts | None:
         return None
     members = [piece.strip() for piece in _split_top(text, "|")]
     if len(members) > 1:
-        args = tuple(member for member in (_parse_type_text(piece) for piece in members) if member)
+        args = _parse_type_texts(members)
         if not args:
             return None
         return TypeFacts(
@@ -423,7 +456,7 @@ def _parse_type_text(text: str) -> TypeFacts | None:
                 runtime_repr=text,
             )
         if kind == "Union":
-            args = tuple(m for m in (_parse_type_text(p) for p in _split_top(inner, ",")) if m)
+            args = _parse_type_texts(_split_top(inner, ","))
             return (
                 TypeFacts(
                     kind="union",
@@ -438,9 +471,7 @@ def _parse_type_text(text: str) -> TypeFacts | None:
             operand = _parse_type_text(inner)
             return TypeFacts(kind="type", args=(operand,), runtime_repr=text) if operand else None
         if kind == "Literal":
-            literals = tuple(
-                fact for fact in (_parse_literal_piece(piece.strip()) for piece in _split_top(inner, ",")) if fact
-            )
+            literals = _parse_literal_pieces(_split_top(inner, ","))
             if not literals:
                 return None
             if len(literals) == 1:
@@ -456,12 +487,14 @@ def _parse_type_text(text: str) -> TypeFacts | None:
         pieces = _split_top(inner, ",")
         if pieces and pieces[-1].strip() == "...":
             pieces = pieces[:-1]  # homogeneous `tuple[X, ...]`
-        args = tuple(m for m in (_parse_type_text(p) for p in pieces) if m)
+        args = _parse_type_texts(pieces)
         return TypeFacts(kind=kind, args=args, runtime_repr=text)
-    if text.startswith(("*", "**")):
-        return _parse_type_text(text.lstrip("*"))
+    if text.startswith("**"):
+        return _parse_type_text(text[2:])
+    if text.startswith("*"):
+        return _parse_type_text(text[1:])
     if "@" in text and not text.startswith(('"', "'")):
-        name = text.split("@", 1)[0].strip()
+        name: str = text.split("@", 1)[0].strip()
         return TypeFacts(kind="typevar", runtime_repr=name) if name else None
     lowered = text.lower()
     if lowered in {"none", "nonetype"}:
@@ -475,16 +508,28 @@ def _parse_type_text(text: str) -> TypeFacts | None:
         return literal
     if text.startswith(("'", '"')) and text.endswith(("'", '"')):
         return _parse_type_text(text[1:-1])
-    if not all(part.isidentifier() for part in text.split(".")):
+    if not _is_dotted_identifier(text):
         return None
     return TypeFacts(kind=_short_name(text), runtime_repr=text)
+
+
+def _parse_type_texts(pieces: list[str]) -> list[TypeFacts]:
+    """`_parse_type_text` over each piece, dropping the ones it cannot read."""
+    out: list[TypeFacts] = []
+    for piece in pieces:
+        parsed = _parse_type_text(piece)
+        if parsed is not None:
+            out.append(parsed)
+    return out
 
 
 def _split_head_bracket(text: str) -> tuple[str, str | None]:
     """`list[int]` -> ("list", "int"); returns (text, None) when bracketless."""
     depth = 0
     quote = ""
-    for index, char in enumerate(text):
+    none_tail: str | None = None
+    for index in range(len(text)):
+        char = text[index]
         if quote:
             if char == "\\":
                 continue
@@ -495,8 +540,9 @@ def _split_head_bracket(text: str) -> tuple[str, str | None]:
         elif char == "[":
             if depth == 0:
                 if not text.endswith("]"):
-                    return text, None
-                return text[:index], text[index + 1 : -1]
+                    return text, none_tail
+                tail: str | None = text[index + 1 : -1]
+                return text[:index], tail
             depth += 1
         elif char == "]":
             depth -= 1
@@ -504,14 +550,14 @@ def _split_head_bracket(text: str) -> tuple[str, str | None]:
             depth += 1
         elif char in ")}":
             depth -= 1
-    return text, None
+    return text, none_tail
 
 
 def _parse_literal_piece(text: str) -> TypeFacts | None:
     """A `Literal[...]` member or a bare literal: 1, 's', True, None, Color.RED."""
     try:
         value = ast.literal_eval(text)
-    except _EVAL_ERRORS:
+    except (ValueError, SyntaxError):
         value = None
     if isinstance(value, bool):
         return TypeFacts(kind="literal", args=(TypeFacts(kind="bool"),), runtime_repr=text)
@@ -527,10 +573,20 @@ def _parse_literal_piece(text: str) -> TypeFacts | None:
         return TypeFacts(kind="literal", args=(TypeFacts(kind="bool"),), runtime_repr=text)
     if text == "None":
         return TypeFacts(kind="none", optional=True, runtime_repr="None")
-    if "." in text and all(part.isidentifier() for part in text.split(".")):
+    if "." in text and _is_dotted_identifier(text):
         # Enum member like `Color.RED`: fallback is the enum class.
         return TypeFacts(kind="literal", args=(TypeFacts(kind=_short_name(text)),), runtime_repr=text)
     return None
+
+
+def _parse_literal_pieces(pieces: list[str]) -> list[TypeFacts]:
+    """`_parse_literal_piece` over each piece, dropping the ones it cannot read."""
+    out: list[TypeFacts] = []
+    for piece in pieces:
+        fact = _parse_literal_piece(piece.strip())
+        if fact is not None:
+            out.append(fact)
+    return out
 
 
 def _parse_callable_type(inner: str, text: str) -> TypeFacts | None:
@@ -550,7 +606,7 @@ def _parse_callable_type(inner: str, text: str) -> TypeFacts | None:
     return_type = _parse_type_text(ret_text) or TypeFacts(kind="unknown", runtime_repr=ret_text)
     return TypeFacts(
         kind="callable",
-        callable=CallableFacts(parameters=tuple(parameters), return_type=return_type),
+        callable=CallableFacts(parameters=parameters, return_type=return_type),
         runtime_repr=text,
     )
 
@@ -559,7 +615,7 @@ def _default_static_value(text: str) -> Any:
     """`"x"`/`3`/`True` -> StaticValue; _MISSING when unrepresentable."""
     try:
         value = ast.literal_eval(text)
-    except _EVAL_ERRORS:
+    except (ValueError, SyntaxError):
         return _MISSING
     if value is ... or isinstance(value, (tuple, frozenset, complex)):
         return _MISSING
@@ -634,14 +690,15 @@ def _parse_signature_params(
         else:
             kind = "positional_optional" if has_default else "positional"
         parameters.append(ParameterFacts(name=name, kind=kind, type=param_type, has_default=has_default))
-    return tuple(parameters), positional_only, frozenset(keyword_only), defaults
+    return parameters, positional_only, frozenset(keyword_only), defaults
 
 
 def _top_level_char(text: str, char: str) -> int:
     """Index of `char` at bracket depth 0 outside quotes, or -1."""
     depth = 0
     quote = ""
-    for index, current in enumerate(text):
+    for index in range(len(text)):
+        current = text[index]
         if quote:
             if current == "\\":
                 continue
@@ -824,7 +881,7 @@ def _static_defaults(tree: ast.Module) -> dict[str, dict[str, Any]]:
                         continue
                     try:
                         value = ast.literal_eval(expr)
-                    except _EVAL_ERRORS:
+                    except (ValueError, SyntaxError):
                         value = _MISSING
                     if not (isinstance(value, (int, float, bool, str, bytes)) or value is None):
                         value = _MISSING
@@ -894,7 +951,7 @@ def _pysa_module_facts(
         if not signatures:
             continue
         if len(signatures) > 1:
-            overloads[qualname] = tuple(signatures)
+            overloads[qualname] = signatures
         callables[qualname] = signatures[-1]
     return ModuleFacts(
         path=path,
@@ -922,9 +979,11 @@ class PyreflyFactsAdapter:
     `check._resolve_pyrefly_binary`).
     """
 
-    name = "pyrefly"
+    @property
+    def name(self) -> str:
+        return "pyrefly"
 
-    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+    def __init__(self, command: Sequence[str] | None = None) -> None:
         if command is None:
             self._argv = _resolve_pyrefly_binary()
         else:
@@ -961,7 +1020,7 @@ class PyreflyFactsAdapter:
                     f"pyrefly is not installed (command {self._argv[0]!r}); "
                     "pip install pyrefly, set PYREFLY_BIN, or put pyrefly on PATH"
                 ) from exc
-            except _CLI_ERRORS as exc:
+            except (OSError, subprocess.TimeoutExpired) as exc:
                 raise CheckFailed(f"pyrefly check failed for {path}: {exc}") from exc
             expressions_doc = self._read_report(tmp, "type_of_expressions", path)
             definitions_doc = self._read_report(tmp, "definitions", path)
@@ -981,7 +1040,7 @@ class PyreflyFactsAdapter:
         for candidate in sorted(report_dir.glob("*.json")):
             try:
                 doc = json.loads(candidate.read_text(encoding="utf-8"))
-            except _READ_ERRORS:
+            except (OSError, ValueError):
                 continue
             if not isinstance(doc, Mapping):
                 continue
@@ -1051,7 +1110,7 @@ def _tsp_type(typ: Any, seen: dict[int, TypeFacts]) -> TypeFacts:
     elif kind == _TSP_KIND_CLASS:
         facts = _tsp_class_type(typ, seen)
     elif kind == _TSP_KIND_UNION:
-        members = tuple(_tsp_type(sub, seen) for sub in typ.get("subTypes") or ())
+        members = [_tsp_type(sub, seen) for sub in typ.get("subTypes") or ()]
         facts = TypeFacts(
             kind="union",
             optional=any(member.kind == "none" or member.optional for member in members),
@@ -1065,10 +1124,10 @@ def _tsp_type(typ: Any, seen: dict[int, TypeFacts]) -> TypeFacts:
             runtime_repr="function",
         )
     elif kind == _TSP_KIND_OVERLOADED:
-        variants = tuple(
+        variants = [
             TypeFacts(kind="callable", callable=_tsp_function_signature(variant, seen))
             for variant in typ.get("overloads") or ()
-        )
+        ]
         facts = TypeFacts(kind="overloaded", args=variants, runtime_repr="overloaded")
     elif kind == _TSP_KIND_MODULE:
         facts = TypeFacts(kind="module", runtime_repr=str(typ.get("moduleName") or ""))
@@ -1096,7 +1155,7 @@ def _tsp_class_type(typ: Mapping[str, Any], seen: dict[int, TypeFacts]) -> TypeF
         name = match.group("name") if match else "unknown"
     if name == "NoneType":
         return TypeFacts(kind="none", optional=True, runtime_repr="None")
-    args = tuple(_tsp_type(arg, seen) for arg in typ.get("typeArgs") or ())
+    args = [_tsp_type(arg, seen) for arg in typ.get("typeArgs") or ()]
     literal = typ.get("literalValue")
     if flags & _TSP_FLAG_LITERAL and literal is not None:
         return TypeFacts(kind="literal", args=(TypeFacts(kind=name),), runtime_repr=repr(literal))
@@ -1125,10 +1184,10 @@ def _tsp_param_types(fn: Mapping[str, Any], seen: dict[int, TypeFacts]) -> tuple
 def _tsp_function_signature(fn: Mapping[str, Any], seen: dict[int, TypeFacts]) -> CallableFacts:
     """FunctionType -> CallableFacts (params only when specializedTypes lists them)."""
     param_types, _specialized = _tsp_param_types(fn, seen)
-    parameters = tuple(
+    parameters = [
         ParameterFacts(name=f"arg{index}", kind="positional", type=param_type)
         for index, param_type in enumerate(param_types)
-    )
+    ]
     return_type = _tsp_type(fn.get("returnType"), seen)
     return CallableFacts(parameters=parameters, return_type=return_type)
 
@@ -1182,7 +1241,7 @@ def _tsf_denote(facts: TypeFacts) -> TypeFacts:
     if facts.kind == "type" and facts.args:
         return facts.args[0]
     if facts.kind == "union":
-        members = tuple(_tsf_denote(member) for member in facts.args)
+        members: list[TypeFacts] = [_tsf_denote(member) for member in facts.args]
         return TypeFacts(
             kind="union",
             optional=any(m.kind == "none" or m.optional for m in members),
@@ -1210,9 +1269,7 @@ def _tsf_type(raw: Any) -> TypeFacts | None:
         qname = raw.get("qname")
         if not isinstance(qname, str):
             return None
-        args = tuple(
-            t if (t := _tsf_type(a)) is not None else TypeFacts(kind="unknown") for a in raw.get("typeArgs") or ()
-        )
+        args = [t if (t := _tsf_type(a)) is not None else TypeFacts(kind="unknown") for a in raw.get("typeArgs") or ()]
         return _tsf_instance(qname, args)
     if kind == "class":
         qname = raw.get("qname")
@@ -1221,9 +1278,9 @@ def _tsf_type(raw: Any) -> TypeFacts | None:
         inner = _tsf_instance(qname, ())
         return TypeFacts(kind="type", args=(inner,), runtime_repr=f"type[{inner.runtime_repr}]")
     if kind == "union":
-        members = tuple(
+        members = [
             t if (t := _tsf_type(m)) is not None else TypeFacts(kind="unknown") for m in raw.get("members") or ()
-        )
+        ]
         return TypeFacts(
             kind="union",
             optional=any(m.kind == "none" or m.optional for m in members),
@@ -1319,17 +1376,34 @@ class PyreflyTspFactsAdapter:
     plus `tsp`.
     """
 
-    name = "pyrefly-tsp"
+    @property
+    def name(self) -> str:
+        return "pyrefly-tsp"
 
-    def __init__(self, command: str | Sequence[str] | None = None) -> None:
+    def __init__(self, command: Sequence[str] | None = None) -> None:
         argv = (
             _resolve_pyrefly_binary()
             if command is None
             else (shlex.split(command) if isinstance(command, str) else list(command))
         )
         self._argv = [*argv, "tsp"] if "tsp" not in argv else list(argv)
+        # Extra config flags pinned after the subcommand (`tsp` is a proxy
+        # for the check-mode configuration): the factsbridge passes the
+        # flags that make unannotated defs report inferred return types.
+        self._config_args: list[str] = []
         self._connection: _LspConnection | None = None
         self._opened: dict[str, tuple[int, str]] = {}
+
+    def with_config_args(self, args: Sequence[str]) -> PyreflyTspFactsAdapter:
+        """Return this adapter, with extra check-mode config flags pinned.
+
+        The flags land on the `pyrefly ... tsp` spawn line after the
+        `tsp` token, so they apply to the configuration the server uses
+        (`--check-unannotated-defs`, `--infer-return-types`, ...). An
+        empty sequence is a no-op.
+        """
+        self._config_args = list(args)
+        return self
 
     def facts(self, path: Path) -> ModuleFacts:
         path = path.resolve()
@@ -1411,19 +1485,18 @@ class PyreflyTspFactsAdapter:
     def __enter__(self) -> PyreflyTspFactsAdapter:
         return self
 
-    def __exit__(self, *_exc: object) -> None:
+    def __exit__(
+        self,
+        exc_type: BaseException | None = None,
+        exc_val: BaseException | None = None,
+        exc_tb: BaseException | None = None,
+    ) -> None:
         self.close()
-
-    def __del__(self) -> None:
-        try:
-            self.close()
-        except Exception:
-            pass
 
     def _connect(self) -> _LspConnection:
         if self._connection is not None:
             return self._connection
-        connection = _LspConnection(self._argv, server_name="pyrefly tsp")
+        connection = _LspConnection([*self._argv, *self._config_args], server_name="pyrefly tsp")
         connection.start()
         initialized = connection.request(
             "initialize",
@@ -1521,7 +1594,7 @@ class PyreflyTspFactsAdapter:
                 if default is not None:
                     try:
                         value = ast.literal_eval(default)
-                    except _EVAL_ERRORS:
+                    except (ValueError, SyntaxError):
                         continue
                     if value is None or isinstance(value, (int, float, bool, str, bytes)):
                         default_values[arg.arg] = value
@@ -1531,14 +1604,14 @@ class PyreflyTspFactsAdapter:
                 if named is not None and named.callable is not None:
                     return_type = named.callable.return_type
             signature = CallableFacts(
-                parameters=tuple(parameters),
+                parameters=parameters,
                 return_type=return_type or TypeFacts(kind="unknown"),
                 positional_only=positional_only,
                 keyword_only=keyword_only,
                 defaults=default_values,
             )
             if any(_is_overload_decorator(dec) for dec in stmt.decorator_list):
-                overloads[qualname] = (*overloads.get(qualname, ()), signature)
+                overloads[qualname] = list(overloads.get(qualname, [])) + [signature]
             else:
                 callables[qualname] = signature
         return callables, overloads
@@ -1579,7 +1652,7 @@ class PyreflyTspFactsAdapter:
             if facts.callable is not None:
                 callables[qname] = facts.callable
             elif facts.kind == "overloaded":
-                variants = tuple(v.callable for v in facts.args if v.callable is not None)
+                variants = [v.callable for v in facts.args if v.callable is not None]
                 if variants:
                     overloads[qname] = variants
 

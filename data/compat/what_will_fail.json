@@ -1,14 +1,14 @@
 {
   "schema": "1",
-  "generated": "2026-10-24",
-  "commit": "c7be3aafe528591074991042e447d2a979e3de5c",
+  "generated": "2026-11-09",
+  "commit": "b8aa70fca2817766b892ee7b7fdc74ca180bdc82",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 51,
+    "total_fences": 49,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -58,12 +58,6 @@
           "construct": "`p.is_file`",
           "code": "PS2001",
           "diagnostic": "p.is_file is not in the lowered subset of pathlib"
-        },
-        {
-          "module": "random",
-          "construct": "`random.sample`",
-          "code": "PS2001",
-          "diagnostic": "random.sample is not in the lowered subset of random"
         },
         {
           "module": "subprocess",
@@ -147,15 +141,9 @@
         },
         {
           "module": "builtins",
-          "construct": "`print(list)`",
-          "code": "PS2003",
-          "diagnostic": "print is lowered for str, int, float, bool, and bytes values, not list; wrap it in str(...)"
-        },
-        {
-          "module": "builtins",
           "construct": "`zip()` with >2 args",
           "code": "PS2003",
-          "diagnostic": "zip takes 2 lists"
+          "diagnostic": "zip takes at least 2 lists"
         },
         {
           "module": "builtins",

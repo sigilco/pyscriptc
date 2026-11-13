@@ -4,11 +4,26 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc.emit._ir import _llvm_bytes, _llvm_double, _llvm_type
+from pyscriptc import _irnode as _ir
+from pyscriptc.emit._ir import (
+    _field_name,
+    _field_type,
+    _items,
+    _llvm_bytes,
+    _llvm_double,
+    _llvm_type,
+    _opt_node_end,
+    _opt_node_sep,
+    _opt_record,
+    _opt_str_or_none,
+    _record,
+)
+from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
+from pyscriptc.tirserde import dict_to_type
 
 
-class PrintMixin:
+class PrintMixin(EmitterBase):
     def helper_call(self, name: str, ret: str, args: list[str], arg_type: str = "i64") -> str:
         self.needed.add(name)
         rendered = ", ".join(f"{arg_type} {arg}" for arg in args)
@@ -39,7 +54,7 @@ class PrintMixin:
         return third
 
     def materialize_arg(self, typ: dict[str, Any], value: Any) -> str:
-        kind = typ["kind"]
+        kind = dict_to_type(typ).kind
         if kind == "int":
             return str(value)
         if kind == "float":
@@ -51,7 +66,7 @@ class PrintMixin:
         raise FitError(f"cannot pass a {kind} argument into main")
 
     def print_value(self, typ: dict[str, Any], value: str) -> None:
-        kind = typ["kind"]
+        kind = dict_to_type(typ).kind
         self.needed.add("printf")
         if kind == "int":
             fmt = self.format_global("int", b"%lld\n")
@@ -83,10 +98,13 @@ class PrintMixin:
         lowercase literals. Bytes print as their `b'...'` repr.
         """
         self.needed.add("printf")
-        err = expr.get("file") == "stderr"
-        sep = self.emit_expr(expr["sep"]) if expr.get("sep") else None
-        end = self.emit_expr(expr["end"]) if expr.get("end") else None
-        for index, (value, typ) in enumerate(zip(values, arg_types, strict=True)):
+        err = _opt_str_or_none(expr, "file") == "stderr"
+        sep_expr: dict[str, Any] | None = _opt_node_sep(expr)
+        end_expr: dict[str, Any] | None = _opt_node_end(expr)
+        sep = self.emit_expr(sep_expr) if sep_expr is not None else None
+        end = self.emit_expr(end_expr) if end_expr is not None else None
+        arg_ts: list[_ir.T] = [dict_to_type(typ) for typ in arg_types]
+        for index, (value, typ) in enumerate(zip(values, arg_ts, strict=True)):
             if index:
                 if sep is None:
                     self._print_fmt("space", b" ", err=err)
@@ -147,14 +165,14 @@ class PrintMixin:
         self.line(f"{reg} = trunc i64 {arg[4:]} to i32")
         return f"i32 {reg}"
 
-    def _print_one(self, typ: dict[str, Any], value: str, err: bool) -> None:
+    def _print_one(self, typ: _ir.T, value: str, err: bool) -> None:
         """One print argument: scalars spell directly, a tuple class recurses.
 
         Each branch here is a field of `_emit_print`'s loop; the tuple case
         writes CPython's `(a, b)` shape field by field.
         """
 
-        kind = typ["kind"]
+        kind = typ.kind
         if kind == "int":
             self._print_fmt("int", b"%lld", [f"i64 {value}"], err=err)
         elif kind == "float":
@@ -180,8 +198,8 @@ class PrintMixin:
             out = self._buf_out("ps_exc_str", [f"ptr {value}"])
             length, ptr = self._buf_parts(out)
             self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
-        elif kind == "class" and self._is_tuple(typ["name"]):
-            self._print_tuple(typ["name"], value, err)
+        elif kind == "class" and self._is_tuple(typ.name):
+            self._print_tuple(typ.name, value, err)
         else:
             length, ptr = self._buf_parts(value)
             self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
@@ -189,10 +207,10 @@ class PrintMixin:
     def _is_tuple(self, name: str) -> bool:
         """Tuple classes the lowerer synthesizes: `tuple_N_*` over fields _0.._n."""
 
-        info = self.class_index.get(name)
+        info = _opt_record(self.class_index, name)
         if info is None or not name.startswith("tuple_"):
             return False
-        return all(field["name"] == f"_{index}" for index, field in enumerate(info["fields"]))
+        return all(_field_name(field) == f"_{index}" for index, field in enumerate(_items(info, "fields")))
 
     def _print_tuple(self, name: str, value: str, err: bool) -> None:
         """A synthetic tuple prints `(a, b)`; a lone field keeps the `,` tail.
@@ -203,27 +221,29 @@ class PrintMixin:
         spelling). Scalars keep their direct shapes.
         """
 
-        fields = self.class_index[name]["fields"]
+        fields = _items(_record(self.class_index, name), "fields")
         self._print_fmt("lparen", b"(", err=err)
         for index, field in enumerate(fields):
             if index:
                 self._print_fmt("tsep", b", ", err=err)
-            slot = self._field_ptr(name, value, self._field(name, field["name"]))
-            if field["type"]["kind"] in {"str", "bytes"}:
+            slot = self._field_ptr(name, value, self._field(name, _field_name(field)))
+            ftype_dict: dict[str, Any] = _field_type(field)
+            ftype: _ir.T = dict_to_type(ftype_dict)
+            if ftype.kind in {"str", "bytes"}:
                 length = self.tmp()
                 ptr = self.tmp()
                 self.line(f"{length} = load i64, ptr {slot}")
                 data_ptr = self.tmp()
                 self.line(f"{data_ptr} = getelementptr %ps.buf, ptr {slot}, i32 0, i32 1")
                 self.line(f"{ptr} = load ptr, ptr {data_ptr}")
-                if field["type"]["kind"] == "str":
+                if ftype.kind == "str":
                     self._abi_decl("ps_repr_quoted", "void", ["i64", "ptr", "ptr"])
                     out = self._buf_out("ps_repr_quoted", [f"i64 {length}", f"ptr {ptr}"])
                     length, ptr = self._buf_parts(out)
                 self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
             else:
-                loaded = self._load(_llvm_type(field["type"]), slot)
-                self._print_one(field["type"], loaded, err)
+                loaded = self._load(_llvm_type(ftype_dict), slot)
+                self._print_one(ftype, loaded, err)
         if len(fields) == 1:
             self._print_fmt("tsep", b",", err=err)
         self._print_fmt("rparen", b")", err=err)

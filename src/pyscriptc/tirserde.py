@@ -31,6 +31,11 @@ from pyscriptc._irnode import (
     F_NEGATED,
     F_RERAISE,
     F_SET,
+    F_TMARK_COUNTER,
+    F_TMARK_DEFAULTDICT,
+    F_TMARK_HANDLE,
+    F_TMARK_ISLAND,
+    F_TMARK_ORDERED,
     F_TOPT,
     F_TSET,
     P_BOOL,
@@ -72,6 +77,7 @@ from pyscriptc._irnode import (
     setattr_stmt,
     setitem_stmt,
     subscript,
+    t_buffer,
     t_class,
     t_dict,
     t_func,
@@ -95,6 +101,41 @@ _SHORT_ESCAPES = {
 
 _HEX = "0123456789abcdef"
 
+# Shared empty parameter list: `T.params or _EMPTY_PARAMS` spells the
+# fallback without an unannotated empty-list literal.
+_EMPTY_PARAMS: list[T] = []
+
+
+def write_json_str(write: Any, text: str) -> None:
+    """A JSON string: UTF-8 with json's ensure_ascii=False escaping.
+
+    The shared escape primitive of the dict serializer and the typed
+    walker (`pyscriptc.tirhash`); both byte streams must spell strings
+    identically.
+    """
+    write(b'"')
+    start = 0
+    for index, char in enumerate(text):
+        code = ord(char)
+        if code == 0x22:
+            escape = '\\"'
+        elif code == 0x5C:
+            escape = "\\\\"
+        elif code < 0x20:
+            escape = _SHORT_ESCAPES.get(code)
+            if escape is None:
+                # json's \\u%04x form, lower case hex digits.
+                escape = "\\u" + _HEX[code >> 12] + _HEX[(code >> 8) & 0xF] + _HEX[(code >> 4) & 0xF] + _HEX[code & 0xF]
+        else:
+            continue
+        if start < index:
+            write(text[start:index].encode("utf-8"))
+        write(escape.encode("ascii"))
+        start = index + 1
+    if start < len(text):
+        write(text[start:].encode("utf-8"))
+    write(b'"')
+
 
 class Serializer:
     """Feeds one canonical payload into a sink (hashlib or bytearray).
@@ -104,8 +145,6 @@ class Serializer:
     string sort order, strings are UTF-8 with json's ensure_ascii=False
     escaping, floats must be finite (allow_nan=False semantics).
     """
-
-    __slots__ = ("_sink",)
 
     def __init__(self, sink: Any) -> None:
         self._sink = sink
@@ -160,30 +199,7 @@ class Serializer:
         self._write(b"]")
 
     def write_str(self, text: str) -> None:
-        self._write(b'"')
-        start = 0
-        for index, char in enumerate(text):
-            code = ord(char)
-            if code == 0x22:
-                escape = '\\"'
-            elif code == 0x5C:
-                escape = "\\\\"
-            elif code < 0x20:
-                escape = _SHORT_ESCAPES.get(code)
-                if escape is None:
-                    # json's \\u%04x form, lower case hex digits.
-                    escape = (
-                        "\\u" + _HEX[code >> 12] + _HEX[(code >> 8) & 0xF] + _HEX[(code >> 4) & 0xF] + _HEX[code & 0xF]
-                    )
-            else:
-                continue
-            if start < index:
-                self._write(text[start:index].encode("utf-8"))
-            self._write(escape.encode("ascii"))
-            start = index + 1
-        if start < len(text):
-            self._write(text[start:].encode("utf-8"))
-        self._write(b'"')
+        write_json_str(self._write, text)
 
 
 def payload_bytes(module: dict[str, Any]) -> bytes:
@@ -205,7 +221,7 @@ def hash_module(module: dict[str, Any]) -> str:
     CANONICAL_SCHEMA_VERSION; `tirscore --verify-bytes` proves the bytes
     are identical on the corpus.
     """
-    digest = hashlib.sha256()
+    digest = hashlib.sha256(b"")
     stream = Serializer(digest.update)
     stream.write_object({"schema": CANONICAL_SCHEMA_VERSION, "ir": canonicalize(module)})
     return digest.hexdigest()
@@ -321,7 +337,7 @@ def _const_value(node: Any) -> Any:
     return node.svalue
 
 
-def _type_dict(typ: Any) -> Any:
+def _type_dict(typ: T) -> dict[str, Any]:
     """The type dict a `T` record spells."""
     out: dict[str, Any] = {"kind": typ.kind}
     if typ.kind == "class":
@@ -332,6 +348,10 @@ def _type_dict(typ: Any) -> Any:
             out["elem"] = _type_dict(typ.elem)
         if typ.flags & F_TOPT:
             out["optional"] = True
+        if typ.flags & F_TMARK_HANDLE:
+            out["handle"] = True
+        if typ.flags & F_TMARK_ISLAND:
+            out["island"] = True
         return out
     if typ.kind == "list":
         if typ.elem is not None:
@@ -339,14 +359,24 @@ def _type_dict(typ: Any) -> Any:
         if typ.flags & F_TSET:
             out["set"] = True
         return out
+    if typ.kind == "buffer":
+        if typ.elem is not None:
+            out["elem"] = _type_dict(typ.elem)
+        return out
     if typ.kind == "dict":
         if typ.key is not None:
             out["key"] = _type_dict(typ.key)
         if typ.value is not None:
             out["value"] = _type_dict(typ.value)
+        if typ.flags & F_TMARK_COUNTER:
+            out["counter"] = True
+        if typ.flags & F_TMARK_DEFAULTDICT:
+            out["defaultdict"] = True
+        if typ.flags & F_TMARK_ORDERED:
+            out["ordered"] = True
         return out
     if typ.kind == "func":
-        out["params"] = [_type_dict(param) for param in typ.params or []]
+        out["params"] = [_type_dict(param) for param in typ.params or _EMPTY_PARAMS]
         if typ.ret is not None:
             out["return"] = _type_dict(typ.ret)
     if typ.kind == "typevar" and typ.name != "":
@@ -360,12 +390,12 @@ def _env_dict(item: Any) -> Any:
     return {"init": node_to_dict(item.init), "type": _type_dict(item.type)}
 
 
-def _stub_dict(stub: Any) -> Any:
-    return {
-        "bound": [_type_dict(item) for item in stub.bound],
-        "params": [_type_dict(item) for item in stub.params],
-        "return": _type_dict(stub.ret),
-    }
+def _stub_dict(stub: Stub) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    out["bound"] = [_type_dict(item) for item in stub.bound]
+    out["params"] = [_type_dict(item) for item in stub.params]
+    out["return"] = _type_dict(stub.ret)
+    return out
 
 
 def _thread_dict(meta: Any) -> Any:
@@ -385,9 +415,10 @@ def _thread_dict(meta: Any) -> Any:
 def _handler_dict(handler: Any) -> Any:
     out: dict[str, Any] = {
         "exc": handler.exc,
-        "codes": handler.codes,
         "body": [node_to_dict(item) for item in handler.body],
     }
+    if handler.codes is not None:
+        out["codes"] = handler.codes
     if handler.flags & F_BARE:
         out["bare"] = True
     if handler.excslot != "":
@@ -400,12 +431,12 @@ def _handler_dict(handler: Any) -> Any:
 # Output keys per node kind, the exact insertion order the lowerer's dict
 # literals use; the serializer sorts keys, so only presence and value are
 # the contract.
-_NODE_KEYS: dict[str, tuple[str, ...]] = {
-    "assign": ("kind", "target", "value", "span"),
-    "attr": ("kind", "name", "type", "value", "span"),
-    "binary": ("kind", "left", "op", "right", "type", "span"),
-    "builtin": ("kind", "name"),
-    "call": (
+_NODE_KEYS: dict[str, list[str]] = {
+    "assign": ["kind", "target", "value", "span"],
+    "attr": ["kind", "name", "type", "value", "span"],
+    "binary": ["kind", "left", "op", "right", "type", "span"],
+    "builtin": ["kind", "name"],
+    "call": [
         "kind",
         "callee",
         "args",
@@ -416,32 +447,32 @@ _NODE_KEYS: dict[str, tuple[str, ...]] = {
         "format_kwnames",
         "identity",
         "thread",
-    ),
-    "cast": ("kind", "op", "value", "type", "span"),
-    "class": ("kind", "name", "label"),
-    "closure": ("kind", "name", "env", "type", "stub", "thread_stub", "span"),
-    "compare": ("kind", "left", "op", "right", "type", "span"),
-    "contains": ("kind", "hay", "needle", "negated", "type", "span"),
-    "const": ("kind", "value", "type", "span"),
-    "dict": ("kind", "pairs", "type", "span"),
-    "excmake": ("kind", "exc", "code", "message", "span"),
-    "expr": ("kind", "expr", "span"),
-    "function": ("kind", "name"),
-    "if": ("kind", "cond", "then", "else", "span"),
-    "list": ("kind", "elems", "set", "frozen", "type", "span"),
-    "method": ("kind", "receiver", "name", "tuple"),
-    "module": ("kind", "module", "name"),
-    "name": ("kind", "id", "type", "span"),
-    "pass": ("kind", "span"),
-    "raise": ("kind", "exc", "code", "message", "reraise", "excslot", "cause", "span"),
-    "return": ("kind", "value", "span"),
-    "setattr": ("kind", "object", "name", "value", "span"),
-    "setitem": ("kind", "container", "index", "value", "span"),
-    "subscript": ("kind", "value", "index", "type", "span"),
-    "try": ("kind", "body", "handlers", "orelse", "brk", "cont", "finalbody", "span"),
-    "unary": ("kind", "operand", "op", "type", "span"),
-    "value": ("kind", "target"),
-    "while": ("kind", "cond", "body", "span"),
+    ],
+    "cast": ["kind", "op", "value", "type", "span"],
+    "class": ["kind", "name", "label"],
+    "closure": ["kind", "name", "env", "type", "stub", "thread_stub", "span"],
+    "compare": ["kind", "left", "op", "right", "type", "span"],
+    "contains": ["kind", "hay", "needle", "negated", "type", "span"],
+    "const": ["kind", "value", "type", "span"],
+    "dict": ["kind", "pairs", "type", "span"],
+    "excmake": ["kind", "exc", "code", "message", "span"],
+    "expr": ["kind", "expr", "span"],
+    "function": ["kind", "name"],
+    "if": ["kind", "cond", "then", "else", "span"],
+    "list": ["kind", "elems", "set", "frozen", "type", "span"],
+    "method": ["kind", "receiver", "name", "tuple"],
+    "module": ["kind", "module", "name"],
+    "name": ["kind", "id", "type", "span"],
+    "pass": ["kind", "span"],
+    "raise": ["kind", "exc", "code", "message", "reraise", "excslot", "cause", "span"],
+    "return": ["kind", "value", "span"],
+    "setattr": ["kind", "object", "name", "value", "span"],
+    "setitem": ["kind", "container", "index", "value", "span"],
+    "subscript": ["kind", "value", "index", "type", "span"],
+    "try": ["kind", "body", "handlers", "orelse", "brk", "cont", "finalbody", "span"],
+    "unary": ["kind", "operand", "op", "type", "span"],
+    "value": ["kind", "target"],
+    "while": ["kind", "cond", "body", "span"],
 }
 
 
@@ -513,14 +544,14 @@ def _node_dict(node: Any) -> Any:
     return out
 
 
-def _span_dict(span: Any) -> Any:
-    return {
-        "file": span.file,
-        "line": span.line,
-        "col": span.col,
-        "endLine": span.endLine,
-        "endCol": span.endCol,
-    }
+def _span_dict(span: Span) -> dict[str, Any]:
+    out: dict[str, Any] = {}
+    out["file"] = span.file
+    out["line"] = span.line
+    out["col"] = span.col
+    out["endLine"] = span.endLine
+    out["endCol"] = span.endCol
+    return out
 
 
 def _try_dict(node: Any) -> Any:
@@ -584,15 +615,28 @@ def _callee_or_record(value: Any) -> Any:
 def payload_bytes_node(module: Any) -> bytes:
     """The canonical payload bytes of a typed-node module.
 
-    Byte-identical to payload_bytes over the equivalent dict IR: the
-    typed nodes reconstruct the exact dicts before the stream sees them.
+    The typed walker (`pyscriptc.tirhash`) emits the schema field order
+    of each record, so the bytes are NOT the `sort_keys` bytes of the
+    equivalent dict IR: field order replaces `sort_keys` as the
+    canonicity mechanism (the typed-IR contract, ir-canonicity.md
+    section 7). The trees agree; the key order is the schema order.
     """
-    return payload_bytes(node_to_dict(module))
+    from pyscriptc.tirhash import payload_bytes_node as typed_payload
+
+    return typed_payload(module)
 
 
 def hash_module_node(module: Any) -> str:
-    """SHA-256 hex of the canonical payload of a typed-node module."""
-    return hash_module(node_to_dict(module))
+    """SHA-256 hex of the canonical payload of a typed-node module.
+
+    Hashed from the typed records in schema field order, without the
+    `node_to_dict` reconstruction and without `canonicalize`: the typed
+    serializer owns the path scrub, the class order, the handler `codes`
+    order and the fence total order (recorded decision #830, P2).
+    """
+    from pyscriptc.tirhash import hash_module_node as typed_hash
+
+    return typed_hash(module)
 
 
 # --- dict-IR admission ---------------------------------------------------
@@ -612,11 +656,26 @@ def dict_to_type(d: Any) -> Any:
         return d
     kind = d["kind"]
     if kind == "class":
-        return t_class(d.get("name", ""), d.get("label", ""), dict_to_type(d.get("elem")), bool(d.get("optional")))
+        return t_class(
+            d.get("name", ""),
+            d.get("label", ""),
+            dict_to_type(d.get("elem")),
+            bool(d.get("optional")),
+            bool(d.get("handle")),
+            bool(d.get("island")),
+        )
     if kind == "list":
         return t_list(dict_to_type(d.get("elem")), bool(d.get("set")))
+    if kind == "buffer":
+        return t_buffer(dict_to_type(d.get("elem")))
     if kind == "dict":
-        return t_dict(dict_to_type(d.get("key")), dict_to_type(d.get("value")))
+        return t_dict(
+            dict_to_type(d.get("key")),
+            dict_to_type(d.get("value")),
+            bool(d.get("counter")),
+            bool(d.get("defaultdict")),
+            bool(d.get("ordered")),
+        )
     if kind == "func":
         return t_func([dict_to_type(param) for param in d.get("params", [])], dict_to_type(d.get("return")))
     if kind == "typevar" and d.get("name", "") != "":
@@ -650,9 +709,11 @@ def dict_to_node(d: Any) -> Any:
     if kind is None:
         # The record shapes: handler / env item / pair / stub / thread,
         # keyed by the fields only that record carries.
-        if "exc" in d and "codes" in d:
+        if "exc" in d and "body" in d:
             flags = F_BARE if d.get("bare") else 0
-            return Handler(d["exc"], d["codes"], _node_list(d["body"]), d.get("excslot", ""), d.get("bind", ""), flags)
+            return Handler(
+                d["exc"], d.get("codes"), _node_list(d["body"]), d.get("excslot", ""), d.get("bind", ""), flags
+            )
         if "init" in d:
             return EnvItem(dict_to_node(d["init"]), dict_to_type(d["type"]), "")
         if "name" in d and "type" in d:
@@ -663,7 +724,7 @@ def dict_to_node(d: Any) -> Any:
                 [dict_to_type(item) for item in d["params"]],
                 dict_to_type(d["return"]),
             )
-        if "daemon" in d or ("result" in d and "size" in d):
+        if "daemon" in d or "closure" in d or ("result" in d and "size" in d):
             return ThreadMeta(
                 dict_to_node(d.get("closure")),
                 dict_to_type(d.get("result")),
@@ -674,6 +735,12 @@ def dict_to_node(d: Any) -> Any:
         if "key" in d and "value" in d:
             return Pair(dict_to_node(d["key"]), dict_to_node(d["value"]))
         raise TypeError(f"a kindless dict is not dict IR: {sorted(d)}")
+    if d.get("kind") == "call" and not _CALL_KEYS.issuperset(d):
+        # Some calls carry keys the typed call record has no slot for: the
+        # island call's island_fn/island_npos/island_nkw, print's sep/end/file,
+        # sys.exit's exitMessage, reduce's fn, json_flags. Keep the dict whole
+        # so the round trip stays lossless (embed, print and exit regressions).
+        return d
     span = dict_to_span(d.get("span"))
     typ = dict_to_type(d.get("type"))
     flags = 0
@@ -694,6 +761,10 @@ def dict_to_node(d: Any) -> Any:
         value = d["value"]
         if payload == "bool":
             return const_node(P_BOOL, "true" if value else "false", typ, span)
+        if payload == "any":
+            # The unresolved slot's stray-walk zero (see lower._core._zero):
+            # an str payload under the `any` type, P_STR like the spelling.
+            return const_node(P_STR, "" if value is None else str(value), typ, span)
         svalue = "" if payload == "none" else value
         return const_node(_PTAGS[payload], svalue, typ, span)
     if kind == "value":
@@ -742,6 +813,20 @@ def _b_binary(d: Any, span: Any, typ: Any, flags: int) -> Any:
     return binary(d["op"], dict_to_node(d["left"]), dict_to_node(d["right"]), typ, span)
 
 
+_CALL_KEYS = {
+    "kind",
+    "callee",
+    "args",
+    "type",
+    "span",
+    "symbol",
+    "format_style",
+    "format_kwnames",
+    "identity",
+    "thread",
+}
+
+
 def _b_call(d: Any, span: Any, typ: Any, flags: int) -> Any:
     thread = dict_to_node(d.get("thread"))
     return call(
@@ -758,7 +843,9 @@ def _b_call(d: Any, span: Any, typ: Any, flags: int) -> Any:
 
 
 def _b_cast(d: Any, span: Any, typ: Any, flags: int) -> Any:
-    return cast(d["op"], dict_to_node(d["value"]), typ, span)
+    # The omitted-default spelling (restlower/_urllib.py) leaves the op key
+    # out; cast("") writes it back omitted, so the round trip is lossless.
+    return cast(d.get("op", ""), dict_to_node(d["value"]), typ, span)
 
 
 def _b_compare(d: Any, span: Any, typ: Any, flags: int) -> Any:

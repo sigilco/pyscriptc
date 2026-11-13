@@ -1,6 +1,6 @@
 # Async lowering plan: `async def` and `await` on the coroutine frame
 
-Status: exploration, written 2026-10-23 for issue #178. Owner: the v0.6.0 async lane. Decision record for the lowering mechanism itself is [`coroutine-lowering.md`](coroutine-lowering.md); the wider async and threads design is `.agents/plans/2026-10-21-async-threads-design.md` (P3).
+Status: written 2026-10-23 for issue #178; stages B to D have since landed (`src/pyscriptc/coro.py`, `src/pyscriptc/runtime/ps_async.c`, `ps_loop.c`, `src/pyscriptc/restlower/_asyncio*.py`). Sections below are the design record; verify current state against the code. Owner: the v0.6.0 async lane. Decision record for the lowering mechanism itself is [`coroutine-lowering.md`](coroutine-lowering.md); the wider async and threads design is the P3 lane of the v0.6.0 milestone (this file and `threads-plan.md`).
 
 ## Where the work stands on origin/master
 
@@ -187,7 +187,7 @@ The honest boundary: the loop does not poll the thread, so the awaiting task is 
 
 The stage boundary (2026-10-23, updated after the D3 work): `to_thread` is an awaitable, not a coroutine frame, so `asyncio.create_task(asyncio.to_thread(...))` fences with `create_task takes a coroutine, not another value`. Making the call a synthesized frame (a `coro.to_thread.N` class whose `resume` starts the worker on the first poll and parks on the record after) is the follow-up, and it is what lets `gather(to_thread(...), ...)` and `wait_for(to_thread(...), d)` work too. The corpus receipt only needs the awaited form (filelock's `_async_read_write.py` awaits it directly).
 
-**The poller is not in this stage.** The design doc's poller (kqueue, epoll, `poll()` fallback) exists for socket and file readiness. None of the D1 to D3 surface needs it: the only sources of wakeups are timers and completions, both of which the loop already handles. The poller lands with the IO stage, when there is a socket to wait on.
+**The poller landed (2026-10-28, issue #177).** The design doc's poller (kqueue, epoll, `poll()` fallback) is now `src/pyscriptc/runtime/ps_poller.c`: `ps_poller_watch`/`ps_poller_unwatch` hold interest in an fd (counted, so the loop and the selector can name the same fd), `ps_poller_wait` blocks until a row is ready or the timeout (the loop's earliest timer) passes, and the self-pipe lets a worker thread wake the wait. The loop parks tasks on fds through `ps_loop_wait_fd`; readiness ahead of timers on the same drive. The selectors substrate (#485) is `ps_select.c` over the same poller.
 
 ### Stage E: async generators, `async for`, `async with` (PR 5)
 

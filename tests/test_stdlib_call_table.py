@@ -75,6 +75,20 @@ PROBES: list[Probe] = [
     _p("math", "isnan", "math", "print(math.isnan(math.nan))"),
     _p("math", "isinf", "math", "print(math.isinf(math.inf))"),
     _p("math", "isfinite", "math", "print(math.isfinite(0.5))"),
+    _p("math", "asin", "math", "print(math.asin(0.5))"),
+    _p("math", "acos", "math", "print(math.acos(0.5))"),
+    _p("math", "atan", "math", "print(math.atan(0.5))"),
+    _p("math", "sinh", "math", "print(math.sinh(0.5))"),
+    _p("math", "cosh", "math", "print(math.cosh(0.5))"),
+    _p("math", "tanh", "math", "print(math.tanh(0.5))"),
+    _p("math", "asinh", "math", "print(math.asinh(0.5))"),
+    _p("math", "acosh", "math", "print(math.acosh(1.5))"),
+    _p("math", "atanh", "math", "print(math.atanh(0.5))"),
+    _p("math", "degrees", "math", "print(math.degrees(1.5))"),
+    _p("math", "radians", "math", "print(math.radians(90.0))"),
+    _p("math", "fmod", "math", "print(math.fmod(7.5, 2.0))"),
+    _p("math", "factorial", "math", "print(math.factorial(10))"),
+    _p("math", "lcm", "math", "print(math.lcm(4, 6))"),
     # re: wave rows plus the four special-cased calls
     _p("re", "escape", "re", "print(re.escape('a+b.c'))"),
     _p("re", "findall", "re", "print(len(re.findall('[0-9]+', 'a1b22')))"),
@@ -317,6 +331,22 @@ PROBES: list[Probe] = [
         "print(st_link.st_size == 3)",
     ),
     _p("os", "utime", "os", "os.utime(os_file)", "print(True)"),
+    _p(
+        "os",
+        "symlink",
+        "os",
+        "p_link: str = os.path.join(os_dir, 'link.txt')",
+        "os.symlink(os_file, p_link)",
+        "print(os.path.exists(p_link))",
+    ),
+    _p(
+        "os",
+        "readlink",
+        "os",
+        "p_rl: str = os.path.join(os_dir, 'rl.txt')",
+        "os.symlink(os_file, p_rl)",
+        "print(os.readlink(p_rl) == os_file)",
+    ),
     # shutil and tempfile
     _p(
         "shutil",
@@ -333,6 +363,7 @@ PROBES: list[Probe] = [
         "which_path: str | None = shutil.which('sh')",
         "if which_path is not None:",
         "    print(which_path.endswith('sh'))",
+        "print(shutil.which('pyscriptc-missing-binary-xyz') is None)",
     ),
     _p("shutil", "copy", "files", "shutil.copy(files_src, files_copy)", "print(os.path.exists(files_copy))"),
     _p("shutil", "copy2", "files", "shutil.copy2(files_src, files_copy2)", "print(os.path.exists(files_copy2))"),
@@ -527,8 +558,8 @@ def test_every_table_row_has_a_probe() -> None:
     extra = sorted(probed - inventory)
     assert not missing, f"call-table rows without a differential probe: {missing}"
     assert not extra, f"probes without a call-table row: {extra}"
-    assert len(inventory) == 156
-    assert len(PROBES) == 156
+    assert len(inventory) == 172
+    assert len(PROBES) == 172
 
 
 def _group_source(group: str) -> str:

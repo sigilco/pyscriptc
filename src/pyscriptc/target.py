@@ -1,4 +1,11 @@
-"""Declared CPython target configuration."""
+"""Declared CPython target configuration.
+
+The tool host may be CPython 3.11 through 3.15 (the floor lives in
+`pyproject.toml` and CI proves it), but the emitted program always claims
+the target declared here. Everything that reads a version to decide what
+the program does reads it from this module, not from the running
+interpreter, so a 3.11 host emits what a 3.14 host emits.
+"""
 
 from __future__ import annotations
 

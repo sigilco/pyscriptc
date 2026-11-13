@@ -115,6 +115,7 @@ export function useI18n() {
       subtitle: m.cta_subtitle(),
       primaryBtn: m.cta_primary(),
       secondaryBtn: m.cta_secondary(),
+      sponsorBtn: m.cta_sponsor(),
     },
     footer: {
       tagline: m.footer_tagline(),

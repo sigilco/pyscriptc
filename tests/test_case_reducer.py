@@ -40,26 +40,19 @@ def main() -> int:
 
 # A class instance used as a decorator refuses at PS2006 (#626). It used to
 # crash lowering with `KeyError: 'params'`, which the crash-mode tests below
-# stood on; they inject the error now instead.
-FENCED_DECORATOR = """import os
+# stood on; they inject the error now instead. A module-level stack takes
+# the advisory erase now (divergence 54, issue #732), so the fixture sits on
+# a nested def: a behavior-synthesizing stdlib member keeps its fence.
+FENCED_DECORATOR = """import functools
 
 
-class A:
-    def __call__(self) -> int:
-        return 1
-
-
-@A()
+@functools.lru_cache(maxsize=8)
 def beta(y: int) -> int:
     return y
 
 
-def gamma(z: int) -> int:
-    return z * 3
-
-
 def main() -> int:
-    return gamma(2)
+    return beta(2)
 """
 
 
@@ -99,7 +92,7 @@ def test_crash_reduction_keeps_the_failing_construct(tmp_path: Path, monkeypatch
     original = reduce_module.lower_source
 
     def injected(text: str, *args, **kwargs):
-        if "A()" in text:
+        if "lru_cache" in text:
             raise KeyError("params")
         return original(text, *args, **kwargs)
 
@@ -253,3 +246,39 @@ def test_cli_predicate_command(tmp_path: Path) -> None:
     reduced = (tmp_path / "prog.min.py").read_text(encoding="utf-8")
     assert "marker" in reduced
     assert "x = 1" not in reduced
+
+
+_IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})
+_SRC = ROOT / "src" / "pyscriptc"
+
+
+def _named_ir_reads(path: Path) -> int:
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    count = 0
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Subscript) and isinstance(node.slice, ast.Constant) and node.slice.value in _IR_KEYS:
+            count += 1
+        if (
+            isinstance(node, ast.Call)
+            and isinstance(node.func, ast.Attribute)
+            and node.func.attr == "get"
+            and node.args
+            and isinstance(node.args[0], ast.Constant)
+            and node.args[0].value in _IR_KEYS
+        ):
+            count += 1
+    return count
+
+
+def test_reduce_has_no_raw_dict_ir_reads() -> None:
+    assert _named_ir_reads(_SRC / "reduce.py") == 0
+
+
+def test_fence_predicate_reads_fences_through_the_ir_seam() -> None:
+    """A fence-code predicate still holds after the module is read via `_items`."""
+
+    verdict = FencePredicate("PS1104").verdict(FENCED)
+    assert verdict.holds
+    miss = FencePredicate("PS9999").verdict(FENCED)
+    assert not miss.holds
+    assert "PS9999" in miss.reason

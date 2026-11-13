@@ -16,7 +16,7 @@ import sys
 from pathlib import Path
 
 # Named thresholds. Measured on the CI selection (see
-# .agents/plans/2026-10-21-xdist-workers-and-split.md): a worker plus its
+# the xdist worker-bound note in `scripts/pytest_workers.py` history): a worker plus its
 # clang/zig children peaks near 0.1 GB of tree RSS each (largest single process 0.2 GB); 0.15 GB leaves headroom
 # for the heaviest compiles and for page cache.
 PER_WORKER_GB = 0.15
@@ -64,7 +64,7 @@ def mem_gb() -> float | None:
                 if line.split(":")[0] in {"Pages free", "Pages inactive", "Pages speculative", "Pages purgeable"}:
                     pages += int(line.split(":")[1].strip().rstrip("."))
             limits.append(pages * page / GB)
-        except OSError, ValueError, IndexError, subprocess.SubprocessError:
+        except (OSError, ValueError, IndexError, subprocess.SubprocessError):
             pass
     return min(limits) if limits else None
 
@@ -73,7 +73,7 @@ def load() -> float:
     """1-minute load average, or 0 where the platform does not report it."""
     try:
         return os.getloadavg()[0]
-    except AttributeError, OSError:
+    except (AttributeError, OSError):
         return 0.0
 
 

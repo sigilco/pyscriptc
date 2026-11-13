@@ -109,6 +109,24 @@ def test_os_path_stats_and_realpath(tmp_path: Path) -> None:
     )
 
 
+def test_os_path_realpath_missing_tail(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "realpath_missing.py",
+        "\n".join(
+            [
+                "import os",
+                "",
+                "def run() -> int:",
+                "    print(os.path.realpath('pyscriptc-no-such-dir-x9/deep/file.txt'))",
+                "    print(os.path.realpath('src/pyscriptc/no-such-leaf-x9/file.py'))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
 def test_os_access_and_getpid(tmp_path: Path) -> None:
     _oracle(
         tmp_path,
@@ -157,6 +175,38 @@ def test_os_mkdir_chmod_replace_unlink(tmp_path: Path) -> None:
     # The mkdtemp path differs between the two runs, so the probe prints
     # only booleans; the CPython oracle runs the same source.
     assert got.stdout == oracle(path, "run")
+
+
+def test_os_symlink_readlink(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "symlink.py",
+        "\n".join(
+            [
+                "import os",
+                "import tempfile",
+                "",
+                "def run() -> int:",
+                "    d: str = tempfile.mkdtemp()",
+                "    target: str = os.path.join(d, 'target.txt')",
+                "    with open(target, 'w') as handle:",
+                "        handle.write('payload')",
+                "    link: str = target + '.link'",
+                "    os.symlink(target, link)",
+                "    print(os.readlink(link) == target)",
+                "    print(os.path.isfile(link))",
+                "    print(os.path.exists(link))",
+                "    os.unlink(link)",
+                "    print(os.path.exists(link))",
+                "    rel: str = os.path.join(d, 'rel.link')",
+                "    os.symlink('target.txt', rel)",
+                "    print(os.readlink(rel))",
+                "    print(os.path.isfile(rel))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
 
 
 def test_os_chdir_returns_to_the_start(tmp_path: Path) -> None:
