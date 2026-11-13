@@ -553,8 +553,8 @@ y: int = 1''', "PS1201"]]
 
 [[stdlib]]
 names = ["random"]
-ok = ['y: float = random.random()', 'y: int = random.randint(1, 2)', 'random.seed(1)', 'random.shuffle(xs)', 'y: int = random.choice(xs)', 'y: float = random.uniform(1.0, 2.0)']
-no = [["sample, gauss, Random", 'y: int = random.gauss(0.0, 1.0)', "PS2001"], ["choices(k=)", 'y: int = random.choices(xs, k=2)', "PS2003"]]
+ok = ['y: float = random.random()', 'y: int = random.randint(1, 2)', 'random.seed(1)', 'random.shuffle(xs)', 'y: int = random.choice(xs)', 'y: float = random.uniform(1.0, 2.0)', 'z: list[int] = random.choices(xs, k=2)', 'z: list[int] = random.sample(xs, 1)', 'y: float = random.gauss(0.0, 1.0)', 'y: float = random.triangular(0.0, 1.0)', 'y: bytes = random.randbytes(4)']
+no = [["Random, vonmisesvariate, paretovariate", 'y: float = random.vonmisesvariate(1.0, 2.0)', "PS2001"], ["choices(cum_weights=)", 'z: list[int] = random.choices(xs, cum_weights=[1, 2])', "PS2003"]]
 
 [[stdlib]]
 names = ["csv"]
@@ -597,6 +597,30 @@ no = [["ZipFile", 'y: int = zipfile.ZipFile(s)', "PS2001"]]
 names = ["tarfile"]
 ok = ['y: bool = tarfile.is_tarfile(s)']
 no = [["TarFile", 'y: int = tarfile.TarFile(s)', "PS2001"]]
+
+[[stdlib]]
+names = ["selectors"]
+ok = [
+  '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+key: selectors.SelectorKey = sel.register(n, selectors.EVENT_READ)
+changed: selectors.SelectorKey = sel.modify(n, selectors.EVENT_READ | selectors.EVENT_WRITE)
+out: selectors.SelectorKey = sel.unregister(n)
+y: list[selectors.SelectorKey] = sel.select(0.0)
+found: selectors.SelectorKey | None = sel.get_key(n)
+sel.close()''',
+  'y: int = selectors.EVENT_READ',
+  'y: int = selectors.EVENT_WRITE',
+]
+no = [
+  ["a fileobj argument (the typed socket handle is #229)", '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+sel.register(p, selectors.EVENT_READ)''', "PS1003"],
+  ["other selector classes (EpollSelector, PollSelector, KqueueSelector, DevpollSelector, BaseSelector)", 'q: selectors.EpollSelector = selectors.EpollSelector()', "PS1106"],
+  ["get_map", '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+y: dict[str, selectors.SelectorKey] = sel.get_map()''', "PS2001"],
+  ["the key's fileobj and data (they ride the #229 handle)", '''sel: selectors.DefaultSelector = selectors.DefaultSelector()
+key: selectors.SelectorKey = sel.register(n, selectors.EVENT_READ)
+y: str = key.fileobj''', "PS2001"],
+]
 
 [[stdlib]]
 names = ["typing", "typing_extensions"]
