@@ -25,7 +25,9 @@ def _run(tmp_path: Path, name: str, source: str) -> str:
 
 
 def _program(body: list[str]) -> str:
-    return "\n".join(["import statistics", "", "def run() -> int:"] + [f"    {line}" for line in body] + ["    return 0", ""])
+    return "\n".join(
+        ["import statistics", "", "def run() -> int:"] + [f"    {line}" for line in body] + ["    return 0", ""]
+    )
 
 
 def test_median_family_matches_cpython(tmp_path: Path) -> None:
@@ -55,9 +57,7 @@ def test_mode_matches_cpython(tmp_path: Path) -> None:
         "print(statistics.mode(xs))",
         "print(statistics.mode(ys))",
     ]
-    expected = "\n".join(
-        [str(py_statistics.mode([4, 1, 3, 1, 5])), str(py_statistics.mode([1, 2, 2, 3, 3, 3]))]
-    )
+    expected = "\n".join([str(py_statistics.mode([4, 1, 3, 1, 5])), str(py_statistics.mode([1, 2, 2, 3, 3, 3]))])
     assert _run(tmp_path, "mode.py", _program(body)) == expected + "\n0\n"
 
 

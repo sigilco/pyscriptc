@@ -44,7 +44,6 @@ from pyscriptc.restlower._builtins import (
 from pyscriptc.restlower._collections import _counter, _defaultdict, _deque, _ordered
 from pyscriptc.restlower._copy import _copy_call
 from pyscriptc.restlower._csv import _csv_call
-from pyscriptc.restlower._statistics import _statistics_call
 from pyscriptc.restlower._ctypes import _sizeof
 from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
@@ -75,6 +74,7 @@ from pyscriptc.restlower._random import _random_call
 from pyscriptc.restlower._secrets import _secrets_call
 from pyscriptc.restlower._selectors import _selector_method, _selectors_call
 from pyscriptc.restlower._shlex import _shlex_call
+from pyscriptc.restlower._statistics import _statistics_call
 from pyscriptc.restlower._subprocess import _call as _sub_call
 from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
 from pyscriptc.restlower._subprocess import _run as _sub_run

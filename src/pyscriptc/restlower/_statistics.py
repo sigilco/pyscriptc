@@ -109,9 +109,7 @@ def _quantiles_keywords(lo: Any, node: ast.Call) -> None:
             lo._reject_keywords(node)
 
 
-def _copy_into(
-    lo: Any, node: ast.Call, span: dict[str, Any], name: str, arg: dict[str, Any], kind: str
-) -> None:
+def _copy_into(lo: Any, node: ast.Call, span: dict[str, Any], name: str, arg: dict[str, Any], kind: str) -> None:
     """`name = list(arg)` through the normal call path: a real copy, not an
     alias, so later mutation of `name` leaves the caller's list alone. The
     argument is pinned to a temp first because a const literal has no `id`."""
@@ -187,9 +185,7 @@ def _meanish(
     return _nm(result, _t_leaf("float"), span)
 
 
-def _median(
-    lo: Any, node: ast.Call, span: dict[str, Any], arg: dict[str, Any], attr: str, kind: str
-) -> dict[str, Any]:
+def _median(lo: Any, node: ast.Call, span: dict[str, Any], arg: dict[str, Any], attr: str, kind: str) -> dict[str, Any]:
     seq, n = _sorted_copy(lo, node, span, arg, kind, _SORTED_HINT[attr])
     half = _tname(lo, "h")
     lo.locals[half] = _t_leaf("int")
@@ -215,9 +211,7 @@ def _median(
     return _nm(result, lo.locals[result], span)
 
 
-def _mode(
-    lo: Any, node: ast.Call, span: dict[str, Any], arg: dict[str, Any], attr: str, kind: str
-) -> dict[str, Any]:
+def _mode(lo: Any, node: ast.Call, span: dict[str, Any], arg: dict[str, Any], attr: str, kind: str) -> dict[str, Any]:
     name = _tname(lo, "md")
     lo.locals[name] = _t_list(_t_leaf(kind))
     _copy_into(lo, node, span, name, arg, kind)
@@ -254,8 +248,6 @@ def _mode(
         span,
     )
     return _nm(best, _t_leaf("int"), span)
-
-
 
 
 def _varianceish(
@@ -324,9 +316,7 @@ def _stdevish(
     return _nm(result, _t_leaf("float"), span)
 
 
-def _quantiles(
-    lo: Any, node: ast.Call, span: dict[str, Any], arg: dict[str, Any], kind: str
-) -> dict[str, Any]:
+def _quantiles(lo: Any, node: ast.Call, span: dict[str, Any], arg: dict[str, Any], kind: str) -> dict[str, Any]:
     n = 4
     for kw in node.keywords:
         if kw.arg == "n":
