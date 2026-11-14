@@ -39,7 +39,7 @@ const STDLIB_TIME_X = geox(stdlib, "time_ratio");
 const REPRODUCE = "uv run python -m benchmarks.baseline.run --check";
 
 const CORPUS_TOTAL = "13,798";
-const DIVERGENCES = 63;
+const DIVERGENCES = 65;
 
 type Highlight = { value: string; label: string; note: string };
 const highlights: Highlight[] = [
@@ -161,11 +161,32 @@ const decision: Decision[] = [
       speeds up code in a running Python process, because nothing here runs
       inside one.
     </p>
+    <blockquote class="contract-quote">
+      "CPython is the spec. We write down the exceptions. Anything the
+      ledger does not list is claimed identical, so a difference you find
+      that is not listed is a bug - ours, by definition."
+    </blockquote>
+    <p class="section-note">
+      That sentence is the whole product: <a href="https://github.com/sigilco/pyscriptc/blob/master/docs/reference/divergences.md">docs/reference/divergences.md</a>,
+      {DIVERGENCES} numbered rows, each with a probe replayed nightly against
+      pinned CPython {baseline.cpython}.
+    </p>
     <p>
       The input contract is annotations. Types steer the lowering, and a
       program the checker cannot type does not compile. That is the price;
       the artifact is the point: a binary with no interpreter in it.
     </p>
+  </section>
+
+  <section class="table-section" id="guarantees">
+    <h2>What pyscriptc guarantees</h2>
+    <ul class="choose-list">
+      <li>A typed program that compiles byte-compares its observable behavior against pinned CPython {baseline.cpython} on the {CORPUS_TOTAL}-probe corpus, nightly, and the runs are public.</li>
+      <li>Every refusal at compile time names a stable <code>PSxxxx</code> code and the exact line; every listed divergence names the difference and how to see it.</li>
+      <li>The binary carries no interpreter: no <code>libpython</code>, no venv, no runtime download at first run.</li>
+      <li>Where the subset ends, the embedded-CPython island is real CPython - the escape hatch is not a reimplementation.</li>
+      <li>The project is Apache-2.0 today and stays Apache-2.0; the release policy says so, so the license will not change under a shipped binary.</li>
+    </ul>
   </section>
 
   <section class="table-section">
@@ -253,9 +274,15 @@ const decision: Decision[] = [
         is not a drop-in CPython replacement (<code>int</code> is 64-bit,
         numerics follow C semantics, monkey-patching is out), while pyscriptc
         pins CPython 3.14.x as the oracle and byte-compares compiled programs
-        against it on the {CORPUS_TOTAL}-probe corpus. The honest cost, stated
-        plainly: in places Codon covers more of the standard library than
-        pyscriptc does.
+        against it on the {CORPUS_TOTAL}-probe corpus. The operational
+        difference: when Codon diverges it does so silently - its int is
+        64-bit, division and dict order follow C, and nothing in the tool
+        tells you where - while pyscriptc fences every out-of-subset
+        construct with a named diagnostic at compile time and enumerates
+        every behavioral divergence with a replayable probe. A wrong answer
+        you can see coming is a different failure mode from one you cannot.
+        The honest cost, stated plainly: in places Codon covers more of the
+        standard library than pyscriptc does.
       </p>
       <p class="choose-when">
         Choose {rows[4].name} when: {rows[4].when}.
