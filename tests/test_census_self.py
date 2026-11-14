@@ -319,8 +319,8 @@ def test_self_census_ballpark() -> None:
     # embed.py (the lock rows, the fetch, the link flags and the bundle
     # stage) and the language gate in engine_gate.py add about 1k lines,
     # so the ceiling moves to 80k; after the onefile merge it measures
-    # 80,365, so the ceiling moves to 82k.
-    assert 11_000 <= census["lines"] <= 82_000
+    # 80,365, so the ceiling moves to 82k; after the csv dict IO merge it measures 82,858, so the ceiling moves to 84k.
+    assert 11_000 <= census["lines"] <= 84_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
