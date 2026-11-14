@@ -32,7 +32,7 @@ from pyscriptc.cli._report import (
     reduce_cmd,
 )
 from pyscriptc.config import Config, apply_to_args, entry_points, load_config
-from pyscriptc.errors import CheckFailed, FitError, IRError, SpikeError, VersionError
+from pyscriptc.errors import AuditError, CheckFailed, FitError, IRError, SpikeError, VersionError
 from pyscriptc.ffi_manifest import FfiManifest
 from pyscriptc.log import enable_debug, get_logger
 
@@ -2375,7 +2375,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                     print(f"warning: {message}.", file=sys.stderr)
                 else:
                     state["stage"] = "audit"
-                    raise IRError(f"{message}.")
+                    raise AuditError(f"{message}.")
         # boxed:end
         dbg.end("link")
         await_check()

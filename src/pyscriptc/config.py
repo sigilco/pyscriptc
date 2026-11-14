@@ -466,14 +466,17 @@ def _paths(table: Dict[str, Any], key: str) -> tuple[str, ...]:
 def _validate_island(table: str, island: Dict[str, Any]) -> None:
     """Key and type check of the `[tool.pyscriptc.island]` subtable.
 
-    This adds the `engine` key (issue #666); `embed` and `stdlib` are
-    checked in `Config.island_embed` / `Config.island_stdlib`.
+    This adds the `engine` key (issue #666) and `allow_host_libpython`
+    (issue #1247); `embed` and `stdlib` are checked in
+    `Config.island_embed` / `Config.island_stdlib`.
     """
     for key, value in island.items():
-        if key not in ("embed", "stdlib", "engine"):
-            raise ConfigError(f"{table}: unknown key (known: embed, engine, stdlib)")
+        if key not in ("embed", "stdlib", "engine", "allow_host_libpython"):
+            raise ConfigError(f"{table}: unknown key (known: allow_host_libpython, embed, engine, stdlib)")
         if key == "engine" and not isinstance(value, str):
             raise ConfigError(f"{table}.engine must be str, got {type(value).__name__}")
+        if key == "allow_host_libpython" and not isinstance(value, bool):
+            raise ConfigError(f"{table}.allow_host_libpython must be bool, got {type(value).__name__}")
 
 
 def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:

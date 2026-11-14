@@ -464,6 +464,21 @@ _ENTRIES = (
         ),
     ),
     Diagnostic(
+        "PS4304",
+        "the linked binary depends on the build host's libpython",
+        (
+            "The produced binary links the libpython of the interpreter that built it, by "
+            "absolute path. It runs on the build machine and breaks on a target that has "
+            "no such Python, and the build output says so now: the post-link audit reads "
+            "the artifact's dynamic dependencies (otool -L, readelf -d) after the link."
+        ),
+        (
+            "Rebuild with `--embed-python=bundle` to ship the pinned runtime next to the "
+            "binary (relocatable), or pass `--allow-host-libpython` to accept the host link "
+            "on purpose."
+        ),
+    ),
+    Diagnostic(
         "PS3101",
         "dependency resolution failed",
         "`pyscriptc deps` could not read, resolve, download or verify a PyPI dependency "

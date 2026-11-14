@@ -19,6 +19,13 @@ class IRError(SpikeError):
         super().__init__("PS0001", message)
 
 
+class AuditError(SpikeError):
+    """The post-link libpython audit (issue #1247) refused the artifact."""
+
+    def __init__(self, message: str) -> None:
+        super().__init__("PS4304", message)
+
+
 class VersionError(SpikeError):
     def __init__(self, message: str) -> None:
         super().__init__("PS3001", message)

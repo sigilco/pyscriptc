@@ -55,7 +55,7 @@ The accepted keys, their types and their allowed values:
 | `ffi` | `string` or `list` |  | extern manifests, relative to this file |
 | `imports` | `table` |  | import lane per top-level module name |
 | `fallback` | `table` or `string` or `boolean` |  | fallback mode settings: `definitions`, or the tier `cpython` |
-| `island` | `table` |  | embedded CPython settings: `embed` and `stdlib` |
+| `island` | `table` |  | embedded CPython settings: `embed`, `stdlib`, `engine`, `allow_host_libpython` |
 
 <!-- gen:lanes -->
 | Lane | What it does |
