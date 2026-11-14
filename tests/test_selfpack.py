@@ -110,7 +110,7 @@ def test_the_self_built_compiler_is_one_file_that_compiles_hello(tmp_path: Path)
         "compile",
         str(SRC),
         "--program",
-        "--fallback=cpython",
+        "--fallback=cpython", "--allow-host-libpython",
         "--skip-check",
         "--emit",
         "bin",

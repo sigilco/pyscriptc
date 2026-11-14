@@ -100,7 +100,7 @@ def test_module_island_value_binary_matches_cpython(tmp_path: Path) -> None:
             "pyscriptc",
             "compile",
             str(tmp_path / "main.py"),
-            "--island",
+            "--island", "--allow-host-libpython",
             "--emit",
             "bin",
             "-o",

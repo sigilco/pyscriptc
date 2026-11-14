@@ -36,7 +36,7 @@ def _compile(tmp_path: Path, prog: Path, *flags: str) -> tuple[Path, subprocess.
         "compile",
         str(prog),
         "--program",
-        "--fallback=cpython",
+        "--fallback=cpython", "--allow-host-libpython",
         "--emit",
         "bin",
         "-o",
@@ -268,7 +268,7 @@ def test_package_shaped_program_still_runs_whole_island(tmp_path: Path) -> None:
     )
     binary = tmp_path / "bin"
     comp = _cli(
-        "compile", str(pkg), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile", str(pkg), "--program", "--fallback=cpython", "--allow-host-libpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
     )
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)

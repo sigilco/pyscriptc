@@ -113,7 +113,7 @@ def test_decorator_expression_routes_to_the_island(tmp_path: Path) -> None:
     )
     path = write_case(tmp_path, "island.py", source)
     report = tmp_path / "report.json"
-    got = run_cli("run", "--fallback=cpython", "--report", str(report), str(path))
+    got = run_cli("run", "--fallback=cpython", "--allow-host-libpython", "--report", str(report), str(path))
     assert got.returncode == 0, got.stderr
     assert "Traceback" not in got.stderr, got.stderr
     planes = json.loads(report.read_text(encoding="utf-8"))
@@ -128,6 +128,6 @@ def test_decorator_expression_no_traceback_under_fallback(tmp_path: Path) -> Non
         "class_dec.py",
         "\n".join([*_CLASS_DECORATOR.splitlines(), "@command()", "def probe() -> int:", "    return 1", ""]),
     )
-    got = run_cli("run", "--fallback=cpython", str(path))
+    got = run_cli("run", "--fallback=cpython", "--allow-host-libpython", str(path))
     assert "KeyError" not in got.stderr, got.stderr
     assert "Traceback" not in got.stderr, got.stderr

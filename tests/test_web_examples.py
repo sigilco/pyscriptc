@@ -119,7 +119,7 @@ def _compile(tmp_path: Path, name: str, port: int, env: dict[str, str]) -> Path:
             "pyscriptc",
             "compile",
             str(staged),
-            "--island",
+            "--island", "--allow-host-libpython",
             "--embed-python",
             "host",
             "--emit",
@@ -205,7 +205,7 @@ def test_examples_declare_the_island_floor() -> None:
     """Both examples say how to build them, in the file a reader opens."""
     for name in ("flask_app.py", "fastapi_app.py"):
         text = (EXAMPLES / name).read_text(encoding="utf-8")
-        assert "--island" in text, f"{name} does not name the island flag"
+        assert "--island", "--allow-host-libpython" in text, f"{name} does not name the island flag"
         assert "pyscriptc compile" in text, f"{name} does not carry the build command"
 
 

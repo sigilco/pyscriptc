@@ -230,9 +230,12 @@ def test_default_island_link_is_the_host_libpython(tmp_path: Path) -> None:
     src.write_text(ISLAND_SRC, encoding="utf-8")
     (tmp_path / "pyscriptc.toml").write_text('[imports]\nfractions = "island"\n', encoding="utf-8")
     env = {k: v for k, v in os.environ.items() if k != "PYSC_RUNTIME_DIR"}
+    # Issue #1247: the default (auto -> host) island link now trips the
+    # post-link audit; `--allow-host-libpython` keeps the deliberate host
+    # link the way through.
     done = subprocess.run(
         [sys.executable, "-m", "pyscriptc", "compile", "--island", str(src), "--emit", "bin", "-o", "prog"]
-        + ["--debug-dir", "dbg"],
+        + ["--allow-host-libpython", "--debug-dir", "dbg"],
         cwd=tmp_path,
         env=env,
         capture_output=True,

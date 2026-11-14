@@ -19,7 +19,7 @@ from pathlib import Path
 from typing import Any
 
 # boxed:begin
-from pyscriptc import embed, engine_gate, island_engine, onefile, runcache, sitedeps, stdlibzip
+from pyscriptc import bindeps, embed, engine_gate, island_engine, onefile, runcache, sitedeps, stdlibzip
 
 # boxed:end
 from pyscriptc.cli._report import (
@@ -325,6 +325,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="strip the staged libpython of a bundle: the dynamic symbols the interpreter "
         "exports stay, the debug and static symbols go (about 12 MB on Linux)",
     )
+    compile_parser.add_argument(
+        "--allow-host-libpython",
+        action="store_true",
+        help="accept a binary that links the build host's libpython: the post-link audit "
+        "warns instead of refusing (issue #1247). The binary then runs only where that "
+        "exact interpreter library exists",
+    )
     # boxed:end
     compile_parser.add_argument("--call", metavar="FUNC", help="function the generated main calls")
     compile_parser.add_argument(
@@ -439,6 +446,11 @@ def build_parser() -> argparse.ArgumentParser:
         default=None,
         metavar="MODE",
         help="libpython embedded CPython links (see compile); the run cache keys on it",
+    )
+    run_parser.add_argument(
+        "--allow-host-libpython",
+        action="store_true",
+        help="accept a binary that links the build host's libpython (see compile)",
     )
     # boxed:end
     # boxed:begin
@@ -970,7 +982,7 @@ def run_cmd(args: argparse.Namespace) -> int:
     _rmtree_quietly(build)
     build.mkdir(parents=True, exist_ok=True)
     try:
-        code = _build_for_run(args, build / name)
+        code: int = _build_for_run(args, build / name)
         if code != 0:
             return code
         if use_cache:
@@ -1141,10 +1153,12 @@ def _build_for_run(args: argparse.Namespace, output: Path) -> int:
         args=args.args,
         run=False,
         # boxed:begin
+        internal_build=True,
         fallback=getattr(args, "fallback", None),
         island=getattr(args, "island", False),
         embed_python=getattr(args, "embed_python", None),
         island_engine=getattr(args, "island_engine", None),
+        allow_host_libpython=getattr(args, "allow_host_libpython", False),
         # boxed:end
         driver=args.driver,
         target=args.target,
@@ -2330,6 +2344,39 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             ),
             # boxed:end
         )
+        # boxed:begin
+        # Issue #1247: an island link whose embed mode resolves to `host`
+        # links the build host's libpython by absolute path: the binary runs
+        # on the build machine and breaks on a machine without that Python.
+        # The `.report.json` sidecar already carries the verdict
+        # (`requiresLibpython`); the audit reads the artifact itself so the
+        # build output carries it too. Only an island link can embed
+        # libpython at all, so a native-only compile never pays the otool/
+        # readelf call and prints nothing. `--allow-host-libpython` keeps the
+        # deliberate host link a way through: the same message, downgraded to
+        # a warning. `pyscriptc run` builds into the cache for this machine
+        # (its binary is the host's own and never ships), so the audit gates
+        # the shipping path only: `compile --emit bin`.
+        if "ps_island_" in llvm_text and not getattr(args, "internal_build", False):
+            try:
+                host_refs = bindeps.audit_libpython(binary)
+            except bindeps.AuditError as exc:
+                print(f"warning: {exc}", file=sys.stderr)
+                host_refs = []
+            if host_refs:
+                dylibs = ", ".join(host_refs)
+                message = (
+                    f"the linked binary {binary} dynamically links the build host's libpython "
+                    f"({dylibs}), so it runs only where that exact interpreter library exists; "
+                    "rebuild with `--embed-python=bundle` to ship the pinned runtime next to the "
+                    "binary (relocatable), or pass `--allow-host-libpython` to accept the host link"
+                )
+                if getattr(args, "allow_host_libpython", False):
+                    print(f"warning: {message}.", file=sys.stderr)
+                else:
+                    state["stage"] = "audit"
+                    raise IRError(f"{message}.")
+        # boxed:end
         dbg.end("link")
         await_check()
         if nothing_to_run:

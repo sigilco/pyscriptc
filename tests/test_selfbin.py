@@ -50,7 +50,7 @@ def _build_selfbinary(out: Path) -> Path:
         str(ROOT / "src" / "pyscriptc"),
         "--program",
         "--skip-check",
-        "--island",
+        "--island", "--allow-host-libpython",
         "--emit",
         "bin",
         "--embed-python",
@@ -80,7 +80,7 @@ def _build_selfbinary_onefile(out: Path) -> Path:
         str(ROOT / "src" / "pyscriptc"),
         "--program",
         "--skip-check",
-        "--island",
+        "--island", "--allow-host-libpython",
         "--emit",
         "bin",
         "--embed-python",
@@ -151,7 +151,7 @@ def test_selfbinary_compiles_hello_world(selfbinary: Path, tmp_path: Path) -> No
     env = dict(os.environ)
     env["PATH"] = str(Path(toolchain).parent)
     proc = subprocess.run(
-        [str(selfbinary), "compile", str(source), "--skip-check", "--island", "--emit", "bin", "-o", str(out)],
+        [str(selfbinary), "compile", str(source), "--skip-check", "--island", "--allow-host-libpython", "--emit", "bin", "-o", str(out)],
         capture_output=True,
         text=True,
         env=env,
@@ -205,7 +205,7 @@ def test_selfbinary_onefile_compiles_hello_world(selfbinary_onefile: Path, tmp_p
     env["PATH"] = str(Path(toolchain).parent)
     env.pop("PYSC_ONEFILE_CACHE", None)
     proc = subprocess.run(
-        [str(selfbinary_onefile), "compile", str(source), "--skip-check", "--island", "--emit", "bin", "-o", str(out)],
+        [str(selfbinary_onefile), "compile", str(source), "--skip-check", "--island", "--allow-host-libpython", "--emit", "bin", "-o", str(out)],
         capture_output=True,
         text=True,
         env=env,

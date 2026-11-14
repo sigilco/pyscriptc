@@ -354,7 +354,20 @@ def test_os_walk_island_unchanged(tmp_path: Path) -> None:
     from pyscriptc.cli import main as cli_main
 
     assert (
-        cli_main(["compile", str(src), "--fallback=cpython", "--emit", "bin", "--skip-check", "-o", str(binary)]) == 0
+        cli_main(
+            [
+                "compile",
+                str(src),
+                "--fallback=cpython",
+                "--allow-host-libpython",
+                "--emit",
+                "bin",
+                "--skip-check",
+                "-o",
+                str(binary),
+            ]
+        )
+        == 0
     )
     got = subprocess.run([str(binary)], capture_output=True, text=True, cwd=tmp_path)
     want = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, cwd=tmp_path)

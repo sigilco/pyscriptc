@@ -56,7 +56,7 @@ def test_compiler_compiles_itself_and_the_result_compiles_hello(tmp_path: Path) 
         "compile",
         str(SRC),
         "--program",
-        "--fallback=cpython",
+        "--fallback=cpython", "--allow-host-libpython",
         "--skip-check",
         "--emit",
         "bin",
