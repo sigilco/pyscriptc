@@ -1087,7 +1087,6 @@
     },
     {
       "id": "D64",
-<<<<<<< HEAD
       "seam": "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
       "listed": true,
       "docs": "docs/reference/divergences.md#64",
@@ -1096,40 +1095,13 @@
         "stage": "run",
         "exit": 0,
         "stdout": "1 2\n",
-=======
-      "seam": "the pyscriptc_arrow adapter widens every numeric element to double, so an int64 above 2**53 loses integer precision; the Arrow types outside the primitive subset are refused",
-      "listed": true,
-      "docs": "docs/reference/divergences.md#64",
-      "probe": null,
-      "note": "the comparison needs the vendored nanoarrow bundle and a live Arrow implementation, so the differential lives in tests/test_ffi_arrow_adapter.py and tests/test_ffi_arrow_pilot.py rather than in a probe the pinned oracle can run",
-      "cpython": null,
-      "pyscriptc": null,
-      "status": "unprobed"
-    },
-    {
-      "id": "D65",
-      "seam": "the statistics subset runs double arithmetic for the float-valued seams: stdev/pstdev differ by one ulp from CPython's exact-rational sqrt, and the mean/median/variance family over list[int] returns float where CPython returns int (equal value, different repr)",
-      "listed": true,
-      "docs": "docs/reference/divergences.md#65",
-      "probe": "probes/divergences/d65_statistics.py",
-      "cpython": {
-        "stage": "run",
-        "exit": 0,
-        "stdout": "3\n2.8\n1.7\n1.3038404810405297\n1.1661903789690602\n",
->>>>>>> origin/master
         "stderr": ""
       },
       "pyscriptc": {
         "stage": "run",
-<<<<<<< HEAD
         "exit": 1,
         "stdout": "",
         "stderr": "ValueError: dict reader has more fields than fieldnames\n"
-=======
-        "exit": 0,
-        "stdout": "3.0\n2.8\n1.7\n1.3038404810405297\n1.1661903789690602\n",
-        "stderr": ""
->>>>>>> origin/master
       },
       "status": "divergent"
     },
