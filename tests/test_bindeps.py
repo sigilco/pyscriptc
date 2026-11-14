@@ -109,6 +109,23 @@ def _clang_available() -> bool:
 
 needs_clang = pytest.mark.skipif(not _clang_available(), reason="needs a C toolchain")
 
+
+def _host_has_shared_libpython() -> bool:
+    """True when this interpreter has a shared libpython to link against.
+
+    A release binary and a python-build-standalone install have none, so
+    `auto` resolves to `bundle` there and the host-link tests have nothing
+    to link: they skip instead of asserting a link that never happens.
+    """
+    from pyscriptc import embed
+
+    return embed.host_has_shared_libpython()
+
+
+needs_host_libpython = pytest.mark.skipif(
+    not _host_has_shared_libpython(), reason="this interpreter has no shared libpython to link"
+)
+
 ISLAND_SRC = """import fractions
 
 def main() -> None:
@@ -142,13 +159,14 @@ def test_native_binary_prints_nothing_and_exits_zero(tmp_path: Path) -> None:
 
 
 @needs_clang
+@needs_host_libpython
 def test_host_island_link_fails_with_the_dylib_path(tmp_path: Path) -> None:
-    """The default (auto -> host here) island link refuses: non-zero, the
-    dylib path and the remedy in the message."""
+    """The host island link refuses: non-zero, the dylib path and the remedy
+    in the message."""
     src = tmp_path / "prog.py"
     src.write_text(ISLAND_SRC, encoding="utf-8")
     (tmp_path / "pyscriptc.toml").write_text('[imports]\nfractions = "island"\n', encoding="utf-8")
-    done = _compile(src, tmp_path, ["--island"])
+    done = _compile(src, tmp_path, ["--island", "--embed-python=host"])
     assert done.returncode == 1, done.stderr
     assert "libpython" in done.stderr
     assert sysconfig.get_config_var("VERSION") in done.stderr
@@ -156,13 +174,14 @@ def test_host_island_link_fails_with_the_dylib_path(tmp_path: Path) -> None:
 
 
 @needs_clang
+@needs_host_libpython
 def test_allow_host_libpython_warns_but_links(tmp_path: Path) -> None:
     """`--allow-host-libpython` keeps the deliberate host link a way through:
     a named warning with the dylib path, the compile still succeeds."""
     src = tmp_path / "prog.py"
     src.write_text(ISLAND_SRC, encoding="utf-8")
     (tmp_path / "pyscriptc.toml").write_text('[imports]\nfractions = "island"\n', encoding="utf-8")
-    done = _compile(src, tmp_path, ["--island", "--allow-host-libpython"])
+    done = _compile(src, tmp_path, ["--island", "--embed-python=host", "--allow-host-libpython"])
     assert done.returncode == 0, done.stderr
     assert "warning" in done.stderr
     assert "libpython" in done.stderr
