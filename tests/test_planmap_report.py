@@ -87,13 +87,13 @@ def test_run_report_silent_by_default(tmp_path: Path) -> None:
     src.write_text(MIXED_SCRIPT, encoding="utf-8")
 
     # Run once to populate cache
-    proc_first = _run_cli("run", str(src), "--fallback=cpython", "--allow-host-libpython", cwd=tmp_path)
+    proc_first = _run_cli("run", str(src), "--fallback=cpython", cwd=tmp_path)
     assert proc_first.returncode == 0, proc_first.stderr
     assert proc_first.stdout == "1\n"
     assert "planeMap" not in proc_first.stderr
 
     # Warm run (cached binary): silent by default
-    proc_warm = _run_cli("run", str(src), "--fallback=cpython", "--allow-host-libpython", cwd=tmp_path)
+    proc_warm = _run_cli("run", str(src), "--fallback=cpython", cwd=tmp_path)
     assert proc_warm.returncode == 0, proc_warm.stderr
     assert proc_warm.stdout == "1\n"
     assert proc_warm.stderr == ""
@@ -107,9 +107,7 @@ def test_run_report_file_and_stderr(tmp_path: Path) -> None:
 
     # 1. Write to file
     out_json = tmp_path / "out_report.json"
-    proc_file = _run_cli(
-        "run", str(src), "--fallback=cpython", "--allow-host-libpython", f"--report={out_json}", cwd=tmp_path
-    )
+    proc_file = _run_cli("run", str(src), "--fallback=cpython", f"--report={out_json}", cwd=tmp_path)
     assert proc_file.returncode == 0, proc_file.stderr
     assert proc_file.stdout == "1\n"
     assert "planeMap" not in proc_file.stderr
@@ -121,7 +119,7 @@ def test_run_report_file_and_stderr(tmp_path: Path) -> None:
     assert file_data["requiresLibpython"] is True
 
     # 2. Print to stderr
-    proc_stderr = _run_cli("run", str(src), "--fallback=cpython", "--allow-host-libpython", "--report", cwd=tmp_path)
+    proc_stderr = _run_cli("run", str(src), "--fallback=cpython", "--report", cwd=tmp_path)
     assert proc_stderr.returncode == 0, proc_stderr.stderr
     assert proc_stderr.stdout == "1\n"
     assert "planeMap" in proc_stderr.stderr
@@ -151,9 +149,7 @@ def test_receipt_assess_and_run_report_agree(tmp_path: Path) -> None:
 
     # Run with --report
     rep_file = tmp_path / "run_report.json"
-    proc = _run_cli(
-        "run", str(src), "--fallback=cpython", "--allow-host-libpython", f"--report={rep_file}", cwd=tmp_path
-    )
+    proc = _run_cli("run", str(src), "--fallback=cpython", f"--report={rep_file}", cwd=tmp_path)
     assert proc.returncode == 0, proc.stderr
     run_report = json.loads(rep_file.read_text(encoding="utf-8"))
 
@@ -192,16 +188,14 @@ def test_run_report_arg_order_issue622(tmp_path: Path) -> None:
     src.write_text(MIXED_SCRIPT, encoding="utf-8")
 
     # 1. Natural CLI order: --fallback=cpython --report script.py
-    proc_bare = _run_cli("run", "--fallback=cpython", "--allow-host-libpython", "--report", str(src), cwd=tmp_path)
+    proc_bare = _run_cli("run", "--fallback=cpython", "--report", str(src), cwd=tmp_path)
     assert proc_bare.returncode == 0, proc_bare.stderr
     assert proc_bare.stdout == "1\n"
     assert "planeMap" in proc_bare.stderr
 
     # 2. Argument order with report file: --fallback=cpython --report rep.json script.py
     rep_file = tmp_path / "custom_rep.json"
-    proc_file = _run_cli(
-        "run", "--fallback=cpython", "--allow-host-libpython", "--report", str(rep_file), str(src), cwd=tmp_path
-    )
+    proc_file = _run_cli("run", "--fallback=cpython", "--report", str(rep_file), str(src), cwd=tmp_path)
     assert proc_file.returncode == 0, proc_file.stderr
     assert proc_file.stdout == "1\n"
     assert rep_file.is_file()

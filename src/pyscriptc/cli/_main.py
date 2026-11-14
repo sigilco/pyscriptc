@@ -447,11 +447,6 @@ def build_parser() -> argparse.ArgumentParser:
         metavar="MODE",
         help="libpython embedded CPython links (see compile); the run cache keys on it",
     )
-    run_parser.add_argument(
-        "--allow-host-libpython",
-        action="store_true",
-        help="accept a binary that links the build host's libpython (see compile)",
-    )
     # boxed:end
     # boxed:begin
     run_parser.add_argument(

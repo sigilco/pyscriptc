@@ -273,9 +273,7 @@ if __name__ == "__main__":
     assert "helper: island (demoted by island_fn)" in text_rep
 
     rep_file = tmp_path / "run_rep.json"
-    run_proc = _run_cli(
-        "run", "--fallback=cpython", "--allow-host-libpython", f"--report={rep_file}", str(src), cwd=tmp_path
-    )
+    run_proc = _run_cli("run", "--fallback=cpython", f"--report={rep_file}", str(src), cwd=tmp_path)
     assert run_proc.returncode == 0, run_proc.stderr
     assert run_proc.stdout == "10\n"
     run_data = json.loads(rep_file.read_text(encoding="utf-8"))

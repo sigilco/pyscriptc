@@ -60,7 +60,6 @@ pyscriptc run SOURCE [options]
 | `--fallback TIER` | `cpython` | route a function pyscriptc cannot compile to embedded CPython (fallback mode); the only tier is cpython |
 | `--island` |  | alias of --fallback=cpython |
 | `--embed-python MODE` | `host\|bundle\|auto` | libpython embedded CPython links (see compile); the run cache keys on it |
-| `--allow-host-libpython` |  | accept a binary that links the build host's libpython (see compile) |
 | `--report[=FILE.json]` | `FILE.json` | print or write the executed plane map after the run (default: silent) |
 | `--call FUNC` | `FUNC` | function the generated main calls |
 | `--args ARGS` | `ARGS` | Python literal list of arguments for --call (default `[]`) |
