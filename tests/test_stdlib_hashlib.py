@@ -95,7 +95,8 @@ def test_the_block_boundary_chunk_sizes_match_cpython(tmp_path: Path) -> None:
         ]
     )
     expected = "\n".join(
-        f"{s} {py_hashlib.sha256(b'x' * s * 2).hexdigest()}" for s in [55, 56, 57, 63, 64, 65, 111, 112, 113, 127, 128, 129]
+        f"{s} {py_hashlib.sha256(b'x' * s * 2).hexdigest()}"
+        for s in [55, 56, 57, 63, 64, 65, 111, 112, 113, 127, 128, 129]
     )
     assert _run(tmp_path, "boundaries.py", source) == expected + "\n0\n"
 
