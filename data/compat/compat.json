@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-13",
-  "commit": "f9ad23501b166f9e0eef7b13a1dfa6090c83ffba",
+  "commit": "91ef7017c7c6f12ccb276022e5fc37243ebf7a24",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-13",
-    "commit": "f9ad23501b166f9e0eef7b13a1dfa6090c83ffba",
+    "commit": "91ef7017c7c6f12ccb276022e5fc37243ebf7a24",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -26,7 +26,7 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 65,
+    "stdlib_partial": 66,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
@@ -1105,6 +1105,25 @@
       ],
       "fences": [
         "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.statistics",
+      "kind": "stdlib",
+      "label": "`statistics`",
+      "names": [
+        "statistics"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "multimode, median_grouped, correlation, linear_regression, mode over float data, quantiles n= outside 2, 4, 8"
+      ],
+      "fences": [
+        "PS1003",
+        "PS2001",
+        "PS2003"
       ],
       "note": ""
     },
@@ -2320,8 +2339,8 @@
     "lanes": [
       {
         "lane": "native",
-        "imports": 277,
-        "share": 0.8394
+        "imports": 280,
+        "share": 0.8485
       },
       {
         "lane": "pack",
@@ -2330,8 +2349,8 @@
       },
       {
         "lane": "extern",
-        "imports": 52,
-        "share": 0.1576
+        "imports": 49,
+        "share": 0.1485
       },
       {
         "lane": "island",
@@ -2354,7 +2373,7 @@
       "passed": 2,
       "rate": 0.0513,
       "fences": 294,
-      "date": "2026-11-10",
+      "date": "2026-11-13",
       "blockers": [
         {
           "family": "keyword-args",
@@ -2444,6 +2463,12 @@
         },
         {
           "date": "2026-11-10",
+          "passed": 2,
+          "total": 39,
+          "rate": 0.0513
+        },
+        {
+          "date": "2026-11-13",
           "passed": 2,
           "total": 39,
           "rate": 0.0513
@@ -2563,35 +2588,8 @@
   ],
   "history": [
     {
-      "date": "2026-11-10",
-      "commit": "167c088a60b5436094b8286ed14ea6868fe0a493",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 8,
-      "packages_none": 8,
-      "fences": 2618
-    },
-    {
-      "date": "2026-11-11",
-      "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 8,
-      "packages_none": 8,
-      "fences": 2585
-    },
-    {
-      "date": "2026-11-12",
-      "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
-      "weighted_pass": 0.0,
-      "packages_full": 2,
-      "packages_partial": 8,
-      "packages_none": 8,
-      "fences": 2585
-    },
-    {
       "date": "2026-11-13",
-      "commit": "f9ad23501b166f9e0eef7b13a1dfa6090c83ffba",
+      "commit": "91ef7017c7c6f12ccb276022e5fc37243ebf7a24",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

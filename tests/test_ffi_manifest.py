@@ -462,6 +462,32 @@ def test_lib_dirs_must_be_a_list_of_strings() -> None:
     fails(manifest('lib_dirs = ["/opt", 3]\n'), "PS4005")
 
 
+# --- include dirs ----------------------------------------------------------
+
+
+def test_manifest_without_include_dirs_has_none() -> None:
+    parsed = parse_manifest_text(manifest())
+    assert parsed.include_dirs == ()
+    assert parsed.include_dir_list() == [parsed.path.parent]
+
+
+def test_manifest_include_dirs_are_read_and_resolved() -> None:
+    parsed = parse_manifest_text(manifest('include_dirs = ["vendor", "/opt/ffi/include"]\n'))
+    assert parsed.include_dirs == ("vendor", "/opt/ffi/include")
+    resolved = parsed.include_dir_list()
+    assert resolved == [parsed.path.parent, parsed.path.parent / "vendor", Path("/opt/ffi/include")]
+
+
+def test_an_include_dir_entry_with_the_dash_is_refused() -> None:
+    error = fails(manifest('include_dirs = ["-I/opt"]\n'), "PS4005")
+    assert "bare directory path" in error.message
+
+
+def test_include_dirs_must_be_a_list_of_strings() -> None:
+    fails(manifest("include_dirs = 3\n"), "PS4005")
+    fails(manifest('include_dirs = ["/opt", 3]\n'), "PS4005")
+
+
 # --- the unit split --------------------------------------------------------
 
 

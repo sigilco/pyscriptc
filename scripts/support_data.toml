@@ -517,6 +517,11 @@ ok = ['y: int = bisect.bisect_left(xs, n)', 'y: int = bisect.bisect_right(xs, n)
 no = [["key=, lo=, hi=", 'bisect.insort(xs, n, key=lambda v: v)', "PS2001"]]
 
 [[stdlib]]
+names = ["statistics"]
+ok = ['y: float = statistics.mean(xs)', 'y: float = statistics.fmean(xs)', 'y: float = statistics.median(xs)', 'y: int = statistics.median_low(xs)', 'y: int = statistics.median_high(xs)', 'y: int = statistics.mode(xs)', 'y: float = statistics.variance(xs)', 'y: float = statistics.pvariance(xs)', 'y: float = statistics.stdev(xs)', 'y: float = statistics.pstdev(xs)', 'y: list[float] = statistics.quantiles(xs)', 'y: float = statistics.mean([x])']
+no = [["multimode, median_grouped, correlation, linear_regression", 'y: list[int] = statistics.multimode(xs)', "PS2001"], ["mode over float data", 'y: float = statistics.mode([x])', "PS1003"], ["quantiles n= outside 2, 4, 8", 'y: list[float] = statistics.quantiles(xs, n=3)', "PS2003"]]
+
+[[stdlib]]
 names = ["errno"]
 ok = ['y: int = errno.ENOENT', 'y: int = errno.ECONNREFUSED']
 no = [["errorcode", 'y: str = errno.errorcode', "PS2001"]]

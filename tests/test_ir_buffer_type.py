@@ -88,12 +88,10 @@ def test_the_two_hashers_digest_a_buffer_identically() -> None:
         "classes": [],
         "fences": [],
     }
-    # The trees agree: the typed payload and the dict payload spell the
-    # same structure (their key ORDER differs by contract, schema field
-    # order vs sort_keys, but the buffer branch must keep `elem` on both).
+    # The typed payload spells the structure in schema field order; the
+    # buffer branch must keep `elem`.
     typed_tree = json.loads(tirhash.payload_bytes_node(module))
-    dict_tree = json.loads(tirserde.payload_bytes(module))
-    assert typed_tree == dict_tree
+    assert typed_tree["ir"] == module
     fn = typed_tree["ir"]["functions"][0]
     assert fn["returnType"] == {"kind": "buffer", "elem": {"kind": "float"}}
     assert fn["params"][0]["type"] == {"kind": "buffer", "elem": {"kind": "float"}}

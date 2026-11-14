@@ -57,6 +57,11 @@ dev = [
     # A pure-Python dependency the embed acceptance program bundles
     # (issue #660): the bundle stages the installed distribution.
     "pathspec>=1.1.1",
+    # The Arrow acceptance oracle (issue #1209). The wheel coverage is
+    # 3.14-first, so the dep is marked to the interpreter that can install
+    # it from a wheel; a floor host (3.11) would otherwise build Arrow from
+    # source, which no floor job should.
+    'pyarrow>=26.0.1; python_full_version >= "3.14"',
 ]
 # Release binary build only (packaging/). Not installed by a plain `uv sync`.
 packaging = ["nuitka>=4.0", "zstandard>=0.23", "ordered-set>=4.1"]

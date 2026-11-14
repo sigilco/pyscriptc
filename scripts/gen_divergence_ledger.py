@@ -453,6 +453,24 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#63",
     ),
     _row(
+        "D64",
+        "the pyscriptc_arrow adapter widens every numeric element to double, so an int64 above 2**53 "
+        "loses integer precision; the Arrow types outside the primitive subset are refused",
+        None,
+        docs=f"{DOC}#64",
+        note="the comparison needs the vendored nanoarrow bundle and a live Arrow implementation, so the "
+        "differential lives in tests/test_ffi_arrow_adapter.py and tests/test_ffi_arrow_pilot.py "
+        "rather than in a probe the pinned oracle can run",
+    ),
+    _row(
+        "D65",
+        "the statistics subset runs double arithmetic for the float-valued seams: stdev/pstdev differ "
+        "by one ulp from CPython's exact-rational sqrt, and the mean/median/variance family over "
+        "list[int] returns float where CPython returns int (equal value, different repr)",
+        "d65_statistics.py",
+        docs=f"{DOC}#65",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

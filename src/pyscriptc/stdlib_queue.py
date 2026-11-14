@@ -60,6 +60,7 @@ QUEUE: tuple[str, ...] = (
     "ctypes",
     "string",
     "bisect",
+    "statistics",
     "errno",
     "importlib.resources",
     "hmac",

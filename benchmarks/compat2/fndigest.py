@@ -1,8 +1,8 @@
 """Per-function IR digests: name the first function that differs between two lowerings.
 
 A whole-module IR hash says only that something moved. This tool hashes each
-function and class of a module IR dict with the canonical form
-(`pyscriptc.canonical`, no change to its rules or to any frozen baseline), so
+function and class of a module IR dict with the typed canonical form
+(`pyscriptc.tirhash`), so
 an A/B run of two compiler builds reports the units that changed, in module
 order, instead of one opaque digest.
 
@@ -25,10 +25,41 @@ HEADER = "header"
 FENCES = "fences"
 
 
-def _hash(value: Any) -> str:
-    from pyscriptc.canonical import hash_module
+def _unit_module(section: str, value: Any) -> dict[str, Any]:
+    """Wrap one unit in the module shape the typed hasher walks.
 
-    return hash_module(value)
+    The typed hasher walks a module record, so a unit digest is the digest of
+    a synthetic module carrying that unit in one section. The wrapper adds no
+    information of its own: the `entry` name is the unit key, so two units
+    with the same content but different names still differ.
+    """
+    module: dict[str, Any] = {
+        "irVersion": 2,
+        "subset": "fndigest",
+        "entry": "unit",
+        "functions": [],
+        "classes": [],
+        "fences": [],
+    }
+    if section == "function":
+        module["functions"] = [value]
+    elif section == "class":
+        module["classes"] = [value]
+    elif section == "fences":
+        module["fences"] = list(value or [])
+    else:
+        # The header unit: the module-level fields, minus the sections the
+        # other units carry.
+        for key, item in value.items():
+            if key not in ("functions", "classes", "fences"):
+                module[key] = item
+    return module
+
+
+def _hash(section: str, value: Any) -> str:
+    from pyscriptc.tirhash import hash_module_node
+
+    return hash_module_node(_unit_module(section, value))
 
 
 def unit_digests(module: dict[str, Any]) -> dict[str, str]:
@@ -38,20 +69,20 @@ def unit_digests(module: dict[str, Any]) -> dict[str, str]:
     """
     out: dict[str, str] = {}
 
-    def add(key: str, value: Any) -> None:
+    def add(key: str, section: str, value: Any) -> None:
         unique, n = key, 1
         while unique in out:
             n += 1
             unique = f"{key}#{n}"
-        out[unique] = _hash({"unit": value})
+        out[unique] = _hash(section, value)
 
     skipped = {"functions", "classes", "fences"}
-    add(HEADER, {k: v for k, v in module.items() if k not in skipped})
+    add(HEADER, "header", {k: v for k, v in module.items() if k not in skipped})
     for fn in module.get("functions", ()):
-        add(f"fn:{fn.get('name', '?')}", fn)
+        add(f"fn:{fn.get('name', '?')}", "function", fn)
     for cls in sorted(module.get("classes", ()), key=lambda c: c.get("name") or ""):
-        add(f"class:{cls.get('name', '?')}", cls)
-    add(FENCES, module.get("fences", []))
+        add(f"class:{cls.get('name', '?')}", "class", cls)
+    add(FENCES, "fences", module.get("fences", []))
     return out
 
 
