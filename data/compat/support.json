@@ -1,11 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-13",
-<<<<<<< HEAD
-  "commit": "5e5e182d571aee6b2bb849fc0dea40dd3904362e",
-=======
-  "commit": "58606715a3c6d1dcdc7e2ef4d0749ddbf3c9d5a6",
->>>>>>> origin/master
+  "generated": "2026-11-14",
+  "commit": "acab9d8ccd7054e02165a5f7663555ac14ed7886",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -573,17 +569,10 @@
       ]
     },
     {
-<<<<<<< HEAD
       "label": "`heapq`",
       "status": "\ud83d\udfe1",
       "count": 1,
       "missing": "merge, the *_max family, key=, key= keyword, tuple elements",
-=======
-      "label": "`statistics`",
-      "status": "\ud83d\udfe1",
-      "count": 1,
-      "missing": "multimode, median_grouped, correlation, linear_regression, mode over float data, quantiles n= outside 2, 4, 8",
->>>>>>> origin/master
       "codes": [
         "PS1003",
         "PS2001",
