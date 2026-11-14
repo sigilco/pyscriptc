@@ -40,6 +40,7 @@ Distribution facts measured:
 ```python
 import subprocess
 
+
 def main() -> None:
     out: bytes = subprocess.run(["echo", "x"], capture_output=True, timeout=30).stdout
     print(out.decode())
@@ -54,9 +55,11 @@ Desired: lower the `timeout` keyword (threading-based watchdog or `poll()` loop)
 ```python
 import asyncio
 
+
 async def run() -> str:
     proc: asyncio.subprocess.Process = await asyncio.create_subprocess_exec(
-        "echo", "hi", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE)
+        "echo", "hi", stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
+    )
     out: bytes
     err: bytes
     out, err = await proc.communicate()
@@ -71,6 +74,7 @@ Desired: lower `asyncio.subprocess.Process` + `create_subprocess_exec`/`PIPE`/`c
 
 ```python
 import sys
+
 
 def main() -> None:
     line: str = sys.stdin.readline()
@@ -87,6 +91,7 @@ Desired: lower `sys.stdin.readline` and `sys.stdout.flush` (or `sys.stdout.buffe
 ```python
 import json
 
+
 def main() -> None:
     msg: dict[str, object] = json.loads('{"id":1,"method":"x"}')
     print(msg)
@@ -101,7 +106,7 @@ Desired: lower `object` as a tagged dynamic slot, at least for `json.loads` resu
 ```python
 def main() -> None:
     f = open("/etc/hosts", "rb")
-    data: bytes = f.read(100)   # fences
+    data: bytes = f.read(100)  # fences
     # f.read()               # works - whole file only
 ```
 
@@ -123,10 +128,12 @@ Desired: add a subset `email` module (parser + `Message.get` header access at mi
 ### 7. `http.server` / raw `socket` - PS2002 (both absent)
 
 ```python
-from http.server import HTTPServer, BaseHTTPRequestHandler   # PS2002: not in closed table
+from http.server import HTTPServer, BaseHTTPRequestHandler  # PS2002: not in closed table
+
 # or
 import socket
-s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)        # PS2001: socket.socket not lowered
+
+s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)  # PS2001: socket.socket not lowered
 ```
 
 **Why it matters:** the OAuth2 login flow needs a localhost loopback HTTP listener on :8085 to catch the provider redirect. `urllib.request` (client) lowers fine; there is no server story in the native tier.
@@ -136,6 +143,7 @@ Desired: either a minimal `http.server` subset or a lowered `socket` surface suf
 
 ```python
 import tarfile
+
 
 def main() -> None:
     with tarfile.open("/tmp/x.tar.gz", "r:gz") as t:
