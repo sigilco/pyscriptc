@@ -18,6 +18,7 @@
 - Delegation models: Haiku and Sonnet subagents only. Opus-level work (lowering, IR semantics, design docs) runs as a subprocess: `maki -m bifrost/codex-plan -p "<PROMPT>"`; fast Haiku/Sonnet-level tasks can also go to `maki -m bifrost/codex-execute -p` to save session limits (always maki for this project; fall back to agy first, then codex, crush, kimi or `claude -p --model claude-haiku-5-5`, only if the previous one fails). Have it write output to `/tmp/<task>.md` or run it in tmux. Full syntax in `~/HARNESSES.md`.
 - Structured audit logging: `.agents/docs/pyscriptc-debug.md` — JSONL at `~/.cache/pyscriptc/log/`, `PYSC_DEBUG=1`, `pyscriptc logs`.
 - No co-author trailers on commits. Atomic conventional commits.
+- License headers (owner decision 2026-11-11): new source files carry a one-line SPDX identifier (`# SPDX-License-Identifier: Apache-2.0` for Python, `//` or `/* */` for C); existing files are not backfilled.
 - The scorer holdout is closed to generator agents (hook, deny rules, container mask, sparse worktrees). Never read it, ask for it or try to get around the guards; if a command is blocked for mentioning it, rephrase or stop. Details in `benchmarks/compat2/corpus/README.md`. Create agent worktrees with `.agents/bin/agent-checkout <name>`.
 
 ## Boxed fallback: cost and drop flag

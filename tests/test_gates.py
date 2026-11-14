@@ -47,6 +47,7 @@ QUEUE = (
     "ctypes",
     "string",
     "bisect",
+    "statistics",
     "errno",
     "importlib.resources",
     "hmac",
