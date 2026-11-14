@@ -29,9 +29,9 @@ Each `gN_*.py` fences; each `ok_gN_*.py` compiles clean (kept as the regression 
 | `g9_file_read_size.py` | PS2003 | `file.read(n)` not lowered (dup of g6b root cause) |
 | `g10_http_server.py` | PS2002 | `http.server` not in the closed import table |
 | `g10b_socket.py` | PS2001 | `socket.socket` not lowered (no server surface) |
-| `ok_g8_argv.py` | — | `sys.argv` lowers |
-| `ok_g9b_file_read_all.py` | — | whole-file `read()` lowers |
-| `ok_g11_urllib_download.py` | — | `urllib.request.urlopen(...).read()` lowers |
+| `ok_g8_argv.py` | - | `sys.argv` lowers |
+| `ok_g9b_file_read_all.py` | - | whole-file `read()` lowers |
+| `ok_g11_urllib_download.py` | - | `urllib.request.urlopen(...).read()` lowers |
 
 ## Notes
 
