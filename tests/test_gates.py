@@ -48,6 +48,7 @@ QUEUE = (
     "string",
     "bisect",
     "heapq",
+    "statistics",
     "errno",
     "importlib.resources",
     "hmac",
