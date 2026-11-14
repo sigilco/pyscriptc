@@ -213,11 +213,9 @@ def main() -> None:
     # The per-definition fallback tier (issue #612): main's body fences, so
     # the planner routes main to the island, where the read is plain CPython.
     # `--island` is the alias of `--fallback=cpython`, so it compiles too.
-    comp_fb = _run_cli(
-        "compile", "--fallback=cpython", "--allow-host-libpython", str(src), "--emit", "ir", cwd=tmp_path
-    )
+    comp_fb = _run_cli("compile", "--fallback=cpython", str(src), "--emit", "ir", cwd=tmp_path)
     assert comp_fb.returncode == 0, comp_fb.stderr
-    comp_island = _run_cli("compile", "--island", "--allow-host-libpython", str(src), "--emit", "ir", cwd=tmp_path)
+    comp_island = _run_cli("compile", "--island", str(src), "--emit", "ir", cwd=tmp_path)
     assert comp_island.returncode == 0, comp_island.stderr
 
 

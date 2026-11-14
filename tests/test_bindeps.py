@@ -167,3 +167,34 @@ def test_allow_host_libpython_warns_but_links(tmp_path: Path) -> None:
     assert "warning" in done.stderr
     assert "libpython" in done.stderr
     assert (tmp_path / "prog").is_file()
+
+
+@needs_clang
+def test_a_bundle_link_carries_no_host_load_command(tmp_path: Path) -> None:
+    """A bundle links the pack's library only: no absolute host path.
+
+    The bundle's own link line used to add the host's `-L`/`-l`/`-rpath` on
+    top of the pack's relative rpath, and the absolute load command won at
+    load time: the bundle ran only where the build machine's Python lived.
+    The audit is what found it (issue #1247).
+    """
+    src = tmp_path / "prog.py"
+    src.write_text(ISLAND_SRC, encoding="utf-8")
+    done = _compile(src, tmp_path, ["--island", "--embed-python=bundle", "-o", "out"])
+    assert done.returncode == 0, done.stderr
+    binary = tmp_path / "out" / "bin" / "out"
+    assert binary.is_file()
+    if sys.platform == "darwin":
+        listed = subprocess.run(["otool", "-L", str(binary)], capture_output=True, text=True, timeout=60)
+        load = subprocess.run(["otool", "-l", str(binary)], capture_output=True, text=True, timeout=60)
+        assert listed.returncode == 0 and load.returncode == 0
+        assert "@executable_path/../lib" in load.stdout
+        assert "@rpath/libpython" in listed.stdout
+        # The build machine's Python path never appears in the image.
+        assert str(Path(sys.executable).resolve().parent.parent) not in listed.stdout
+        assert str(Path(sys.executable).resolve().parent.parent) not in load.stdout
+    else:
+        listed = subprocess.run(["readelf", "-d", str(binary)], capture_output=True, text=True, timeout=60)
+        assert listed.returncode == 0
+        assert "$ORIGIN/../lib" in listed.stdout
+        assert str(Path(sys.executable).resolve().parent.parent) not in listed.stdout

@@ -427,7 +427,14 @@ def link_binary(
                 # own directory is the real link directory (the same rule
                 # host_has_shared_libpython applies).
                 libdir = str(Path(sys.executable).resolve().parent.parent / "lib")
-            tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}"] + tail
+            # A bundle link already carries the pack's own library (by path)
+            # and the relative rpath that keeps the output relocatable. The
+            # host's `-L`/`-l`/`-rpath` line would add a second load command
+            # by absolute path, and that one wins at load time: the bundle
+            # would run only where the build machine's Python lives, which is
+            # the host-link footgun the post-link audit refuses (issue #1247).
+            if embed_mode != "bundle":
+                tail = [f"-L{libdir}", f"-lpython{version}", f"-Wl,-rpath,{libdir}"] + tail
     else:
         sources = [source for source in sources if not source.endswith("ps_island.c")]
     if is_wasm or is_wasi_p2:

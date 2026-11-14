@@ -124,16 +124,14 @@ def test_acceptance_matrix_runs_in_an_empty_environment(tmp_path: Path) -> None:
     fresh = tmp_path / "fresh"
     fresh.mkdir()
 
-    stdlib_bundle = _compile(STDLIB_PROGRAM, work / "stdlib" / "prog", "--island", "--allow-host-libpython")
-    dependency_bundle = _compile(DEPENDENCY_PROGRAM, work / "sitedep" / "depprog", "--island", "--allow-host-libpython")
+    stdlib_bundle = _compile(STDLIB_PROGRAM, work / "stdlib" / "prog", "--island")
+    dependency_bundle = _compile(DEPENDENCY_PROGRAM, work / "sitedep" / "depprog", "--island")
     data_bundle = _compile(
         DATA_PROGRAM,
         work / "datafile" / "prog",
         "--program",
         "--island",
-        "--allow-host-libpython",
         "--fallback=cpython",
-        "--allow-host-libpython",
     )
 
     # The build tree goes away: the bundles move to a fresh directory and the
@@ -155,7 +153,7 @@ def test_acceptance_matrix_runs_in_an_empty_environment(tmp_path: Path) -> None:
 
 def test_the_bundle_carries_only_a_relative_rpath(tmp_path: Path) -> None:
     """No absolute path into the build tree survives in the image."""
-    bundle = _compile(STDLIB_PROGRAM, tmp_path / "out" / "prog", "--island", "--allow-host-libpython")
+    bundle = _compile(STDLIB_PROGRAM, tmp_path / "out" / "prog", "--island")
     binary = bundle / "bin" / "prog"
     if sys.platform == "darwin":
         listed = subprocess.run(["otool", "-L", str(binary)], capture_output=True, text=True, timeout=60)
@@ -177,7 +175,7 @@ def test_the_bundle_carries_only_a_relative_rpath(tmp_path: Path) -> None:
 
 def test_the_bundle_stays_inside_the_size_gate(tmp_path: Path) -> None:
     """macOS 40 MB, Linux 60 MB, uncompressed."""
-    bundle = _compile(STDLIB_PROGRAM, tmp_path / "out" / "prog", "--island", "--allow-host-libpython")
+    bundle = _compile(STDLIB_PROGRAM, tmp_path / "out" / "prog", "--island")
     # lstat, not stat: `libpython3.14.so` is a symlink to the real library
     # (issue #885) and must be counted once, the way `du -sk` measures the
     # CI gate.
@@ -197,7 +195,6 @@ def test_a_missing_pack_is_refused_without_a_traceback(tmp_path: Path) -> None:
             "pyscriptc",
             "compile",
             "--island",
-            "--allow-host-libpython",
             "--embed-python=bundle",
             str(STDLIB_PROGRAM),
             "--emit",

@@ -128,7 +128,22 @@ def measure(calls: int, repeats: int) -> dict[str, float]:
         binary = work / "bench"
         env = {**os.environ, "PYSC_PROGRAM_DIR": str(work)}
         proc = subprocess.run(
-            [sys.executable, "-m", "pyscriptc", "compile", str(entry), "--island", "--emit", "bin", "-o", str(binary)],
+            [
+                sys.executable,
+                "-m",
+                "pyscriptc",
+                "compile",
+                str(entry),
+                "--island",
+                # The micro-benchmark times the island seam on the build
+                # machine: the host libpython link is the point, so the
+                # audit's opt-out keeps it running (issue #1247).
+                "--allow-host-libpython",
+                "--emit",
+                "bin",
+                "-o",
+                str(binary),
+            ],
             cwd=work,
             capture_output=True,
             text=True,
