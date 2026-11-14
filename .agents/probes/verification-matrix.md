@@ -50,3 +50,22 @@ and Apple clang 21.0.0.
 - `os.environ` mapping access fences `PS2001: os.environ is not in the lowered subset of os`; `os.getenv(k, default)` lowers clean.
 - `zipfile` import compiles clean (t_zip); no call-surface probe done.
 - `asyncio.create_task` refuses `PS2002: asyncio.create_task takes a coroutine, not another value` for `create_task(asyncio.sleep(0))` — a coroutine IS what was passed; this looks like a real checker bug, separate from #179's scope. Filed as part of B8's evidence.
+
+## Issues filed from this matrix (2026-11-14)
+
+| issue | gap | milestone | labels | board (Horizon / Effort / Track) |
+|---|---|---|---|---|
+| #1241 | archive extract (tarfile/zipfile call surface) | v0.11.0 | compat-gap | Later / M / V2 compiler |
+| #1242 | `module.Class` annotation form (PS1106) | v0.11.0 | compat-gap, lowering | Next / S / V2 compiler |
+| #1243 | return-type covariance for nominal subclasses (PS1003) | v0.11.0 | compat-gap, lowering | Later / L / V2 compiler |
+| #1244 | `os.kill` + the `signal` import (parent watchdog) | v0.10.0 | compat-gap | Current / M / V2 compiler |
+| #1245 | `os.pipe` / `os.dup2` (fd control) | v0.11.0 | compat-gap | Next / M / V2 compiler |
+| #1246 | `str.find(start)`, starred exprs, `print(<class>)`, `except <specific>` | Future | compat-gap, lowering | Later / M / V2 compiler |
+| #1247 | post-link audit for host libpython linkage | v0.10.0 | compat-gap, tooling | Current / S / V4 CLI DX |
+| #1248 | `hashlib` hash-object surface (zero-arg `sha256()`, `update()`) | v0.10.0 | compat-gap | Current / S / V2 compiler |
+
+Not filed, with the existing issue that covers the gap: B7 socket/TLS/http.server
+(#219, #227, #229), A3 multi-arm unions (#413), B9 stdio (#1225, overlapping #478),
+B8 async subprocess (#1224, overlapping #179), B10 `os.makedirs(exist_ok=)` and
+`os.environ.get` (#503), A1 dynamic JSON (#1226), B6 `email` (#1228),
+B8 `timeout=` (#1223), B10 `file.read(n)` (#1227).
