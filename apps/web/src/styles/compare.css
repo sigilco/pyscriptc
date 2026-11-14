@@ -1,0 +1,372 @@
+/* The compare page (served at /compare/). It reads the shared site tokens in
+   theme.css: the same obsidian canvas, ink ladder, hairlines and logo blue as
+   the landing page and the compat page, so all three read as one site. No
+   literal hex here: every color is a token, and every value has a light-mode
+   counterpart through [data-theme="light"]. No client JS: static HTML. */
+
+.compare-body {
+  background: var(--color-bg-base);
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  margin: 0;
+  min-height: 100vh;
+}
+
+/* The floating pill navbar is position:fixed; clear it. */
+.compare-nav-spacer {
+  height: 5.5rem;
+}
+
+.compare-page {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 4rem;
+}
+
+/* Only the page content gets the accent link color. The shared header and
+   footer carry their own ink colors and must not be repainted here. */
+.compare-page a {
+  color: var(--color-accent);
+  text-decoration: none;
+  text-underline-offset: 0.2em;
+}
+.compare-page a:hover {
+  text-decoration: underline;
+}
+
+.compare-body code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-accent-soft);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  color: var(--color-text-primary);
+}
+
+.compare-body :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Hero */
+
+.compare-hero.bento {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+.bento-cell {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1.75rem;
+}
+.bento-cell--headline h1 {
+  margin: 0 0 0.75rem;
+  font-size: clamp(1.6rem, 4vw, 2.4rem);
+  letter-spacing: 0.02em;
+  color: var(--color-text-primary);
+}
+.bento-cell--headline .lead {
+  margin: 0 0 0.75rem;
+  font-size: 1.05rem;
+  color: var(--color-text-secondary);
+  max-width: 42rem;
+}
+.bento-cell--headline .meta {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+/* Sections */
+
+.table-section {
+  margin-bottom: 2.5rem;
+}
+.table-section h2 {
+  font-size: 1.25rem;
+  color: var(--color-text-primary);
+  margin: 0 0 0.75rem;
+}
+.table-section p {
+  margin: 0 0 0.85rem;
+  font-size: 0.95rem;
+  line-height: 1.7;
+  max-width: 46rem;
+}
+.section-note {
+  font-size: 0.85rem !important;
+  color: var(--color-text-muted) !important;
+  line-height: 1.65 !important;
+}
+
+/* One card per alternative */
+
+.compare-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1.35rem 1.5rem;
+  margin-bottom: 1rem;
+  scroll-margin-top: 7rem;
+}
+.compare-card h3 {
+  margin: 0 0 0.6rem;
+  font-size: 1.05rem;
+  color: var(--color-text-primary);
+}
+.compare-card p {
+  margin: 0 0 0.75rem;
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+.compare-card p:last-child {
+  margin-bottom: 0;
+}
+/* The closest sibling gets the one accent: a hairline, not a wash. */
+.compare-card--accent {
+  border-color: var(--color-accent-border);
+}
+/* The tanstack-style one-liner: "choose X when ...", quiet by design. */
+.compare-card .choose-when {
+  color: var(--color-text-muted);
+  font-size: 0.88rem;
+  border-top: 1px solid var(--color-border);
+  padding-top: 0.6rem;
+}
+
+/* Highlights strip: the scannable proof points above the fold. */
+
+.highlights {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1rem;
+  margin-bottom: 0.75rem;
+}
+.highlight {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1rem 1.15rem;
+}
+.highlight-value {
+  font-family: var(--font-mono);
+  font-size: 1.9rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+}
+.highlight:first-child .highlight-value {
+  color: var(--color-accent);
+}
+.highlight-label {
+  margin-top: 0.35rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.highlight-note {
+  margin-top: 0.3rem;
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--color-text-muted);
+}
+.highlights-note {
+  margin-bottom: 2.5rem;
+}
+
+/* ROI block: one clean visual, three values, not a dense table. */
+
+.roi-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 0.85rem;
+}
+.roi {
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1.1rem 1.2rem;
+}
+.roi-value {
+  font-family: var(--font-mono);
+  font-size: 2.2rem;
+  font-weight: 700;
+  line-height: 1.1;
+  color: var(--color-text-primary);
+}
+.roi--accent {
+  border-color: var(--color-accent-border);
+}
+.roi--accent .roi-value {
+  color: var(--color-accent);
+}
+.roi-label {
+  margin-top: 0.4rem;
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: var(--color-text-secondary);
+}
+.roi-note {
+  margin-top: 0.25rem;
+  font-size: 0.78rem;
+  color: var(--color-text-muted);
+}
+
+/* Deploy story: the two-line terminal block, mono, quiet chrome. */
+
+.deploy-code {
+  margin: 0 0 0.85rem;
+  padding: 0.9rem 1.1rem;
+  background: var(--color-bg-surface);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  overflow-x: auto;
+}
+.deploy-code code {
+  display: block;
+  background: none;
+  padding: 0;
+  font-size: 0.88rem;
+  line-height: 1.7;
+  color: var(--color-text-primary);
+  white-space: pre;
+}
+
+/* Decision table: yes / no / partial marks, data not decoration. */
+
+.decision-table td {
+  min-width: 0;
+  white-space: nowrap;
+}
+.mark {
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+.mark-yes {
+  color: var(--color-status-full);
+}
+.mark-no {
+  color: var(--color-status-none);
+}
+.mark-partial {
+  color: var(--color-status-partial);
+}
+
+/* Tables */
+
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+.compare-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.compare-table th,
+.compare-table td {
+  text-align: left;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+}
+.compare-table thead th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--color-bg-surface);
+  white-space: nowrap;
+}
+.compare-table tbody th {
+  color: var(--color-text-primary);
+  font-weight: 500;
+  white-space: nowrap;
+}
+.compare-table tbody tr:last-child th,
+.compare-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.compare-table td {
+  color: var(--color-text-secondary);
+  min-width: 9rem;
+}
+.compare-table .cell-lose {
+  color: var(--color-text-secondary);
+  min-width: 16rem;
+}
+.compare-table .row-self th,
+.compare-table .row-self td {
+  background: var(--color-accent-soft);
+}
+
+/* Choosing list */
+
+.choose-list {
+  margin: 0 0 1rem;
+  padding-left: 1.1rem;
+  max-width: 46rem;
+}
+.choose-list li {
+  margin-bottom: 0.65rem;
+  font-size: 0.95rem;
+  line-height: 1.7;
+}
+.choose-list strong {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+
+@media (max-width: 48rem) {
+  .compare-page {
+    padding: 0 1rem 3rem;
+  }
+  .bento-cell {
+    padding: 1.25rem;
+  }
+  .compare-card {
+    padding: 1.1rem 1.15rem;
+  }
+  /* Highlights drop to two columns, then the ROI tiles to one; the value
+     stays readable without horizontal scroll anywhere on the page. */
+  .highlights {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 0.75rem;
+  }
+  .highlight-value {
+    font-size: 1.35rem;
+  }
+  .highlight {
+    padding: 0.85rem 0.95rem;
+  }
+  .roi-grid {
+    grid-template-columns: 1fr;
+    gap: 0.75rem;
+  }
+  .roi-value {
+    font-size: 1.8rem;
+  }
+  /* The two commands wrap on their spaces at phone width instead of
+     scrolling the block sideways. */
+  .deploy-code code {
+    font-size: 0.78rem;
+    white-space: pre-wrap;
+  }
+  /* The table keeps its columns and scrolls sideways inside its own box;
+     the page itself never scrolls horizontally. */
+  .compare-table {
+    font-size: 0.82rem;
+  }
+  .compare-table th,
+  .compare-table td {
+    padding: 0.5rem 0.7rem;
+  }
+}
+

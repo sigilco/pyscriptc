@@ -1,0 +1,382 @@
+---
+import CompareLayout from "../../layouts/CompareLayout.astro";
+
+// Every number on this page is baked in at build time from a file in the
+// repository. The baseline figures mirror benchmarks/baseline/reference.json
+// (CPython 3.14.9, Linux x86_64, 5 runs per sample); the corpus counts mirror
+// the CHANGELOG receipt of the nightly visible-score run over
+// benchmarks/compat2/probes. The page cannot claim more than the files say.
+import baseline from "../../../../../benchmarks/baseline/reference.json";
+
+interface Workload {
+  name: string;
+  group: string;
+  status: string;
+  time_ratio: number;
+  rss_ratio: number;
+}
+const workloads = baseline.workloads as Workload[];
+const geomean = (values: number[]) =>
+  Math.exp(values.reduce((s, v) => s + Math.log(v), 0) / values.length);
+const group = (name: string) =>
+  workloads.filter(
+    (w) => (w.group ?? "kernel") === name && w.status === "ok",
+  );
+const geox = (rows: { time_ratio: number; rss_ratio: number }[], key: "time_ratio" | "rss_ratio") =>
+  (1 / geomean(rows.map((r) => r[key]))).toFixed(1);
+
+const kernel = group("kernel");
+const scripting = group("scripting");
+const stdlib = group("stdlib");
+const island = group("island");
+
+// The one visually highlighted row: the compute kernels, the same group the
+// landing page's BenchmarkRow calls out. Its RSS ratio is a native/CPython
+// geomean over the same rows, no absolute MB claimed.
+const KERNEL_TIME_X = geox(kernel, "time_ratio");
+const KERNEL_RSS_X = geox(kernel, "rss_ratio");
+const STDLIB_TIME_X = geox(stdlib, "time_ratio");
+const REPRODUCE = "uv run python -m benchmarks.baseline.run --check";
+
+const CORPUS_TOTAL = "13,798";
+const DIVERGENCES = 63;
+
+type Highlight = { value: string; label: string; note: string };
+const highlights: Highlight[] = [
+  {
+    value: "1 binary",
+    label: "Native executable",
+    note: "No interpreter in the artifact; untyped imports route to an embedded CPython island only when you opt in",
+  },
+  {
+    value: `${KERNEL_TIME_X}x`,
+    label: "Kernel speed vs CPython",
+    note: `Geomean over sum-squares, floor-sum, horner, repeat-len; peak RSS ${KERNEL_RSS_X}x smaller`,
+  },
+  {
+    value: CORPUS_TOTAL,
+    label: "Conformance probes",
+    note: "Nightly byte-compared against a pinned CPython 3.14.9 oracle",
+  },
+  {
+    value: `${DIVERGENCES}`,
+    label: "Numbered divergences",
+    note: "Every known behavior difference, documented with a recorded probe",
+  },
+];
+
+// One "Why not X?" block per alternative: what it is, where it wins, the
+// artifact difference from pyscriptc, then a one-line "choose it when".
+type Row = {
+  id: string;
+  name: string;
+  when: string;
+};
+
+const rows: Row[] = [
+  { id: "pyinstaller", name: "PyInstaller / cx_Freeze", when: "you need untyped Python packaged as an executable, unchanged" },
+  { id: "nuitka", name: "Nuitka", when: "your program is untyped or dynamic and must ship anyway" },
+  { id: "cython", name: "Cython", when: "you are accelerating one module inside a larger CPython application" },
+  { id: "mypyc", name: "mypyc", when: "your code is already typed and stays deployed inside CPython" },
+  { id: "codon", name: "Codon", when: "the workload is numeric and its C-style numerics are what you want" },
+  { id: "pypy", name: "PyPy", when: "installing a faster interpreter is fine and a build step is not" },
+];
+
+const cell = (v: "yes" | "no" | "partial") =>
+  v === "yes" ? "yes" : v === "no" ? "no" : "partial";
+// Column semantics, kept deliberately narrow so "partial" stays defensible:
+// binary - the artifact of a build is one executable file of your program;
+// runtime - that file runs with no interpreter or shared Python library
+//   alongside it;
+// oracle - the project pins a CPython version and byte-compares behavior
+//   against it on a published corpus (PyInstaller and Nuitka run CPython or
+//   link libpython, which is compatibility by construction, not a measured
+//   oracle, and Cython/mypyc/PyPy document their deviations rather than
+//   probing them);
+// bench - the project publishes a benchmark of its own compiled output with
+//   a reproduce command. For the other tools this repository cites none, so
+//   the cell records that fact, not a claim about their own repositories.
+type Decision = {
+  name: string;
+  href?: string;
+  binary: "yes" | "no" | "partial";
+  runtime: "yes" | "no" | "partial";
+  oracle: "yes" | "no" | "partial";
+  bench: "yes" | "no" | "partial";
+};
+const decision: Decision[] = [
+  { name: "pyscriptc", href: "#measured", binary: "yes", runtime: "yes", oracle: "yes", bench: "yes" },
+  { name: "PyInstaller / cx_Freeze", binary: "partial", runtime: "no", oracle: "no", bench: "no" },
+  { name: "Nuitka", binary: "partial", runtime: "no", oracle: "no", bench: "no" },
+  { name: "Cython", binary: "no", runtime: "no", oracle: "no", bench: "no" },
+  { name: "mypyc", binary: "no", runtime: "no", oracle: "no", bench: "no" },
+  { name: "Codon", binary: "yes", runtime: "yes", oracle: "no", bench: "no" },
+  { name: "PyPy", binary: "no", runtime: "no", oracle: "no", bench: "no" },
+];
+---
+
+<CompareLayout>
+  <header class="compare-hero bento">
+    <div class="bento-cell bento-cell--headline">
+      <h1>HOW PYSCRIPTC COMPARES</h1>
+      <p class="lead">
+        Several tools turn Python into something faster or self-contained. They
+        differ in what they take as input, what they produce, and how close
+        they stay to CPython. This page states the differences without
+        claiming pyscriptc wins them.
+      </p>
+      <p class="meta">
+        Every claim on this page traces to a repository file:
+        <code>docs/reference/divergences.md</code> ·
+        <code>benchmarks/baseline/</code> · <code>benchmarks/compat2/</code>
+      </p>
+    </div>
+  </header>
+
+  <section class="highlights" aria-label="Highlights">
+    {highlights.map((h) => (
+      <div class="highlight">
+        <div class="highlight-value">{h.value}</div>
+        <div class="highlight-label">{h.label}</div>
+        <div class="highlight-note">{h.note}</div>
+      </div>
+    ))}
+  </section>
+  <p class="section-note highlights-note">
+    The speed figure is pyscriptc's reproducible baseline against CPython
+    {baseline.cpython} (<code>{REPRODUCE}</code>), not a ranking against the
+    tools below; none of them was benchmarked here.
+  </p>
+
+  <section class="table-section">
+    <h2>What pyscriptc is not</h2>
+    <p>
+      pyscriptc compiles a typed subset of Python to native machine code. It
+      is not a way to run untyped Python: code outside the subset stops the
+      build with a <code>PSxxxx</code> diagnostic that names the exact line,
+      or, when you opt in with <code>--fallback=cpython</code>, runs on an
+      embedded CPython instead. It is not a drop-in CPython replacement: the
+      subset has {DIVERGENCES} numbered divergences, each documented with a
+      recorded probe. It is not an interpreter accelerator: nothing here
+      speeds up code in a running Python process, because nothing here runs
+      inside one.
+    </p>
+    <p>
+      The input contract is annotations. Types steer the lowering, and a
+      program the checker cannot type does not compile. That is the price;
+      the artifact is the point: a binary with no interpreter in it.
+    </p>
+  </section>
+
+  <section class="table-section">
+    <h2>Why not the alternatives?</h2>
+    <p class="section-note">
+      Each block states what the tool is, where it wins, and what the artifact
+      difference is. None of them is a strawman: each one is the right answer
+      for someone.
+    </p>
+
+    <article class="compare-card" id={rows[0].id}>
+      <h3>Why not {rows[0].name}?</h3>
+      <p>
+        PyInstaller and cx_Freeze are bundlers, not compilers: they package
+        CPython and your bytecode into a folder or a single executable, so the
+        program runs on machines without Python installed, with CPython's
+        behavior exactly, because it is CPython. If your program is untyped,
+        dynamic, or simply existing, a bundler runs it and pyscriptc fences
+        it. The trade is the artifact: a bundle carries a whole interpreter,
+        so it is larger and starts slower than a binary with no interpreter
+        in it.
+      </p>
+      <p class="choose-when">
+        Choose {rows[0].name} when: {rows[0].when}.
+      </p>
+    </article>
+
+    <article class="compare-card" id={rows[1].id}>
+      <h3>Why not {rows[1].name}?</h3>
+      <p>
+        Nuitka translates a whole Python program to C linked against
+        <code>libpython</code>, so the result executes with CPython semantics
+        across the whole language, no annotations needed, ending in a
+        standalone folder or a onefile executable. It accepts everything;
+        pyscriptc refuses most things and compiles the rest without an
+        interpreter. pyscriptc's binaries are smaller because no
+        <code>libpython</code> rides along; its language coverage is far
+        narrower.
+      </p>
+      <p class="choose-when">
+        Choose {rows[1].name} when: {rows[1].when}.
+      </p>
+    </article>
+
+    <article class="compare-card" id={rows[2].id}>
+      <h3>Why not {rows[2].name}?</h3>
+      <p>
+        Cython compiles a Python superset (its own <code>.pyx</code> dialect)
+        to C extension modules that are imported back into a CPython session;
+        static typing is optional and makes hot paths faster, and C/C++
+        interop is the traditional use. There is little overlap to compare:
+        the output is a module for CPython to load, not a standalone program,
+        and the input language is a dialect, not plain annotated Python. For
+        speeding up one module inside a larger CPython application, Cython's
+        shape is the one that fits.
+      </p>
+      <p class="choose-when">
+        Choose {rows[2].name} when: {rows[2].when}.
+      </p>
+    </article>
+
+    <article class="compare-card" id={rows[3].id}>
+      <h3>Why not {rows[3].name}?</h3>
+      <p>
+        mypyc compiles type-annotated Python modules to CPython C extensions,
+        using mypy for checking; this is the closest input contract to
+        pyscriptc's, and mypy itself uses it to speed up mypy. The difference
+        is the artifact: mypyc code lives where CPython lives and keeps
+        CPython semantics, while pyscriptc leaves the process entirely.
+        If your goal is a faster module in an existing interpreter
+        deployment, mypyc is the smaller step.
+      </p>
+      <p class="choose-when">
+        Choose {rows[3].name} when: {rows[3].when}.
+      </p>
+    </article>
+
+    <article class="compare-card compare-card--accent" id={rows[4].id}>
+      <h3>Why not {rows[4].name}?</h3>
+      <p>
+        Codon is the closest sibling: an ahead-of-time compiler for a Python
+        subset that produces native executables with no <code>libpython</code>
+        inside, inferring types instead of requiring them. The difference is
+        what anchors the subset: Codon states in its own documentation that it
+        is not a drop-in CPython replacement (<code>int</code> is 64-bit,
+        numerics follow C semantics, monkey-patching is out), while pyscriptc
+        pins CPython 3.14.x as the oracle and byte-compares compiled programs
+        against it on the {CORPUS_TOTAL}-probe corpus. The honest cost, stated
+        plainly: in places Codon covers more of the standard library than
+        pyscriptc does.
+      </p>
+      <p class="choose-when">
+        Choose {rows[4].name} when: {rows[4].when}.
+      </p>
+    </article>
+
+    <article class="compare-card" id={rows[5].id}>
+      <h3>Why not {rows[5].name}?</h3>
+      <p>
+        PyPy runs standard Python on its own JIT-compiling virtual machine:
+        no annotations, no build step, a drop-in interpreter replacement, with
+        C extensions as its known weak spot. pyscriptc is ahead-of-time and
+        whole-program; the compile happens once, before distribution, and it
+        refuses at compile time the dynamic patterns PyPy handles at run time.
+        If the deployment model "install an interpreter and run faster" works
+        for you, PyPy asks far less of your code than pyscriptc does.
+      </p>
+      <p class="choose-when">
+        Choose {rows[5].name} when: {rows[5].when}.
+      </p>
+    </article>
+  </section>
+
+  <section class="table-section" id="measured">
+    <h2>The numbers, with the receipt</h2>
+    <div class="roi-grid">
+      <div class="roi roi--accent">
+        <div class="roi-value">{KERNEL_TIME_X}x</div>
+        <div class="roi-label">Kernels, wall time vs CPython {baseline.cpython}</div>
+        <div class="roi-note">sum-squares, floor-sum, horner, repeat-len</div>
+      </div>
+      <div class="roi">
+        <div class="roi-value">{KERNEL_RSS_X}x</div>
+        <div class="roi-label">Kernels, peak RSS vs CPython {baseline.cpython}</div>
+        <div class="roi-note">geomean of native / CPython RSS over the same rows</div>
+      </div>
+      <div class="roi">
+        <div class="roi-value">{STDLIB_TIME_X}x</div>
+        <div class="roi-label">Stdlib workloads, wall time vs CPython {baseline.cpython}</div>
+        <div class="roi-note">{stdlib.length} standard-library call workloads</div>
+      </div>
+    </div>
+    <p class="section-note">
+      Reproduce it: <code>{REPRODUCE}</code>. Reference recorded on one Linux
+      x86_64 host, 5 runs per sample, geometric means per workload group. This
+      is pyscriptc's baseline against CPython, not a cross-tool ranking; the
+      other tools on this page were not benchmarked, and their numbers live in
+      their own documentation. The per-module and per-package conformance
+      detail is on the <a href="/compat/">compat site</a>.
+    </p>
+  </section>
+
+  <section class="table-section" id="deploy">
+    <h2>What shipping looks like</h2>
+    <p>
+      Compile once on the machine that has the toolchain:
+    </p>
+    <pre class="deploy-code"><code>pyscriptc compile hello.py --emit bin -o hello
+scp hello box:/usr/local/bin/hello</code></pre>
+    <p>
+      On the box: <code>./hello</code>. No venv to create, no container layer
+      to pull, no <code>libpython</code> to install: a binary with no island
+      in it carries no interpreter, so it runs on a machine with nothing
+      Python on it. The same program under CPython means shipping an
+      interpreter or depending on one being there, which is exactly what a
+      bundler or Nuitka artifact also carries inside. What you give up is in
+      the fences: code outside the subset does not compile, and an
+      <code>--island</code> build that routes untyped imports to an embedded
+      CPython is no longer interpreter-free.
+    </p>
+  </section>
+
+  <section class="table-section" id="decision">
+    <h2>Decision table</h2>
+    <p class="section-note">
+      Rows are the tools; the columns are narrow by design, defined in the
+      script block above. "Partial" marks a shape with a caveat spelled out
+      in the sections above. The oracle column is about measurement, not
+      compatibility: running on CPython or libpython is compatibility by
+      construction, and the tools that document their deviations instead of
+      probing them read "no" here. No cross-tool speed comparison is
+      implied anywhere in the table.
+    </p>
+    <div class="table-scroll">
+      <table class="compare-table decision-table">
+        <thead>
+          <tr>
+            <th scope="col">Tool</th>
+            <th scope="col">Standalone binary</th>
+            <th scope="col">No runtime dependency</th>
+            <th scope="col">CPython-semantics oracle</th>
+            <th scope="col">Reproducible benchmark</th>
+          </tr>
+        </thead>
+        <tbody>
+          {decision.map((d) => (
+            <tr class={d.name === "pyscriptc" ? "row-self" : undefined}>
+              <th scope="row">{d.href ? <a href={d.href}>{d.name}</a> : d.name}</th>
+              <td><span class={`mark mark-${cell(d.binary)}`}>{cell(d.binary)}</span></td>
+              <td><span class={`mark mark-${cell(d.runtime)}`}>{cell(d.runtime)}</span></td>
+              <td><span class={`mark mark-${cell(d.oracle)}`}>{cell(d.oracle)}</span></td>
+              <td><span class={`mark mark-${cell(d.bench)}`}>{cell(d.bench)}</span></td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="table-section" id="choose">
+    <h2>When to choose what</h2>
+    <ul class="choose-list">
+      <li>You need to ship existing, untyped Python as an executable, with full-language behavior: <strong>Nuitka</strong>, or a bundler if the size and startup cost of carrying CPython is acceptable.</li>
+      <li>You need exact CPython behavior and accept shipping an interpreter: <strong>PyInstaller / cx_Freeze</strong> for distribution, <strong>PyPy</strong> if speed inside the runtime matters more than C extensions.</li>
+      <li>You want to speed up one module inside a CPython process: <strong>Cython</strong> for C interop and hot paths, <strong>mypyc</strong> if the code is already typed.</li>
+      <li>You want a native binary from statically inferable numeric code and accept its numerics: <strong>Codon</strong>.</li>
+      <li>You have typed Python and want a native binary that measures its parity against CPython 3.14, names what it refuses, and delegates untyped imports to an embedded CPython: <strong>pyscriptc</strong>. Start with the <a href="/compat/">compat site</a> to see whether your modules compile today.</li>
+    </ul>
+    <p>
+      The durable version of this comparison, with sources for every tool, is
+      <a href="/docs/guide/comparison/">the comparison guide</a> in the docs.
+    </p>
+  </section>
+</CompareLayout>

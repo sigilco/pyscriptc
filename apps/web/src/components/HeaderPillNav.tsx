@@ -4,6 +4,7 @@ export interface HeaderPillNavProps {
   theme?: "dark" | "light";
   docsUrl?: string;
   compatUrl?: string;
+  compareUrl?: string;
   githubUrl?: string;
 }
 
@@ -11,6 +12,7 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
   theme = "dark",
   docsUrl = "/docs",
   compatUrl = "/compat",
+  compareUrl = "/compare",
   githubUrl = "https://github.com/sigilco/pyscriptc",
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -59,6 +61,12 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
             className="px-2.5 py-1 rounded-full hover:text-white transition-colors"
           >
             Are We Native Yet?
+          </a>
+          <a
+            href={compareUrl}
+            className="px-2.5 py-1 rounded-full hover:text-white transition-colors"
+          >
+            Compare
           </a>
           <a
             href={githubUrl}
@@ -120,6 +128,13 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
               className="px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
             >
               Are We Native Yet? (Compatibility Matrix)
+            </a>
+            <a
+              href={compareUrl}
+              onClick={() => setMobileMenuOpen(false)}
+              className="px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+            >
+              How pyscriptc compares
             </a>
             <a
               href={githubUrl}

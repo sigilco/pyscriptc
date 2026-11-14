@@ -34,6 +34,7 @@ test("deploy tree carries the three site parts", { skip: !hasDeploy }, () => {
     "compat/data/ladder.json",
     "compat/data/what_will_fail.json",
     "compat/data/support.json",
+    "compare/index.html",
   ]) {
     assert.ok(existsSync(join(deploy, rel)), `missing ${rel}`);
   }
@@ -43,6 +44,7 @@ test("deploy redirect rules are present", { skip: !hasDeploy }, () => {
   const text = readFileSync(join(deploy, "_redirects"), "utf8");
   assert.ok(text.includes("/docs    /docs/    308"));
   assert.ok(text.includes("/compat  /compat/  308"));
+  assert.ok(text.includes("/compare  /compare/  308"));
 });
 
 test("theme.css ships next to the docs index (docmd customCss gap)", { skip: !hasDeploy }, () => {
@@ -129,6 +131,74 @@ test("the compat page shows the R0 rate with its denominator", () => {
   assert.ok(page.includes("data.ladder.r0"), "the page reads the r0 section");
   assert.ok(page.includes("r0.total"), "the page shows the corpus size");
   assert.ok(page.includes("r0.history"), "the page shows the trend");
+});
+
+test("the compare page claims only the reproducible baseline", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "compare", "index.astro"), "utf8");
+  assert.ok(page.includes("benchmarks/baseline/reference.json"), "the page reads the baseline file");
+  assert.ok(page.includes("benchmarks.baseline.run --check"), "the page names the reproduce command");
+  assert.ok(page.includes("13,798"), "the page states the conformance corpus size");
+  assert.ok(!/blazing|faster than (codon|nuitka|pypy)|beats (codon|nuitka|pypy)/i.test(page), "no marketing claims");
+});
+
+test("the compare page states where pyscriptc loses", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "compare", "index.astro"), "utf8");
+  for (const tool of ["PyInstaller", "Nuitka", "Cython", "mypyc", "Codon", "PyPy"]) {
+    assert.ok(page.includes(tool), `${tool} missing from the compare page`);
+  }
+  assert.ok(page.includes("Codon covers more of the"), "the Codon trade-off is stated");
+});
+
+test("the compare page leads with a scannable highlights strip", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "compare", "index.astro"), "utf8");
+  assert.ok(page.includes("class=\"highlights\""), "the highlights strip is on the page");
+  assert.ok(page.includes("const highlights: Highlight[]"), "the strip is data-driven");
+  // Four proof points, each with a value, a label and a note.
+  const strip = page.slice(page.indexOf("const highlights"), page.indexOf("// One \"Why not X?\""));
+  assert.equal((strip.match(/value:/g) ?? []).length, 4, "four highlight values");
+  assert.equal((strip.match(/label:/g) ?? []).length, 4, "four highlight labels");
+  assert.equal((strip.match(/note:/g) ?? []).length, 4, "four highlight notes");
+  // The strip must come before the alternatives, so it is the first thing read.
+  assert.ok(
+    page.indexOf("class=\"highlights\"") < page.indexOf("Why not the alternatives?"),
+    "the strip is above the alternatives",
+  );
+});
+
+test("each alternative is framed as a why-not block with a choose-when line", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "compare", "index.astro"), "utf8");
+  assert.equal((page.match(/<h3>Why not \{rows\[/g) ?? []).length, 6, "six why-not headings, data-driven");
+  assert.equal((page.match(/class="choose-when"/g) ?? []).length, 6, "six choose-when lines");
+  assert.ok(page.includes("Choose {rows["), "the choose-when line is data-driven");
+});
+
+test("the compare page ends on a compact decision table of yes/no/partial", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "compare", "index.astro"), "utf8");
+  assert.ok(page.includes("const decision: Decision[]"), "the decision table is data-driven");
+  for (const tool of ["pyscriptc", "PyInstaller / cx_Freeze", "Nuitka", "Cython", "mypyc", "Codon", "PyPy"]) {
+    assert.ok(page.includes(`name: "${tool}"`), `the ${tool} row is missing from the decision table`);
+  }
+  assert.ok(page.includes("Standalone binary"), "the binary column is named");
+  assert.ok(page.includes("No runtime dependency"), "the runtime column is named");
+  assert.ok(page.includes("CPython-semantics oracle"), "the oracle column is named");
+  assert.ok(page.includes("Reproducible benchmark"), "the benchmark column is named");
+  // The decision table is the last table on the page, after the numbers and
+  // the deploy story.
+  assert.ok(
+    page.indexOf("id=\"decision\"") > page.indexOf("id=\"measured\"") &&
+      page.indexOf("id=\"decision\"") > page.indexOf("id=\"deploy\""),
+    "the decision table comes last",
+  );
+});
+
+test("the compare page keeps the benchmark numbers derived from the baseline file", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "compare", "index.astro"), "utf8");
+  // The kernel and stdlib figures are computed from the reference file at
+  // build time, never hard-coded, so a re-recorded baseline moves the page.
+  assert.ok(page.includes('const workloads = baseline.workloads'), "the page computes from the workloads");
+  assert.ok(page.includes("const geomean ="), "the geomean is computed, not typed in");
+  assert.ok(!/value: "\d+\.?\d*x"/.test(page), "no hard-coded speedup in the highlight strip");
+  assert.ok(page.includes("REPRODUCE ="), "the reproduce command is a named constant");
 });
 
 // -- scripts keep working (the check that caught theme.css) --

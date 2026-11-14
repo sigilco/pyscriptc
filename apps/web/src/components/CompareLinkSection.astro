@@ -1,0 +1,31 @@
+---
+// A compact pointer to the comparison page, in the landing page's own
+// editorial register: one line of copy, one quiet link, no cards and no
+// benchmark numbers (the comparison page carries the measured rows).
+import { siteLinks } from "../config/links";
+---
+
+<section class="w-full max-w-6xl mx-auto px-6 py-16 sm:py-20" aria-labelledby="compare-heading">
+  <div class="max-w-3xl">
+    <h2
+      id="compare-heading"
+      class="text-2xl sm:text-3xl font-normal tracking-tight text-white leading-[1.15] mb-3"
+    >
+      How it compares
+    </h2>
+    <p class="text-sm sm:text-base text-slate-400 font-light leading-relaxed">
+      pyscriptc is a typed subset compiled to a native binary, with CPython
+      3.14 as the oracle and every behavior difference numbered and
+      documented. That makes it a narrow tool, and the honest way to place it
+      is next to the bundlers, the other compilers and the JIT.
+      <a
+        href={siteLinks.compare}
+        data-ph-event="outbound_click"
+        data-ph-label="landing_compare"
+        class="text-slate-200 hover:text-white transition-colors underline decoration-slate-600 underline-offset-4 hover:decoration-slate-300"
+      >
+        Read the comparison
+      </a>
+    </p>
+  </div>
+</section>
