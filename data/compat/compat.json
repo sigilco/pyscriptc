@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-14",
-  "commit": "c7dda327465b632d406025922042ccc5b052c29c",
+  "commit": "4f86f0774cb2b892a394e098931a8b63b5d89052",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-14",
-    "commit": "c7dda327465b632d406025922042ccc5b052c29c",
+    "commit": "4f86f0774cb2b892a394e098931a8b63b5d89052",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -1109,16 +1109,16 @@
       "note": ""
     },
     {
-      "id": "stdlib.statistics",
+      "id": "stdlib.heapq",
       "kind": "stdlib",
-      "label": "`statistics`",
+      "label": "`heapq`",
       "names": [
-        "statistics"
+        "heapq"
       ],
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "multimode, median_grouped, correlation, linear_regression, mode over float data, quantiles n= outside 2, 4, 8"
+        "merge, the *_max family, key=, key= keyword, tuple elements"
       ],
       "fences": [
         "PS1003",
@@ -2598,7 +2598,7 @@
     },
     {
       "date": "2026-11-14",
-      "commit": "c7dda327465b632d406025922042ccc5b052c29c",
+      "commit": "4f86f0774cb2b892a394e098931a8b63b5d89052",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
