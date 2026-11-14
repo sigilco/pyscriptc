@@ -108,7 +108,17 @@ def _compile_binary(tmp_path: Path, source: str, name: str) -> Path:
     src = tmp_path / name
     src.write_text(source, encoding="utf-8")
     binary = tmp_path / f"{name}_bin"
-    comp = _cli("compile", str(src), "--fallback=cpython", "--allow-host-libpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _cli(
+        "compile",
+        str(src),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
     return binary
 

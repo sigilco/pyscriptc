@@ -238,7 +238,20 @@ def test_island_fallback_matches_cpython_for_sys_exit_string(tmp_path: Path) -> 
     )
     binary = tmp_path / "island_bin"
     assert (
-        cli.main(["compile", str(src), "--fallback=cpython", "--allow-host-libpython", "--emit", "bin", "--skip-check", "-o", str(binary)]) == 0
+        cli.main(
+            [
+                "compile",
+                str(src),
+                "--fallback=cpython",
+                "--allow-host-libpython",
+                "--emit",
+                "bin",
+                "--skip-check",
+                "-o",
+                str(binary),
+            ]
+        )
+        == 0
     )
     want = subprocess.run([sys.executable, str(src)], capture_output=True)
     got = subprocess.run([str(binary)], capture_output=True)

@@ -68,7 +68,17 @@ if __name__ == "__main__":
     fixture.write_text("alpha\nbeta\ngamma\n", encoding="utf-8")
 
     binary = tmp_path / "prog"
-    comp = _run_cli("compile", str(src), "--fallback=cpython", "--allow-host-libpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli(
+        "compile",
+        str(src),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
 
     got = subprocess.run([str(binary), str(fixture)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -94,7 +104,8 @@ def test_fallback_fstring_placeholder_island_call_matches_oracle(tmp_path: Path)
     comp = _run_cli(
         "compile",
         str(src),
-        "--fallback=cpython", "--allow-host-libpython",
+        "--fallback=cpython",
+        "--allow-host-libpython",
         "--emit",
         "bin",
         "-o",

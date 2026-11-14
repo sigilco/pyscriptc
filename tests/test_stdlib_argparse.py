@@ -89,7 +89,9 @@ def test_argparse_default_prog_is_the_source_basename(tmp_path: Path) -> None:
         ],
     )
     binary = tmp_path / "binary_size"
-    got = run_cli("compile", "--fallback=cpython", "--allow-host-libpython", str(path), "--emit", "bin", "-o", str(binary))
+    got = run_cli(
+        "compile", "--fallback=cpython", "--allow-host-libpython", str(path), "--emit", "bin", "-o", str(binary)
+    )
     assert got.returncode == 0, got.stderr
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
     oracle = subprocess.run([sys.executable, str(path)], capture_output=True, text=True, timeout=60)

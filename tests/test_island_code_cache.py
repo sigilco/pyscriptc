@@ -44,7 +44,18 @@ def _write(root: Path, files: dict[str, str]) -> None:
 
 
 def _compile(tmp_path: Path, target: Path, out: Path, *flags: str) -> Path:
-    comp = _cli("compile", str(target), "--fallback=cpython", "--allow-host-libpython", "--emit", "bin", "-o", str(out), *flags, cwd=tmp_path)
+    comp = _cli(
+        "compile",
+        str(target),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(out),
+        *flags,
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
     return out
 
@@ -125,7 +136,17 @@ def test_the_compiled_program_carries_the_cache(tmp_path: Path) -> None:
         },
     )
     ir_path = tmp_path / "prog.ir.json"
-    comp = _cli("compile", str(prog), "--fallback=cpython", "--allow-host-libpython", "--emit", "ir", "-o", str(ir_path), cwd=tmp_path)
+    comp = _cli(
+        "compile",
+        str(prog),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "ir",
+        "-o",
+        str(ir_path),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
     import json
 

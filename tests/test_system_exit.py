@@ -256,7 +256,20 @@ def test_island_system_exit_matches_cpython(tmp_path: Path, name: str, source: s
     src.write_text(source, encoding="utf-8")
     binary = tmp_path / "prog_bin"
     assert (
-        cli.main(["compile", str(src), "--fallback=cpython", "--allow-host-libpython", "--emit", "bin", "--skip-check", "-o", str(binary)]) == 0
+        cli.main(
+            [
+                "compile",
+                str(src),
+                "--fallback=cpython",
+                "--allow-host-libpython",
+                "--emit",
+                "bin",
+                "--skip-check",
+                "-o",
+                str(binary),
+            ]
+        )
+        == 0
     )
     want = subprocess.run([sys.executable, str(src)], capture_output=True)
     got = subprocess.run([str(binary)], capture_output=True)

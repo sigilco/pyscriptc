@@ -85,7 +85,8 @@ def _compile(
         (tmp_path / "pyscriptc.toml").write_text(imports, encoding="utf-8")
     argv = [sys.executable, "-m", "pyscriptc", "compile"]
     if island:
-        argv.append("--island", "--allow-host-libpython")
+        argv.append("--island")
+        argv.append("--allow-host-libpython")
     if engine is not None:
         argv += ["--island-engine", str(engine)]
     argv += ["--emit", "bin", str(source), "-o", str(out)]

@@ -110,7 +110,18 @@ def test_nested_def_island_call_compiles_cli(tmp_path: Path) -> None:
     src.write_text(NESTED_ISLAND, encoding="utf-8")
     binary = tmp_path / "nest_bin"
     comp = subprocess.run(
-        [sys.executable, "-m", "pyscriptc", "compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython"],
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(src),
+            "--emit",
+            "bin",
+            "-o",
+            str(binary),
+            "--allow-host-libpython",
+        ],
         cwd=ROOT,
         capture_output=True,
         text=True,
@@ -184,7 +195,8 @@ def test_nested_def_island_pool_matches_cpython(tmp_path: Path) -> None:
             "pyscriptc",
             "compile",
             str(src),
-            "--fallback=cpython", "--allow-host-libpython",
+            "--fallback=cpython",
+            "--allow-host-libpython",
             "--emit",
             "bin",
             "-o",

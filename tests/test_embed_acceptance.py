@@ -126,7 +126,15 @@ def test_acceptance_matrix_runs_in_an_empty_environment(tmp_path: Path) -> None:
 
     stdlib_bundle = _compile(STDLIB_PROGRAM, work / "stdlib" / "prog", "--island", "--allow-host-libpython")
     dependency_bundle = _compile(DEPENDENCY_PROGRAM, work / "sitedep" / "depprog", "--island", "--allow-host-libpython")
-    data_bundle = _compile(DATA_PROGRAM, work / "datafile" / "prog", "--program", "--island", "--allow-host-libpython", "--fallback=cpython", "--allow-host-libpython")
+    data_bundle = _compile(
+        DATA_PROGRAM,
+        work / "datafile" / "prog",
+        "--program",
+        "--island",
+        "--allow-host-libpython",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+    )
 
     # The build tree goes away: the bundles move to a fresh directory and the
     # compile-time outputs are deleted.
@@ -188,7 +196,8 @@ def test_a_missing_pack_is_refused_without_a_traceback(tmp_path: Path) -> None:
             "-m",
             "pyscriptc",
             "compile",
-            "--island", "--allow-host-libpython",
+            "--island",
+            "--allow-host-libpython",
             "--embed-python=bundle",
             str(STDLIB_PROGRAM),
             "--emit",
