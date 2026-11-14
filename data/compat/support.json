@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-14",
-  "commit": "f629b2b039f159443e50a3d053f044dad23553cd",
+  "commit": "a574f02e3f7773ecb295a6cf128dd8ddd09d8fc7",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 70,
+      "yellow": 71,
       "red": 0
     },
     "packages": {
@@ -574,6 +574,15 @@
       "status": "\ud83d\udfe1",
       "count": 1,
       "missing": "key=, lo=, hi=",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`heapq`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "merge, heapreplace, heappushpop, the *_max family, key=",
       "codes": [
         "PS2001"
       ]

@@ -61,6 +61,7 @@ QUEUE: tuple[str, ...] = (
     "string",
     "bisect",
     "heapq",
+    "statistics",
     "errno",
     "importlib.resources",
     "hmac",
