@@ -57,7 +57,6 @@ from pyscriptc.lower._core import (
     _name,
     _show,
     _sig_typevars,
-    _subst_type,
 )
 from pyscriptc.reflection import kwargs_call_note, typing_note
 from pyscriptc.restlower import _static_builtin_fold, builtin_call
@@ -377,13 +376,13 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         args = [
             arg
             for arg, param in zip(args, params, strict=True)
-            if _type_kind(_subst_type(param["type"], mapping)) != "none"
+            if _type_kind(self._subst(param["type"], mapping, node)) != "none"
         ]
         return node_to_dict(
             _ir.call(
                 _ir.function_callee(self._ir_name(emit)),
                 [dict_to_node(arg) for arg in args],
-                _mk_type(_subst_type(ret, mapping)),
+                _mk_type(self._subst(ret, mapping, node)),
                 _mk_span(span),
                 "",
                 "",
@@ -454,6 +453,15 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             else:
                 mapping[tv] = got
             return
+        if _type_kind(want) == "class" and want.get("optional") and _has_typevar(want["elem"]):
+            # Issue #412: a `T | None` parameter binds T from an optional
+            # argument's element or from a plain argument; a bare None binds
+            # nothing (another argument, or the bound, decides T).
+            if _type_kind(got) == "none":
+                return
+            inner = got["elem"] if _type_kind(got) == "class" and got.get("optional") else got
+            self._unify(inner, want["elem"], mapping, node, arg_node)
+            return
         if _type_kind(want) == "list" and _type_kind(got) == "list":
             self._unify(got["elem"], want["elem"], mapping, node, arg_node)
             return
@@ -522,7 +530,11 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 got = param["default"]
                 if param.get("optdefault"):
                     got = self._opt_box(got, param["type"], span_of(node, self.filename))
-            want = _subst_type(param["type"], mapping)
+            want = self._subst(param["type"], mapping, node)
+            if want.get("optional") and not _has_typevar(want) and not got["type"].get("optional"):
+                # A plain value or None for a `T | None` parameter boxes into
+                # the concrete optional once T is bound (issue #412).
+                got = self._opt_box(got, want, span_of(node, self.filename))
             if not _has_typevar(want) and not types_equal(got["type"], want):
                 self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
             args.append(got)
@@ -534,7 +546,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 value = self._expr(arg_node)
                 self._unify(value["type"], elem, mapping, node, arg_node)
                 elems.append(value)
-            var_type = _subst_type(varparam["type"], mapping)
+            var_type = self._subst(varparam["type"], mapping, node)
             args.append(
                 node_to_dict(
                     _ir.list_lit(

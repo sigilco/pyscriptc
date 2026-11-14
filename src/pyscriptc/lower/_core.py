@@ -563,9 +563,13 @@ _CMP = {
 }
 _SCALAR = {"int", "float", "str", "bytes"}
 _TRUTHY = frozenset({"str", "bytes", "int", "list", "dict"})
-_LIST_FORMS = frozenset({"List"})
-_DICT_FORMS = frozenset({"Dict"})
-_SET_FORMS = frozenset({"Set"})
+# Issue #412: the `collections.abc` (and `typing`) abstract containers erase
+# to the concrete container they describe. A read-only or mutable sequence is
+# `list[T]`, a mapping is `dict[K, V]`, an abstract set is `set[T]`; the
+# annotation decides the layout and nothing abstract reaches the IR.
+_LIST_FORMS = frozenset({"List", "MutableSequence", "Collection"})
+_DICT_FORMS = frozenset({"Dict", "Mapping", "MutableMapping"})
+_SET_FORMS = frozenset({"Set", "AbstractSet", "MutableSet"})
 # Issue #781: `dict[K, Any]` and `list[Any]` annotate as `any` elements; the
 # container's shape (the key type, the element slots) is known, the value type
 # is not, and every read proves it from a local source or fences with PS1107.

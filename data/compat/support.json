@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-14",
-  "commit": "4f86f0774cb2b892a394e098931a8b63b5d89052",
+  "commit": "f629b2b039f159443e50a3d053f044dad23553cd",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 69,
+      "yellow": 70,
       "red": 0
     },
     "packages": {
@@ -579,10 +579,10 @@
       ]
     },
     {
-      "label": "`heapq`",
+      "label": "`statistics`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "merge, the *_max family, key=, key= keyword, tuple elements",
+      "missing": "multimode, median_grouped, correlation, linear_regression, mode over float data, quantiles n= outside 2, 4, 8",
       "codes": [
         "PS1003",
         "PS2001",
@@ -818,6 +818,16 @@
         "PS2001",
         "PS2002"
       ]
+    },
+    {
+      "label": "`collections.abc`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "name as a value, isinstance with an abstract base",
+      "codes": [
+        "PS2001",
+        "PS2002"
+      ]
     }
   ],
   "packages": [
@@ -842,15 +852,15 @@
       "version": "1.2.4",
       "status": "\ud83d\udd34",
       "ratio": "42/75",
-      "blocking": "unlowered-call (25), name-resolution (17), construct-other (17)",
+      "blocking": "unlowered-call (25), name-resolution (18), construct-other (18)",
       "codes": "PS2002, PS1106, PS1001"
     },
     {
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "233/641",
-      "blocking": "name-resolution (146), construct-other (91), generic-alias (61)",
+      "ratio": "246/641",
+      "blocking": "name-resolution (172), construct-other (120), field-lookup (51)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -874,8 +884,8 @@
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
       "ratio": "13/34",
-      "blocking": "type-mismatch (5), generic-alias (4), union-types (4)",
-      "codes": "PS2002, PS1003, PS1103"
+      "blocking": "type-mismatch (5), union-types (4), call-arity (4)",
+      "codes": "PS2002, PS1003, PS1101"
     },
     {
       "name": "jmespath",
@@ -905,15 +915,15 @@
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "269/558",
-      "blocking": "unlowered-type-name (90), name-resolution (77), generic-alias (64)",
+      "ratio": "271/558",
+      "blocking": "unlowered-type-name (90), name-resolution (77), generic-alias (53)",
       "codes": "PS2002, PS1106, PS1103"
     },
     {
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "77/132",
+      "ratio": "76/132",
       "blocking": "name-resolution (30), construct-other (21), unlowered-type-name (19)",
       "codes": "PS2002, PS1106, PS1003"
     },
@@ -921,8 +931,8 @@
       "name": "platformdirs",
       "version": "4.13.0",
       "status": "\ud83d\udfe1",
-      "ratio": "154/388",
-      "blocking": "construct-other (62), name-resolution (51), optional-types (33)",
+      "ratio": "155/388",
+      "blocking": "construct-other (63), name-resolution (63), optional-types (33)",
       "codes": "PS2002, PS1102, PS2001"
     },
     {

@@ -34,7 +34,6 @@ from pyscriptc.lower._core import (
     _plain_const_kind,
     _show,
     _sig_typevars,
-    _subst_type,
 )
 from pyscriptc.lower._ndarray import _dtype_of as _nd_dtype_of
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
@@ -1036,7 +1035,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             self.fail(node, "PS1003", f"cannot infer {missing[0]} for {name}")
         inst = self._instantiate_class(name, [mapping[tv] for tv in tvars], node)
         for arg, param in zip(args, params, strict=True):
-            want = _subst_type(param["type"], mapping)
+            want = self._subst(param["type"], mapping, node)
             if not _has_typevar(want):
                 self._expect(node, arg["type"], want, name)
         return _class_call(inst, args, _class_type(inst), span)
@@ -1185,7 +1184,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             if kw.arg == "bound":
                 typ = self._annotation(kw.value)
                 bound = typ if _type_kind(typ) != "typevar" else None
-            elif kw.arg in {"covariant", "contravariant"}:
+            elif kw.arg in {"covariant", "contravariant", "infer_variance"}:
                 continue
             else:
                 self.fail(kw.value, "PS2003", f"TypeVar keyword {kw.arg} is not lowered")
@@ -1235,18 +1234,18 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if name in self.classes or name in self.declared:
             self.fail(node, "PS2002", f"{name} is already bound")
         inst = copy.deepcopy(info)
-        inst["fields"] = [{**field, "type": _subst_type(field["type"], mapping)} for field in inst["fields"]]
+        inst["fields"] = [{**field, "type": self._subst(field["type"], mapping, node)} for field in inst["fields"]]
         inst["own_fields"] = [
-            {**field, "type": _subst_type(field["type"], mapping)} for field in inst.get("own_fields", [])
+            {**field, "type": self._subst(field["type"], mapping, node)} for field in inst.get("own_fields", [])
         ]
         for field in inst["fields"] + inst["own_fields"]:
             default = field.get("default")
             if default is not None:
-                default["type"] = _subst_type(default["type"], mapping)
+                default["type"] = self._subst(default["type"], mapping, node)
         inst["methods"] = {
             mname: (
-                [{**param, "type": _subst_type(param["type"], mapping)} for param in params],
-                _subst_type(ret, mapping),
+                [{**param, "type": self._subst(param["type"], mapping, node)} for param in params],
+                self._subst(ret, mapping, node),
             )
             for mname, (params, ret) in inst["methods"].items()
         }
