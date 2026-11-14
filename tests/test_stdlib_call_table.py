@@ -601,6 +601,9 @@ def _compile_and_run(
             "bin",
             "--call",
             "run",
+            # The host and text groups pull island-backed modules, so their
+            # binaries link the host's libpython; the audit accepts it here.
+            "--allow-host-libpython",
             "-o",
             str(binary),
         ],

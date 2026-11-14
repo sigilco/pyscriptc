@@ -43,7 +43,7 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "repro_bin"
-    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython", cwd=tmp_path)
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -76,7 +76,7 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "two_step_bin"
-    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython", cwd=tmp_path)
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -129,7 +129,7 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "scalars_bin"
-    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython", cwd=tmp_path)
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -181,7 +181,7 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "containers_bin"
-    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython", cwd=tmp_path)
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -224,7 +224,7 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "pass_return_bin"
-    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython", cwd=tmp_path)
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -292,7 +292,7 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "catch_mismatch_bin"
-    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython", cwd=tmp_path)
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -340,7 +340,7 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "catch_exc_bin"
-    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython", cwd=tmp_path)
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
