@@ -517,9 +517,9 @@ ok = ['y: int = bisect.bisect_left(xs, n)', 'y: int = bisect.bisect_right(xs, n)
 no = [["key=, lo=, hi=", 'bisect.insort(xs, n, key=lambda v: v)', "PS2001"]]
 
 [[stdlib]]
-names = ["heapq"]
-ok = ['heapq.heapify(xs)', 'heapq.heappush(xs, n)', 'y: int = heapq.heappop(xs)', 'y: int = heapq.heappushpop(xs, n)', 'y: int = heapq.heapreplace(xs, n)', 'y: list[int] = heapq.nlargest(2, xs)', 'y: list[int] = heapq.nsmallest(2, xs)', 'heapq.heapify(ss)', 'y: str = heapq.heappop(ss)', 'y: list[str] = heapq.nlargest(2, ss)']
-no = [["merge, the *_max family, key=", 'y: list[int] = heapq.merge(xs, xs)', "PS2001"], ["key= keyword", 'y: list[int] = heapq.nsmallest(2, xs, key=abs)', "PS2003"], ["tuple elements", 'y: list[tuple[int, int]] = heapq.nsmallest(2, [(1, 2)])', "PS1003"]]
+names = ["statistics"]
+ok = ['y: float = statistics.mean(xs)', 'y: float = statistics.fmean(xs)', 'y: float = statistics.median(xs)', 'y: int = statistics.median_low(xs)', 'y: int = statistics.median_high(xs)', 'y: int = statistics.mode(xs)', 'y: float = statistics.variance(xs)', 'y: float = statistics.pvariance(xs)', 'y: float = statistics.stdev(xs)', 'y: float = statistics.pstdev(xs)', 'y: list[float] = statistics.quantiles(xs)', 'y: float = statistics.mean([x])']
+no = [["multimode, median_grouped, correlation, linear_regression", 'y: list[int] = statistics.multimode(xs)', "PS2001"], ["mode over float data", 'y: float = statistics.mode([x])', "PS1003"], ["quantiles n= outside 2, 4, 8", 'y: list[float] = statistics.quantiles(xs, n=3)', "PS2003"]]
 
 [[stdlib]]
 names = ["errno"]

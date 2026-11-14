@@ -1700,7 +1700,7 @@ REST_MODULES = frozenset(
         "ctypes",
         "string",
         "bisect",
-        "heapq",
+        "statistics",
         "errno",
         "importlib.resources",
         "hmac",
@@ -1955,14 +1955,18 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "io" and member in {"StringIO", "BytesIO"}:
         return True
-    if module == "heapq" and member in {
-        "heapify",
-        "heappush",
-        "heappop",
-        "heappushpop",
-        "heapreplace",
-        "nlargest",
-        "nsmallest",
+    if module == "statistics" and member in {
+        "mean",
+        "fmean",
+        "median",
+        "median_low",
+        "median_high",
+        "mode",
+        "variance",
+        "pvariance",
+        "stdev",
+        "pstdev",
+        "quantiles",
     }:
         return True
     if module == "bisect" and member in {

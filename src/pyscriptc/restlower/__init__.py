@@ -49,7 +49,6 @@ from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
 from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
 from pyscriptc.restlower._functools import _reduce
-from pyscriptc.restlower._heapq import _heapq_call
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
 from pyscriptc.restlower._io import _input, _mkstemp, _named_temp, _open, _print
 from pyscriptc.restlower._iterators import (
@@ -76,6 +75,7 @@ from pyscriptc.restlower._random import _random_call
 from pyscriptc.restlower._secrets import _secrets_call
 from pyscriptc.restlower._selectors import _selector_method, _selectors_call
 from pyscriptc.restlower._shlex import _shlex_call
+from pyscriptc.restlower._statistics import _statistics_call
 from pyscriptc.restlower._subprocess import _call as _sub_call
 from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
 from pyscriptc.restlower._subprocess import _run as _sub_run
@@ -191,7 +191,7 @@ _MODULES_BEFORE_SPEC: dict[str, Handler] = {
 _MODULES_AFTER_SPEC: dict[str, Handler] = {
     "random": lambda lo, node, span, expect, attr: _random_call(lo, node, span, attr),
     "csv": lambda lo, node, span, expect, attr: _csv_call(lo, node, span, attr),
-    "heapq": lambda lo, node, span, expect, attr: _heapq_call(lo, node, span, expect, attr),
+    "statistics": lambda lo, node, span, expect, attr: _statistics_call(lo, node, span, attr),
     "textwrap": lambda lo, node, span, expect, attr: _textwrap_call(lo, node, span, attr),
     "copy": lambda lo, node, span, expect, attr: _copy_call(lo, node, span, attr),
     "tomllib": lambda lo, node, span, expect, attr: _tomllib_call(lo, node, span, expect, attr),
