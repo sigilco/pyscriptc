@@ -269,3 +269,19 @@ def test_a_bundle_link_carries_no_host_load_command(tmp_path: Path) -> None:
         assert listed.returncode == 0
         assert "$ORIGIN/../lib" in listed.stdout
         assert str(Path(sys.executable).resolve().parent.parent) not in listed.stdout
+
+
+def test_framework_python_is_flagged() -> None:
+    """A macOS framework build links `Python.framework/.../Python`, not a
+    `libpython*.dylib`: the framework library is the interpreter itself."""
+    framework = """prog:
+\t/Library/Frameworks/Python.framework/Versions/3.14/Python (compatibility version 3.14.0, current version 3.14.0)
+\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1356.0.0)
+"""
+    load = """Load command 12
+          cmd LC_RPATH
+      cmdsize 96
+         path /Library/Frameworks/Python.framework/Versions/3.14/lib (offset 12)
+"""
+    refs = bindeps.host_libpython_references(framework, load)
+    assert refs == ["/Library/Frameworks/Python.framework/Versions/3.14/Python"]

@@ -55,7 +55,12 @@ from pathlib import Path
 #: interpreter's own library, linked by absolute path.
 _PORTABLE_PREFIXES = ("@executable_path/", "@loader_path/", "$ORIGIN/", "lib/", "/lib/", "/usr/lib/")
 
+#: A Mach-O load command naming the interpreter's own library. Two shapes
+#: exist: the plain `libpython3.14.dylib` of a venv or a python-build-standalone
+#: install, and the framework build's `Python.framework/Versions/3.14/Python`,
+#: whose library is the interpreter itself under another name.
 _LIBPYTHON_MACHO = re.compile(r"^\s+(?P<ref>\S*libpython\S*\.dylib)\s+\(")
+_FRAMEWORK_MACHO = re.compile(r"^\s+(?P<ref>\S*Python\.framework/\S*Python)\s+\(")
 _LIBPYTHON_ELF = re.compile(r"Shared library:\s+\[(?P<ref>libpython\S*)\]")
 _RUNPATH_ELF = re.compile(r"(?:RUNPATH|RPATH)\)?\s+Library (?:runpath|rpath):\s+\[(?P<paths>[^\]]*)\]")
 _RPATH_MACHO = re.compile(r"^\s+path\s+(?P<path>\S+)\s+\(offset \d+\)\s*$")
@@ -141,6 +146,8 @@ def host_libpython_references(
     refs: list[str] = []
     for line in tool_output.splitlines():
         match = _LIBPYTHON_MACHO.match(line)
+        if match is None:
+            match = _FRAMEWORK_MACHO.match(line)
         if match is not None:
             ref = match.group("ref")
             if ref.startswith("@rpath/"):
