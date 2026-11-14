@@ -49,6 +49,7 @@ from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
 from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
 from pyscriptc.restlower._functools import _reduce
+from pyscriptc.restlower._hashlib import _hashlib_call, _hashlib_method
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
 from pyscriptc.restlower._io import _input, _mkstemp, _named_temp, _open, _print
 from pyscriptc.restlower._iterators import (
@@ -107,6 +108,7 @@ from pyscriptc.stdmore import (
 )
 
 __all__ = [
+    "_hashlib_method",
     "_lock_method",
     "_mk_iter",
     "_queue_method",
@@ -183,6 +185,7 @@ _MODULES_BEFORE_SPEC: dict[str, Handler] = {
     "threading": lambda lo, node, span, expect, attr: _threading_call(lo, node, span, attr),
     "queue": lambda lo, node, span, expect, attr: _queue_call(lo, node, span, expect, attr),
     "selectors": lambda lo, node, span, expect, attr: _selectors_call(lo, node, span, expect, attr),
+    "hashlib": lambda lo, node, span, expect, attr: _hashlib_call(lo, node, span, attr),
 }
 
 # Whole-module handlers, consulted after `fixed_spec`.

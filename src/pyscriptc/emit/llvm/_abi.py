@@ -692,6 +692,11 @@ class AbiMixin(EmitterBase):
 
     def _emit_abi(self, expr: dict[str, Any], values: list[str]) -> str:
         symbol: str = _node_symbol(expr)
+        if symbol.startswith("ps_hash_"):
+            # The hash runtime group carries the declarations (the one-shot
+            # calls and the streaming context rows, issue #1248).
+            needed = self.needed
+            needed.add("hash")
         rendered: list[str] = []
         types: list[str] = []
         arg_index = 0
@@ -819,6 +824,9 @@ class AbiMixin(EmitterBase):
                 "ps_asem_new",
                 "ps_aqueue_new",
                 "ps_to_thread_new",
+                # The streaming hash context (issue #1248): the runtime owns
+                # the record and the value is its pointer.
+                "ps_hash_new",
             }:
                 # The runtime owns the record: the value is the record pointer.
                 self._abi_decl(symbol, "ptr", types)

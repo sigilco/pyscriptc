@@ -218,6 +218,11 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
                 "declare ptr @ps_hash_sha512(i64, ptr)",
                 "declare void @ps_hash_hex(ptr, ptr)",
                 "declare void @ps_hash_digest(ptr, ptr)",
+                # The streaming hash context (issue #1248).
+                "declare ptr @ps_hash_new(i64)",
+                "declare void @ps_hash_update(ptr, i64, ptr)",
+                "declare void @ps_hash_digest_ctx(ptr, ptr)",
+                "declare void @ps_hash_hexdigest(ptr, ptr)",
             ]
         )
     if "struct" in needed:

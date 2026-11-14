@@ -210,6 +210,9 @@ WAVE_FUNCTIONS: dict[str, dict[str, Sig]] = {
         "standard_b64decode": _fixed([_BUF], _BYTES),
         "urlsafe_b64decode": _fixed([_BUF], _BYTES),
     },
+    # The hashlib rows keep the one-arg fixed shape (issue #1248): the
+    # zero-argument streaming form is the lowerer's call site, where the
+    # constructor picks the streaming hash object over the one-shot call.
     "hashlib": {name: _fixed([_BUF], _HASH) for name in ("md5", "sha1", "sha256", "sha384", "sha512")},
     "urllib.parse": {
         "quote": _optional([_STR, _STR], _STR, ["/"], ["string", "safe"]),

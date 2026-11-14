@@ -1223,6 +1223,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "subprocess": ("CompletedProcess", "CompletedProcessText"),
     "collections": ("Deque",),
     "hmac": ("Hmac",),
+    "hashlib": ("Hash",),
     "importlib.resources": ("Path",),
     "csv": ("CsvWriter",),
     "argparse": ("ArgParser", "Namespace"),
@@ -1276,6 +1277,10 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
         ("_msg", _BY),
         ("_alg", _I),
     ],
+    # The streaming hash record (issue #1248) is an opaque runtime pointer;
+    # the algorithm id, the chaining state and the partial block ride the
+    # runtime struct, not the class table.
+    "Hash": [],
     # The parser holds the encoded spec rows; the namespace fields are
     # declared as the options are registered, so they start empty here.
     "ArgParser": [("_specs", _STR_LIST)],
@@ -1357,7 +1362,9 @@ ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSema
 
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
-PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser", "DefaultSelector"}
+PTR_CLASSES: frozenset[str] = (
+    THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser", "DefaultSelector", "Hash"}
+)
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("datetime", "date"): "Date",
@@ -1376,6 +1383,12 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("logging", "Logger"): "Logger",
     ("re", "Pattern"): "Pattern",
     ("re", "Match"): "Match",
+    ("hashlib", "sha256"): "Hash",
+    ("hashlib", "sha1"): "Hash",
+    ("hashlib", "sha224"): "Hash",
+    ("hashlib", "sha384"): "Hash",
+    ("hashlib", "sha512"): "Hash",
+    ("hashlib", "md5"): "Hash",
     ("threading", "Lock"): "Lock",
     ("threading", "RLock"): "Lock",
     ("os", "terminal_size"): "TerminalSize",
@@ -1698,6 +1711,7 @@ REST_MODULES = frozenset(
         "errno",
         "importlib.resources",
         "hmac",
+        "hashlib",
         "unicodedata",
         "tempfile",
         "atexit",

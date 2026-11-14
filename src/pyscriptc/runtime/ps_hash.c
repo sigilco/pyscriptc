@@ -654,3 +654,229 @@ void ps_hash_hex(PsBuf *h, PsBuf *out) {
 }
 
 void ps_hash_digest(PsBuf *h, PsBuf *out) { ps_buf_copy(out, h->data, h->len); }
+
+/* The streaming hash object (issue #1248): hashlib.sha256() with no argument,
+update() folding bytes in, and digest()/hexdigest() over the same block
+transforms the one-shot calls use. alg follows the hmac numbering (1 md5,
+2 sha1, 3 sha256, 4 sha384, 5 sha512). The context is finalized once; a
+second digest() copies the memoized output, like CPython's freeze-on-read
+digest. */
+
+#define PS_HASH_MAX_BLOCK 128
+
+typedef struct PsHash {
+    int64_t alg;
+    uint64_t total;
+    int64_t filled;
+    int64_t done;
+    uint32_t st32[8];
+    uint64_t st64[8];
+    uint8_t block[PS_HASH_MAX_BLOCK];
+} PsHash;
+
+static void ps_hash_ctx_init(PsHash *h, int64_t alg) {
+    h->alg = alg;
+    h->total = 0;
+    h->filled = 0;
+    h->done = 0;
+    memset(h->st32, 0, sizeof(h->st32));
+    memset(h->st64, 0, sizeof(h->st64));
+    memset(h->block, 0, sizeof(h->block));
+    if (alg == 1) {
+        h->st32[0] = 0x67452301u;
+        h->st32[1] = 0xefcdab89u;
+        h->st32[2] = 0x98badcfeu;
+        h->st32[3] = 0x10325476u;
+    } else if (alg == 2) {
+        h->st32[0] = 0x67452301u;
+        h->st32[1] = 0xefcdab89u;
+        h->st32[2] = 0x98badcfeu;
+        h->st32[3] = 0x10325476u;
+        h->st32[4] = 0xc3d2e1f0u;
+    } else if (alg == 3) {
+        h->st32[0] = 0x6a09e667u;
+        h->st32[1] = 0xbb67ae85u;
+        h->st32[2] = 0x3c6ef372u;
+        h->st32[3] = 0xa54ff53au;
+        h->st32[4] = 0x510e527fu;
+        h->st32[5] = 0x9b05688cu;
+        h->st32[6] = 0x1f83d9abu;
+        h->st32[7] = 0x5be0cd19u;
+    } else if (alg == 4) {
+        h->st64[0] = 0xcbbb9d5dc1059ed8ULL;
+        h->st64[1] = 0x629a292a367cd507ULL;
+        h->st64[2] = 0x9159015a3070dd17ULL;
+        h->st64[3] = 0x152fecd8f70e5939ULL;
+        h->st64[4] = 0x67332667ffc00b31ULL;
+        h->st64[5] = 0x8eb44a8768581511ULL;
+        h->st64[6] = 0xdb0c2e0d64f98fa7ULL;
+        h->st64[7] = 0x47b5481dbefa4fa4ULL;
+    } else {
+        h->st64[0] = 0x6a09e667f3bcc908ULL;
+        h->st64[1] = 0xbb67ae8584caa73bULL;
+        h->st64[2] = 0x3c6ef372fe94f82bULL;
+        h->st64[3] = 0xa54ff53a5f1d36f1ULL;
+        h->st64[4] = 0x510e527fade682d1ULL;
+        h->st64[5] = 0x9b05688c2b3e6c1fULL;
+        h->st64[6] = 0x1f83d9abfb41bd6bULL;
+        h->st64[7] = 0x5be0cd19137e2179ULL;
+    }
+}
+
+PsHash *ps_hash_new(int64_t alg) {
+    PsHash *h = ps_alloc((int64_t)sizeof(PsHash));
+    ps_hash_ctx_init(h, alg);
+    return h;
+}
+
+/* Fold whole blocks and keep the remainder in the context's buffer. */
+
+static void ps_hash_fold(PsHash *h, const uint8_t *p, int64_t n) {
+    if (h->alg == 1 || h->alg == 2 || h->alg == 3) {
+        int64_t bs = 64;
+        while (n > 0) {
+            int64_t take = bs - h->filled;
+            if (take > n) {
+                take = n;
+            }
+            memcpy(h->block + h->filled, p, (size_t)take);
+            h->filled += take;
+            p += take;
+            n -= take;
+            h->total += (uint64_t)take;
+            if (h->filled == bs) {
+                if (h->alg == 1) {
+                    ps_md5_block(h->st32, h->block);
+                } else if (h->alg == 2) {
+                    ps_sha1_block(h->st32, h->block);
+                } else {
+                    ps_sha256_blocks_dispatch(h->st32, h->block, 1);
+                }
+                h->filled = 0;
+            }
+        }
+        return;
+    }
+    while (n > 0) {
+        int64_t take = 128 - h->filled;
+        if (take > n) {
+            take = n;
+        }
+        memcpy(h->block + h->filled, p, (size_t)take);
+        h->filled += take;
+        p += take;
+        n -= take;
+        h->total += (uint64_t)take;
+        if (h->filled == 128) {
+            ps_sha512_block(h->st64, h->block);
+            h->filled = 0;
+        }
+    }
+}
+
+void ps_hash_update_ctx(PsHash *h, int64_t n, char *p) {
+    if (h->done || n <= 0) {
+        return;
+    }
+    ps_hash_fold(h, (const uint8_t *)p, n);
+}
+
+/* The one-shot pad-and-length tail, reading the remainder from the context. */
+
+static void ps_hash_finish32(PsHash *h, int md5) {
+    int64_t rem = h->filled;
+    uint8_t block[64];
+    memset(block, 0, 64);
+    if (rem > 0) {
+        memcpy(block, h->block, (size_t)rem);
+    }
+    block[rem] = 0x80;
+    if (rem >= 56) {
+        if (md5) {
+            ps_md5_block(h->st32, block);
+        } else if (h->alg == 2) {
+            ps_sha1_block(h->st32, block);
+        } else {
+            ps_sha256_blocks_dispatch(h->st32, block, 1);
+        }
+        memset(block, 0, 64);
+    }
+    uint64_t bits = h->total * 8;
+    if (md5) {
+        for (int i = 0; i < 8; i++) {
+            block[56 + i] = (uint8_t)(bits >> (8 * i));
+        }
+        ps_md5_block(h->st32, block);
+    } else {
+        for (int i = 0; i < 8; i++) {
+            block[56 + i] = (uint8_t)(bits >> (8 * (7 - i)));
+        }
+        if (h->alg == 2) {
+            ps_sha1_block(h->st32, block);
+        } else {
+            ps_sha256_blocks_dispatch(h->st32, block, 1);
+        }
+    }
+}
+
+static void ps_hash_finish64(PsHash *h) {
+    int64_t rem = h->filled;
+    uint8_t block[128];
+    memset(block, 0, 128);
+    if (rem > 0) {
+        memcpy(block, h->block, (size_t)rem);
+    }
+    block[rem] = 0x80;
+    if (rem >= 112) {
+        ps_sha512_block(h->st64, block);
+        memset(block, 0, 128);
+    }
+    uint64_t bits = h->total * 8;
+    ps_store_be64(block + 112, 0);
+    ps_store_be64(block + 120, bits);
+    ps_sha512_block(h->st64, block);
+}
+
+void ps_hash_final(PsHash *h, PsBuf *out) {
+    if (!h->done) {
+        if (h->alg == 1) {
+            ps_hash_finish32(h, 1);
+        } else if (h->alg == 2) {
+            ps_hash_finish32(h, 0);
+        } else if (h->alg == 3) {
+            ps_hash_finish32(h, 0);
+        } else {
+            ps_hash_finish64(h);
+        }
+        h->done = 1;
+    }
+    int64_t n = h->alg == 1 ? 16 : h->alg == 2 ? 20 : h->alg == 3 ? 32 : h->alg == 4 ? 48 : 64;
+    uint8_t outb[64];
+    if (h->alg == 1) {
+        for (int i = 0; i < 4; i++) {
+            ps_store_le32(outb + i * 4, h->st32[i]);
+        }
+    } else if (h->alg == 2 || h->alg == 3) {
+        for (int i = 0; i < (h->alg == 2 ? 5 : 8); i++) {
+            ps_store_be32(outb + i * 4, h->st32[i]);
+        }
+    } else {
+        for (int i = 0; i < (h->alg == 4 ? 6 : 8); i++) {
+            ps_store_be64(outb + i * 8, h->st64[i]);
+        }
+    }
+    ps_buf_copy(out, (const char *)outb, n);
+}
+
+/* The method rows: update folds, digest and hexdigest read the same
+   finalized digest (the first read computes it, the rest copy it). */
+void ps_hash_update(PsHash *h, int64_t n, char *p) { ps_hash_update_ctx(h, n, p); }
+
+void ps_hash_digest_ctx(PsHash *h, PsBuf *out) { ps_hash_final(h, out); }
+
+void ps_hash_hexdigest(PsHash *h, PsBuf *out) {
+    PsBuf raw;
+    ps_hash_final(h, &raw);
+    ps_hash_hex(&raw, out);
+    free(raw.data);
+}

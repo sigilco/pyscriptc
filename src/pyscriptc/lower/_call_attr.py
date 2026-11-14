@@ -43,6 +43,7 @@ from pyscriptc.lower._misc_emit import _one_identity_note
 from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
 from pyscriptc.reflection import inspect_note, kwargs_call_note, typing_note
 from pyscriptc.restlower import (
+    _hashlib_method,
     _lock_method,
     _mk_iter,
     _queue_method,
@@ -815,17 +816,13 @@ class CallAttrMixin:
         return _name(out, self.locals[out], span)
 
     def _hash_method(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
-        assert isinstance(node.func, ast.Attribute)
-        self._reject_keywords(node)
-        name = node.func.attr
-        if node.args:
-            self.fail(node, "PS2003", f"Hash.{name} expects 0 argument(s)")
-        if name == "hexdigest":
-            return _mod_call("hashlib", "hexdigest", [receiver], {"kind": "str"}, span)
-        if name == "digest":
-            return _mod_call("hashlib", "digest", [receiver], {"kind": "bytes"}, span)
-        self.fail(node, "PS2001", f"Hash.{name} is not lowered")
-        raise AssertionError("unreachable")
+        """`h.update(data)`, `h.digest()` and `h.hexdigest()`.
+
+        The hash object is the runtime record the hashlib constructors hand
+        back (issue #1248): `update` folds bytes into the context and
+        `digest`/`hexdigest` read the finalized digest out of it.
+        """
+        return _hashlib_method(self, node, span, receiver)
 
     def _pattern_method(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
         assert isinstance(node.func, ast.Attribute)
