@@ -24,6 +24,7 @@ from pyscriptc.emit.llvm._calls import CallsMixin
 from pyscriptc.emit.llvm._core import CoreMixin
 from pyscriptc.emit.llvm._exprs import ExprsMixin
 from pyscriptc.emit.llvm._funcs import FuncsMixin
+from pyscriptc.emit.llvm._ndarray import NdArrayMixin
 from pyscriptc.emit.llvm._print import PrintMixin
 from pyscriptc.emit.llvm._stdlib import StdlibMixin
 from pyscriptc.emit.llvm._stmts import StmtsMixin
@@ -55,6 +56,7 @@ class Emitter(
     CoreMixin,
     ExprsMixin,
     FuncsMixin,
+    NdArrayMixin,
     PrintMixin,
     StdlibMixin,
     StmtsMixin,

@@ -258,6 +258,52 @@ no = [
 ]
 
 [[stdlib]]
+names = ["pyscriptc_ndarray", "numpy"]
+imports = ["pyscriptc_ndarray", "numpy"]
+pack = true
+ok = [
+  'nd = pyscriptc_ndarray.array("float64", [1.0, 2.0])',
+  'nd = pyscriptc_ndarray.array([1, 2], dtype="int64")',
+  'nd = pyscriptc_ndarray.zeros([2, 3], dtype="int32")',
+  'nd = pyscriptc_ndarray.ones(4)',
+  'nd = pyscriptc_ndarray.full([2, 2], 7)',
+  'nd = pyscriptc_ndarray.arange(0, 10, 2)',
+  'nd = pyscriptc_ndarray.linspace(0.0, 1.0, 5)',
+  'nd = pyscriptc_ndarray.fromlist([1.0, 2.0], "float64")',
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd_b = pyscriptc_ndarray.array(\"int64\", [5, 6, 7, 8])\nnd = nd_a + nd_b",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = nd_a - 1",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd_b = pyscriptc_ndarray.array(\"int64\", [5, 6, 7, 8])\nnd = nd_a * nd_b",
+  "nd_a = pyscriptc_ndarray.array(\"float64\", [1.0, 2.0, 3.0, 4.0])\nnd = nd_a / 2.0",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = nd_a // 2",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nndm = nd_a > 1",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nn: int = nd_a.sum()",
+  "nd_f = pyscriptc_ndarray.array(\"float64\", [1.0, 2.0, 3.0, 4.0])\nx: float = nd_f.mean()",
+  "nd_f = pyscriptc_ndarray.array(\"float64\", [1.0, 2.0, 3.0, 4.0])\nx: float = nd_f.std()",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nn: int = nd_a.argmax()",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.reshape([3, 2])",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.ravel()",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.transpose()",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.astype(\"int32\")",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.copy()",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = nd_a[0:4:2]",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = nd_a[nd_a > 1]",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd_a[0] = 5",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = pyscriptc_ndarray.concatenate([nd_a, nd_a])",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = pyscriptc_ndarray.stack([nd_a, nd_a])",
+  "nd_f = pyscriptc_ndarray.array(\"float64\", [1.0, 2.0, 3.0, 4.0])\nys_f = nd_f.tolist()",
+  "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nb = nd_a.tobytes()",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nn: int = nd_m.shape[0]",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nn: int = nd_m.ndim",
+  "nd_f = pyscriptc_ndarray.array(\"float64\", [1.0, 2.0, 3.0, 4.0])\ns: str = nd_f.dtype",
+]
+no = [
+  ["other module members (dot, linalg, random, fft, einsum)", "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = pyscriptc_ndarray.dot(nd_a, nd_a)", "PS2001"],
+  ["other methods (argsort, clip, cumsum, fill)", "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = nd_a.argsort()", "PS2001"],
+  ["dtype outside the four", 'nd = pyscriptc_ndarray.zeros([2], dtype="int16")', "PS2003"],
+  ["negative slice step", "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd: pyscriptc_ndarray.ndarray = nd_a[::-1]", "PS2001"],
+]
+
+[[stdlib]]
 names = ["urllib.request", "urllib.error"]
 imports = ["urllib.request", "urllib.error"]
 ok = ['y: urllib.request.HTTPResponse = urllib.request.urlopen(s)', 'y: urllib.request.Request = urllib.request.Request(s, data=b, method="POST")', 'y: int = urllib.request.urlopen(s).status']

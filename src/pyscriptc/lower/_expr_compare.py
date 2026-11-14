@@ -36,6 +36,8 @@ from pyscriptc.lower._core import (
     _op_text,
     _plain_const_kind,
 )
+from pyscriptc.lower._ndarray import _is_ndarray as _nd_is_ndarray
+from pyscriptc.lower._ndarray import _ndarray_compare
 from pyscriptc.stdmore import COMPARE_CLASSES
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
@@ -73,6 +75,10 @@ class ExprCompareMixin:
             self.fail(node, "PS2004", "OrderedDict equality is not lowered")
         left_kind = left["type"]["kind"]
         right_kind = right["type"]["kind"]
+        if _nd_is_ndarray(left["type"]) or _nd_is_ndarray(right["type"]):
+            # The ndarray comparison (issue #496): two arrays of the same
+            # shape, or an array and a number. The result is a bool array.
+            return _ndarray_compare(self, node, op, left, right, span)
         same_class = (
             left_kind == "class" and right_kind == "class" and left["type"].get("name") == right["type"].get("name")
         )
