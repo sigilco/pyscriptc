@@ -2508,7 +2508,7 @@
   "stdlib.collections.UserString.translate": "da0e5eeec5b70b1ed5eae8f0422935aa7e461ce5f7fa5f349337c44598306c5c",
   "stdlib.collections.UserString.upper": "da0e5eeec5b70b1ed5eae8f0422935aa7e461ce5f7fa5f349337c44598306c5c",
   "stdlib.collections.UserString.zfill": "da0e5eeec5b70b1ed5eae8f0422935aa7e461ce5f7fa5f349337c44598306c5c",
-  "stdlib.collections.abc": "70264e6d79858dd572ce0ad28c29de43eb85c3bd66894da8cfb57e386b7eb915",
+  "stdlib.collections.abc": "6f89878eacc0c6290dcdc6c43e52e2a93c2a1347716872bf26fec80ca7c593c2",
   "stdlib.collections.defaultdict": "dca76c5fe3c58c15f3afc686e3af7fe24aeeb94589943c0af224e0d9aaef1e81",
   "stdlib.collections.defaultdict.clear": "cd7f80afaae376190effd7b65b26ed9077954c256d233e074a1fc0d56d195ff8",
   "stdlib.collections.defaultdict.copy": "bcf317c57409dac4fa1b1daa5236bd8a2728d302bdfb1f725f11d12c5d69e3c3",
