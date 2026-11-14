@@ -393,6 +393,15 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#55",
     ),
     _row(
+        "D64",
+        "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view",
+        None,
+        docs=f"{DOC}#55",
+        note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
+        "the byte comparison runs in the differential lane instead "
+        "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
+    ),
+    _row(
         "D56",
         "the binascii subset covers unhexlify and hexlify; every other name is refused",
         "d56_binascii.py",
