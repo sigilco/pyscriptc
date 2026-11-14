@@ -517,6 +517,11 @@ ok = ['y: int = bisect.bisect_left(xs, n)', 'y: int = bisect.bisect_right(xs, n)
 no = [["key=, lo=, hi=", 'bisect.insort(xs, n, key=lambda v: v)', "PS2001"]]
 
 [[stdlib]]
+names = ["heapq"]
+ok = ['heapq.heapify(xs)', 'heapq.heappush(xs, n)', 'y: int = heapq.heappop(xs)', 'y: list[int] = heapq.nlargest(n, xs)', 'y: list[int] = heapq.nsmallest(n, xs)']
+no = [["merge, heapreplace, heappushpop, the *_max family, key=", 'heapq.merge(xs, xs)', "PS2001"]]
+
+[[stdlib]]
 names = ["statistics"]
 ok = ['y: float = statistics.mean(xs)', 'y: float = statistics.fmean(xs)', 'y: float = statistics.median(xs)', 'y: int = statistics.median_low(xs)', 'y: int = statistics.median_high(xs)', 'y: int = statistics.mode(xs)', 'y: float = statistics.variance(xs)', 'y: float = statistics.pvariance(xs)', 'y: float = statistics.stdev(xs)', 'y: float = statistics.pstdev(xs)', 'y: list[float] = statistics.quantiles(xs)', 'y: float = statistics.mean([x])']
 no = [["multimode, median_grouped, correlation, linear_regression", 'y: list[int] = statistics.multimode(xs)', "PS2001"], ["mode over float data", 'y: float = statistics.mode([x])', "PS1003"], ["quantiles n= outside 2, 4, 8", 'y: list[float] = statistics.quantiles(xs, n=3)', "PS2003"]]
@@ -739,6 +744,13 @@ y: int = g([1])''',
   '''y: int = 0
 if n is not None:
     y = n + 1''',
+  '''from typing import TypeVar
+T = TypeVar("T")
+def first(xs: list[T]) -> T | None:
+    return xs[0] if xs else None
+@@
+y: int | None = first(xs)''',
+  'q: typing.Mapping[str, int] = d',
 ]
 no = [
   ["Any annotation", 'y: typing.Any = n', "PS1104"],
@@ -785,4 +797,24 @@ y: int = 1''', "PS2002"],
 y: int = len(get_type_hints(f))''', "PS2002"],
   ["isinstance with a generic", 'y: bool = isinstance(n, list[int])', "PS2001"],
   ["__annotations__ read", 'y: int = len(f.__annotations__)', "PS2001"],
+]
+
+[[stdlib]]
+names = ["collections.abc"]
+red = false
+note = "annotation-only like typing: the abstract containers erase to the concrete list, dict and set; names used as values fence"
+ok = [
+  'q: collections.abc.Sequence[int] = xs',
+  'q: collections.abc.Iterable[str] = ss',
+  'q: collections.abc.Mapping[str, int] = d',
+  'q: collections.abc.MutableMapping[str, int] = d',
+  'q: collections.abc.MutableSet[int] = st',
+  '''from collections.abc import Callable
+c: Callable[[int], int] = lambda v: v + 1
+@@
+y: int = c(n)''',
+]
+no = [
+  ["name as a value", 'y: int = len(str(collections.abc.Sized))', "PS2002"],
+  ["isinstance with an abstract base", 'y: bool = isinstance(xs, collections.abc.Sequence)', "PS2001"],
 ]

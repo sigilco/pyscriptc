@@ -44,6 +44,18 @@ class StdlibBindMixin:
     def _bind_import(self, stmt: ast.Import, fences: list[Fence]) -> None:
         for alias in stmt.names:
             root = alias.name.split(".", 1)[0]
+            if alias.name == "collections.abc":
+                # Issue #412: `collections.abc` is annotation-only like
+                # `typing`. `import collections.abc as abc` binds the erased
+                # module itself; the plain spelling binds `collections` the
+                # way `import collections` does, and `_resolve_module` reads
+                # `collections.abc.X` through it as an erased member.
+                if alias.asname:
+                    self.bindings[alias.asname] = Binding("erased", alias.name, "", False)
+                    continue
+                if root in self.bindings:
+                    continue
+                alias = ast.alias(name=root)
             if root in _ERASED_MODULES:
                 self.bindings[alias.asname or root] = Binding("erased", root, "", False)
                 continue

@@ -333,9 +333,25 @@ class EntryMixin:
         held = self._version_holds(stmt.test)
         if held is None:
             held = self._type_checking_value(stmt.test, rebound)
+            if held is not None:
+                self._note_checking_imports(stmt.orelse if held else stmt.body)
         if held is None:
             return None
         return list(stmt.body if held else stmt.orelse)
+
+    def _note_checking_imports(self, skipped: list[ast.stmt]) -> None:
+        """Erased names a skipped `if TYPE_CHECKING:` branch imports (issue #412).
+
+        The branch never runs, so nothing binds, but its `from typing import
+        X` / `from collections.abc import X` names still spell annotations.
+        They resolve through `_typing_alias` only, after a user class or
+        declaration of the same name; a value use keeps its fence.
+        """
+        for part in skipped:
+            if isinstance(part, ast.ImportFrom) and part.module in _ERASED_MODULES and not part.level:
+                for alias in part.names:
+                    if alias.name != "*":
+                        self.checking_aliases[alias.asname or alias.name] = alias.name
 
     def _type_checking_value(self, node: ast.expr, rebound: set[str]) -> bool | None:
         """typing.TYPE_CHECKING is False. `not TYPE_CHECKING` is True. Anything else is not this fold."""

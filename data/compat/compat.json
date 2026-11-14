@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-14",
-  "commit": "af96e8f1c3153891e4a13ab3551d56ad010e9903",
+  "commit": "a574f02e3f7773ecb295a6cf128dd8ddd09d8fc7",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-14",
-    "commit": "af96e8f1c3153891e4a13ab3551d56ad010e9903",
+    "commit": "a574f02e3f7773ecb295a6cf128dd8ddd09d8fc7",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -26,13 +26,13 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 66,
+    "stdlib_partial": 68,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2585
+    "fences": 2683
   },
   "builtins": [
     {
@@ -1109,6 +1109,23 @@
       "note": ""
     },
     {
+      "id": "stdlib.heapq",
+      "kind": "stdlib",
+      "label": "`heapq`",
+      "names": [
+        "heapq"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "merge, heapreplace, heappushpop, the *_max family, key="
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
       "id": "stdlib.statistics",
       "kind": "stdlib",
       "label": "`statistics`",
@@ -1380,11 +1397,10 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "restkey, restval, Sniffer, Sniffer, Dialect"
+        "DictReader, writer on a non-file"
       ],
       "fences": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ],
       "note": ""
     },
@@ -1550,6 +1566,24 @@
         "PS2002"
       ],
       "note": "annotation-only: imports are free, annotations are the lowering input, erased before emission; typing names used as values fence"
+    },
+    {
+      "id": "stdlib.collections-abc",
+      "kind": "stdlib",
+      "label": "`collections.abc`",
+      "names": [
+        "collections.abc"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "name as a value, isinstance with an abstract base"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2002"
+      ],
+      "note": "annotation-only like typing: the abstract containers erase to the concrete list, dict and set; names used as values fence"
     }
   ],
   "packages": [
@@ -1632,7 +1666,7 @@
         "blocked": 46
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 114,
+      "fences": 118,
       "definitions": 75,
       "fenced_definitions": 42,
       "top_families": [
@@ -1642,17 +1676,17 @@
         },
         {
           "family": "name-resolution",
-          "count": 17
+          "count": 18
         },
         {
           "family": "construct-other",
-          "count": 17
+          "count": 18
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 79
+          "count": 81
         },
         {
           "code": "PS1106",
@@ -1660,7 +1694,7 @@
         },
         {
           "code": "PS1001",
-          "count": 7
+          "count": 8
         }
       ],
       "pypi": "https://pypi.org/project/python-dotenv/"
@@ -1673,40 +1707,40 @@
       "island": "runs",
       "plane": {
         "definitions": 641,
-        "native": 387,
+        "native": 374,
         "island": 4,
-        "blocked": 250
+        "blocked": 263
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 664,
+      "fences": 735,
       "definitions": 641,
-      "fenced_definitions": 233,
+      "fenced_definitions": 246,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 146
+          "count": 172
         },
         {
           "family": "construct-other",
-          "count": 91
+          "count": 120
         },
         {
-          "family": "generic-alias",
-          "count": 61
+          "family": "field-lookup",
+          "count": 51
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 392
+          "count": 433
         },
         {
           "code": "PS2001",
-          "count": 76
+          "count": 101
         },
         {
           "code": "PS1103",
-          "count": 61
+          "count": 49
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1816,7 +1850,7 @@
         "blocked": 15
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 29,
+      "fences": 28,
       "definitions": 34,
       "fenced_definitions": 13,
       "top_families": [
@@ -1825,25 +1859,25 @@
           "count": 5
         },
         {
-          "family": "generic-alias",
+          "family": "union-types",
           "count": 4
         },
         {
-          "family": "union-types",
+          "family": "call-arity",
           "count": 4
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 6
+          "count": 8
         },
         {
           "code": "PS1003",
           "count": 5
         },
         {
-          "code": "PS1103",
+          "code": "PS1101",
           "count": 4
         }
       ],
@@ -1995,14 +2029,14 @@
       "island": "runs",
       "plane": {
         "definitions": 558,
-        "native": 276,
+        "native": 274,
         "island": 0,
-        "blocked": 282
+        "blocked": 284
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 535,
+      "fences": 545,
       "definitions": 558,
-      "fenced_definitions": 269,
+      "fenced_definitions": 271,
       "top_families": [
         {
           "family": "unlowered-type-name",
@@ -2014,13 +2048,13 @@
         },
         {
           "family": "generic-alias",
-          "count": 64
+          "count": 53
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 215
+          "count": 222
         },
         {
           "code": "PS1106",
@@ -2028,7 +2062,7 @@
         },
         {
           "code": "PS1103",
-          "count": 64
+          "count": 53
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -2041,14 +2075,14 @@
       "island": "runs",
       "plane": {
         "definitions": 132,
-        "native": 46,
+        "native": 47,
         "island": 0,
-        "blocked": 86
+        "blocked": 85
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 194,
+      "fences": 193,
       "definitions": 132,
-      "fenced_definitions": 77,
+      "fenced_definitions": 76,
       "top_families": [
         {
           "family": "name-resolution",
@@ -2087,22 +2121,22 @@
       "island": "runs",
       "plane": {
         "definitions": 388,
-        "native": 226,
+        "native": 225,
         "island": 0,
-        "blocked": 162
+        "blocked": 163
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 257,
+      "fences": 272,
       "definitions": 388,
-      "fenced_definitions": 154,
+      "fenced_definitions": 155,
       "top_families": [
         {
           "family": "construct-other",
-          "count": 62
+          "count": 63
         },
         {
           "family": "name-resolution",
-          "count": 51
+          "count": 63
         },
         {
           "family": "optional-types",
@@ -2112,7 +2146,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 131
+          "count": 145
         },
         {
           "code": "PS1102",
@@ -2120,7 +2154,7 @@
         },
         {
           "code": "PS2001",
-          "count": 22
+          "count": 23
         }
       ],
       "pypi": "https://pypi.org/project/platformdirs/"
@@ -2481,49 +2515,49 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1283,
+      "count": 1349,
       "packages": 16
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not supported",
-      "count": 315,
+      "count": 331,
       "packages": 13
-    },
-    {
-      "code": "PS1106",
-      "title": "annotation names a type the compiler does not take",
-      "count": 207,
-      "packages": 9
     },
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 190,
+      "count": 222,
       "packages": 14
+    },
+    {
+      "code": "PS1106",
+      "title": "annotation names a type the compiler does not take",
+      "count": 209,
+      "packages": 9
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 165,
+      "count": 133,
       "packages": 9
     },
     {
       "code": "PS1101",
       "title": "union annotation",
-      "count": 93,
+      "count": 99,
       "packages": 9
     },
     {
       "code": "PS2003",
       "title": "call arguments not supported",
-      "count": 87,
+      "count": 93,
       "packages": 10
     },
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 56,
+      "count": 57,
       "packages": 8
     },
     {
@@ -2565,7 +2599,7 @@
     {
       "code": "PS2006",
       "title": "decorator expression is not a typed callable",
-      "count": 5,
+      "count": 6,
       "packages": 2
     },
     {
@@ -2599,12 +2633,12 @@
     },
     {
       "date": "2026-11-14",
-      "commit": "af96e8f1c3153891e4a13ab3551d56ad010e9903",
+      "commit": "a574f02e3f7773ecb295a6cf128dd8ddd09d8fc7",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2585
+      "fences": 2683
     }
   ]
 }

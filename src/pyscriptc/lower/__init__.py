@@ -43,7 +43,6 @@ from pyscriptc.lower._core import (
     _node_kind,
     _node_type_kind,
     _show,
-    _subst_type,
     _type_kind,
     _type_rt,
     module_needs_slot,
@@ -208,6 +207,8 @@ class Lowerer(
         self.prelude: list[dict[str, Any]] = []
         self.constants: dict[str, dict[str, Any]] = {}
         self.type_aliases: dict[str, str] = {}
+        # Erased names imported only under `if TYPE_CHECKING:` (issue #412).
+        self.checking_aliases: dict[str, str] = {}
         self.comp_elt: ast.expr | None = None
         self.comp_key: ast.expr | None = None
         self.comp_kind = "list"
@@ -573,8 +574,8 @@ class Lowerer(
                 self.fn_nonlocals = set()
                 self.captures = {}
                 params, ret = self.sigs[fn_name]
-                params = [{**param, "type": _subst_type(param["type"], mapping)} for param in params]
-                ret = _subst_type(ret, mapping)
+                params = [{**param, "type": self._subst(param["type"], mapping, fn)} for param in params]
+                ret = self._subst(ret, mapping, fn)
                 # A param whose TypeVar resolved to none takes no runtime
                 # slot (void is not a value); it drops from the signature
                 # and binds as the `None` constant for the body.
