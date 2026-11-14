@@ -740,6 +740,9 @@ class AbiMixin(EmitterBase):
                     "AsyncSemaphore",
                     "AsyncQueue",
                     "ThreadCall",
+                    # The ndarray carrier (issue #496): the value is the
+                    # pointer to the runtime's record, not a class layout.
+                    "ndarray",
                     # The selectors records (#485): the runtime owns the
                     # selector and its keys, so the value is the record pointer.
                     "DefaultSelector",

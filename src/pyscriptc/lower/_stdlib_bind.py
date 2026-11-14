@@ -53,8 +53,15 @@ class StdlibBindMixin:
                 self._bind_own_import(alias, stmt, fences)
                 continue
             if alias.name.split(".", 1)[0] in PACK_MODULES:
-                self.bindings[alias.asname or alias.name] = Binding("module", alias.name, "", False)
-                self._note_module(alias.name)
+                # The numpy spelling rides the pack too (issue #496): the
+                # pack manifest's `replaces = "numpy"` maps the PyPI name,
+                # and the binding normalizes onto the lowered module so
+                # `import numpy as np` and `import pyscriptc_ndarray as np`
+                # lower identically. The `numpy` alias is accepted only
+                # whole-module: `numpy.linalg` and friends stay outside.
+                bound_name = "pyscriptc_ndarray" if alias.name == "numpy" else alias.name
+                self.bindings[alias.asname or alias.name] = Binding("module", bound_name, "", False)
+                self._note_module(bound_name)
                 continue
             status = module_status(alias.name)
             if status is None:

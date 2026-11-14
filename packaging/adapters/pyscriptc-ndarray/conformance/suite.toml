@@ -1,0 +1,114 @@
+# The pyscriptc-ndarray conformance suite (pack-format spec section 10).
+#
+# Data, not code: the #378 runner executes each [[case]] twice, once
+# against real numpy under CPython and once against the compiled pack,
+# and diffs by outcome category. The runner does not exist yet (issue
+# #378); the suite ships now so the pack is runner-ready the day it
+# lands. Until then tests/test_stdlib_ndarray.py pins the same sequences
+# through the compiler.
+#
+# Every expected value here was generated from real numpy 2.x under the
+# pinned CPython, value for value, `repr` formatting included — the
+# float formatting of `tolist()` is part of the comparison.
+#
+# The suite spells `pyscriptc_ndarray` (the pack's explicit import) so
+# the CPython half can alias it onto numpy; a `numpy`-spelled suite
+# would need the import rewrite documented per case.
+
+import = "pyscriptc_ndarray"
+
+[[case]]
+name = "array_float"
+expr = "pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]).tolist()"
+expected = "[1.0, 2.0, 3.0, 4.0]"
+compare = "stdout"
+
+[[case]]
+name = "array_int32_tolist"
+expr = "pyscriptc_ndarray.array('int32', [1, 2, 3]).tolist()"
+expected = "[1, 2, 3]"
+compare = "stdout"
+
+[[case]]
+name = "zeros_shape"
+expr = "pyscriptc_ndarray.zeros([2, 3], dtype='int32').tolist()"
+expected = "[[0, 0, 0], [0, 0, 0]]"
+compare = "stdout"
+
+[[case]]
+name = "arange_step"
+expr = "pyscriptc_ndarray.arange(0, 10, 3).tolist()"
+expected = "[0, 3, 6, 9]"
+compare = "stdout"
+
+[[case]]
+name = "arange_default_int"
+expr = "pyscriptc_ndarray.arange(5).tolist()"
+expected = "[0, 1, 2, 3, 4]"
+compare = "stdout"
+
+[[case]]
+name = "linspace_endpoint"
+expr = "pyscriptc_ndarray.linspace(0.0, 1.0, 3).tolist()"
+expected = "[0.0, 0.5, 1.0]"
+compare = "stdout"
+
+[[case]]
+name = "full_fill"
+expr = "pyscriptc_ndarray.full([2, 2], 3.5).tolist()"
+expected = "[[3.5, 3.5], [3.5, 3.5]]"
+compare = "stdout"
+
+[[case]]
+name = "add_two_arrays"
+expr = "(pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]) + pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0])).tolist()"
+expected = "[2.0, 4.0, 6.0, 8.0]"
+compare = "stdout"
+
+[[case]]
+name = "mul_scalar"
+expr = "(pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]) * 2).tolist()"
+expected = "[2.0, 4.0, 6.0, 8.0]"
+compare = "stdout"
+
+[[case]]
+name = "true_divide"
+expr = "(pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]) / 2).tolist()"
+expected = "[0.5, 1.0, 1.5, 2.0]"
+compare = "stdout"
+
+[[case]]
+name = "greater_mask"
+expr = "(pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]) > 2).tolist()"
+expected = "[False, False, True, True]"
+compare = "stdout"
+
+[[case]]
+name = "sum_and_mean"
+expr = "(pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]).sum(), pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]).mean())"
+expected = "(10.0, 2.5)"
+compare = "stdout"
+
+[[case]]
+name = "argmax"
+expr = "pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]).argmax()"
+expected = "3"
+compare = "stdout"
+
+[[case]]
+name = "reshape_tolist"
+expr = "pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]).reshape([2, 2]).tolist()"
+expected = "[[1.0, 2.0], [3.0, 4.0]]"
+compare = "stdout"
+
+[[case]]
+name = "concatenate_two"
+expr = "pyscriptc_ndarray.concatenate([pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]), pyscriptc_ndarray.array('float64', [5.0])]).tolist()"
+expected = "[1.0, 2.0, 3.0, 4.0, 5.0]"
+compare = "stdout"
+
+[[case]]
+name = "stack_two"
+expr = "pyscriptc_ndarray.stack([pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0]), pyscriptc_ndarray.array('float64', [1.0, 2.0, 3.0, 4.0])]).tolist()"
+expected = "[[1.0, 2.0, 3.0, 4.0], [1.0, 2.0, 3.0, 4.0]]"
+compare = "stdout"

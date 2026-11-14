@@ -31,6 +31,7 @@ from pyscriptc.lower._core import (
     _tuple_assign,
     _type_kind,
 )
+from pyscriptc.lower._ndarray import _is_ndarray as _nd_is_ndarray
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 from pyscriptc.tirserde import dict_to_span as dict_to_span_local
 
@@ -167,6 +168,18 @@ class MiscEmitMixin:
         container = self._expr(target.value)
         index = self._expr(target.slice)
         kind = _node_type_kind(container)
+        if _nd_is_ndarray(container["type"]):
+            # `a[i] = v` on an ndarray (issue #496): the element write. The
+            # runtime converts the value to the array's dtype.
+            if _node_type_kind(index) != "int":
+                self.fail(target, "PS1003", "an ndarray index is an int")
+            value = self._expr(stmt.value)
+            if _node_type_kind(value) not in {"int", "float"}:
+                self.fail(stmt, "PS1003", "an ndarray element is a number")
+            call = self._abi_call(
+                "pyscriptc_ndarray", "setitem", [container, index, value], {"kind": "none"}, "ps_nd_setitem", span
+            )
+            return _expr_node(call, span)
         if kind == "list" and container["type"].get("set"):
             self.fail(target, "PS2002", "a set has no item assignment")
         if kind == "list":
