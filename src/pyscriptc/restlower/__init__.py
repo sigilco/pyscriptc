@@ -49,6 +49,7 @@ from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
 from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
 from pyscriptc.restlower._functools import _reduce
+from pyscriptc.restlower._heapq import _heapq_call
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
 from pyscriptc.restlower._io import _input, _mkstemp, _named_temp, _open, _print
 from pyscriptc.restlower._iterators import (
@@ -65,6 +66,7 @@ from pyscriptc.restlower._iterators import (
 from pyscriptc.restlower._itertools import _itertools
 from pyscriptc.restlower._jwt import _jwt_call
 from pyscriptc.restlower._minmax import _minmax, _sorted, _sum
+from pyscriptc.restlower._ndarray import _ndarray_call
 from pyscriptc.restlower._operator import _bisect, _join, _operator
 from pyscriptc.restlower._orjson import _orjson_call
 from pyscriptc.restlower._ospath import _os_open, _os_read, _relpath, _walk
@@ -191,6 +193,7 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
     "random": lambda lo, node, span, expect, attr: _random_call(lo, node, span, attr),
     "csv": lambda lo, node, span, expect, attr: _csv_call(lo, node, span, attr),
     "statistics": lambda lo, node, span, expect, attr: _statistics_call(lo, node, span, attr),
+    "heapq": lambda lo, node, span, expect, attr: _heapq_call(lo, node, span, expect, attr),
     "textwrap": lambda lo, node, span, expect, attr: _textwrap_call(lo, node, span, attr),
     "copy": lambda lo, node, span, expect, attr: _copy_call(lo, node, span, attr),
     "tomllib": lambda lo, node, span, expect, attr: _tomllib_call(lo, node, span, expect, attr),
@@ -199,6 +202,7 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
     "urllib.request": lambda lo, node, span, expect, attr: _urllib_request_call(lo, node, span, expect, attr),
     "jwt": lambda lo, node, span, expect, attr: _jwt_call(lo, node, span, expect, attr),
     "orjson": lambda lo, node, span, expect, attr: _orjson_call(lo, node, span, expect, attr),
+    "pyscriptc_ndarray": lambda lo, node, span, expect, attr: _ndarray_call(lo, node, span, expect, attr),
 }
 
 # Per-attribute handlers that run before keyword arguments are rejected.

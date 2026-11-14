@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-13",
-  "commit": "58606715a3c6d1dcdc7e2ef4d0749ddbf3c9d5a6",
+  "generated": "2026-11-14",
+  "commit": "b1674b4c3ab05295c136bd5380703f3f7d8b9288",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 67,
+      "yellow": 71,
       "red": 0
     },
     "packages": {
@@ -260,6 +260,16 @@
       "status": "\ud83d\udfe1",
       "count": 1,
       "missing": "default callable, other OPT_ flags, other orjson members (Fragment, JSONDecodeError)",
+      "codes": [
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
+      "label": "`pyscriptc_ndarray`, `numpy`",
+      "status": "\ud83d\udfe1",
+      "count": 2,
+      "missing": "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step",
       "codes": [
         "PS2001",
         "PS2003"
@@ -569,6 +579,15 @@
       ]
     },
     {
+      "label": "`heapq`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "merge, heapreplace, heappushpop, the *_max family, key=",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
       "label": "`statistics`",
       "status": "\ud83d\udfe1",
       "count": 1,
@@ -714,9 +733,10 @@
       "label": "`csv`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "DictReader, writer on a non-file",
+      "missing": "restkey, restval, Sniffer, Sniffer, Dialect",
       "codes": [
-        "PS2001"
+        "PS2001",
+        "PS2003"
       ]
     },
     {
@@ -808,6 +828,16 @@
         "PS2001",
         "PS2002"
       ]
+    },
+    {
+      "label": "`collections.abc`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "name as a value, isinstance with an abstract base",
+      "codes": [
+        "PS2001",
+        "PS2002"
+      ]
     }
   ],
   "packages": [
@@ -832,15 +862,15 @@
       "version": "1.2.4",
       "status": "\ud83d\udd34",
       "ratio": "42/75",
-      "blocking": "unlowered-call (25), name-resolution (17), construct-other (17)",
+      "blocking": "unlowered-call (25), name-resolution (18), construct-other (18)",
       "codes": "PS2002, PS1106, PS1001"
     },
     {
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "233/641",
-      "blocking": "name-resolution (146), construct-other (91), generic-alias (61)",
+      "ratio": "246/641",
+      "blocking": "name-resolution (172), construct-other (120), field-lookup (51)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -864,8 +894,8 @@
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
       "ratio": "13/34",
-      "blocking": "type-mismatch (5), generic-alias (4), union-types (4)",
-      "codes": "PS2002, PS1003, PS1103"
+      "blocking": "type-mismatch (5), union-types (4), call-arity (4)",
+      "codes": "PS2002, PS1003, PS1101"
     },
     {
       "name": "jmespath",
@@ -895,15 +925,15 @@
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "269/558",
-      "blocking": "unlowered-type-name (90), name-resolution (77), generic-alias (64)",
+      "ratio": "271/558",
+      "blocking": "unlowered-type-name (90), name-resolution (77), generic-alias (53)",
       "codes": "PS2002, PS1106, PS1103"
     },
     {
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "77/132",
+      "ratio": "76/132",
       "blocking": "name-resolution (30), construct-other (21), unlowered-type-name (19)",
       "codes": "PS2002, PS1106, PS1003"
     },
@@ -911,8 +941,8 @@
       "name": "platformdirs",
       "version": "4.13.0",
       "status": "\ud83d\udfe1",
-      "ratio": "154/388",
-      "blocking": "construct-other (62), name-resolution (51), optional-types (33)",
+      "ratio": "155/388",
+      "blocking": "construct-other (63), name-resolution (63), optional-types (33)",
       "codes": "PS2002, PS1102, PS2001"
     },
     {

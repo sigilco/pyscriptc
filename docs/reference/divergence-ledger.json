@@ -594,10 +594,10 @@
       "pyscriptc": {
         "stage": "run",
         "exit": 0,
-        "stdout": "1e+01\n1e+02\n0.5\n",
+        "stdout": "10.0\n100.0\n0.5\n",
         "stderr": ""
       },
-      "status": "divergent"
+      "status": "identical"
     },
     {
       "id": "D37",
@@ -935,6 +935,17 @@
       "status": "fenced"
     },
     {
+      "id": "D64",
+      "seam": "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#55",
+      "probe": null,
+      "note": "the CPython side is real numpy, which the pinned oracle interpreter does not carry; the byte comparison runs in the differential lane instead (probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "D56",
       "seam": "the binascii subset covers unhexlify and hexlify; every other name is refused",
       "listed": true,
@@ -1040,10 +1051,10 @@
       "pyscriptc": {
         "stage": "run",
         "exit": 0,
-        "stdout": "1.8e+02\n57.29577951308232\n1.1752011936438014\n485165195.4097903\n",
+        "stdout": "180.0\n57.29577951308232\n1.1752011936438014\n485165195.4097903\n",
         "stderr": ""
       },
-      "status": "divergent"
+      "status": "identical"
     },
     {
       "id": "D62",
@@ -1113,6 +1124,26 @@
         "exit": 0,
         "stdout": "3.0\n2.8\n1.7\n1.3038404810405297\n1.1661903789690602\n",
         "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D66",
+      "seam": "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#66",
+      "probe": "probes/divergences/d66_csv_dict_reader.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1 2\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "ValueError: dict reader has more fields than fieldnames\n"
       },
       "status": "divergent"
     },

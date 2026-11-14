@@ -16,7 +16,7 @@ import sys
 from typing import Any
 
 from pyscriptc.builtins import RESERVED_EXCEPTIONS
-from pyscriptc.sigrec import Sig, T, sig, sig_for, t_class, t_leaf, t_list, type_to_dict
+from pyscriptc.sigrec import Sig, T, sig, sig_for, t_class, t_dict, t_leaf, t_list, type_to_dict
 
 _I: T = t_leaf("int")
 _F: T = t_leaf("float")
@@ -36,6 +36,8 @@ _STAT: T = t_class("Stat")
 _TEXT: T = t_class("TextIO")
 _BIN: T = t_class("BytesIO")
 _STR_LIST: T = t_list(_S)
+_DSS: T = t_dict(_S, _S)
+_LDSS: T = t_list(_DSS)
 
 
 def _plain_fields(*names: str) -> list[tuple[str, T]]:
@@ -1215,6 +1217,7 @@ ALWAYS_CLASSES: tuple[str, ...] = ("TextIO", "BytesIO")
 
 
 MODULE_CLASSES: dict[str, tuple[str, ...]] = {
+    "pyscriptc_ndarray": ("ndarray",),
     "datetime": ("Date", "DateTime", "Time", "TimeDelta"),
     "time": ("StructTime",),
     "pathlib": ("Path", "Stat"),
@@ -1224,7 +1227,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "collections": ("Deque",),
     "hmac": ("Hmac",),
     "importlib.resources": ("Path",),
-    "csv": ("CsvWriter",),
+    "csv": ("CsvWriter", "CsvDictWriter"),
     "argparse": ("ArgParser", "Namespace"),
     "logging": ("Logger",),
     "urllib.request": ("HttpRequest", "HttpResponse"),
@@ -1235,6 +1238,9 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
 }
 
 CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
+    # The ndarray carrier (issue #496): the value is the pointer to the
+    # runtime's record, so the class has no fields.
+    "ndarray": [],
     "Date": _plain_fields("year", "month", "day"),
     "DateTime": _plain_fields("year", "month", "day", "hour", "minute", "second", "microsecond"),
     "Time": _plain_fields("hour", "minute", "second", "microsecond"),
@@ -1251,6 +1257,10 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     "Deque": [],
     "TextIO": [],
     "BytesIO": [],
+    # The csv handles are runtime pointers: the class value is the pointer
+    # the runtime owns, so the record carries no field.
+    "CsvWriter": [],
+    "CsvDictWriter": [],
     "Queue": [],
     "Empty": [],
     "Full": [],
@@ -1360,6 +1370,7 @@ ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSema
 PTR_CLASSES: frozenset[str] = THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser", "DefaultSelector"}
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
+    ("pyscriptc_ndarray", "ndarray"): "ndarray",
     ("datetime", "date"): "Date",
     ("datetime", "datetime"): "DateTime",
     ("datetime", "time"): "Time",
@@ -1371,6 +1382,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("time", "struct_time"): "StructTime",
     ("os", "stat_result"): "Stat",
     ("csv", "_writer"): "CsvWriter",
+    ("csv", "DictWriter"): "CsvDictWriter",
     ("argparse", "ArgumentParser"): "ArgParser",
     ("argparse", "Namespace"): "Namespace",
     ("logging", "Logger"): "Logger",
@@ -1477,6 +1489,10 @@ CLASS_METHODS: dict[str, dict[str, Sig]] = {
     "CsvWriter": {
         "writerow": sig([_LS], _N, "ps_csv_writerow"),
         "writerows": sig([_LLS], _N, "ps_csv_writerows"),
+    },
+    "CsvDictWriter": {
+        "writeheader": sig([], _N, "ps_csv_dict_writeheader"),
+        "writerow": sig([_DSS], _N, "ps_csv_dict_writerow"),
     },
     "HttpResponse": {
         "getcode": sig([], _I, "ps_http_getcode"),
@@ -1696,6 +1712,7 @@ REST_MODULES = frozenset(
         "string",
         "bisect",
         "statistics",
+        "heapq",
         "errno",
         "importlib.resources",
         "hmac",
@@ -1714,6 +1731,7 @@ REST_MODULES = frozenset(
         "urllib.request",
         "jwt",
         "orjson",
+        "pyscriptc_ndarray",
         "queue",
         "platform",
         "calendar",
@@ -1949,6 +1967,16 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "io" and member in {"StringIO", "BytesIO"}:
         return True
+    if module == "heapq" and member in {
+        "heapify",
+        "heappush",
+        "heappop",
+        "heappushpop",
+        "heapreplace",
+        "nlargest",
+        "nsmallest",
+    }:
+        return True
     if module == "statistics" and member in {
         "mean",
         "fmean",
@@ -2006,7 +2034,7 @@ def member_callable(module: str, member: str) -> bool:
         "betavariate",
     }:
         return True
-    if module == "csv" and member in {"reader", "writer"}:
+    if module == "csv" and member in {"reader", "writer", "DictReader", "DictWriter"}:
         return True
     if module == "textwrap" and member in {"fill", "wrap", "shorten"}:
         return True
@@ -2027,6 +2055,17 @@ def member_callable(module: str, member: str) -> bool:
     if module == "jwt" and member in {"encode", "decode"}:
         return True
     if module == "orjson" and member in {"dumps", "loads"}:
+        return True
+    if module == "pyscriptc_ndarray" and member in {
+        "array",
+        "zeros",
+        "ones",
+        "full",
+        "arange",
+        "linspace",
+        "concatenate",
+        "stack",
+    }:
         return True
     if module == "copy" and member in {"copy", "deepcopy"}:
         return True

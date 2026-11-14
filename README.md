@@ -12,7 +12,7 @@
 <a href="https://buy.polar.sh/polar_cl_Mv1gdlG7bw3I70EC9IHtfeSHJj4PEKvA7JAUz23CFhj"><img alt="Sponsor" src="https://img.shields.io/badge/sponsor-%2330363D.svg?style=for-the-badge&logo=GitHub-Sponsors&logoColor=%23EA4AAA"></a>
 </p>
 
-pyscriptc compiles typed Python to native executables. It uses Python's inferred types and type hints to generate machine code from supported code.
+pyscriptc compiles typed Python to native executables. Types are checked from your annotations and type hints, then lowered to machine code for supported code; outside the supported subset the compiler names the refusal with a stable PSxxxx diagnostic.
 
 ### Quick start
 

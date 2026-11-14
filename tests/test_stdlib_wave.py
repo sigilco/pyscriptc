@@ -425,9 +425,16 @@ def test_wave_fences_stay_closed(tmp_path: Path) -> None:
         ),
         (
             "dictreader.py",
-            "import csv\n\ndef f() -> int:\n    csv.DictReader(['a'])\n    return 1\n",
+            "import csv\n\ndef f() -> int:\n"
+            "    csv.DictReader(['a'], restkey='r')  # type: ignore[call-arg]\n    return 1\n",
+            "PS2003",
+            "csv.DictReader keyword restkey is not lowered",
+        ),
+        (
+            "sniffer.py",
+            "import csv\n\ndef f() -> int:\n    csv.Sniffer()\n    return 1\n",
             "PS2001",
-            "csv.DictReader",
+            "csv.Sniffer",
         ),
         (
             "wrapper.py",

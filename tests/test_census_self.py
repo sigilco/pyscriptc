@@ -301,6 +301,8 @@ def test_self_census_ballpark() -> None:
     # (the typed walk, the per-kind schema field order and the four
     # canonicity rules the typed serializer now owns), minus the JSON
     # escape primitive it shares with tirserde.
+    # csv DictReader/DictWriter (#488): the dict-io lowering and probes
+    # add about 130 lines over the previous ceiling.
     # The ceiling was already 39 lines short on master (78,039 measured
     # against a 78,000 cap, from the typed TIR hasher), so it moves to 79k:
     # the win32 resolution (#1198) takes it to 78,111 and the host floor
@@ -317,12 +319,8 @@ def test_self_census_ballpark() -> None:
     # embed.py (the lock rows, the fetch, the link flags and the bundle
     # stage) and the language gate in engine_gate.py add about 1k lines,
     # so the ceiling moves to 80k; after the onefile merge it measures
-    # 80,365, so the ceiling moves to 82k.
-    assert 11_000 <= census["lines"] <= 82_000
-    # The PyPy runtime pack (#668) takes it past 79k: the pack route in
-    # embed.py (the lock rows, the fetch, the link flags and the bundle
-    # stage) and the language gate in engine_gate.py add about 1k lines,
-    # so the ceiling moves to 80k (79,166 measured).
+    # 80,365, so the ceiling moves to 82k; after the csv dict IO merge it measures 82,858, so the ceiling moves to 84k.
+    assert 11_000 <= census["lines"] <= 84_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.

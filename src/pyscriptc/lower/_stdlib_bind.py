@@ -44,6 +44,18 @@ class StdlibBindMixin:
     def _bind_import(self, stmt: ast.Import, fences: list[Fence]) -> None:
         for alias in stmt.names:
             root = alias.name.split(".", 1)[0]
+            if alias.name == "collections.abc":
+                # Issue #412: `collections.abc` is annotation-only like
+                # `typing`. `import collections.abc as abc` binds the erased
+                # module itself; the plain spelling binds `collections` the
+                # way `import collections` does, and `_resolve_module` reads
+                # `collections.abc.X` through it as an erased member.
+                if alias.asname:
+                    self.bindings[alias.asname] = Binding("erased", alias.name, "", False)
+                    continue
+                if root in self.bindings:
+                    continue
+                alias = ast.alias(name=root)
             if root in _ERASED_MODULES:
                 self.bindings[alias.asname or root] = Binding("erased", root, "", False)
                 continue
@@ -53,8 +65,15 @@ class StdlibBindMixin:
                 self._bind_own_import(alias, stmt, fences)
                 continue
             if alias.name.split(".", 1)[0] in PACK_MODULES:
-                self.bindings[alias.asname or alias.name] = Binding("module", alias.name, "", False)
-                self._note_module(alias.name)
+                # The numpy spelling rides the pack too (issue #496): the
+                # pack manifest's `replaces = "numpy"` maps the PyPI name,
+                # and the binding normalizes onto the lowered module so
+                # `import numpy as np` and `import pyscriptc_ndarray as np`
+                # lower identically. The `numpy` alias is accepted only
+                # whole-module: `numpy.linalg` and friends stay outside.
+                bound_name = "pyscriptc_ndarray" if alias.name == "numpy" else alias.name
+                self.bindings[alias.asname or alias.name] = Binding("module", bound_name, "", False)
+                self._note_module(bound_name)
                 continue
             status = module_status(alias.name)
             if status is None:
