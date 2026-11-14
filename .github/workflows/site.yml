@@ -1,22 +1,21 @@
-# Site: build, validate and deploy the assembled pyscriptc.pages.dev site.
+# Site: build and validate the assembled pyscriptc.pages.dev site.
 #
 # One Astro app (apps/web): landing at /, compat page at /compat; docs
 # (docmd, docs/) at /docs. apps/web/scripts/assemble.mts assembles all three
-# into apps/web/deploy/, which is the tree wrangler publishes. Web output is
+# into apps/web/deploy/, which is the tree the dashboard build publishes. Web output is
 # pnpm-only: no python, no uv.
 #
 # The paths filter keeps this workflow scoped to web/doc/data work, so a
 # compiler PR never runs it and this never runs the ci.yml matrix.
 #
-# Pushes to master deploy with wrangler. The Pages project must be in
-# direct-upload mode with CLOUDFLARE_API_TOKEN and CLOUDFLARE_ACCOUNT_ID
-# secrets set; the owner does that in the Cloudflare dashboard.
+# Deploys are not done here: the Cloudflare Pages project is git-connected
+# in the dashboard and publishes every master push itself (the
+# `Cloudflare Pages` check). This workflow is the validation gate only, so
+# no Cloudflare secret lives in GitHub.
 #
 # The nightly workflow calls this workflow's `site` job through
 # workflow_call after a compat snapshot PR opens, so the PR check runs
 # before the owner looks at it. Design: .agents/docs/compat-site.md.
-# workflow_call never deploys: the `site` job only deploys on a push to
-# master.
 
 name: site
 
@@ -63,7 +62,7 @@ concurrency:
 
 jobs:
   site:
-    name: build, validate, deploy
+    name: build, validate
     runs-on: ubuntu-24.04
     timeout-minutes: 20
     steps:
@@ -124,16 +123,3 @@ jobs:
             echo ""
             echo "pages: $pages, files: $files"
           } >> "$GITHUB_STEP_SUMMARY"
-
-      # npm, not pnpm: the pnpm global bin dir is not on PATH in the runner
-      # shell, and the npm one is.
-      - name: Install wrangler
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        run: npm install -g wrangler@4
-
-      - name: Deploy to Cloudflare Pages
-        if: github.ref == 'refs/heads/master' && github.event_name == 'push'
-        env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-        run: wrangler pages deploy ./apps/web/deploy --project-name=pyscriptc --commit-dirty=true

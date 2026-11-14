@@ -96,8 +96,9 @@ test("placeholder default is the single site", () => {
 
 test("site workflow runs pnpm, not python", () => {
   const text = readFileSync(join(repoRoot, ".github", "workflows", "site.yml"), "utf8");
-  assert.ok(text.includes("wrangler pages deploy"));
-  assert.ok(text.includes("--project-name=pyscriptc"));
+  // Deploys belong to the Cloudflare dashboard git integration.
+  assert.ok(!text.includes("wrangler"));
+  assert.ok(!text.includes("CLOUDFLARE_API_TOKEN"));
   assert.ok(text.includes("pnpm"));
   assert.ok(!text.includes("setup-python"), "the site workflow must not need python");
   assert.ok(!text.includes("setup-uv"));
