@@ -1,7 +1,11 @@
 {
   "schema": "2",
   "generated": "2026-11-13",
+<<<<<<< HEAD
   "commit": "5e5e182d571aee6b2bb849fc0dea40dd3904362e",
+=======
+  "commit": "f4f66576c98386b3a746fec04c8e5577184a7f7e",
+>>>>>>> origin/master
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +22,11 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-13",
+<<<<<<< HEAD
     "commit": "5e5e182d571aee6b2bb849fc0dea40dd3904362e",
+=======
+    "commit": "f4f66576c98386b3a746fec04c8e5577184a7f7e",
+>>>>>>> origin/master
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -1090,16 +1098,28 @@
       "note": ""
     },
     {
+<<<<<<< HEAD
       "id": "stdlib.heapq",
       "kind": "stdlib",
       "label": "`heapq`",
       "names": [
         "heapq"
+=======
+      "id": "stdlib.statistics",
+      "kind": "stdlib",
+      "label": "`statistics`",
+      "names": [
+        "statistics"
+>>>>>>> origin/master
       ],
       "status": "partial",
       "count": 1,
       "unsupported": [
+<<<<<<< HEAD
         "merge, the *_max family, key=, key= keyword, tuple elements"
+=======
+        "multimode, median_grouped, correlation, linear_regression, mode over float data, quantiles n= outside 2, 4, 8"
+>>>>>>> origin/master
       ],
       "fences": [
         "PS1003",
@@ -2320,8 +2340,8 @@
     "lanes": [
       {
         "lane": "native",
-        "imports": 277,
-        "share": 0.8394
+        "imports": 280,
+        "share": 0.8485
       },
       {
         "lane": "pack",
@@ -2330,8 +2350,8 @@
       },
       {
         "lane": "extern",
-        "imports": 52,
-        "share": 0.1576
+        "imports": 49,
+        "share": 0.1485
       },
       {
         "lane": "island",
@@ -2354,7 +2374,7 @@
       "passed": 2,
       "rate": 0.0513,
       "fences": 294,
-      "date": "2026-11-10",
+      "date": "2026-11-13",
       "blockers": [
         {
           "family": "keyword-args",
@@ -2444,6 +2464,12 @@
         },
         {
           "date": "2026-11-10",
+          "passed": 2,
+          "total": 39,
+          "rate": 0.0513
+        },
+        {
+          "date": "2026-11-13",
           "passed": 2,
           "total": 39,
           "rate": 0.0513
@@ -2582,7 +2608,16 @@
     },
     {
       "date": "2026-11-12",
-      "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+      "commit": "238edd9e75821f9bbb49fe3db0f10cd5c261df57",
+      "weighted_pass": 995.3,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
+    },
+    {
+      "date": "2026-11-13",
+      "commit": "f4f66576c98386b3a746fec04c8e5577184a7f7e",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

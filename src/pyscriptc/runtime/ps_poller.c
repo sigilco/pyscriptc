@@ -47,6 +47,11 @@
    registration made on one wait is still live on the next.
 */
 
+/* clock_gettime is POSIX, not C99/C11: glibc hides it behind POSIX. */
+#if !defined(_POSIX_C_SOURCE) && !defined(_DARWIN_C_SOURCE) && !defined(__APPLE__)
+#define _POSIX_C_SOURCE 200809L
+#endif
+
 #include "ps_rt.h"
 
 /* Included before the platform split: the WASI stubs use PsPollFd too. */
@@ -59,6 +64,7 @@
 #include <poll.h>
 #include <stdio.h>
 #include <string.h>
+#include <time.h>
 #include <unistd.h>
 
 #if defined(__APPLE__) || defined(__FreeBSD__) || defined(__OpenBSD__) || defined(__NetBSD__)
@@ -343,17 +349,55 @@ int ps_poller_wait(PsPollFd *fds, int count, int timeout_ms) {
     for (int i = 0; i < count; i++) {
         fds[i].ready = 0;
     }
-    struct timespec timeout;
-    struct timespec *when = NULL;
-    if (timeout_ms >= 0) {
-        timeout.tv_sec = timeout_ms / 1000;
-        timeout.tv_nsec = (long)(timeout_ms % 1000) * 1000000L;
-        when = &timeout;
+    /* The deadline the wait must honour: kevent returns early when a
+       signal arrives (EINTR), and the retry below must not hand the wait a
+       fresh timeout each time, or an interrupted 1000 ms wait sleeps 1000 ms
+       again. The deadline is measured once, before the wait; every attempt
+       waits for what is left of it. */
+    struct timespec deadline;
+    int bounded = timeout_ms >= 0;
+    if (bounded) {
+        clock_gettime(CLOCK_MONOTONIC, &deadline);
+        deadline.tv_sec += timeout_ms / 1000;
+        deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) {
+            deadline.tv_sec += 1;
+            deadline.tv_nsec -= 1000000000L;
+        }
     }
     struct kevent events[PS_POLL_MAX];
-    int got = kevent(kq, NULL, 0, events, PS_POLL_MAX, when);
+    int got;
+    for (;;) {
+        struct timespec timeout;
+        struct timespec *when = NULL;
+        if (bounded) {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            long long left_ms = ((long long)(deadline.tv_sec - now.tv_sec)) * 1000 +
+                                (deadline.tv_nsec - now.tv_nsec) / 1000000;
+            if (left_ms < 0) {
+                left_ms = 0;
+            }
+            timeout.tv_sec = (time_t)(left_ms / 1000);
+            timeout.tv_nsec = (long)(left_ms % 1000) * 1000000L;
+            when = &timeout;
+        }
+        got = kevent(kq, NULL, 0, events, PS_POLL_MAX, when);
+        if (got >= 0 || errno != EINTR) {
+            break;
+        }
+    }
+    if (got < 0) {
+        return -1;
+    }
     int ready = 0;
     for (int i = 0; i < got; i++) {
+        /* A changelist error is reported in the event array, not the
+           return: EV_ERROR rows carry a failed registration and no
+           readiness, so they must not match a user row. */
+        if (events[i].flags & EV_ERROR) {
+            continue;
+        }
         int fd = (int)events[i].ident;
         if (fd == ps_pipe_read) {
             ps_pipe_drain();
@@ -549,7 +593,35 @@ int ps_poller_wait(PsPollFd *fds, int count, int timeout_ms) {
         fds[i].ready = 0;
     }
     struct epoll_event events[PS_POLL_MAX];
-    int got = epoll_wait(ep, events, PS_POLL_MAX, timeout_ms);
+    /* A signal can interrupt the wait (EINTR). The wait resumes for the
+       time the deadline still has, so an interrupted wait does not report
+       a timeout it never reached and does not sleep a second timeout. */
+    int got;
+    struct timespec deadline;
+    int bounded = timeout_ms >= 0;
+    if (bounded) {
+        clock_gettime(CLOCK_MONOTONIC, &deadline);
+        deadline.tv_sec += timeout_ms / 1000;
+        deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) {
+            deadline.tv_sec += 1;
+            deadline.tv_nsec -= 1000000000L;
+        }
+    }
+    for (;;) {
+        int slice = timeout_ms;
+        if (bounded) {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            long long left = ((long long)(deadline.tv_sec - now.tv_sec)) * 1000 +
+                             (deadline.tv_nsec - now.tv_nsec) / 1000000;
+            slice = left < 0 ? 0 : (int)left;
+        }
+        got = epoll_wait(ep, events, PS_POLL_MAX, slice);
+        if (got >= 0 || errno != EINTR) {
+            break;
+        }
+    }
     int ready = 0;
     for (int i = 0; i < got; i++) {
         int fd = events[i].data.fd;
@@ -639,7 +711,35 @@ int ps_poller_wait(PsPollFd *fds, int count, int timeout_ms) {
         fds[i].ready = 0;
         n++;
     }
-    int got = poll(pfds, (nfds_t)n, timeout_ms);
+    /* A signal can interrupt the wait (EINTR). The wait resumes for the
+       time the deadline still has, so an interrupted wait does not report
+       a timeout it never reached. */
+    struct timespec deadline;
+    int bounded = timeout_ms >= 0;
+    if (bounded) {
+        clock_gettime(CLOCK_MONOTONIC, &deadline);
+        deadline.tv_sec += timeout_ms / 1000;
+        deadline.tv_nsec += (long)(timeout_ms % 1000) * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) {
+            deadline.tv_sec += 1;
+            deadline.tv_nsec -= 1000000000L;
+        }
+    }
+    int got;
+    for (;;) {
+        int slice = timeout_ms;
+        if (bounded) {
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            long long left = ((long long)(deadline.tv_sec - now.tv_sec)) * 1000 +
+                             (deadline.tv_nsec - now.tv_nsec) / 1000000;
+            slice = left < 0 ? 0 : (int)left;
+        }
+        got = poll(pfds, (nfds_t)n, slice);
+        if (got >= 0 || errno != EINTR) {
+            break;
+        }
+    }
     if (got < 0) {
         return -1;
     }

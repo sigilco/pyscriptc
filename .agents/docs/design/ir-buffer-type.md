@@ -113,7 +113,7 @@ valid IR type that rides existing pointer machinery everywhere:
   else fencing.
 - Runtime: a minimal `ps_buf_*` helper set in `src/pyscriptc/runtime/`
   (`new(elem_size, n)`, `get`, `set`, `len`) — separate symbols from
-  `ps_seq_*` so the list path stays byte-stable and the IR_HASHES regen
+  `ps_seq_*` so the list path stays byte-stable and the hash baseline regen
   stays a type-table change, not a runtime-behavior change. Differential
   probe under `probes/` per rule #524 lands with the first user-visible
   lowering (stage B); stage A alone adds no construct a program can
@@ -149,7 +149,7 @@ What changes in the canonical bytes when `buffer` lands:
 
 - A new `kind` string and a new `elem` key on type dicts. Existing
   modules never contain `buffer`, so **no existing digest moves**: the
-  frozen `probes/IR_HASHES.json` and `TIR_HASHES.json` baselines stay
+  frozen `probes/TIR_HASHES.json` baseline stays
   valid without regeneration, *provided* no other canonicalization rule
   changes in the same PR.
 - Therefore **no `IR_VERSION` bump is required by the type alone**
@@ -164,7 +164,7 @@ What changes in the canonical bytes when `buffer` lands:
   decision in the implementation PR with the same reasoning laid out.
 - The hashing surface that must be updated **in the same PR** as the type,
   so both digest paths treat a buffer identically (byte-identity is
-  enforced by `tirscore --verify-bytes`):
+  enforced by the typed serializer's tree comparison):
   - `tirserde._type_dict` (`tirserde.py:355-379`): emit
     `{"kind": "buffer", "elem": ...}` — the current unknown-kind fallback
     would silently drop `elem`.
@@ -177,13 +177,13 @@ What changes in the canonical bytes when `buffer` lands:
     streams stay identical.
   - `sigrec.type_to_dict` (`sigrec.py`), the closed-table mirror.
 - **Interaction with #830 retirement (branch `work/tir-hash-retire`)**:
-  the retirement moves canonicalization ownership from `canonical.py`
+  the retirement moves canonicalization ownership from the dict rules
   (dict path) to `tirhash.py` (typed walker, schema field order). The
   buffer type as designed here lands cleanly either way because every
   rule it touches is duplicated in both paths and the two are kept
   byte-identical by the verify gate:
   - If the buffer lands *before* retirement: the PR adds the four branches
-    above plus the same case to `canonical.py`'s doc-level rule list
+    above plus the same case to the serializer's doc-level rule list
     (no rule change — paths scrub and strips are kind-agnostic); the
     retirement branch then carries both branches forward when it rebases.
   - If it lands *after*: only `tirhash.py`, `tirserde.dict_to_type`, and
@@ -193,7 +193,7 @@ What changes in the canonical bytes when `buffer` lands:
     `CANONICAL_SCHEMA_VERSION` or any strip/sort rule: the whole point of
     §6 is that the frozen baselines do not move. If a regen is ever
     needed, the A/B `cmp` ritual applies (`python -m
-    benchmarks.compat2.irscore` twice, `cmp`), generated on Linux only.
+    benchmarks.compat2.tirscore` twice, `cmp`), generated on Linux only.
 - Frozen-gate bookkeeping for stage A: `ir.py` (TYPE_KINDS/validate_type/
   type_key) is not in the frozen-file list; `tirserde.py`/`tirhash.py` are
   frozen-gate files whose change here is the *minimum mechanical*
@@ -240,7 +240,7 @@ runtime loop. The migration is surface-shaped, not representation-shaped:
    factories, the four hashing-surface branches, the MIR pointer tags, and
    unit tests. The type is unreachable from source code until a
    constructor lowering exists, which *is* the flag-by-absence. Frozen
-   baselines untouched (A/B `cmp` verified); `tirscore --verify-bytes`
+   baselines untouched (A/B `cmp` verified); the typed serializer's tree check
    green.
 2. Stage B: constructor + elementwise lowering + differential probe +
    divergence-ledger entry if any construct diverges. Separate decision

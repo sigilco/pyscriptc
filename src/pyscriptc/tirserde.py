@@ -1,27 +1,23 @@
-"""Streaming canonical serializer over the dict JSON IR (TIR gate bootstrap).
+"""The typed-IR serializer: dict reconstruction and the typed hash entry points.
 
-Byte-identical to the canonical payload `pyscriptc.canonical.hash_module`
-digests today, namely
+Two jobs:
 
-    json.dumps({"schema": CANONICAL_SCHEMA_VERSION, "ir": canonicalize(module)},
-               sort_keys=True, separators=(",", ":"), ensure_ascii=False,
-               allow_nan=False).encode("utf-8")
+- the dict reconstruction of the typed HIR records (`node_to_dict` and its
+  inverse `dict_to_node`), the seam the lowerer still crosses while the
+  typed-IR migration runs;
+- the hash entry points. `hash_module_node` / `payload_bytes_node` delegate
+  to `pyscriptc.tirhash`, which walks the typed records in schema field
+  order and owns the canonicity rules (recorded decision #830, D2: the
+  dict-shape rules and `canonical.py` are retired, the typed serializer is
+  the one canonicity owner).
 
-but the serialization walks the canonical structure once and feeds SHA-256
-directly, so the full payload string is never materialized. This is the
-serializer the TIR_HASHES gate consumes (spec: the "Proposed" section of
-.agents/docs/spec/ir-canonicity.md); `canonical.py` itself is frozen and the
-old IR_HASHES gate keeps reading it until the recorded retirement decision.
-
-Byte identity is enforced per probe by `benchmarks.compat2.tirscore
---verify-bytes`, which `cmp`s the streaming bytes against the json.dumps
-bytes on the whole visible corpus.
+The dict-shaped streaming path (`Serializer`, `payload_bytes`,
+`hash_module`) is gone with `canonical.py`: the TIR gate hashes the typed
+records, and the dict tree is a reconstruction, not the canonicity contract.
 """
 
 from __future__ import annotations
 
-import hashlib
-import math
 from typing import Any
 
 from pyscriptc._irnode import (
@@ -88,7 +84,6 @@ from pyscriptc._irnode import (
     value_callee,
     while_stmt,
 )
-from pyscriptc.canonical import CANONICAL_SCHEMA_VERSION, canonicalize
 
 # json.dumps short escapes for the C0 controls it does not write as \uXXXX.
 _SHORT_ESCAPES = {
@@ -137,96 +132,6 @@ def write_json_str(write: Any, text: str) -> None:
     write(b'"')
 
 
-class Serializer:
-    """Feeds one canonical payload into a sink (hashlib or bytearray).
-
-    The output is exactly the json.dumps payload described in the module
-    docstring, produced incrementally: object keys are emitted in Python
-    string sort order, strings are UTF-8 with json's ensure_ascii=False
-    escaping, floats must be finite (allow_nan=False semantics).
-    """
-
-    def __init__(self, sink: Any) -> None:
-        self._sink = sink
-
-    def _write(self, chunk: bytes) -> None:
-        self._sink(chunk)
-
-    def write_any(self, value: Any) -> None:
-        if value is None:
-            self._write(b"null")
-        elif value is True:
-            self._write(b"true")
-        elif value is False:
-            self._write(b"false")
-        elif isinstance(value, str):
-            self.write_str(value)
-        elif isinstance(value, int):
-            self._write(str(value).encode("ascii"))
-        elif isinstance(value, float):
-            if not math.isfinite(value):
-                raise ValueError(
-                    "a non-finite float reached the canonical IR; json.dumps(allow_nan=False) would refuse it too"
-                )
-            self._write(repr(value).encode("ascii"))
-        elif isinstance(value, dict):
-            self.write_object(value)
-        elif isinstance(value, (list, tuple)):
-            self.write_array(value)
-        else:
-            raise TypeError(f"the canonical IR carries a {type(value).__name__}; json.dumps would refuse it")
-
-    def write_object(self, obj: dict[str, Any]) -> None:
-        self._write(b"{")
-        first = True
-        for key in sorted(obj):
-            if not first:
-                self._write(b",")
-            first = False
-            self.write_str(key)
-            self._write(b":")
-            self.write_any(obj[key])
-        self._write(b"}")
-
-    def write_array(self, items: Any) -> None:
-        self._write(b"[")
-        first = True
-        for item in items:
-            if not first:
-                self._write(b",")
-            first = False
-            self.write_any(item)
-        self._write(b"]")
-
-    def write_str(self, text: str) -> None:
-        write_json_str(self._write, text)
-
-
-def payload_bytes(module: dict[str, Any]) -> bytes:
-    """The canonical payload bytes, built incrementally into one buffer.
-
-    Byte-identical to the json.dumps payload hash_module digests; used by
-    the byte-identity verifier and by tooling that wants the stream itself.
-    """
-    chunks: list[bytes] = []
-    stream = Serializer(chunks.append)
-    stream.write_object({"schema": CANONICAL_SCHEMA_VERSION, "ir": canonicalize(module)})
-    return b"".join(chunks)
-
-
-def hash_module(module: dict[str, Any]) -> str:
-    """SHA-256 hex of the canonical payload, streamed; never materializes it.
-
-    Same digest contract as pyscriptc.canonical.hash_module at the same
-    CANONICAL_SCHEMA_VERSION; `tirscore --verify-bytes` proves the bytes
-    are identical on the corpus.
-    """
-    digest = hashlib.sha256(b"")
-    stream = Serializer(digest.update)
-    stream.write_object({"schema": CANONICAL_SCHEMA_VERSION, "ir": canonicalize(module)})
-    return digest.hexdigest()
-
-
 # --- typed-node reconstruction ------------------------------------------
 #
 # `pyscriptc._irnode` carries the typed HIR (R3 slice one). The dataclass
@@ -235,7 +140,8 @@ def hash_module(module: dict[str, Any]) -> str:
 # lowered annotation describes the heterogeneous serializer dict, and
 # this module already speaks `Any`. One visitor per record shape; the
 # output is the exact dict the lowerer builds today, key for key, so the
-# canonical bytes are identical either way (tirscore --verify-bytes).
+# typed walk and the dict tree carry the same information (the typed
+# payload spells it in schema field order).
 
 _ABSENT: Any = object()
 

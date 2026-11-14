@@ -1,10 +1,8 @@
 name: tir-hashes
 
-# TIR_HASHES.json is the streaming canonicity gate (same 13,692 probes as the
-# dict-IR gate; see .agents/plans/decisions/2026-11-02-tir-gate-streaming-serializer.md).
-# Like canonical IR it folds host constants, so TIR_HASHES.json is only valid
-# when generated on Linux. Not a required check, matching ir-hashes.yml
-# (issue #830 P1 prerequisite).
+# TIR_HASHES.json is the canonicity gate (issue #830: the dict-IR gate is
+# retired). Like the canonical IR it hashes, it folds host constants, so the
+# baseline is only valid when generated on Linux. Not a required check.
 #
 # generate (workflow_dispatch): two runs (A, B), fails unless byte-identical,
 # uploads the file as the `tir-hashes` artifact. Copy it to
@@ -14,9 +12,9 @@ name: tir-hashes
 # runner micro bump reports exit 2 (stale header): regenerate then.
 #
 # The compare and generate steps run the raw commands, not `mise run <task>`,
-# for the same reason as ci.yml and ir-hashes.yml: the mise uv pin (`latest`)
-# would drop the `>= 0.13.4` uv floor this workflow holds. The compare command
-# is the one the `tir:hashes` task wraps.
+# for the same reason as ci.yml: the mise uv pin (`latest`) would drop the
+# `>= 0.13.4` uv floor this workflow holds. The compare command is the one
+# the `tir:hashes` task wraps.
 
 on:
   workflow_dispatch:
@@ -25,6 +23,7 @@ on:
       - "src/pyscriptc/**"
       - "benchmarks/compat2/probes/**"
       - "benchmarks/compat2/tirscore.py"
+      - "benchmarks/compat2/fixpoint.py"
       - ".github/workflows/tir-hashes.yml"
 
 jobs:

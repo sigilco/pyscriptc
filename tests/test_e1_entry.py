@@ -9,8 +9,8 @@ entry statement, but it emits no body node and a fence until item 2 lands.
 
 from __future__ import annotations
 
-from pyscriptc.canonical import hash_module
 from pyscriptc.lower import lower_source
+from pyscriptc.tirhash import hash_module_node
 from pyscriptc.tirserde import dict_to_node, dict_to_type
 
 
@@ -39,8 +39,9 @@ if __name__ == "__main__":
     assert "__entry__" not in {fn["name"] for fn in mod["functions"]}
     assert mod["fences"] == []
     # Byte-identical with the pre-E1 module: a frozen probe shape. Hash moved
-    # with the S1 IR_VERSION 2 stamp (#473).
-    assert hash_module(mod) == "13bb3095796f0e0b150e4bba80afb849af56437dde775b69517e25aefd7a3c4d"
+    # with the S1 IR_VERSION 2 stamp (#473) and again with the typed hasher
+    # (#830, the one canonicity gate).
+    assert hash_module_node(mod) == "1794e91296cba1e6c82d12706b2d9e173606567a215b155bdfa6273cfc99444b"
 
 
 def test_simple_script_produces_entry_in_source_order() -> None:

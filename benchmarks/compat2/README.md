@@ -12,28 +12,30 @@ The CPython oracle is pinned to 3.14. `score.py` resolves the oracle executable 
 PYSC_ORACLE=$(uv python find 3.14) uv run python -m benchmarks.compat2.score --out /tmp/score.json
 ```
 
-`--target-version X.Y` still selects a generation-axis interpreter through `PYSC_ORACLE_DIR`. A host interpreter change (for example 3.14.8 to 3.14.9) changes the `oracle` stamp, so `irscore --baseline` reports the `IR_HASHES.json` header as stale (exit 2) and cached oracle answers are recomputed. That is intended: regenerate the baseline with the A/B byte-identical discipline, never hand edit it.
+`--target-version X.Y` still selects a generation-axis interpreter through `PYSC_ORACLE_DIR`. A host interpreter change (for example 3.14.8 to 3.14.9) changes the `oracle` stamp, so `tirscore --baseline` reports the `TIR_HASHES.json` header as stale (exit 2) and cached oracle answers are recomputed. That is intended: regenerate the baseline with the A/B byte-identical discipline, never hand edit it.
 
-## IR hash baseline (`irscore.py`)
+## IR hash baseline (`tirscore.py`)
 
-`irscore.py` lowers every probe and records the canonical IR hash per probe, as a lockfile style
-baseline. The hash covers the canonical IR form from `pyscriptc.canonical` (`hash_module`): spans,
-`sourceFile`, `cpython` and `_notes` stripped, `classes` sorted by name, handler `codes` and
-`fences` sorted. It does not cover paths or the interpreter stamp; those live in the header. The
-frozen status of the hash semantics is `.agents/docs/spec/ir-canonicity.md`.
+`tirscore.py` lowers every probe and records the canonical IR hash per probe, as a lockfile style
+baseline. The hash is the typed canonical form from `pyscriptc.tirhash` (`hash_module_node`):
+spans, `sourceFile`, `cpython` and `_notes` never emitted, `classes` sorted by name, handler
+`codes` and `fences` sorted, environment paths scrubbed. It does not cover paths or the
+interpreter stamp; those live in the header. The frozen status of the hash semantics is
+`.agents/docs/spec/ir-canonicity.md` (section 7). The dict-IR gate (`irscore.py`,
+`IR_HASHES.json`) is retired (#830).
 
 Generate:
 
 ```
-python -m benchmarks.compat2.irscore benchmarks/compat2/probes --out probes/IR_HASHES.json
+python -m benchmarks.compat2.tirscore benchmarks/compat2/probes --out probes/TIR_HASHES.json
 ```
 
-Compare (CI gate, exits 1 on any diff, 2 on a stale header):
+Compare (nightly gate, exits 1 on any diff, 2 on a stale header):
 
 ```
-python -m benchmarks.compat2.irscore benchmarks/compat2/probes --baseline probes/IR_HASHES.json
+python -m benchmarks.compat2.tirscore benchmarks/compat2/probes --baseline probes/TIR_HASHES.json
 ```
 
-The file is `{"version", "revision", "canonical_schema", "oracle", "hash_algo", "probes"}`, with
-`probes` mapping probe id to the 64 hex digest. A `canonical_schema` or `oracle` mismatch means the
-baseline is stale: regenerate it, never hand edit it.
+The file is `{"tir_schema", "canonical_schema", "oracle", "hash_algo", "probes"}`, with `probes`
+mapping probe id to the 64 hex digest. A `tir_schema`, `canonical_schema` or `oracle` mismatch
+means the baseline is stale: regenerate it, never hand edit it.

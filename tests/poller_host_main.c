@@ -16,7 +16,14 @@
    Scenario 3 (self-pipe): ps_poller_wake from a thread interrupts a wait
    that has no fd rows and no near timer.
 
-   Scenario 4 (selector): DefaultSelector semantics through ps_select.c —
+   Scenario 4 (signal): a signal that lands inside a bounded wait must not
+   end the wait. The kernel returns EINTR and the wait resumes for the time
+   its deadline still has, so the wait reports its own timeout, not the
+   signal's arrival. (Before the EINTR retry, the macOS CI read this as
+   `poll1 ready=0 a=0 b=0 waited=101ms`: the wait gave up at the signal
+   and the writer's byte landed after the wait was over.)
+
+   Scenario 5 (selector): DefaultSelector semantics through ps_select.c —
    register two fds, select blocks until the writer wakes one, the ready
    list carries that key alone, and a second select after the first fd was
    read still reports level-triggered readiness on the untouched one.
@@ -28,6 +35,7 @@
 
 #include <errno.h>
 #include <pthread.h>
+#include <signal.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -193,7 +201,52 @@ static int scenario_self_pipe(void) {
     return elapsed < 5000 ? 0 : 1;
 }
 
-/* --- scenario 4: the selector (#485) ------------------------------------- */
+/* --- scenario 4: the signal interrupts the wait (the macOS poller failure)
+   -----------------------------------------------------------------------
+
+   A signal that arrives during a bounded wait must not end the wait: the
+   kernel returns EINTR and the wait resumes for the time the deadline
+   still has. Before the EINTR retry, an interrupted 1000 ms wait returned
+   0 ready rows after whatever slice had already elapsed, which on macOS
+   CI read as `poll1 ready=0 a=0 b=0 waited=101ms` — the wait gave up
+   early and the writer's byte landed after the wait was over.
+*/
+
+static void signal_handler(int sig) {
+    (void)sig; /* the interruption is the point; the handler does nothing */
+}
+
+static int scenario_signal_does_not_end_the_wait(void) {
+    int a[2];
+    if (pipe(a) != 0) {
+        return 1;
+    }
+    /* SIGALRM fires 50 ms into a 700 ms wait that nothing wakes: with the
+       retry, the wait runs out its deadline and reports no ready rows at
+       ~700 ms. Without it, the wait returned at ~50 ms with nothing. */
+    struct sigaction sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sa_handler = signal_handler;
+    sigaction(SIGALRM, &sa, NULL);
+    PsPollFd row;
+    row.fd = a[0];
+    row.events = 1;
+    row.ready = 0;
+    double started = now_ms();
+    alarm(1); /* SIGALRM one second in: inside the 2s wait */
+    ps_poller_wait(&row, 1, 2000);
+    double elapsed = now_ms() - started;
+    alarm(0);
+    printf("signal_wait ready=%d waited=%.0fms\n", row.ready, elapsed);
+    close(a[0]);
+    close(a[1]);
+    /* The wait must have survived the signal: past the 1s mark (the SIGALRM
+       fired inside it) and out to its own 2s deadline, within the bound the
+       runner's scheduling slack allows. */
+    return (elapsed >= 1000 && elapsed < 4000) ? 0 : 1;
+}
+
+/* --- scenario 5: the selector (#485) ------------------------------------- */
 
 static int scenario_selector(void) {
     void *sel = ps_select_new();
@@ -258,6 +311,7 @@ int main(void) {
     rc |= scenario_poller_wakes_the_written_pipe();
     rc |= scenario_ten_k_timers();
     rc |= scenario_self_pipe();
+    rc |= scenario_signal_does_not_end_the_wait();
     rc |= scenario_selector();
     ps_poller_reset();
     return rc;

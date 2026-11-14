@@ -1,24 +1,28 @@
-"""TIR_HASHES baseline: generate, compare, and verify byte identity.
+"""TIR_HASHES baseline: generate and compare. The one canonicity gate.
 
-The streaming serializer is `pyscriptc.tirserde.hash_module` (same digest
-contract as `pyscriptc.canonical.hash_module`; byte identity proven by
---verify-bytes). This module is the driver, shaped after irscore.py and
-reading the same probe corpus, so the new gate sits beside the old one and
-shares its probe universe.
+The hasher is `pyscriptc.tirhash.hash_module_node`: the typed records are
+walked in schema field order and the canonicity rules (incidental-key strip,
+class order, handler `codes` order, fence total order, path scrub) are owned
+by the typed serializer. The dict-shape rules and `canonical.py` are retired
+(#830, D2, owner decision 2026-11-11 accepts the digest movement).
 
-Baseline file format (probes/TIR_HASHES.json):
+This module drives lowering per probe and owns the baseline file format:
 
     {"tir_schema": "tir/1", "canonical_schema": "canonical-schema/2",
      "hash_algo": "sha256", "oracle": "<oracle_version()>",
      "probes": {"<probe_id>": "<64-hex>"}}
 
+The header carries the schema and oracle version once, so a regenerated
+baseline diffs as one header line plus only the probes that actually moved.
 Serialization is `json.dumps(..., sort_keys=True, indent=1)` plus a trailing
-newline: stable bytes, reviewable diffs. Exit codes match irscore.py:
-0 clean (or generated), 1 any hash diff, 2 header mismatch.
+newline: stable bytes, reviewable diffs.
 
-The regen ritual is inherited unchanged (note
-.agents/notes/decisions-and-platform.md, the IR_HASHES decision): generate run A and run B, `cmp`
-A B byte-identical, copy one into probes/. Linux only.
+Exit codes: 0 clean (or generated), 1 any hash diff, 2 header mismatch
+(stale baseline: regenerate, do not hand edit).
+
+The regen ritual (note .agents/notes/decisions-and-platform.md, the IR_HASHES
+platform decision): generate run A and run B, `cmp` A B byte-identical, copy
+one into probes/. Linux only.
 """
 
 from __future__ import annotations
@@ -31,7 +35,6 @@ from pathlib import Path
 from typing import Any
 
 from benchmarks.compat2.cache import oracle_version
-from benchmarks.compat2.irscore import _lower_one
 from benchmarks.compat2.loader import load_probes
 
 BASELINE_VERSION = 1
@@ -42,23 +45,36 @@ DIFF_CAP = 20
 _REGENERATE_HINT = "the baseline is stale for this compiler build: regenerate it (tirscore <probes> --out FILE)"
 
 
+def lower_one(probe, src: Path, *, bridge: str | None = None) -> dict[str, Any]:
+    """Lower one probe's source to a module dict. Same path as coverage_map.trace_probe."""
+
+    from pyscriptc.lower import lower_file
+
+    src.write_text(probe.source, encoding="utf-8")
+    checker_bridge = None
+    if bridge is not None:
+        from pyscriptc.factsbridge import CheckerBridge
+
+        checker_bridge = CheckerBridge.for_path(src, bridge)
+    module, _ = lower_file(str(src), bridge=checker_bridge)
+    module.pop("_notes", None)
+    return module
+
+
 def probe_hashes(probes: list, *, workers: int = 1, bridge: str | None = None) -> dict[str, str]:
-    """Lower every probe and map probe id to the streaming canonical hash.
+    """Lower every probe and map probe id to the typed canonical hash."""
 
-    Mirrors irscore.probe_hashes; only the hasher differs.
-    """
-
-    from pyscriptc.tirserde import hash_module
+    from pyscriptc.tirhash import hash_module_node
 
     hashes: dict[str, str] = {}
     with tempfile.TemporaryDirectory(prefix="compat2-tir-") as tmp:
         for index, probe in enumerate(probes):
-            hashes[probe.id] = hash_module(_lower_one(probe, Path(tmp) / f"p{index}.py", bridge=bridge))
+            hashes[probe.id] = hash_module_node(lower_one(probe, Path(tmp) / f"p{index}.py", bridge=bridge))
     return hashes
 
 
 def build_doc(hashes: dict[str, str], bridge: str | None = None) -> dict[str, Any]:
-    from pyscriptc.canonical import CANONICAL_SCHEMA_VERSION
+    from pyscriptc.tirhash import CANONICAL_SCHEMA_VERSION
 
     doc: dict[str, Any] = {
         "tir_schema": TIR_SCHEMA,
@@ -67,6 +83,9 @@ def build_doc(hashes: dict[str, str], bridge: str | None = None) -> dict[str, An
         "hash_algo": HASH_ALGO,
         "probes": hashes,
     }
+    # A bridged run's IR depends on the checker version too, so the record
+    # names it next to the oracle: a `bridge` field with no `bridge_version`
+    # would not reproduce (design decision `.agents/docs/design/checker-bridge.md`).
     if bridge is not None:
         from pyscriptc import factsbridge
 
@@ -108,7 +127,7 @@ def load_baseline(path: Path) -> dict[str, Any]:
 def check_header(doc: dict[str, Any]) -> None:
     """Raise BaselineError when the baseline is stale for this compiler build."""
 
-    from pyscriptc.canonical import CANONICAL_SCHEMA_VERSION
+    from pyscriptc.tirhash import CANONICAL_SCHEMA_VERSION
 
     wrong = []
     if doc.get("canonical_schema") != CANONICAL_SCHEMA_VERSION:
@@ -155,45 +174,9 @@ def _section(title: str, lines: list[str], out) -> None:
         print(f"  ... and {len(lines) - DIFF_CAP} more", file=out)
 
 
-def verify_bytes(probes: list, bridge: str | None = None) -> int:
-    """Per probe: streaming bytes == json.dumps bytes (the R2 exit criterion).
-
-    Returns the number of mismatches; prints one line per mismatch and a
-    summary. Timing of both paths is printed at the end.
-    """
-
-    import time
-
-    from pyscriptc.canonical import hash_module as dict_hash
-    from pyscriptc.tirserde import hash_module as stream_hash
-
-    def timed(fn, module):
-        start = time.perf_counter()
-        value = fn(module)
-        return value, time.perf_counter() - start
-
-    mismatch = 0
-    stream_total = dict_total = 0.0
-    with tempfile.TemporaryDirectory(prefix="compat2-tirb-") as tmp:
-        for index, probe in enumerate(probes):
-            module = _lower_one(probe, Path(tmp) / f"p{index}.py", bridge=bridge)
-            stream_hex, t_stream = timed(stream_hash, module)
-            dict_hex, t_dict = timed(dict_hash, module)
-            stream_total += t_stream
-            dict_total += t_dict
-            if stream_hex != dict_hex:
-                mismatch += 1
-                print(f"BYTES DIFFER: {probe.id}: {stream_hex[:12]} vs {dict_hex[:12]}")
-    print(
-        f"{len(probes)} probes: {mismatch} byte mismatches; "
-        f"streaming {stream_total:.2f}s vs json.dumps {dict_total:.2f}s"
-    )
-    return mismatch
-
-
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
-        description="Per probe streaming canonical IR hash baseline (TIR gate).",
+        description="Per probe typed canonical IR hash baseline (the TIR gate).",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("probes", help="probe JSONL file or directory")
@@ -201,23 +184,13 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--out", help="write a fresh baseline here (generate mode)")
     parser.add_argument("--baseline", help="compare against this baseline file")
     parser.add_argument(
-        "--verify-bytes",
-        action="store_true",
-        help="prove streaming bytes are byte-identical to json.dumps bytes per probe",
-    )
-    parser.add_argument(
         "--bridge",
         help="lower through a checker bridge (e.g. mypy) and record the checker version in the baseline",
     )
     try:
         args = parser.parse_args(argv)
-        if args.verify_bytes:
-            probes = list(load_probes(args.probes))
-            if args.limit is not None:
-                probes = probes[: args.limit]
-            return 1 if verify_bytes(probes, bridge=args.bridge) else 0
         if not args.out and not args.baseline:
-            parser.error("give --out (generate), --baseline (compare) or --verify-bytes")
+            parser.error("give --out (generate) or --baseline (compare)")
         if args.out and args.baseline:
             parser.error("--out and --baseline are exclusive: generate or compare, not both")
 
