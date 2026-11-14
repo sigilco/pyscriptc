@@ -107,10 +107,13 @@ def oracle(path: Path, func: str, args: str = "[]") -> str:
     return proc.stdout
 
 
-def compile_run(tmp_path: Path, source: Path, func: str, args: str = "[]") -> subprocess.CompletedProcess[str]:
+def compile_run(
+    tmp_path: Path, source: Path, func: str, args: str = "[]", extra: list[str] | None = None
+) -> subprocess.CompletedProcess[str]:
     return run_cli(
         "compile",
         str(source),
+        *(extra or []),
         "--run",
         "--call",
         func,

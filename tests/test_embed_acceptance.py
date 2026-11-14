@@ -126,7 +126,13 @@ def test_acceptance_matrix_runs_in_an_empty_environment(tmp_path: Path) -> None:
 
     stdlib_bundle = _compile(STDLIB_PROGRAM, work / "stdlib" / "prog", "--island")
     dependency_bundle = _compile(DEPENDENCY_PROGRAM, work / "sitedep" / "depprog", "--island")
-    data_bundle = _compile(DATA_PROGRAM, work / "datafile" / "prog", "--program", "--island", "--fallback=cpython")
+    data_bundle = _compile(
+        DATA_PROGRAM,
+        work / "datafile" / "prog",
+        "--program",
+        "--island",
+        "--fallback=cpython",
+    )
 
     # The build tree goes away: the bundles move to a fresh directory and the
     # compile-time outputs are deleted.

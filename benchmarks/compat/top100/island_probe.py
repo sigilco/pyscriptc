@@ -94,6 +94,10 @@ def _compile(source: Path, target: Path, env: dict[str, str]) -> tuple[bool, str
         str(source),
         "--fallback=cpython",
         "--embed-python=host",
+        # The probe measures an island binary on the build machine, where
+        # the host libpython link is the point: the audit's opt-out keeps
+        # the measurement running (issue #1247).
+        "--allow-host-libpython",
         "--emit",
         "bin",
         "-o",

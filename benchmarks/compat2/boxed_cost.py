@@ -34,7 +34,7 @@ import sys
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
-BOXED_PATHS = ("src/pyscriptc/boxed.py", "src/pyscriptc/runtime/ps_island*")
+BOXED_PATHS = ("src/pyscriptc/boxed.py", "src/pyscriptc/bindeps.py", "src/pyscriptc/runtime/ps_island*")
 COMPILER_ROOT = "src/pyscriptc/"
 COMPILER_SUFFIXES = (".py", ".c", ".h")
 MARK_BEGIN = re.compile(r"boxed:begin")

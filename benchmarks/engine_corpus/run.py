@@ -111,7 +111,22 @@ def reference_run(program: Path, entry: str) -> tuple[str, str, int]:
 
 def compile_program(program: Path, entry: str, binary: Path, engine: Path | None) -> tuple[bool, str]:
     """Compile the entry into an island binary; False plus stderr on refusal."""
-    args = [sys.executable, "-m", "pyscriptc", "compile", entry, "--island", "--emit", "bin", "-o", str(binary)]
+    args = [
+        sys.executable,
+        "-m",
+        "pyscriptc",
+        "compile",
+        entry,
+        "--island",
+        # The matrix measures an island binary on the build machine, where
+        # the host libpython link is the point: the audit's opt-out keeps
+        # the measurement running (issue #1247).
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+    ]
     if engine is not None:
         args += ["--island-engine", str(engine)]
     proc = subprocess.run(

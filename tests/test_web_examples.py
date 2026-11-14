@@ -120,6 +120,7 @@ def _compile(tmp_path: Path, name: str, port: int, env: dict[str, str]) -> Path:
             "compile",
             str(staged),
             "--island",
+            "--allow-host-libpython",
             "--embed-python",
             "host",
             "--emit",

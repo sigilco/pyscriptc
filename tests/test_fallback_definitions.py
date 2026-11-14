@@ -15,7 +15,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 
-FALLBACK_FLAGS = ("--fallback=cpython",)
+FALLBACK_FLAGS = ("--fallback=cpython", "--allow-host-libpython")
 
 
 def _run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -102,7 +102,16 @@ if __name__ == "__main__":
 """,
         encoding="utf-8",
     )
-    for flags in (("--fallback=cpython",), ("--island",)):
+    for flags in (
+        (
+            "--fallback=cpython",
+            "--allow-host-libpython",
+        ),
+        (
+            "--island",
+            "--allow-host-libpython",
+        ),
+    ):
         binary = tmp_path / "alias_bin"
         comp = _run_cli("compile", str(src), *flags, "--emit", "bin", "-o", str(binary), cwd=tmp_path)
         assert comp.returncode == 0, comp.stderr

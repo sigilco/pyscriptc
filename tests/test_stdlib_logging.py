@@ -21,11 +21,11 @@ from tests.test_gates import run_cli, write_case
 ROOT = Path(__file__).resolve().parents[1]
 
 
-def _run_both(tmp_path: Path, name: str, body: list[str]) -> tuple[str, str]:
+def _run_both(tmp_path: Path, name: str, body: list[str], extra: list[str] | None = None) -> tuple[str, str]:
     """Compile to a binary, run it and the CPython oracle, diff stderr."""
     path = write_case(tmp_path, name, "\n".join([*body, ""]))
     binary = tmp_path / path.stem
-    got = run_cli("compile", str(path), "--emit", "bin", "-o", str(binary))
+    got = run_cli("compile", str(path), *(extra or []), "--emit", "bin", "-o", str(binary))
     assert got.returncode == 0, got.stderr
     native = subprocess.run([str(binary)], capture_output=True, text=True)
     oracle = subprocess.run([sys.executable, str(path)], capture_output=True, text=True)
@@ -93,6 +93,9 @@ def test_module_level_logging_island(tmp_path: Path) -> None:
             'if __name__ == "__main__":',
             "    run()",
         ],
+        # The module-level call runs the island runtime, so the binary links
+        # the host's libpython; the audit accepts it here on purpose.
+        extra=["--allow-host-libpython"],
     )
     assert native == oracle
     assert native.splitlines() == ["ERROR:root:mod err"]

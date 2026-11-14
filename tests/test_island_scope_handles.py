@@ -110,6 +110,33 @@ def test_nested_def_island_call_compiles_cli(tmp_path: Path) -> None:
     src.write_text(NESTED_ISLAND, encoding="utf-8")
     binary = tmp_path / "nest_bin"
     comp = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(src),
+            "--emit",
+            "bin",
+            "-o",
+            str(binary),
+            "--allow-host-libpython",
+        ],
+        cwd=ROOT,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert comp.returncode == 0, comp.stderr
+    assert binary.exists()
+
+
+def test_native_compile_passes_audit_silently(tmp_path: Path) -> None:
+    """#1247: a native binary that does not link host libpython compiles quietly."""
+    src = tmp_path / "nat.py"
+    src.write_text("print(2 + 2)\n", encoding="utf-8")
+    binary = tmp_path / "nat_bin"
+    comp = subprocess.run(
         [sys.executable, "-m", "pyscriptc", "compile", str(src), "--emit", "bin", "-o", str(binary)],
         cwd=ROOT,
         capture_output=True,
@@ -118,6 +145,7 @@ def test_nested_def_island_call_compiles_cli(tmp_path: Path) -> None:
     )
     assert comp.returncode == 0, comp.stderr
     assert binary.exists()
+    assert "libpython" not in comp.stderr
 
 
 NESTED_ISLAND_RUNTIME = """\
@@ -168,6 +196,7 @@ def test_nested_def_island_pool_matches_cpython(tmp_path: Path) -> None:
             "compile",
             str(src),
             "--fallback=cpython",
+            "--allow-host-libpython",
             "--emit",
             "bin",
             "-o",

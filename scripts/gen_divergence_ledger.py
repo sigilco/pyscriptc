@@ -477,6 +477,14 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#66",
     ),
     _row(
+        "D67",
+        "an island binary that links the build host's libpython refuses the compile (PS4304) "
+        "unless --allow-host-libpython accepts it",
+        None,
+        docs=f"{DOC}#67",
+        note="needs a toolchain and the host's shared libpython; otool/readelf read the artifact after the link",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

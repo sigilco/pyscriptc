@@ -31,7 +31,18 @@ def _write(root: Path, files: dict[str, str]) -> None:
 
 def _compare(tmp_path: Path, target: Path, cpython_cmd: list[str], *flags: str) -> str:
     binary = tmp_path / "bin"
-    comp = _cli("compile", str(target), "--fallback=cpython", "--emit", "bin", "-o", str(binary), *flags, cwd=tmp_path)
+    comp = _cli(
+        "compile",
+        str(target),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        *flags,
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary), "x", "y"], capture_output=True, text=True, timeout=60, cwd=tmp_path)
     want = subprocess.run([*cpython_cmd, "x", "y"], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -87,7 +98,16 @@ def test_package_relative_imports_cycle_and_order(tmp_path: Path) -> None:
     )
     binary = tmp_path / "bin"
     comp = _cli(
-        "compile", str(pkg), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(pkg),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -108,7 +128,17 @@ def test_clean_program_stays_native(tmp_path: Path) -> None:
             "helper.py": "def twice(x: int) -> int:\n    return x * 2\n",
         },
     )
-    comp = _cli("compile", str(prog), "--fallback=cpython", "--emit", "ir", "-o", str(tmp_path / "o"), cwd=tmp_path)
+    comp = _cli(
+        "compile",
+        str(prog),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "ir",
+        "-o",
+        str(tmp_path / "o"),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
     ir = (tmp_path / "o").read_text(encoding="utf-8")
     assert '"helper.twice"' in ir
@@ -138,7 +168,16 @@ def test_package_program_fenced_imported_module(tmp_path: Path) -> None:
     (prog / "data" / "b.txt").write_text("y", encoding="utf-8")
     binary = tmp_path / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -161,7 +200,16 @@ def test_program_typed_cycle_matches_cpython(tmp_path: Path) -> None:
     )
     binary = tmp_path / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -188,7 +236,16 @@ def test_program_non_constant_module_assignment(tmp_path: Path) -> None:
     )
     binary = tmp_path / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
     env = {**os.environ, "PYSC_PROG641": "/env641"}
@@ -233,7 +290,16 @@ def test_program_data_files_survive_relocation(tmp_path: Path) -> None:
     )
     binary = tmp_path / "out" / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
 
@@ -269,7 +335,16 @@ def test_program_data_subdirectory_survives_relocation(tmp_path: Path) -> None:
     )
     binary = tmp_path / "out" / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
 
@@ -295,7 +370,16 @@ def test_relocated_run_puts_no_binary_dir_on_sys_path(tmp_path: Path) -> None:
     _write(prog, {"__main__.py": "import sys\nprint('|'.join(sys.path))\n"})
     binary = tmp_path / "out" / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
 
@@ -334,7 +418,16 @@ def test_unstaged_data_lookup_is_a_numbered_divergence(tmp_path: Path) -> None:
     )
     binary = tmp_path / "out" / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
 
@@ -397,7 +490,17 @@ def test_library_import_of_island_definition_refuses(tmp_path: Path) -> None:
             "cli.py": "from pkg.helper import count\n\n\ndef go(d: str) -> int:\n    return count(d)\n",
         },
     )
-    comp = _cli("compile", str(pkg), "--fallback=cpython", "--emit", "bin", "-o", str(tmp_path / "bin"), cwd=tmp_path)
+    comp = _cli(
+        "compile",
+        str(pkg),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(tmp_path / "bin"),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 3, comp.stderr
     assert "PS2002" in comp.stderr
     assert "pkg.helper.count" in comp.stderr
@@ -423,7 +526,16 @@ def test_program_relative_cycle_matches_cpython(tmp_path: Path) -> None:
     )
     binary = tmp_path / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -448,7 +560,16 @@ def test_program_importlib_cycle_in_module_matches_cpython(tmp_path: Path) -> No
     )
     binary = tmp_path / "bin"
     comp = _cli(
-        "compile", str(prog), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(prog),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -483,6 +604,7 @@ def test_program_entry_only_cycle_compiles_entry_island(tmp_path: Path) -> None:
         str(prog / "main.py"),
         "--program",
         "--fallback=cpython",
+        "--allow-host-libpython",
         "--emit",
         "bin",
         "-o",
@@ -518,7 +640,16 @@ def test_package_program_argv0_is_the_entry_path(tmp_path: Path) -> None:
     build(pkg)
     binary = tmp_path / "bin"
     comp = _cli(
-        "compile", str(pkg), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        "compile",
+        str(pkg),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -551,7 +682,18 @@ def test_program_checker_suppression_from_another_cwd(tmp_path: Path) -> None:
     cwd = tmp_path / "cwd"
     cwd.mkdir()
     binary = tmp_path / "bin"
-    comp = _cli("compile", str(tree), "--program", "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=cwd)
+    comp = _cli(
+        "compile",
+        str(tree),
+        "--program",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=cwd,
+    )
     assert comp.returncode == 0, comp.stderr
     assert "suppressed" in comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)

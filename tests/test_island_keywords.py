@@ -133,7 +133,17 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "fenced_def_bin"
-    comp = _run_cli("compile", str(src), "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli(
+        "compile",
+        str(src),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -178,7 +188,17 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "forward_bin"
-    comp = _run_cli("compile", str(src), "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli(
+        "compile",
+        str(src),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -221,7 +241,7 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "method_kw_bin"
-    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython", cwd=tmp_path)
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
@@ -280,7 +300,7 @@ if __name__ == "__main__":
             encoding="utf-8",
         )
         binary = tmp_path / "app_bin"
-        comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+        comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython", cwd=tmp_path)
         assert comp.returncode == 0, comp.stderr
 
         native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)

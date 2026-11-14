@@ -35,7 +35,7 @@ DESCRIPTIONS: dict[str, str] = {
     "ffi": "extern manifests, relative to this file",
     "imports": "import lane per top-level module name",
     "fallback": "fallback mode settings: `definitions`, or the tier `cpython`",
-    "island": "embedded CPython settings: `embed` and `stdlib`",
+    "island": "embedded CPython settings: `embed`, `stdlib`, `engine`, `allow_host_libpython`",
 }
 
 LANE_DESCRIPTIONS: dict[str, str] = {

@@ -86,6 +86,7 @@ def _compile(
     argv = [sys.executable, "-m", "pyscriptc", "compile"]
     if island:
         argv.append("--island")
+        argv.append("--allow-host-libpython")
     if engine is not None:
         argv += ["--island-engine", str(engine)]
     argv += ["--emit", "bin", str(source), "-o", str(out)]

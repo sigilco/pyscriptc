@@ -35,7 +35,16 @@ def _write(root: Path, files: dict[str, str]) -> None:
 
 def _compile_ir(tmp_path: Path, target: Path, *flags: str) -> dict:
     comp = _cli(
-        "compile", str(target), "--fallback=cpython", "--emit", "ir", "-o", str(tmp_path / "o"), *flags, cwd=tmp_path
+        "compile",
+        str(target),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "ir",
+        "-o",
+        str(tmp_path / "o"),
+        *flags,
+        cwd=tmp_path,
     )
     assert comp.returncode == 0, comp.stderr
     return json.loads((tmp_path / "o").read_text(encoding="utf-8"))
@@ -150,7 +159,17 @@ def test_seed_preserves_module_semantics(tmp_path: Path) -> None:
         },
     )
     binary = tmp_path / "bin"
-    comp = _cli("compile", str(prog), "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _cli(
+        "compile",
+        str(prog),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=120, cwd=tmp_path)
     want = subprocess.run(
@@ -179,7 +198,17 @@ def test_seed_traceback_names_the_compile_time_file(tmp_path: Path) -> None:
         },
     )
     binary = tmp_path / "bin"
-    comp = _cli("compile", str(prog), "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _cli(
+        "compile",
+        str(prog),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=120, cwd=tmp_path)
     assert got.returncode == 0, got.stderr
@@ -200,7 +229,17 @@ def test_seed_carries_no_module_source_in_the_binary(tmp_path: Path) -> None:
         },
     )
     binary = tmp_path / "bin"
-    comp = _cli("compile", str(prog), "--fallback=cpython", "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _cli(
+        "compile",
+        str(prog),
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
     blob = binary.read_bytes()
     assert b"keyword.kwlist" not in blob

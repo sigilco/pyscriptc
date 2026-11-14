@@ -101,20 +101,26 @@ class TestCurlBridge:
     def test_get_and_json_round_trip(self, tmp_path: Path, local_json_server: str) -> None:
         source = write_case(tmp_path, "curl_bridge.py", PROGRAM)
         binary = tmp_path / "curl_bridge-fetch"
-        got = compile_run(tmp_path, source, "fetch", repr([local_json_server]))
+        # The curl bridge is deliberately libpython-linked (the island call
+        # runs curl from the embedded CPython); the audit must accept it here.
+        got = compile_run(tmp_path, source, "fetch", repr([local_json_server]), extra=["--allow-host-libpython"])
         assert got.returncode == 0, got.stderr
         assert got.stdout == json.dumps({"status": "ok", "echo": None}) + "\n"
         assert binary.exists() or (tmp_path / "fetch").exists()
 
     def test_post_round_trip(self, tmp_path: Path, local_json_server: str) -> None:
         source = write_case(tmp_path, "curl_bridge_post.py", PROGRAM)
-        got = compile_run(tmp_path, source, "post", repr([local_json_server, '{"status":"sent"}']))
+        got = compile_run(
+            tmp_path, source, "post", repr([local_json_server, '{"status":"sent"}']), extra=["--allow-host-libpython"]
+        )
         assert got.returncode == 0, got.stderr
         assert got.stdout == json.dumps({"status": "ok", "echo": None}) + "\n"
 
     def test_status_json_loads_round_trip(self, tmp_path: Path, local_json_server: str) -> None:
         source = write_case(tmp_path, "curl_bridge_status.py", PROGRAM)
-        got = compile_run(tmp_path, source, "status", repr([json.dumps({"status": "ok"})]))
+        got = compile_run(
+            tmp_path, source, "status", repr([json.dumps({"status": "ok"})]), extra=["--allow-host-libpython"]
+        )
         assert got.returncode == 0, got.stderr
         assert got.stdout == "ok\n"
 

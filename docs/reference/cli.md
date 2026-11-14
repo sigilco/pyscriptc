@@ -31,6 +31,7 @@ pyscriptc compile SOURCE [options]
 | `--embed-headers` |  | stage the runtime pack's CPython headers into a bundle: a bundle that is itself a compiler (the self-compiled pyscriptc) needs Python.h to compile island programs at run time |
 | `--onefile` |  | write the bundle as one executable: the payload travels appended to a small stub, which extracts it into the cache (keyed by the payload's sha256) on the first run and execs it on every run. Needs --embed-python=bundle |
 | `--strip-runtime` |  | strip the staged libpython of a bundle: the dynamic symbols the interpreter exports stay, the debug and static symbols go (about 12 MB on Linux) |
+| `--allow-host-libpython` |  | accept a binary that links the build host's libpython: the post-link audit warns instead of refusing (issue #1247). The binary then runs only where that exact interpreter library exists |
 | `--call FUNC` | `FUNC` | function the generated main calls |
 | `--args ARGS` | `ARGS` | Python literal list of arguments for --call, parsed with ast.literal_eval (default `[]`) |
 | `--run` |  | compile a binary and run it; arguments after `--` go to the binary |

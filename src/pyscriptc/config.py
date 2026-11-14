@@ -269,6 +269,19 @@ class Config:
                 return str(value)
         return None
 
+    def island_allow_host_libpython(self) -> bool:
+        """True when `[tool.pyscriptc.island] allow_host_libpython` is set.
+
+        The post-link audit (issue #1247) refuses a binary that links the
+        build host's libpython; the config key is the project-level way to
+        accept that link (the CLI flag is `--allow-host-libpython`).
+        """
+        if isinstance(self.island, dict):
+            if "allow_host_libpython" in self.island:
+                allowed: bool = self.island["allow_host_libpython"]
+                return bool(allowed)
+        return False
+
     def island_stdlib(self) -> str | None:
         """The `[tool.pyscriptc.island] stdlib` trim, or None when unset."""
 
@@ -453,14 +466,17 @@ def _paths(table: Dict[str, Any], key: str) -> tuple[str, ...]:
 def _validate_island(table: str, island: Dict[str, Any]) -> None:
     """Key and type check of the `[tool.pyscriptc.island]` subtable.
 
-    This adds the `engine` key (issue #666); `embed` and `stdlib` are
-    checked in `Config.island_embed` / `Config.island_stdlib`.
+    This adds the `engine` key (issue #666) and `allow_host_libpython`
+    (issue #1247); `embed` and `stdlib` are checked in
+    `Config.island_embed` / `Config.island_stdlib`.
     """
     for key, value in island.items():
-        if key not in ("embed", "stdlib", "engine"):
-            raise ConfigError(f"{table}: unknown key (known: embed, engine, stdlib)")
+        if key not in ("embed", "stdlib", "engine", "allow_host_libpython"):
+            raise ConfigError(f"{table}: unknown key (known: allow_host_libpython, embed, engine, stdlib)")
         if key == "engine" and not isinstance(value, str):
             raise ConfigError(f"{table}.engine must be str, got {type(value).__name__}")
+        if key == "allow_host_libpython" and not isinstance(value, bool):
+            raise ConfigError(f"{table}.allow_host_libpython must be bool, got {type(value).__name__}")
 
 
 def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
@@ -726,5 +742,8 @@ def apply_to_args(config: Config, args: Any) -> list[str]:
         island_engine = config.island_engine()
         if island_engine is not None:
             args.island_engine = island_engine
+    if hasattr(args, "allow_host_libpython") and not getattr(args, "allow_host_libpython", False):
+        if config.island_allow_host_libpython():
+            args.allow_host_libpython = True
     # boxed:end
     return notes

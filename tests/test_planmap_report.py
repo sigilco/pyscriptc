@@ -59,6 +59,7 @@ def test_summary_json_carries_fallback_split(tmp_path: Path) -> None:
         "compile",
         str(src),
         "--fallback=cpython",
+        "--allow-host-libpython",
         "--emit",
         "bin",
         "-o",

@@ -57,7 +57,7 @@ if __name__ == "__main__":
         src.write_text(source_text, encoding="utf-8")
         binary = tmp_path / "receipt_bin"
 
-        comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+        comp = _run_cli("compile", str(src), "--emit", "bin", "-o", str(binary), "--allow-host-libpython", cwd=tmp_path)
         assert comp.returncode == 0, comp.stderr
 
         native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
@@ -88,7 +88,9 @@ if __name__ == "__main__":
         src.write_text(source_text, encoding="utf-8")
         binary = tmp_path / "zero_config_bin"
 
-        comp = _run_cli("compile", "--island", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+        comp = _run_cli(
+            "compile", "--island", "--allow-host-libpython", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        )
         assert comp.returncode == 0, comp.stderr
 
         native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
@@ -119,7 +121,9 @@ if __name__ == "__main__":
         src.write_text(source_text, encoding="utf-8")
         binary = tmp_path / "bytes_case_bin"
 
-        comp = _run_cli("compile", "--island", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+        comp = _run_cli(
+            "compile", "--island", "--allow-host-libpython", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        )
         assert comp.returncode == 0, comp.stderr
 
         native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
@@ -176,7 +180,9 @@ if __name__ == "__main__":
         src.write_text(source_text, encoding="utf-8")
         binary = tmp_path / "thread_test_bin"
 
-        comp = _run_cli("compile", "--island", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+        comp = _run_cli(
+            "compile", "--island", "--allow-host-libpython", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path
+        )
         assert comp.returncode == 0, comp.stderr
 
         native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
@@ -240,7 +246,9 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "app_bin"
-    comp = _run_cli("compile", "--island", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli(
+        "compile", "--island", "--allow-host-libpython", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path
+    )
     assert comp.returncode == 0, comp.stderr
 
     # Execute from a different working directory (/tmp)
@@ -280,6 +288,7 @@ if __name__ == "__main__":
     comp = _run_cli(
         "compile",
         "--island",
+        "--allow-host-libpython",
         str(src),
         "--emit",
         "bin",
@@ -321,7 +330,9 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "forms_test_bin"
-    comp = _run_cli("compile", "--island", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli(
+        "compile", "--island", "--allow-host-libpython", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path
+    )
     assert comp.returncode == 0, comp.stderr
 
     run = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)
@@ -352,7 +363,17 @@ raise SystemExit(pytest.main([r"%s", "-q"]))
         encoding="utf-8",
     )
     binary = tmp_path / "entry_bin"
-    comp = _run_cli("compile", "--fallback=cpython", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli(
+        "compile",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        str(src),
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
 
     site = Path(pytest.__file__).resolve().parent.parent
@@ -401,7 +422,17 @@ if __name__ == "__main__":
         encoding="utf-8",
     )
     binary = tmp_path / "tpe_bin"
-    comp = _run_cli("compile", "--fallback=cpython", str(src), "--emit", "bin", "-o", str(binary), cwd=tmp_path)
+    comp = _run_cli(
+        "compile",
+        "--fallback=cpython",
+        "--allow-host-libpython",
+        str(src),
+        "--emit",
+        "bin",
+        "-o",
+        str(binary),
+        cwd=tmp_path,
+    )
     assert comp.returncode == 0, comp.stderr
 
     native = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60)

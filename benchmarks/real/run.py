@@ -104,6 +104,10 @@ def compile_artifact(
     command = [*options.pyscriptc, "compile"]
     if fallback:
         command.append("--fallback=cpython")
+        # The island timing runs the binary on the build machine, where the
+        # host libpython link is the point: the audit's opt-out keeps the
+        # measurement running (issue #1247).
+        command.append("--allow-host-libpython")
     command += ["--emit", "bin", "-o", str(artifact), str(script)]
     start = time.perf_counter()
     proc = subprocess.run(command, cwd=str(cwd), env=env, capture_output=True, timeout=options.timeout * 3, check=False)
