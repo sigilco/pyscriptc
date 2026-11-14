@@ -93,7 +93,7 @@ ALLOWED_TYPE_NAMES = frozenset({"int", "float", "bool", "str", "bytes", "list", 
 CONST_TYPES = frozenset({"int", "float", "str"})
 
 # The keys each section accepts. Anything else is `PS4005`.
-_MANIFEST_KEYS = frozenset({"module", "ps_abi", "format", "libs", "lib_dirs"})
+_MANIFEST_KEYS = frozenset({"module", "ps_abi", "format", "libs", "lib_dirs", "include_dirs"})
 _SOURCE_KEYS = frozenset({"path", "objects"})
 _HANDLE_KEYS = frozenset({"name", "c_type", "frees"})
 _CONST_KEYS = frozenset({"name", "type", "value"})
@@ -281,6 +281,7 @@ class FfiManifest:
     handle_names: set[str]
     libs: tuple[str, ...]
     lib_dirs: tuple[str, ...]
+    include_dirs: tuple[str, ...] = ()
 
     def function(self, name: str) -> ManifestFunction | None:
         """The function bound to a Python-visible name, if any."""
@@ -357,6 +358,21 @@ class FfiManifest:
         for library in self.libs:
             flags.append(f"-l{library}")
         return flags
+
+    def include_dir_list(self) -> list[Path]:
+        """The extra include directories this manifest's units compile against.
+
+        The manifest's own directory is always on the include path (the
+        vendored headers live next to the manifest). A manifest that ships
+        a header tree in a subdirectory (the nanoarrow bundle's
+        `vendor/` and the flatcc headers under it) names that directory in
+        `include_dirs`; the entries are relative to the manifest file.
+        """
+        base = self.path.parent
+        directories = [base]
+        for entry in self.include_dirs:
+            directories.append(base / entry)
+        return directories
 
 
 def parse_manifest_text(text: str, *, path: Path | None = None, ps_abi: int = CURRENT_PS_ABI) -> FfiManifest:
@@ -440,10 +456,13 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
     _reject_unknown_keys(header, _MANIFEST_KEYS, path=path, where=where)
     libs = _optional_str_list(header, "libs", path=path, where=where)
     lib_dirs = _optional_str_list(header, "lib_dirs", path=path, where=where)
+    include_dirs = _optional_str_list(header, "include_dirs", path=path, where=where)
     for library in libs:
         _check_link_name(library, key="libs", path=path, where=where)
     for directory in lib_dirs:
         _check_lib_dir(directory, path=path, where=where)
+    for directory in include_dirs:
+        _check_lib_dir(directory, key="include_dirs", path=path, where=where)
 
     sources = _build_sources(data, path=path)
     handles = _build_handles(data, path=path)
@@ -469,6 +488,7 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
         handle_names,
         libs,
         lib_dirs,
+        include_dirs,
     )
 
 
@@ -483,12 +503,12 @@ def _check_link_name(library: str, *, key: str, path: Path | None, where: str) -
         )
 
 
-def _check_lib_dir(directory: str, *, path: Path | None, where: str) -> None:
-    """A `lib_dirs` entry is a directory path, not a flag."""
+def _check_lib_dir(directory: str, *, key: str = "lib_dirs", path: Path | None, where: str) -> None:
+    """A `lib_dirs` or `include_dirs` entry is a directory path, not a flag."""
     if directory.startswith("-") or not directory.strip():
         raise FfiManifestError(
             "PS4005",
-            f"the lib_dirs entry {directory!r} is not a bare directory path",
+            f"the {key} entry {directory!r} is not a bare directory path",
             path,
             where,
         )

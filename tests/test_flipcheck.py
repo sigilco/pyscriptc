@@ -2,7 +2,7 @@
 
 Fixture-based: the predicted list is synthesized from the scan tables in
 ``.agents/docs/spec/e1-entrypoint-detector-spec.md`` (the permanent E1 detector lives inside
-E1 and has not landed); the achieved files mirror the two irscore output
+E1 and has not landed); the achieved files mirror the two tirscore output
 formats, the ``--out`` baseline JSON and the stdout diff sections.
 """
 
