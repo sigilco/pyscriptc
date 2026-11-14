@@ -1,6 +1,6 @@
 # Compat site
 
-Status: assembled, 2026-10-22. The compat page is part of the single pyscriptc.pages.dev site (landing at `/`, docs at `/docs`, compat at `/compat`). Owner decisions pending: Cloudflare secrets and switching the existing git-connected Pages project to direct upload.
+Status: assembled, 2026-10-22. The compat page is part of the single pyscriptc.pages.dev site (landing at `/`, docs at `/docs`, compat at `/compat`).
 
 The compat site is the public, always-current answer to "what does pyscriptc support right now?". It renders the same numbers the compiler produces, so it cannot drift from the docs the way a hand-written table can.
 
@@ -14,7 +14,7 @@ The compat site is the public, always-current answer to "what does pyscriptc sup
 | measure | `benchmarks.compat2.census_self` | `benchmarks/compat2/census-self.json` | on demand, pinned by `tests/test_census_self.py` |
 | measure | `benchmarks.compat.top100.island_probe` | `data/compat/island.json` | on demand, opt-in |
 | aggregate | `scripts/build_compat_json.py` (new) | `data/compat/compat.json` | on demand and in the nightly job |
-| publish | Cloudflare Pages project `pyscriptc` | `https://pyscriptc.pages.dev/compat` | on push that changes site, compat or docs paths |
+| publish | Cloudflare Pages project `pyscriptc` | `https://pyscriptc.pages.dev/compat` | on every master push (dashboard git integration) |
 
 One JSON file is the contract between measurement and presentation. The site never reads the compiler, the corpus or the scorer; it reads one file.
 
@@ -193,7 +193,7 @@ The builder reuses `scripts/gen_support_table.py` internals (`evaluate`, `librar
 | --- | --- |
 | build | `uv run python -m benchmarks.scripts_corpus.ladder --json data/compat/ladder.json`, then `uv run python -m benchmarks.real_scripts.measure --quiet --json nightly/r0.json` and `uv run python scripts/r0_lane.py --json data/compat/ladder.json --measure nightly/r0.json`, then `uv run python scripts/build_compat_json.py --out data/compat/compat.json --score nightly/visible-score.json --ladder data/compat/ladder.json` |
 | commit | if the file changed, open (or update) a bot PR with just that change via `gh`, and auto-merge if the ruleset allows |
-| deploy | the merge to master triggers the site workflow build and deploy |
+| deploy | the merge to master triggers the Cloudflare dashboard git integration, which builds and deploys |
 
 The nightly job needs `contents: write` and `pull-requests: write` for the bot PR step. That is a permissions change on an existing workflow, so the owner must approve it before the PR merges.
 
@@ -207,21 +207,21 @@ Two paths reach Cloudflare Pages.
 
 | path | trigger | what happens |
 | --- | --- | --- |
-| nightly | the nightly job opens a bot PR with `data/compat/compat.json` | the merge to master triggers the site workflow build and deploy |
+| nightly | the nightly job opens a bot PR with `data/compat/compat.json` | the merge to master triggers the Cloudflare dashboard git integration, which builds and deploys |
 | pull request | a PR changes `compat/**`, `site/**` or `docs/**` | the site workflow builds and validates, the owner reviews it before merge |
 
-The deploy is a GitHub Actions job in `.github/workflows/site.yml` using `wrangler pages deploy` against the existing Pages project switched to direct upload. The project is `pyscriptc`, already serving `https://pyscriptc.pages.dev`; the workflow assembles the three parts (landing, docs, compat) into one `deploy/` tree and publishes it.
+Deploys are done by the Cloudflare Pages git integration configured in the dashboard (decision 2026-11-14): the project `pyscriptc` publishes every master push and reports the `Cloudflare Pages` check. `.github/workflows/site.yml` is the validation gate only (build, validate, typecheck, test) and holds no Cloudflare secret; the earlier wrangler direct-upload design failed every master push for want of a token and duplicated the dashboard deploy.
 
 | setting | value |
 | --- | --- |
 | project name | `pyscriptc` |
-| deployment mode | direct upload (`wrangler pages deploy`), git connection removed |
-| secrets | `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ACCOUNT_ID` |
+| deployment mode | git integration in the Cloudflare dashboard |
+| secrets in GitHub | none |
 | assembly | `mise run site:build` produces `deploy/` (landing at root, docs at `/docs`, compat at `/compat`) |
 
 The compat page is part of the `apps/web` Astro app (`apps/web/src/pages/compat/`). The build bakes `data/compat/compat.json` into the page as static HTML (no runtime fetch); `apps/web/scripts/sync-data.mts` copies the JSON into `apps/web/public/compat/data/` so the raw files ship next to the page.
 
-Two things are the owner's to do, because they need the Cloudflare account: add the `CLOUDFLARE_API_TOKEN` and `CLOUDFLARE_ACCOUNT_ID` secrets, and switch the existing `pyscriptc` Pages project from git connection to direct upload. The docs site links to the compat page through the `PYSC_COMPAT_URL` placeholder, default `https://pyscriptc.pages.dev/compat`, so the URL can change without a docs edit.
+The docs site links to the compat page through the `PYSC_COMPAT_URL` placeholder, default `https://pyscriptc.pages.dev/compat`, so the URL can change without a docs edit.
 
 ## Static site generator choice
 
@@ -281,7 +281,7 @@ CI validation, in this order.
 | page | `apps/web/src/pages/compat/` in the Astro app, static build over data/compat/compat.json | shipped |
 | assembly | `apps/web/scripts/assemble.mts`, `mise run site:build`, `apps/web/deploy/` with `_headers` and `_redirects` | shipped |
 | nightly | bot PR via `gh` instead of direct master push | shipped |
-| deploy | `.github/workflows/site.yml`, wrangler direct upload | in review |
+| deploy | Cloudflare dashboard git integration; `site.yml` validates | live |
 
 The PR that carries the page and the assembly is the single reviewable unit; the deploy goes live when the owner adds the Cloudflare secrets and switches the Pages project to direct upload.
 

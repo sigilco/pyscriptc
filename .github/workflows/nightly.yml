@@ -241,8 +241,8 @@ jobs:
   # nightly, instead of in a pull_request run held at action_required.
   #
   # The `ref` input makes the checkout the snapshot commit, so the site
-  # assembles exactly the bytes the PR carries. The site job only deploys
-  # on a push to master, so a workflow_call never deploys.
+  # assembles exactly the bytes the PR carries. The site job never deploys;
+  # the Cloudflare dashboard git integration does that on master pushes.
   site-check:
     name: build the site over the compat snapshot
     needs: visible-score

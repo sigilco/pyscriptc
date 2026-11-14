@@ -92,8 +92,10 @@ def test_site_workflow_exists() -> None:
     workflow = ROOT / ".github" / "workflows" / "site.yml"
     assert workflow.is_file()
     text = workflow.read_text(encoding="utf-8")
-    assert "wrangler pages deploy" in text
-    assert "--project-name=pyscriptc" in text
+    # Deploys belong to the Cloudflare dashboard git integration, so the
+    # workflow carries no wrangler step and no Cloudflare secret.
+    assert "wrangler" not in text
+    assert "CLOUDFLARE_API_TOKEN" not in text
 
 
 def test_nightly_never_pushes_to_master() -> None:
