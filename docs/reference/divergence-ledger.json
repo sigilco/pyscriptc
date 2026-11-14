@@ -1148,6 +1148,17 @@
       "status": "divergent"
     },
     {
+      "id": "D67",
+      "seam": "an island binary that links the build host's libpython refuses the compile (PS4304) unless --allow-host-libpython accepts it",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#67",
+      "probe": null,
+      "note": "needs a toolchain and the host's shared libpython; otool/readelf read the artifact after the link",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
