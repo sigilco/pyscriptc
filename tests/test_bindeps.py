@@ -208,6 +208,17 @@ def test_host_island_link_fails_with_the_dylib_path(tmp_path: Path) -> None:
     src.write_text(ISLAND_SRC, encoding="utf-8")
     (tmp_path / "pyscriptc.toml").write_text('[imports]\nfractions = "island"\n', encoding="utf-8")
     done = _compile(src, tmp_path, ["--island", "--embed-python=host"])
+    if done.returncode == 0:
+        # The audit missed this host link: dump the artifact's load commands
+        # so the failure carries the exact shape (the rpath layout differs
+        # between a dev checkout, a wheel venv and a setup-python install).
+        listing = subprocess.run(["otool", "-L", "prog"], capture_output=True, text=True, cwd=tmp_path, timeout=60)
+        load = subprocess.run(["otool", "-l", "prog"], capture_output=True, text=True, cwd=tmp_path, timeout=60)
+        pytest.fail(
+            "the audit passed a host-libpython link\n"
+            f"otool -L:\n{listing.stdout}\notool -l (rpaths):\n"
+            + "\n".join(line for line in load.stdout.splitlines() if "RPATH" in line or "path " in line)
+        )
     assert done.returncode == 1, done.stderr
     assert "libpython" in done.stderr
     assert sysconfig.get_config_var("VERSION") in done.stderr
