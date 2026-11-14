@@ -731,6 +731,7 @@ class AbiMixin(EmitterBase):
                     "TextIO",
                     "BytesIO",
                     "CsvWriter",
+                    "CsvDictWriter",
                     "Lock",
                     "Queue",
                     "HttpResponse",

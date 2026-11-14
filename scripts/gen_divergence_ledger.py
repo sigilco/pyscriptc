@@ -471,6 +471,12 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#65",
     ),
     _row(
+        "D66",
+        "csv.DictReader is an eager list and a long record raises ValueError, not the None restkey",
+        "d66_csv_dict_reader.py",
+        docs=f"{DOC}#66",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
