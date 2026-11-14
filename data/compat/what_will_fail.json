@@ -1,14 +1,14 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "b8aa70fca2817766b892ee7b7fdc74ca180bdc82",
+  "commit": "a3f397ee1c83a6429ca53d28c71403f5303b4ae4",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 49,
+    "total_fences": 48,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -156,12 +156,6 @@
           "construct": "keyword arguments",
           "code": "PS2003",
           "diagnostic": "keyword arguments are not lowered"
-        },
-        {
-          "module": "hashlib",
-          "construct": "`hashlib.sha256()`",
-          "code": "PS2003",
-          "diagnostic": "hashlib.sha256 expects 1 argument(s)"
         },
         {
           "module": "sys",

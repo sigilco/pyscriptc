@@ -1,7 +1,7 @@
 {
   "schema": "2",
-  "generated": "2026-11-12",
-  "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+  "generated": "2026-11-14",
+  "commit": "a3f397ee1c83a6429ca53d28c71403f5303b4ae4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -17,8 +17,8 @@
     "measured": 18,
     "packages": 18,
     "runs": 18,
-    "date": "2026-11-12",
-    "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+    "date": "2026-11-14",
+    "commit": "a3f397ee1c83a6429ca53d28c71403f5303b4ae4",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -592,11 +592,10 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "blake2, sha3, sha224, new, pbkdf2_hmac, incremental update (no-argument constructor)"
+        "blake2, sha3, sha224, new, pbkdf2_hmac"
       ],
       "fences": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ],
       "note": ""
     },
@@ -2564,6 +2563,15 @@
     {
       "date": "2026-11-12",
       "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
+    },
+    {
+      "date": "2026-11-14",
+      "commit": "a3f397ee1c83a6429ca53d28c71403f5303b4ae4",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-12",
-  "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+  "generated": "2026-11-14",
+  "commit": "a3f397ee1c83a6429ca53d28c71403f5303b4ae4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -297,10 +297,9 @@
       "label": "`hashlib`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "blake2, sha3, sha224, new, pbkdf2_hmac, incremental update (no-argument constructor)",
+      "missing": "blake2, sha3, sha224, new, pbkdf2_hmac",
       "codes": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ]
     },
     {

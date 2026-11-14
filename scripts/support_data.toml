@@ -280,7 +280,7 @@ no = [["b32, b16, a85, encodebytes", 'y: bytes = base64.b32encode(b)', "PS2001"]
 [[stdlib]]
 names = ["hashlib"]
 ok = ['y: str = hashlib.sha256(b).hexdigest()', 'y: bytes = hashlib.md5(b).digest()']
-no = [["blake2, sha3, sha224, new, pbkdf2_hmac", 'y: str = hashlib.blake2b(b).hexdigest()', "PS2001"], ["incremental update (no-argument constructor)", 'y: int = hashlib.sha256()', "PS2003"]]
+no = [["blake2, sha3, sha224, new, pbkdf2_hmac", 'y: str = hashlib.blake2b(b).hexdigest()', "PS2001"]]
 
 [[stdlib]]
 names = ["struct"]
