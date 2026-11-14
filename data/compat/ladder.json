@@ -31,8 +31,8 @@
     "lanes": [
       {
         "lane": "native",
-        "imports": 280,
-        "share": 0.8485
+        "imports": 288,
+        "share": 0.8727
       },
       {
         "lane": "pack",
@@ -41,8 +41,8 @@
       },
       {
         "lane": "extern",
-        "imports": 49,
-        "share": 0.1485
+        "imports": 41,
+        "share": 0.1242
       },
       {
         "lane": "island",
@@ -57,7 +57,7 @@
     ]
   },
   "r0": {
-    "date": "2026-11-13",
+    "date": "2026-11-14",
     "rung": "R0",
     "label": "Vendored real script",
     "corpus": "benchmarks/real_scripts/scripts",
@@ -161,6 +161,12 @@
       },
       {
         "date": "2026-11-13",
+        "passed": 2,
+        "total": 39,
+        "rate": 0.0513
+      },
+      {
+        "date": "2026-11-14",
         "passed": 2,
         "total": 39,
         "rate": 0.0513
