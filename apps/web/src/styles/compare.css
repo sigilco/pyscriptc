@@ -370,3 +370,14 @@
   }
 }
 
+
+.contract-quote {
+  margin: 1.5rem 0;
+  padding: 1rem 1.25rem;
+  border-left: 3px solid var(--accent, #6aa1ff);
+  background: var(--surface-2, rgba(106, 161, 255, 0.08));
+  font-size: 1.15rem;
+  line-height: 1.5;
+  font-style: italic;
+  border-radius: 0 var(--radius, 8px) var(--radius, 8px) 0;
+}
