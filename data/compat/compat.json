@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-14",
-  "commit": "f35accdfac46bddde186b44478c8053b3c049647",
+  "commit": "c7dda327465b632d406025922042ccc5b052c29c",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-14",
-    "commit": "f35accdfac46bddde186b44478c8053b3c049647",
+    "commit": "c7dda327465b632d406025922042ccc5b052c29c",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -26,7 +26,7 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 65,
+    "stdlib_partial": 66,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
@@ -522,6 +522,25 @@
       "count": 1,
       "unsupported": [
         "default callable, other OPT_ flags, other orjson members (Fragment, JSONDecodeError)"
+      ],
+      "fences": [
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.pyscriptc-ndarray",
+      "kind": "stdlib",
+      "label": "`pyscriptc_ndarray`, `numpy`",
+      "names": [
+        "pyscriptc_ndarray",
+        "numpy"
+      ],
+      "status": "partial",
+      "count": 2,
+      "unsupported": [
+        "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step"
       ],
       "fences": [
         "PS2001",
@@ -1090,16 +1109,16 @@
       "note": ""
     },
     {
-      "id": "stdlib.heapq",
+      "id": "stdlib.statistics",
       "kind": "stdlib",
-      "label": "`heapq`",
+      "label": "`statistics`",
       "names": [
-        "heapq"
+        "statistics"
       ],
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "merge, the *_max family, key=, key= keyword, tuple elements"
+        "multimode, median_grouped, correlation, linear_regression, mode over float data, quantiles n= outside 2, 4, 8"
       ],
       "fences": [
         "PS1003",
@@ -2569,8 +2588,17 @@
   ],
   "history": [
     {
+      "date": "2026-11-13",
+      "commit": "91ef7017c7c6f12ccb276022e5fc37243ebf7a24",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
+    },
+    {
       "date": "2026-11-14",
-      "commit": "f35accdfac46bddde186b44478c8053b3c049647",
+      "commit": "c7dda327465b632d406025922042ccc5b052c29c",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

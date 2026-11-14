@@ -71,7 +71,10 @@ def test_data_file_is_valid_json_with_a_stable_schema() -> None:
 def test_curated_packs_cover_the_planned_candidates() -> None:
     packs = curated_packs()
     assert packs["orjson"] == "pyscriptc-orjson"
-    assert "numpy" not in packs
+    # The numpy tier ships its own pack (issue #496): the numpy spelling
+    # resolves to the pyscriptc-ndarray pack.
+    assert packs["numpy"] == "pyscriptc-ndarray"
+    assert "scipy" not in packs
     assert any(pack.startswith("pyscriptc-") for pack in packs.values())
 
 
@@ -107,10 +110,10 @@ def test_typing_is_an_annotation_only_module() -> None:
 
 
 def test_native_backed_import_is_not_compiled_from_source() -> None:
-    verdict = classify("numpy")
+    verdict = classify("scipy")
     assert verdict.kind == KIND_NATIVE
     assert verdict.lane == LANE_EXTERN
-    assert verdict.distribution == "numpy"
+    assert verdict.distribution == "scipy"
     assert verdict.pack == ""
 
 
@@ -336,7 +339,7 @@ def test_render_text_marks_the_island_and_its_label(tmp_path: Path) -> None:
 
 
 def test_render_text_names_the_lane_of_every_import(tmp_path: Path) -> None:
-    path = write(tmp_path / "a.py", "import orjson\nimport numpy\n")
+    path = write(tmp_path / "a.py", "import orjson\nimport numpy\nimport scipy\n")
     text = render_text(build_report(path))
     assert "orjson" in text
     assert "lane pack" in text
@@ -470,7 +473,7 @@ def test_a_versioned_dist_info_does_not_mark_another_distribution_native(
         imports._installed_distributions.cache_clear()
 
 
-@pytest.mark.parametrize("dist", ["numpy", "pyyaml", "psutil"])
+@pytest.mark.parametrize("dist", ["scipy", "pyyaml", "psutil"])
 def test_a_known_native_distribution_reads_as_native(dist: str) -> None:
     verdict = classify("x", dist)
     assert verdict.kind == KIND_NATIVE
@@ -489,7 +492,7 @@ def test_a_distribution_hint_without_a_table_entry_uses_the_metadata() -> None:
 
 
 def test_imports_cli_prints_the_lane_table(tmp_path: Path) -> None:
-    path = write(tmp_path / "a.py", "import orjson\nimport numpy\nimport json\n")
+    path = write(tmp_path / "a.py", "import orjson\nimport numpy\nimport scipy\nimport json\n")
     got = run_cli("imports", str(path))
     assert got.returncode == 0, got.stderr
     assert "orjson" in got.stdout

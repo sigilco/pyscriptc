@@ -1,0 +1,99 @@
+# pyscriptc-ndarray: the numpy replacement pack in the #377 pack format.
+#
+# The identity block follows section 2 of .agents/docs/spec/pack-format.md.
+# The pack mirrors the closed M1 subset of issue #496 under the
+# pyscriptc_ndarray import name; `import numpy` resolves here through
+# native_packages.json so a user who writes the numpy spelling gets the
+# pack, while `import pyscriptc_ndarray` is the explicit one.
+#
+# The pack's runtime is the compiler's in-tree ps_ndarray.c /
+# ps_ndbuffer.h (the M1 buffer layer and the arithmetic loops), so no C
+# is vendored here: the [[ffi.fn]] rows name the runtime symbols the
+# in-tree lowering already binds, and the pack records the surface so the
+# #378 runner can diff it against real numpy under CPython.
+
+[pack]
+name = "pyscriptc-ndarray"      # distribution name, equals the directory name
+version = "1.0.0"               # the pack's own SemVer release
+replaces = "numpy"              # the PyPI distribution whose imports it covers
+replaces-version = ">=1.20,<3"  # the upstream versions the surface mirrors
+ps-abi = 1                      # the compiler/runtime ABI epoch (ffi_manifest.CURRENT_PS_ABI)
+format = 1                      # this schema's version (pack-format spec)
+
+[[imports]]                     # import names the pack binds; native_packages.json
+name = "numpy"                  # maps numpy onto this pack
+
+[[imports]]
+name = "pyscriptc_ndarray"
+
+[[platform]]                    # platform targets; one row per shipped triple
+triple = "aarch64-apple-darwin"
+wheel-tag = "macosx_11_0_arm64"
+
+[[platform]]
+triple = "x86_64-unknown-linux-musl"
+wheel-tag = "manylinux_2_17_x86_64"
+
+[ffi]
+# [[ffi.source]]: none. The pack's implementation is the compiler runtime's
+# ps_ndarray.c (the arithmetic) over ps_ndbuffer.h (the buffer layer), so
+# no source is vendored here.
+# [[ffi.handle]]: the ndarray record is a runtime class carrier, not a
+# manifest handle; the rows stay empty.
+# [[ffi.const]]: the four dtype names ride the surface module, not the
+# manifest constant table.
+
+[[ffi.fn]]
+name = "array"
+# The surface's own signature: `array(dtype: str, data: list[Any]) -> ndarray`.
+# The FFI type vocabulary has no `Any` (section 3 of the spec reuses the
+# vocabulary as it is), so the validator refuses this row today; the gap is
+# recorded on #377 and the pack does not paper over it.
+py = "(dtype: str, data: list[Any]) -> ndarray"
+c_symbol = "ps_nd_from_seq"
+abi = "ps_pack_ndarray_array"
+
+[[ffi.fn]]
+name = "zeros"
+py = "(*shape: int, dtype: str = ...) -> ndarray"
+c_symbol = "ps_nd_zeros"
+abi = "ps_pack_ndarray_zeros"
+
+[[ffi.fn]]
+name = "ones"
+py = "(*shape: int, dtype: str = ...) -> ndarray"
+c_symbol = "ps_nd_ones"
+abi = "ps_pack_ndarray_ones"
+
+[[ffi.fn]]
+name = "full"
+py = "(shape: Any, value: Any, dtype: str = ...) -> ndarray"
+c_symbol = "ps_nd_full"
+abi = "ps_pack_ndarray_full"
+
+[[ffi.fn]]
+name = "arange"
+py = "(*args: Any, dtype: str = ...) -> ndarray"
+c_symbol = "ps_nd_arange"
+abi = "ps_pack_ndarray_arange"
+
+[[ffi.fn]]
+name = "linspace"
+py = "(start: float, stop: float, num: int, dtype: str = ...) -> ndarray"
+c_symbol = "ps_nd_linspace"
+abi = "ps_pack_ndarray_linspace"
+
+[[ffi.fn]]
+name = "concatenate"
+py = "(arrays: Any) -> ndarray"
+c_symbol = "ps_nd_concatenate"
+abi = "ps_pack_ndarray_concatenate"
+
+[[ffi.fn]]
+name = "stack"
+py = "(arrays: Any) -> ndarray"
+c_symbol = "ps_nd_stack"
+abi = "ps_pack_ndarray_stack"
+
+[conformance]
+suite = "conformance/suite.toml"

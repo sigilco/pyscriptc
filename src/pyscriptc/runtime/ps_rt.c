@@ -2952,7 +2952,42 @@ void ps_f64_str(double v, PsBuf *out) {
         }
     }
     if (has_exp) {
-        ps_normalize_exp(tmp);
+        /* CPython's repr keeps the fixed notation while the exponent sits
+           in [-4, 16): `10.0` is `10.0`, `1e+16` stays scientific. Re-render
+           the same significant digits in the plain form. */
+        int expval = 0;
+        int seen_e = 0;
+        int expneg = 0;
+        for (char *cursor = tmp; *cursor != '\0'; cursor++) {
+            if (*cursor == 'e' || *cursor == 'E') {
+                seen_e = 1;
+                expneg = *(cursor + 1) == '-';
+                cursor++;
+                expval = 0;
+                continue;
+            }
+            if (seen_e && *cursor >= '0' && *cursor <= '9') {
+                expval = expval * 10 + (*cursor - '0');
+            }
+        }
+        if (expneg) {
+            expval = -expval;
+        }
+        if (expval >= -4 && expval < 16) {
+            int frac = prec - 1 - expval;
+            if (frac < 0) {
+                frac = 0;
+            }
+            snprintf(tmp, sizeof tmp, "%.*f", frac, v);
+            if (strchr(tmp, '.') == NULL && strlen(tmp) + 2 < sizeof tmp) {
+                size_t len = strlen(tmp);
+                tmp[len] = '.';
+                tmp[len + 1] = '0';
+                tmp[len + 2] = '\0';
+            }
+        } else {
+            ps_normalize_exp(tmp);
+        }
     }
     ps_buf_copy(out, tmp, (int64_t)strlen(tmp));
 }
