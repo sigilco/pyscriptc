@@ -1695,6 +1695,7 @@ REST_MODULES = frozenset(
         "ctypes",
         "string",
         "bisect",
+        "statistics",
         "errno",
         "importlib.resources",
         "hmac",
@@ -1947,6 +1948,20 @@ def member_callable(module: str, member: str) -> bool:
     if module == "pathlib" and member == "Path":
         return True
     if module == "io" and member in {"StringIO", "BytesIO"}:
+        return True
+    if module == "statistics" and member in {
+        "mean",
+        "fmean",
+        "median",
+        "median_low",
+        "median_high",
+        "mode",
+        "variance",
+        "pvariance",
+        "stdev",
+        "pstdev",
+        "quantiles",
+    }:
         return True
     if module == "bisect" and member in {
         "bisect_left",

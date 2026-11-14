@@ -509,8 +509,8 @@ jobs:
     # floor tests parse the tree at the floor, the compiler runs on the
     # host, and the emitted IR of a version-sensitive program is
     # byte-identical to the 3.14 host's modulo the cpython stamp line (the
-    # stamp names the lowering interpreter by design; canonical.py strips
-    # it, so the IR hash gates are unaffected).
+    # stamp names the lowering interpreter by design; the typed hash
+    # serializer never emits it, so the IR hash gate is unaffected).
     name: host floor (${{ matrix.python }})
     runs-on: ubuntu-24.04
     needs: changes

@@ -27,13 +27,6 @@ export const HeroMinimal: React.FC<HeroMinimalProps> = ({
         {/* Lens layer sits behind the copy; purely visual, no layout impact */}
         <div className="hero-copy-lens pointer-events-none absolute inset-0" aria-hidden="true" />
         <div className="relative max-w-3xl pointer-events-auto">
-          {/* Local scrim: a near-solid surface behind the button row so both
-              CTAs stay legible no matter which glowing words drift past. */}
-          <div
-            className="hero-cta-scrim pointer-events-none absolute inset-x-0 rounded-3xl z-0"
-            style={{ top: "68%", bottom: "-1.5rem" }}
-            aria-hidden="true"
-          />
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-normal tracking-tight text-white leading-[1.08] mb-8">
             Python at C speed.<br />
             <span className="text-slate-400">Without rewrites.</span>
@@ -45,6 +38,15 @@ export const HeroMinimal: React.FC<HeroMinimalProps> = ({
           </p>
 
           <div className="relative flex flex-wrap items-center gap-6">
+            {/* Local scrim: a near-solid surface behind the button row so both
+                CTAs stay legible no matter which glowing words drift past. It is
+                anchored to the CTA row itself — a percentage offset from the copy
+                block top lands inside the subheader text when it wraps. */}
+            <div
+              className="hero-cta-scrim pointer-events-none absolute -inset-x-4 rounded-3xl z-0"
+              style={{ top: "-0.75rem", bottom: "-1.5rem" }}
+              aria-hidden="true"
+            />
             <a
               href={docsUrl}
               data-ph-event="cta_click"

@@ -2263,7 +2263,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 ],
                 link_units=[unit for manifest in manifests for unit in manifest.link_units()],
                 link_flags=[flag for manifest in manifests for flag in manifest.link_flags()],
-                include_dirs=[manifest.path.parent for manifest in manifests if manifest.sources],
+                include_dirs=[
+                    directory for manifest in manifests if manifest.sources for directory in manifest.include_dir_list()
+                ],
                 shared=True,
             )
 
@@ -2315,7 +2317,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             compile_units=[unit for manifest in manifests for unit in manifest.compile_units()],
             link_units=[unit for manifest in manifests for unit in manifest.link_units()],
             link_flags=[flag for manifest in manifests for flag in manifest.link_flags()],
-            include_dirs=[manifest.path.parent for manifest in manifests if manifest.sources],
+            include_dirs=[
+                directory for manifest in manifests if manifest.sources for directory in manifest.include_dir_list()
+            ],
             embed_mode=getattr(args, "embed_python", None),
             engine_defines=(
                 island_engine.engine_defines(engine) if engine is not None and "ps_island_" in llvm_text else None

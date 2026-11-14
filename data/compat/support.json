@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-12",
-  "commit": "379949e2b67f3e963c7a92c6ca4815b681f5a243",
+  "generated": "2026-11-14",
+  "commit": "e3ad33ee6284db4db427a77a00bac2f4fdcf86af",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 66,
+      "yellow": 68,
       "red": 0
     },
     "packages": {
@@ -569,6 +569,17 @@
       ]
     },
     {
+      "label": "`statistics`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "multimode, median_grouped, correlation, linear_regression, mode over float data, quantiles n= outside 2, 4, 8",
+      "codes": [
+        "PS1003",
+        "PS2001",
+        "PS2003"
+      ]
+    },
+    {
       "label": "`errno`",
       "status": "\ud83d\udfe1",
       "count": 1,
@@ -693,7 +704,7 @@
       "label": "`random`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "sample, gauss, Random, choices(k=)",
+      "missing": "Random, vonmisesvariate, paretovariate, choices(cum_weights=)",
       "codes": [
         "PS2001",
         "PS2003"
@@ -768,6 +779,17 @@
       "count": 1,
       "missing": "TarFile",
       "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`selectors`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "a fileobj argument (the typed socket handle is #229), other selector classes (EpollSelector, PollSelector, KqueueSelector, DevpollSelector, BaseSelector), get_map, the key's fileobj and data (they ride the #229 handle)",
+      "codes": [
+        "PS1003",
+        "PS1106",
         "PS2001"
       ]
     },

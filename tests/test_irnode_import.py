@@ -151,14 +151,14 @@ def test_the_typed_nodes_hash_in_schema_field_order(tmp_path: Path) -> None:
             Span_of("m.py", 1, 5, 1, 13),
         )
     ]
-    # The trees agree: the typed walk carries every canonical field.
-    assert json.loads(tirserde.payload_bytes_node(typed)) == json.loads(tirserde.payload_bytes(dict_module))
-    # The bytes differ: the typed payload spells the node id first.
-    assert tirserde.payload_bytes_node(typed) != tirserde.payload_bytes(dict_module)
+    # The trees agree: the typed walk carries every canonical field, whether
+    # the module arrives as typed records or as the dict reconstruction.
+    assert json.loads(tirserde.payload_bytes_node(typed)) == json.loads(tirserde.payload_bytes_node(dict_module))
+    # The payload spells the node id first, in schema field order.
     assert b'"kind":"return"' in tirserde.payload_bytes_node(typed)
     # The typed hash is stable and does not go through the dict path.
     assert tirserde.hash_module_node(typed) == tirserde.hash_module_node(typed)
-    assert tirserde.hash_module_node(typed) != tirserde.hash_module(dict_module)
+    assert tirserde.hash_module_node(typed) == tirserde.hash_module_node(dict_module)
 
 
 def Span_of(file: str = "m.py", line: int = 1, col: int = 1, end_line: int = 1, end_col: int = 9):

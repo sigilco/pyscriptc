@@ -15,7 +15,7 @@ machines in existing IR, no new IR kinds). Two halves live here:
   copies frame fields into locals, re-enters the structured body through
   guards (`if`/`while` re-entry without re-evaluating their conditions), and
   copies locals back to the frame at each suspension. The output uses only
-  existing IR kinds, so `llvm.py`, `canonical.py` and every IR hash of a
+  existing IR kinds, so `llvm.py` and every IR hash of a
   program without generators are unchanged.
 
 A coroutine is the second `_Kind`: the marker is `__ps_await__`, the resume

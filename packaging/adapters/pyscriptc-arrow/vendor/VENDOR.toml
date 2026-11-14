@@ -1,0 +1,69 @@
+# Pinned nanoarrow bundle (issue #1209). The vendored files are generated
+# from this release tarball by nanoarrow's own `ci/scripts/bundle.py` with
+# `--symbol-namespace=PsArrow`; the command is in fetch_vendor.py. The
+# bundle is not committed: fetch_vendor.py regenerates it, checks every
+# hash below and writes vendor/nanoarrow.c, vendor/nanoarrow_ipc.c,
+# vendor/flatcc.c and the two header trees (all gitignored).
+#
+# The IPC half (nanoarrow_ipc) is what carries the Arrow C Stream wire
+# form; it needs flatcc (the FlatBuffers runtime nanoarrow's IPC encoder
+# and decoder are built on), so the bundle is generated with `--with-ipc
+# --with-flatcc`. The `--with-ipc` bundle alone does not compile: the
+# generated IPC unit includes the flatcc headers, so the two flags go
+# together.
+name = "nanoarrow"
+version = "0.9.0"
+license = "Apache-2.0"
+url = "https://github.com/apache/arrow-nanoarrow/releases/download/apache-arrow-nanoarrow-0.9.0/apache-arrow-nanoarrow-0.9.0.tar.gz"
+tar_sha256 = "801200a0e95e869d5c4bdeb5b535dba58551482bb782b7dc8bd599c8b6e8cacf"
+bundle_namespace = "PsArrow"
+bundle_flags = "--with-ipc --with-flatcc"
+# Generated (bundle.py is deterministic: two runs are byte-identical).
+"nanoarrow.c_sha256" = "71df0f041932023f666fceae9a9e087bc26263b1058e69be5dd7ca656e08f04a"
+"nanoarrow_ipc.c_sha256" = "288cfac16799ab0600435b8492b861de403603fe93d4508dd049f05222a882a7"
+"flatcc.c_sha256" = "2597fe139c3191748ed92d121eeca2f7f9bb270150bf7c8336cd4a85c1000edc"
+"nanoarrow.h_sha256" = "cba635cebff437b3d0e8550122877b188153b8bb88dac398c8d40469970e8e65"
+"nanoarrow_ipc.h_sha256" = "0d24e201fa38748475445421b7c12bc9e97d8d483a5d751401174b2f6d51be6a"
+# The flatcc header tree (the FlatBuffers runtime headers the IPC unit
+# includes). Every file is pinned, so a drifted bundle fails the fetch
+# instead of compiling against a different runtime.
+# The flatcc header tree (the FlatBuffers runtime headers the IPC unit
+# includes). Every file is pinned, so a drifted bundle fails the fetch
+# instead of compiling against a different runtime.
+[flatcc_headers]
+  "flatcc/flatcc_accessors.h" = "09a42cfd433ade1c9d8fb853f769ee20012016c91964200ec06873afc36a3ede"
+  "flatcc/flatcc_alloc.h" = "c8d43e4812005610a5f235680de2892c38d48da03365b91da3d5a26b59cd8fd8"
+  "flatcc/flatcc_assert.h" = "00d9a8435ad50399db600582234f9e8e8cb923522b00bb7df9dc1c2a5af965f8"
+  "flatcc/flatcc_builder.h" = "e8cd26a5f7ac11366fd944204141ee4487c82bf658d37a235d9bb48aa076eeb3"
+  "flatcc/flatcc_emitter.h" = "4c30419542981569c8a785d34e7300278e86c97686e8167a3233521ba1fcc9e3"
+  "flatcc/flatcc_endian.h" = "73ccce62b4c8342b567ec5411e5493340adc4a94369504c0c6d67ba12073d808"
+  "flatcc/flatcc_epilogue.h" = "484a0cada79912ae2a38d0289f4821404d2122739925ce46c9ac5f367b32c905"
+  "flatcc/flatcc_flatbuffers.h" = "9b75a0f48943879c610700f72a28934af792fd653a953cb44bb0c95f414a69e5"
+  "flatcc/flatcc_identifier.h" = "bf40d97305006a98f5ce157f1c31e983992aae7159f6766415d72cc440e1b3b0"
+  "flatcc/flatcc_iov.h" = "dbb33ed5ea35813390bf5488aa03674f0ac20fa889280d4d59f569ad3b589555"
+  "flatcc/flatcc_portable.h" = "98d1f6dd673308a72f32b4f42953764648f3d40739abb368f1af6c712698cebe"
+  "flatcc/flatcc_prologue.h" = "946787a2ae3dc3d35bdab3ced7a78f649c05c5bcccc09f8480439b6b618ec63f"
+  "flatcc/flatcc_refmap.h" = "ecfb4e88dcca36e1a99bc9f23bbd2d1efca1cac03257f5db04522228eca5d653"
+  "flatcc/flatcc_rtconfig.h" = "87735c96c6a0f85022d6cdc3aef2e3855f822c2943f303b1fb4f8a6e0699d7ef"
+  "flatcc/flatcc_types.h" = "d44c24adcc58ed3f91c1c2a7193d6d475f2086f9fe2e7954db559caa404280d0"
+  "flatcc/flatcc_verifier.h" = "2667c509f1ba0450356494a7a4ba9fefac6d71c1851412010899aebb558cd9ac"
+  "flatcc/portable/paligned_alloc.h" = "dccbb0cb2e4906d7ecb7d75720c79d4246a5edd8878cccf73e8d85109b83c12e"
+  "flatcc/portable/pattributes.h" = "1afc5f006ea3656abe62f6c6c55f6e63f8243fac4f23b98b8ba665ba4a94422d"
+  "flatcc/portable/pdiagnostic.h" = "47e3fab58185017a336f1b48f663aad31d9960a12a28f6714f2d38b9d856dbce"
+  "flatcc/portable/pdiagnostic_pop.h" = "fb5a4f3bf8448ca822551490232e6355b448f082d759b09b569cbc8adfd65dfa"
+  "flatcc/portable/pdiagnostic_push.h" = "72d3438941207c5731334d2050b7a6f2fcf52ae20c5e7bd0b6eac361ac6bf110"
+  "flatcc/portable/pendian.h" = "7e45b50ce4eaccc36deb2af704d135d7d55dfbef632a9aee30cdcad07161178c"
+  "flatcc/portable/pendian_detect.h" = "51dd53815c223ce9ecb5bacf28a34187e2c96c0bae8efbb72473265969d1b701"
+  "flatcc/portable/pinline.h" = "57997e6ae54fc593099c6c44251e6937c61c7c77ec461f0a3de41b97bd18e72c"
+  "flatcc/portable/pinttypes.h" = "11554823e42ff32187afb3ad4f608b50c3a7436ca209de41d56f5268cf98b3b6"
+  "flatcc/portable/pmemaccess.h" = "b875819560d5d9b3f6145e8adb9b2d52aaccbc966c752455fa3cf8a14295330b"
+  "flatcc/portable/portable.h" = "83fe65ba37dbfb04ef4163007aa4b3e715a9c85a38daed6d539e86e19a4672fc"
+  "flatcc/portable/portable_basic.h" = "c72be1e4bcb2b3459b23014708b45f03d5386894eee55c84c2f953bf3da82770"
+  "flatcc/portable/prestrict.h" = "b200db8f657ac65099e5653a9c875af0df54d5b395224e42a58b86caa9e8f22a"
+  "flatcc/portable/pstatic_assert.h" = "69f9e39d1f14c7203612c46f9d67f1ab4228157116782289865a7581aee62d3c"
+  "flatcc/portable/pstdalign.h" = "64271ef9a0b051ebc9556c0b2f6a96fb18a05cbb725f7d117f4a4b0a7aca67cb"
+  "flatcc/portable/pstdint.h" = "6723a1397a3bc13d4b18d197916361ba9149a91428d2a9bd2331c23f21eaaffb"
+  "flatcc/portable/punaligned.h" = "c13599ddbca131cf223d3a09ebef9decf9cd65f46cf45181dd1815c54ad3f22f"
+  "flatcc/portable/pversion.h" = "439eabad27674a5a8bb556330ece3b6715e588c1bb18969f497d9fb9ecf4ff1c"
+  "flatcc/portable/pwarnings.h" = "17cfa18dbb6f81adb0006a9c7adf2776093f54fc760a89112e619ce796b67aa6"
+

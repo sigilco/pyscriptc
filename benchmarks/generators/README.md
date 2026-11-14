@@ -52,6 +52,6 @@ with room to spare.
 It is not done here because it changes the generator frame's method set, so
 every probe that lowers a generator frame gets a new canonical IR hash
 (`lang.Yield.function` and `lang.Yield.method` among them). `probes/
-IR_HASHES.json` is a frozen gate: regenerating it needs a recorded decision
-first and the A/B byte-identical discipline (run `irscore` twice, `cmp` the
+TIR_HASHES.json` is a frozen gate: regenerating it needs a recorded decision
+first and the A/B byte-identical discipline (run `tirscore` twice, `cmp` the
 outputs).
