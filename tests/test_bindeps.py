@@ -32,6 +32,27 @@ MACHO_BUNDLE = """prog:
 \t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.40.3)
 """
 
+MACHO_RPATH_BUNDLE = """prog:
+\t@rpath/libpython3.14.dylib (compatibility version 3.14.0, current version 3.14.0)
+\t/usr/lib/libSystem.B.dylib (compatibility version 1.0.0, current version 1359.40.3)
+"""
+
+MACHO_RPATH_BUNDLE_LOAD = """Load command 12
+          cmd LC_RPATH
+      cmdsize 40
+         path @executable_path/../lib (offset 12)
+Load command 13
+          cmd LC_RPATH
+      cmdsize 32
+         path @loader_path/../lib (offset 12)
+"""
+
+MACHO_RPATH_HOST_LOAD = """Load command 12
+          cmd LC_RPATH
+      cmdsize 96
+         path /Users/builds/uv/python/cpython-3.14.9-macos-aarch64-none/lib (offset 12)
+"""
+
 ELF_HOST = """
 Dynamic section at offset 0x2d80 contains 29 entries:
   Tag        Type                         Name/Value
@@ -63,6 +84,26 @@ def test_macho_host_dylib_is_flagged() -> None:
 
 def test_macho_relative_rpath_dylib_is_portable() -> None:
     assert bindeps.host_libpython_references(MACHO_BUNDLE) == []
+
+
+def test_macho_rpath_soname_with_only_relative_rpaths_is_portable() -> None:
+    """A `@rpath/...` soname the loader resolves through relative rpaths
+    travels with the binary."""
+    assert bindeps.host_libpython_references(MACHO_RPATH_BUNDLE, MACHO_RPATH_BUNDLE_LOAD) == []
+
+
+def test_macho_rpath_soname_with_an_absolute_rpath_is_the_host() -> None:
+    """A `@rpath/...` soname with an absolute rpath resolves to the build
+    host's library: the loader searches the rpaths in order."""
+    assert bindeps.host_libpython_references(MACHO_RPATH_BUNDLE, MACHO_RPATH_HOST_LOAD) == [
+        "@rpath/libpython3.14.dylib"
+    ]
+
+
+def test_macho_rpath_soname_without_a_load_reading_is_the_host() -> None:
+    """With no rpath reading at all the reference stays flagged: the audit
+    does not assume a relative rpath it cannot see."""
+    assert bindeps.host_libpython_references(MACHO_RPATH_BUNDLE) == ["@rpath/libpython3.14.dylib"]
 
 
 def test_macho_no_libpython_is_quiet() -> None:
