@@ -28,13 +28,14 @@ export const HeroMinimal: React.FC<HeroMinimalProps> = ({
         <div className="hero-copy-lens pointer-events-none absolute inset-0" aria-hidden="true" />
         <div className="relative max-w-3xl pointer-events-auto">
           <h1 className="text-4xl sm:text-6xl lg:text-7xl font-normal tracking-tight text-white leading-[1.08] mb-8">
-            Python at C speed.<br />
-            <span className="text-slate-400">Without rewrites.</span>
+            CPython is the spec.<br />
+            <span className="text-slate-400">We write down the exceptions.</span>
           </h1>
 
           <p className="text-xl sm:text-2xl text-slate-300 font-light max-w-2xl leading-relaxed mb-10">
-            pyscriptc compiles pure Python workloads into standalone single executables.
-            No runtime virtual environments. No Docker layers.
+            Typed Python in, native binary out. 65 numbered divergences, named
+            compile-time refusals, and a support matrix measured nightly
+            against pinned CPython. No interpreter in the artifact.
           </p>
 
           <div className="relative flex flex-wrap items-center gap-6">
