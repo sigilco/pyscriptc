@@ -454,6 +454,14 @@ ROWS: list[dict[str, Any]] = [
         "rather than in a probe the pinned oracle can run",
     ),
     _row(
+        "D65",
+        "the statistics subset runs double arithmetic for the float-valued seams: stdev/pstdev differ "
+        "by one ulp from CPython's exact-rational sqrt, and the mean/median/variance family over "
+        "list[int] returns float where CPython returns int (equal value, different repr)",
+        "d65_statistics.py",
+        docs=f"{DOC}#65",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

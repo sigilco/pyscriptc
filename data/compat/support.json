@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-12",
-  "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+  "generated": "2026-11-13",
+  "commit": "58606715a3c6d1dcdc7e2ef4d0749ddbf3c9d5a6",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 66,
+      "yellow": 67,
       "red": 0
     },
     "packages": {
@@ -566,6 +566,17 @@
       "missing": "key=, lo=, hi=",
       "codes": [
         "PS2001"
+      ]
+    },
+    {
+      "label": "`statistics`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "multimode, median_grouped, correlation, linear_regression, mode over float data, quantiles n= outside 2, 4, 8",
+      "codes": [
+        "PS1003",
+        "PS2001",
+        "PS2003"
       ]
     },
     {
