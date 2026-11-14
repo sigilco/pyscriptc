@@ -53,6 +53,7 @@ The binary links one shared library, the host `libpython3.14.dylib`; the whole p
 
 The binary is 1.5 to 3.4x slower than CPython on the same work, and the reason is measurable: the island recompiles the embedded sources at every start (`exec(compile(source, path, "exec"), module.__dict__)`), while CPython reads cached `.pyc` files. Importing `yt_dlp.extractor` costs 994 ms with a cold bytecode cache and 151 ms with a warm one, so roughly 0.84 s of every cold start is source compilation that CPython does not pay.
 The binary also does not remove the Python requirement: it links the host `libpython` by absolute path, so it runs only where that library exists.
+That build now says so itself: the compile ends with `PS4304` naming the dylib path, and `--allow-host-libpython` accepts the host link for a build that never leaves this machine (divergence 64).
 The honest summary is one binary, one command, byte-identical output, and no interpreter install for the user, at the price of startup time.
 
 ## Pattern 2: profile first, then compile only the hot module
