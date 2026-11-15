@@ -127,6 +127,7 @@ There is no `typing` module object in the binary.
 | `cast(t, v)`, `get_type_hints`, `__annotations__` reads | unsupported (`PS2002`); write the type on an annotated local instead |
 | `isinstance(v, list[int])` | unsupported (`PS2001`); runtime checks take scalar and class names only |
 | quoted forward references (`"Node"`) | unsupported (`PS1105`); define the class first and write the name unquoted |
+| a class of another module of the same tree, spelled `mod.Thing` | compiles; the qualified spelling resolves through the same export table the call path uses, so `def use(t: mod.Thing)` and `mod.Thing(...)` agree on the class |
 
 Constructs with runtime meaning beyond their annotation (pydantic models, `attrs` validators, anything that reads annotations at run time) are not typing failures: run them through embedded CPython (fallback mode), see [Libraries and fallback mode](libraries.md).
 

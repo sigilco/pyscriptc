@@ -19,12 +19,12 @@ from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.ffi_manifest import handle_type
 from pyscriptc.ir import type_key
 from pyscriptc.lower._core import (
-    Fence,
     _BARE_CONTAINER_NAMES,
     _DICT_FORMS,
     _LIST_FORMS,
     _SET_FORMS,
     _UNRESOLVED_KIND,
+    Fence,
     _has_typevar,
     _show,
     _subst_type,
