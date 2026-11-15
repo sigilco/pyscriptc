@@ -44,6 +44,7 @@ Link the archive into the app target, add the header search path, and `import py
 - `--emit bin` and `--run` fail on every mobile triple with `PS4101` (see `pyscriptc explain PS4101`), and `--emit lib` fails on a desktop triple the same way.
 - `--driver zig` is refused for a library build: zig bundles neither bionic nor the Apple SDKs, so the build compiles through clang with an explicit sysroot.
 - `subprocess`, `asyncio.create_subprocess_exec`, `os.open` and the other raw file-descriptor calls stop the compile with the mobile reason (`PS2001`), because the runtime files that implement them are left out of the mobile archive. A call that compiled anyway would only fail later, as an undefined symbol at link.
+- The loop's two hooks into the async subprocess records are no-ops on a mobile target, so `asyncio` itself (sleep, gather, tasks) still works there; only the child processes are missing.
 
 ## Android page-size rule
 
