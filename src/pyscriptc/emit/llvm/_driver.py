@@ -491,7 +491,14 @@ def link_binary(
         # os.symlink/os.readlink lower onto ps_os_symlink/ps_os_readlink; the
         # wasi stubs in ps_compat.c exist only so ps_path.c compiles, and a
         # program that calls them is refused here, before the sysroot runs.
-        link_refused = [symbol for symbol in ("ps_os_symlink", "ps_os_readlink") if f"@{symbol}(" in text]
+        # os.pipe/os.dup/os.dup2 have no WASI story either (wasi-libc keeps
+        # pipe and dup out of the surface), so the ps_osfd.c trio refuses the
+        # same way.
+        link_refused = [
+            symbol
+            for symbol in ("ps_os_symlink", "ps_os_readlink", "ps_os_pipe", "ps_os_dup", "ps_os_dup2")
+            if f"@{symbol}(" in text
+        ]
         if link_refused:
             raise IRError(
                 f"target {target or ''} refuses {', '.join(link_refused)}: WASI has no "

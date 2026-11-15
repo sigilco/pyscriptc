@@ -175,6 +175,9 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     "ps_os_fstat": "osfd",
     "ps_os_lstat": "osfd",
     "ps_os_utime": "osfd",
+    "ps_os_pipe": "osfd",
+    "ps_os_dup": "osfd",
+    "ps_os_dup2": "osfd",
 }
 
 

@@ -1,4 +1,5 @@
-/* os file descriptors: open, close, read, write, fstat, lstat, utime.
+/* os file descriptors: open, close, read, write, fstat, lstat, utime, and
+   the pipe/dup trio the subprocess-pipe shape needs (issue #1245).
 
 The flag argument uses the CPython `os.O_*` numbers, so `os.O_RDONLY` in
 Python and the C `O_RDONLY` agree on the values the compiler passes. The
@@ -45,6 +46,37 @@ void ps_os_close(int64_t fd) {
         ps_fd_fail("close failed");
     }
 }
+
+/* pipe (issue #1245): CPython's order is (read, write). The lowering
+   unpacks the pair into two int slots the emitter hands the tuple
+   record; both fds are plain pipe ends, the caller owns the close. The
+   pipe/dup spellings go through the ps_compat.h shims: Windows has the
+   CRT pair and WASI has neither. */
+void ps_os_pipe(int64_t *read_out, int64_t *write_out) {
+    int fds[2];
+    if (ps_pipe(fds) != 0) {
+        ps_fd_fail("pipe failed");
+    }
+    *read_out = (int64_t)fds[0];
+    *write_out = (int64_t)fds[1];
+}
+
+int64_t ps_os_dup(int64_t fd) {
+    int got = ps_dup(fd);
+    if (got < 0) {
+        ps_fd_fail("dup failed");
+    }
+    return (int64_t)got;
+}
+
+int64_t ps_os_dup2(int64_t fd, int64_t fd2) {
+    int got = ps_dup2(fd, fd2);
+    if (got < 0) {
+        ps_fd_fail("dup2 failed");
+    }
+    return (int64_t)got;
+}
+
 
 void ps_os_read(int64_t fd, int64_t size, PsBuf *out) {
     if (size < 0) {

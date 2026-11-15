@@ -54,6 +54,19 @@ if __name__ == "__main__":
     go()
 """
 
+PIPE = """\
+import os
+
+def go() -> int:
+    r, w = os.pipe()
+    os.close(r)
+    os.close(w)
+    return 0
+
+if __name__ == "__main__":
+    go()
+"""
+
 
 def _wasmtime() -> str | None:
     found = shutil.which(WASMTIME)
@@ -125,6 +138,31 @@ def test_wasm_link_refuses_subprocess(tmp_path: Path, capsys: pytest.CaptureFixt
     assert "refuses ps_sub" in err
     assert "wasm32-wasi-musl" in err
     assert not (tmp_path / "sub.wasm").exists()
+
+
+def test_wasm_link_refuses_the_pipe_trio(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """wasi-libc keeps pipe and dup out of preview1, so the link refuses them."""
+    src = _write(PIPE, tmp_path)
+    from pyscriptc.cli import main
+
+    ret = main(
+        [
+            "compile",
+            str(src),
+            "--emit",
+            "bin",
+            "--skip-check",
+            "--target",
+            "wasm32-wasi-musl",
+            "-o",
+            str(tmp_path / "pipe"),
+        ]
+    )
+    assert ret != 0
+    err = capsys.readouterr().err
+    assert "refuses ps_os_pipe" in err
+    assert "wasm32-wasi-musl" in err
+    assert not (tmp_path / "pipe.wasm").exists()
 
 
 @pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")

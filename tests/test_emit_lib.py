@@ -322,6 +322,9 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_os_fstat",
         "ps_os_lstat",
         "ps_os_utime",
+        "ps_os_pipe",
+        "ps_os_dup",
+        "ps_os_dup2",
     }
 
 

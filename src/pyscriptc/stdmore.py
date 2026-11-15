@@ -2025,6 +2025,8 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "posixpath" and member == "join":
         return True
+    if module == "os" and member in {"pipe", "dup", "dup2"}:
+        return True
     if module == "pathlib" and member == "Path":
         return True
     if module == "io" and member in {"StringIO", "BytesIO"}:

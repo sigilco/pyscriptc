@@ -130,3 +130,79 @@ def test_os_read_needs_a_size(tmp_path: Path) -> None:
     mod = lower_source("import os\nos.read(1)\n")
     assert mod["fences"], "os.read without a size must fence"
     assert "os.read expects 2 argument(s)" in mod["fences"][0]["message"]
+
+
+def test_os_pipe_returns_the_read_write_pair(tmp_path: Path) -> None:
+    """`os.pipe()` returns (read, write) in CPython's order (#1245).
+
+    The fd numbers differ between the two runs, so the probe prints
+    booleans about the pair and the bytes that travel through it.
+    """
+    _oracle(
+        tmp_path,
+        "pipe.py",
+        "\n".join(
+            [
+                "import os",
+                "",
+                "def run() -> int:",
+                "    r, w = os.pipe()",
+                "    print(r > 0)",
+                "    print(w > 0)",
+                "    print(r != w)",
+                "    print(os.write(w, b'pipe bytes') == 10)",
+                "    print(os.read(r, 10) == b'pipe bytes')",
+                "    os.close(r)",
+                "    os.close(w)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_os_dup_and_dup2_copy_the_descriptor(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "dup.py",
+        "\n".join(
+            [
+                "import os",
+                "",
+                "def run() -> int:",
+                "    r, w = os.pipe()",
+                "    d: int = os.dup(w)",
+                "    print(d != w)",
+                "    print(os.write(d, b'dup bytes') == 9)",
+                "    print(os.read(r, 9) == b'dup bytes')",
+                "    os.close(d)",
+                "    os.close(r)",
+                "    os.close(w)",
+                "    r, w = os.pipe()",
+                "    d2: int = os.dup(w)",
+                "    os.close(d2)",
+                "    print(os.dup2(w, d2) == d2)",
+                "    print(os.write(d2, b'dup2 bytes') == 10)",
+                "    print(os.read(r, 10) == b'dup2 bytes')",
+                "    os.close(d2)",
+                "    os.close(r)",
+                "    os.close(w)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_os_pipe_argument_shapes_fence() -> None:
+    from pyscriptc.lower import lower_source
+
+    for source, message in (
+        ("import os\nos.pipe(1)\n", "os.pipe lowers the 0-argument form only"),
+        ("import os\nos.dup()\n", "os.dup expects 1 argument(s)"),
+        ("import os\nos.dup2(1)\n", "os.dup2 expects 2 argument(s)"),
+        ("import os\nos.dup('x')\n", "os.dup fd is int"),
+    ):
+        mod = lower_source(source)
+        assert mod["fences"], f"{source!r} must fence"
+        assert message in mod["fences"][0]["message"]

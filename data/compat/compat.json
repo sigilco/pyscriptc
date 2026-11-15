@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-15",
-  "commit": "6bdb8e6447b98b5c6108eb99f6aa7f687dcb0fc8",
+  "commit": "dc753f5621d48bf1925817d95ceaaa63ca96ba75",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-15",
-    "commit": "6bdb8e6447b98b5c6108eb99f6aa7f687dcb0fc8",
+    "commit": "dc753f5621d48bf1925817d95ceaaa63ca96ba75",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -767,7 +767,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "scandir, system, urandom, cpu_count, rmdir, getuid, keyword arguments (makedirs exist_ok)"
+        "scandir, system, urandom, cpu_count, rmdir, getuid, keyword arguments (makedirs exist_ok), pipe with arguments"
       ],
       "fences": [
         "PS2001",
@@ -2660,7 +2660,7 @@
     },
     {
       "date": "2026-11-15",
-      "commit": "6bdb8e6447b98b5c6108eb99f6aa7f687dcb0fc8",
+      "commit": "dc753f5621d48bf1925817d95ceaaa63ca96ba75",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

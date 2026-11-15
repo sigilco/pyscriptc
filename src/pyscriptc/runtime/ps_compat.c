@@ -1,11 +1,13 @@
 /* The implementations of the ps_compat.h shims for the targets that lack the
-   native call: Windows (no setenv, no mkstemp, no sigsetjmp) and WASI (no
-   mkstemp). On every other target each shim is a macro onto the native call
-   and this file is empty, so the runtime keeps one object per platform. */
+   native call: Windows (no setenv, no mkstemp, no sigsetjmp, no POSIX pipe)
+   and WASI (no mkstemp, no pipe). On every other target each shim is a macro
+   onto the native call and this file is empty, so the runtime keeps one
+   object per platform. */
 
 #if defined(_WIN32) || defined(__wasi__)
 
 #include <errno.h>
+#include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -80,6 +82,14 @@ int64_t ps_win_readlink(const char *path, char *buf, int64_t cap) {
     return -1;
 }
 
+int ps_win_pipe(int *fds) {
+    /* The CRT pipe is a byte pipe in binary mode: the os.pipe pair
+       carries bytes, and the text mode would translate CRLF on the way
+       through. The size argument is the buffer the CRT picks; 4096 is
+       the CRT default. */
+    return _pipe(fds, 4096, _O_BINARY);
+}
+
 #else /* __wasi__ */
 
 #include <fcntl.h>
@@ -128,6 +138,27 @@ int64_t ps_wasi_readlink(const char *path, char *buf, int64_t cap) {
     (void)path;
     (void)buf;
     (void)cap;
+    errno = ENOSYS;
+    return -1;
+}
+
+int ps_wasi_pipe(int *fds) {
+    /* The wasm driver refuses os.pipe/os.dup/os.dup2 at link time; these
+       stubs only keep the symbols defined if that check is ever bypassed. */
+    (void)fds;
+    errno = ENOSYS;
+    return -1;
+}
+
+int ps_wasi_dup(int fd) {
+    (void)fd;
+    errno = ENOSYS;
+    return -1;
+}
+
+int ps_wasi_dup2(int fd, int fd2) {
+    (void)fd;
+    (void)fd2;
     errno = ENOSYS;
     return -1;
 }

@@ -71,7 +71,7 @@ from pyscriptc.restlower._minmax import _minmax, _sorted, _sum
 from pyscriptc.restlower._ndarray import _ndarray_call
 from pyscriptc.restlower._operator import _bisect, _join, _operator
 from pyscriptc.restlower._orjson import _orjson_call
-from pyscriptc.restlower._ospath import _os_open, _os_read, _relpath, _walk
+from pyscriptc.restlower._ospath import _os_dup, _os_dup2, _os_open, _os_pipe, _os_read, _relpath, _walk
 from pyscriptc.restlower._pathlib import _buffer, _one
 from pyscriptc.restlower._queue import _queue_call, _queue_method
 from pyscriptc.restlower._random import _random_call
@@ -250,6 +250,9 @@ _AFTER_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("os", "open"): lambda lo, node, span, expect, attr: _os_open(lo, node, span),
     ("os", "read"): lambda lo, node, span, expect, attr: _os_read(lo, node, span),
     ("os", "walk"): lambda lo, node, span, expect, attr: _walk(lo, node, span),
+    ("os", "pipe"): lambda lo, node, span, expect, attr: _os_pipe(lo, node, span),
+    ("os", "dup"): lambda lo, node, span, expect, attr: _os_dup(lo, node, span),
+    ("os", "dup2"): lambda lo, node, span, expect, attr: _os_dup2(lo, node, span),
     ("pathlib", "Path"): lambda lo, node, span, expect, attr: _one(
         lo, node, span, "pathlib", "Path", "ps_path_new", {"kind": "str"}, {"kind": "class", "name": "Path"}
     ),

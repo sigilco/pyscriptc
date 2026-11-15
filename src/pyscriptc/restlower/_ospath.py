@@ -12,8 +12,11 @@ import ast
 from typing import Any
 
 from pyscriptc.restlower._shared import (
+    _asg,
     _const_text,
+    _field,
     _int,
+    _nm,
     _node_type_kind,
     _t_leaf,
     _t_list,
@@ -94,3 +97,50 @@ def _os_read(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         if _node_type_kind(arg) != "int":
             lo.fail(node, "PS1003", f"os.read {what} is int")
     return lo._abi_call("os", "read", [fd, size], _t_leaf("bytes"), "ps_os_read", span)
+
+
+def _os_pipe(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`os.pipe()` returns the (read, write) pair as the synthetic tuple
+    (issue #1245). The fds come back in CPython's order, read first. Like
+    `mkstemp`, the caller owns both ends and closes them itself; the probe
+    prints booleans (a fd number differs between runs)."""
+    lo.mobile_guard(node, "os.pipe", "osfd")
+    if node.keywords:
+        lo.fail(node, "PS2003", "os.pipe lowers the 0-argument form only")
+    if len(node.args) != 0:
+        lo.fail(node, "PS2003", "os.pipe lowers the 0-argument form only")
+    record = lo._tuple_type([_t_leaf("int"), _t_leaf("int")], node)
+    call = lo._abi_call("os", "pipe", [], record, "ps_os_pipe", span)
+    box = lo._temp("pipe")
+    lo.locals[box] = record
+    lo.prelude.append(_asg(box, call, span))
+    rec = _nm(box, record, span)
+    read_fd = _field(rec, "_0", _t_leaf("int"), span)
+    write_fd = _field(rec, "_1", _t_leaf("int"), span)
+    return lo._materialize_tuple([read_fd, write_fd], span, node)
+
+
+def _os_dup(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`os.dup(fd)`: a new descriptor for the same file."""
+    lo.mobile_guard(node, "os.dup", "osfd")
+    lo._reject_keywords(node)
+    if len(node.args) != 1:
+        lo.fail(node, "PS2003", "os.dup expects 1 argument(s)")
+    fd = lo._expr(node.args[0])
+    if _node_type_kind(fd) != "int":
+        lo.fail(node, "PS1003", "os.dup fd is int")
+    return lo._abi_call("os", "dup", [fd], _t_leaf("int"), "ps_os_dup", span)
+
+
+def _os_dup2(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`os.dup2(fd, fd2)`: fd2 becomes a copy of fd; the result is fd2."""
+    lo.mobile_guard(node, "os.dup2", "osfd")
+    lo._reject_keywords(node)
+    if len(node.args) != 2:
+        lo.fail(node, "PS2003", "os.dup2 expects 2 argument(s)")
+    fd = lo._expr(node.args[0])
+    fd2 = lo._expr(node.args[1])
+    for arg, what in ((fd, "fd"), (fd2, "fd2")):
+        if _node_type_kind(arg) != "int":
+            lo.fail(node, "PS1003", f"os.dup2 {what} is int")
+    return lo._abi_call("os", "dup2", [fd, fd2], _t_leaf("int"), "ps_os_dup2", span)

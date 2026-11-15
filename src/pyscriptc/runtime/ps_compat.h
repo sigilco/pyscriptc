@@ -60,6 +60,15 @@ int64_t ps_win_readlink(const char *path, char *buf, int64_t cap);
 #define ps_symlink(target, linkpath) ps_win_symlink((target), (linkpath))
 #define ps_readlink(path, buf, cap) ps_win_readlink((path), (buf), (cap))
 
+/* Windows has no POSIX pipe: the CRT spells it _pipe, and the CRT pipe is
+   a byte pipe (_O_BINARY), which is what the os.pipe pair needs (the
+   payload is bytes either way). _dup and _dup2 are the CRT spellings of
+   the POSIX pair. */
+int ps_win_pipe(int *fds);
+#define ps_pipe(fds) ps_win_pipe((fds))
+#define ps_dup(fd) _dup((int)(fd))
+#define ps_dup2(fd, fd2) _dup2((int)(fd), (int)(fd2))
+
 /* mingw has setjmp/longjmp but no sigsetjmp/siglongjmp. The runtime only
    ever uses the savemask-0 form, which saves no signal mask, so the plain
    pair is the same thing there. */
@@ -86,6 +95,15 @@ int64_t ps_win_readlink(const char *path, char *buf, int64_t cap);
 #define ps_sigjmp_buf jmp_buf
 #define ps_sigsetjmp(buf, savemask) setjmp((buf))
 #define ps_siglongjmp(buf, code) longjmp((buf), (code))
+/* wasi-libc keeps pipe and dup out of the preview1 surface: the wasm
+   driver refuses os.pipe/os.dup/os.dup2 at link time, so these stubs only
+   need to keep ps_osfd.c compiling on the wasi sysroot. */
+int ps_wasi_pipe(int *fds);
+int ps_wasi_dup(int fd);
+int ps_wasi_dup2(int fd, int fd2);
+#define ps_pipe(fds) ps_wasi_pipe((fds))
+#define ps_dup(fd) ps_wasi_dup((int)(fd))
+#define ps_dup2(fd, fd2) ps_wasi_dup2((int)(fd), (int)(fd2))
 #else
 #define ps_sigjmp_buf sigjmp_buf
 #define ps_sigsetjmp(buf, savemask) sigsetjmp((buf), (savemask))
@@ -107,6 +125,9 @@ int64_t ps_wasi_readlink(const char *path, char *buf, int64_t cap);
 #define ps_mkstemp(template_path) mkstemp((template_path))
 #define ps_symlink(target, linkpath) symlink((target), (linkpath))
 #define ps_readlink(path, buf, cap) ((int64_t)readlink((path), (buf), (size_t)(cap)))
+#define ps_pipe(fds) pipe((fds))
+#define ps_dup(fd) dup((int)(fd))
+#define ps_dup2(fd, fd2) dup2((int)(fd), (int)(fd2))
 #endif
 
 #endif

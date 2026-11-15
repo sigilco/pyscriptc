@@ -767,6 +767,29 @@ class AbiMixin(EmitterBase):
             self._abi_decl(symbol, "ptr", types)
             return self._call_ret("ptr", symbol, rendered)
         if kind == "class":
+            if symbol == "ps_os_pipe":
+                # The (read, write) fd pair (issue #1245): the runtime fills
+                # two int slots through out pointers; the tuple record is the
+                # class allocation that stores them (field 0 the read fd,
+                # field 1 the write fd, CPython's order).
+                needed = self.needed
+                needed.add("alloc")
+                read_slot = self._alloca("i64")
+                write_slot = self._alloca("i64")
+                self._abi_decl("ps_os_pipe", "void", ["ptr", "ptr"])
+                self._call_void("ps_os_pipe", [f"ptr {read_slot}", f"ptr {write_slot}"])
+                read_fd = self.tmp()
+                write_fd = self.tmp()
+                self.line(f"{read_fd} = load i64, ptr {read_slot}")
+                self.line(f"{write_fd} = load i64, ptr {write_slot}")
+                mem = self._alloc_class(_type_name(ret))
+                read_field = self.tmp()
+                self.line(f"{read_field} = getelementptr %cls.{_type_name(ret)}, ptr {mem}, i32 0, i32 0")
+                self.line(f"store i64 {read_fd}, ptr {read_field}")
+                write_field = self.tmp()
+                self.line(f"{write_field} = getelementptr %cls.{_type_name(ret)}, ptr {mem}, i32 0, i32 1")
+                self.line(f"store i64 {write_fd}, ptr {write_field}")
+                return mem
             if symbol == "ps_temp_mkstemp":
                 # The (fd, path) tuple: the runtime fills the fd slot and
                 # the path's 16-byte PsBuf prefix; the tuple record is the

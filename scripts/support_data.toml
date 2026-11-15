@@ -371,8 +371,8 @@ no = [["closing, redirect_stdout, ExitStack, contextmanager", 'with contextlib.c
 
 [[stdlib]]
 names = ["os"]
-ok = ['y: str = os.getcwd()', 'y: list[str] = os.listdir(s)', 'y: str = os.environ["A"]', 'y: str = os.path.join(s, s)', 'y: int = os.getpid()', 'y: str = os.sep', 'os.symlink(s, s)', 'y: str = os.readlink(s)', "for r, ds, fs in os.walk(s): pass", 'os.kill(n, n)', 'os.killpg(n, n)']
-no = [["scandir, system, urandom, cpu_count, rmdir, getuid", 'os.scandir(s)', "PS2001"], ["keyword arguments (makedirs exist_ok)", 'os.makedirs(s, exist_ok=True)', "PS2003"]]
+ok = ['y: str = os.getcwd()', 'y: list[str] = os.listdir(s)', 'y: str = os.environ["A"]', 'y: str = os.path.join(s, s)', 'y: int = os.getpid()', 'y: str = os.sep', 'os.symlink(s, s)', 'y: str = os.readlink(s)', "for r, ds, fs in os.walk(s): pass", 'r2, w2 = os.pipe()', 'y: int = os.dup(n)', 'y: int = os.dup2(n, n)', 'os.kill(n, n)', 'os.killpg(n, n)']
+no = [["scandir, system, urandom, cpu_count, rmdir, getuid", 'os.scandir(s)', "PS2001"], ["keyword arguments (makedirs exist_ok)", 'os.makedirs(s, exist_ok=True)', "PS2003"], ["pipe with arguments", 'os.pipe(s)', "PS2003"]]
 
 [[stdlib]]
 names = ["signal"]
