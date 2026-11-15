@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-15",
-  "commit": "280243c27c1838c346a6ffed53a1fdcdb38bca57",
+  "commit": "6bdb8e6447b98b5c6108eb99f6aa7f687dcb0fc8",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-15",
-    "commit": "280243c27c1838c346a6ffed53a1fdcdb38bca57",
+    "commit": "6bdb8e6447b98b5c6108eb99f6aa7f687dcb0fc8",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -1570,9 +1570,10 @@
       "status": "partial",
       "count": 2,
       "unsupported": [
-        "Any annotation, bare Callable, multi-arm union, optional of a multi-arm union, Literal annotation, Self return, TypeAlias declaration, PEP 695 type alias, PEP 695 TypeVar parameter, forward reference string, TypedDict class base, NamedTuple class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read"
+        "Any annotation, bare Callable, multi-arm union, optional of a multi-arm union, Literal annotation, Self return, a nominal subclass that adds a field, a subclass value in a base-annotated parameter, TypeAlias declaration, PEP 695 type alias, PEP 695 TypeVar parameter, forward reference string, TypedDict class base, NamedTuple class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read"
       ],
       "fences": [
+        "PS1003",
         "PS1101",
         "PS1102",
         "PS1103",
@@ -2659,7 +2660,7 @@
     },
     {
       "date": "2026-11-15",
-      "commit": "280243c27c1838c346a6ffed53a1fdcdb38bca57",
+      "commit": "6bdb8e6447b98b5c6108eb99f6aa7f687dcb0fc8",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

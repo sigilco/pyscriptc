@@ -1190,6 +1190,26 @@
       "status": "divergent"
     },
     {
+      "id": "D70",
+      "seam": "dispatch is static: a subclass value in a base-annotated parameter is refused (PS1003), where CPython dispatches on the value's real class",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#70",
+      "probe": "probes/divergences/d69_covariant_slot.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "log:x\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d69_covariant_slot.py:15:7: PS1003: argument s of deliver has the wrong type\n  print(deliver(Logging(), \"x\"))\n        ^\n"
+      },
+      "status": "fenced"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

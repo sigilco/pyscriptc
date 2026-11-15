@@ -252,7 +252,18 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                     # synthetic-method path with no `elem` to check against.
                     self.locals[stmt.target.id] = typ
                 raise
-            self._expect(stmt, value["type"], typ, stmt.target.id)
+            covariant = self._covariant_slot_type(typ, value["type"])
+            if covariant is not None:
+                # Issue #1243: the annotation names a base class and the
+                # value is a nominal subclass of it (no added field). The
+                # slot is accepted and keeps the concrete class, because
+                # dispatch is static: a `Base`-typed slot would call
+                # `Base`'s method on a `Sub` value and answer the wrong
+                # thing. The check stays above the strict _expect on
+                # purpose.
+                typ = covariant
+            else:
+                self._expect(stmt, value["type"], typ, stmt.target.id)
             if _type_kind(typ) == "any" or (
                 _type_kind(typ) in {"dict", "list"}
                 and _any_contains(typ)
@@ -503,7 +514,14 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                     self.fail(stmt, "PS1003", "bare return is None, and this function does not return None")
                 return [node_to_dict(_ir.return_stmt(dict_to_node(_const_none(span)), _mk_span_of(span)))]
             value = self._expr(stmt.value, ret)
-            self._expect(stmt, value["type"], ret, "return")
+            # The return site checks strictly (issue #1243): the signature
+            # already decided whether the body proves one concrete
+            # subclass of the annotation, and the signature's type is what
+            # the call sites dispatch on. A return whose class the
+            # signature could not prove keeps the annotation, and the
+            # static call would answer the base's body, so the return
+            # fences here instead.
+            self._expect_return(stmt, value["type"], ret)
             # A returned handle transfers ownership to the caller: the scope
             # exit must not free it too (issue #224).
             if _node_kind(value) == "name" and is_handle_type(value["type"]):

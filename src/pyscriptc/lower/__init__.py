@@ -949,9 +949,44 @@ class Lowerer(
         self.fail(node, "PS2004", "condition must be a bool, not a truthy value")
         raise AssertionError("unreachable")
 
+    def _expect_return(self, node: ast.AST, got: dict[str, Any], want: dict[str, Any]) -> None:
+        """The strict return check: the signature's type is the contract.
+
+        Issue #1243's carve-out is decided in the signature pass (the
+        body proves one concrete subclass, or it proves none). The return
+        site therefore compares against the signature's own type with no
+        second chance: a subclass the signature kept as the base stays a
+        fence, because the static call would dispatch to the base's body
+        and answer differently from CPython.
+        """
+
+        if types_equal(got, want) or _any_accepts(want, got) or self._accepts_protocol(want, got):
+            return
+        added = self._nominal_subclass_field(want, got)
+        if added is not None:
+            self.fail(
+                node,
+                "PS1003",
+                f"return is {_show(got)}, annotation says {_show(want)}: "
+                f"{_show(got)} adds field {added} and the slot keeps the annotation's layout",
+            )
+        self.fail(node, "PS1003", f"return is {_show(got)}, annotation says {_show(want)}")
+
     def _expect(self, node: ast.AST, got: dict[str, Any], want: dict[str, Any], what: str) -> None:
-        if not types_equal(got, want) and not _any_accepts(want, got) and not self._accepts_protocol(want, got):
-            self.fail(node, "PS1003", f"{what} is {_show(got)}, annotation says {_show(want)}")
+        if types_equal(got, want) or _any_accepts(want, got) or self._accepts_protocol(want, got):
+            return
+        added = self._nominal_subclass_field(want, got)
+        if added is not None:
+            # The carve-out's refusal shape (issue #1243): the subclass is
+            # nominal but adds a field, so the static layout cannot hold it
+            # under the base's slot; the fence names the field.
+            self.fail(
+                node,
+                "PS1003",
+                f"{what} is {_show(got)}, annotation says {_show(want)}: "
+                f"{_show(got)} adds field {added} and the slot keeps the annotation's layout",
+            )
+        self.fail(node, "PS1003", f"{what} is {_show(got)}, annotation says {_show(want)}")
 
     def _use_status(self, module: str) -> str:
         if canonical_module(module) in PACK_MODULES:

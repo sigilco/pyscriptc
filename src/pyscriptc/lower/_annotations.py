@@ -165,6 +165,14 @@ class AnnotationMixin:
             ret = bridged
         else:
             ret = self._annotation(fn.returns)
+            # Issue #1243's covariant carve-out, signature side: a body
+            # whose every return constructs the same nominal subclass of
+            # the annotated class proves the concrete return type, so the
+            # call sites dispatch statically on the subclass. The
+            # annotation is the accepted contract and rides on the type.
+            covariant = self._covariant_return_type(fn, ret)
+            if covariant is not None:
+                ret = covariant
         # A callable return is heap-allocated (`ps_alloc` pair + env), so it
         # escapes the frame safely.
         if class_name is not None and fn.name == "__init__" and ret["kind"] != "none":

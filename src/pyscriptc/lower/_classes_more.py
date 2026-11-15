@@ -611,6 +611,134 @@ class ClassesMoreMixin:
                 return True
         return types_equal(got, want)
 
+    def _nominal_subclass_field(self, want: dict[str, Any], got: dict[str, Any]) -> str | None:
+        """The added field a nominal subclass carries over its base, or None.
+
+        Issue #1243's narrow carve-out: a slot annotated with a class
+        accepts a value whose class is a nominal subclass of it (declared
+        in the same compile) when the subclass adds no instance fields.
+        The empty answer means the layouts agree (`got`'s field list is a
+        prefix extension of `want`'s, so shared-base methods GEP
+        correctly); a non-empty answer is the first added field, which
+        the fence message names.
+        """
+
+        if _type_kind(want) != "class" or _type_kind(got) != "class":
+            return None
+        want_name = want.get("name")
+        got_name = got.get("name")
+        if not isinstance(want_name, str) or not isinstance(got_name, str) or want_name == got_name:
+            return None
+        if want_name not in self.classes or got_name not in self.classes:
+            return None
+        want_info = self.classes[want_name]
+        got_info = self.classes[got_name]
+        # Structural markers are not nominal bases: a Protocol or a
+        # synthetic record has no nominal-subclass relation to check.
+        if want_info.get("protocol") or want_info.get("synthetic") or got_info.get("synthetic"):
+            return None
+        if not self._is_subclass_name(got_name, want_name):
+            return None
+        own = got_info.get("own_fields", got_info.get("fields", []))
+        want_fields = {field["name"]: field["type"] for field in want_info["fields"]}
+        for field in own:
+            prior = want_fields.get(field["name"])
+            if prior is None or not types_equal(prior, field["type"]):
+                return field["name"]
+        return None
+
+    def _covariant_slot_type(self, want: dict[str, Any], got: dict[str, Any]) -> dict[str, Any] | None:
+        """The concrete type a covariant binding keeps, or None.
+
+        The carve-out's binding rule (issue #1243): the annotated slot is
+        accepted, but the slot's own type stays the value's concrete
+        class, because dispatch is static (`cls.{owner}.{method}`) and a
+        `Base`-typed slot would call `Base`'s method on a `Sub` value.
+        Keeping `Sub` gives CPython's answer for every read the slot
+        allows: the overridden method resolves to the subclass body and
+        the inherited fields read through the same layout prefix. The
+        value still must satisfy the no-added-field rule; anything else
+        keeps its fence.
+        """
+
+        if self._nominal_subclass_field(want, got) is not None:
+            return None
+        if _type_kind(want) != "class" or _type_kind(got) != "class":
+            return None
+        want_name = want.get("name")
+        got_name = got.get("name")
+        if not isinstance(want_name, str) or not isinstance(got_name, str) or want_name == got_name:
+            return None
+        if not self._is_subclass_name(got_name, want_name):
+            return None
+        # The annotation is the accepted contract: the base class names
+        # the slot, the concrete class names the dispatch.
+        return dict(got)
+
+    def _covariant_return_names(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, want_name: str) -> list[str]:
+        """The distinct subclass names a def's returns construct, or [].
+
+        Every returned expression must be a direct construction of a
+        nominal subclass of `want_name`; any other return shape (a bare
+        construction of the base itself, a call whose class is unknown,
+        a branch over two subclasses) returns [] and the caller keeps
+        the annotation: the carve-out never guesses a concrete class.
+        """
+
+        found: list[str] = []
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Return) or node.value is None:
+                continue
+            name = self._constructed_class_name(node.value)
+            if name is None or name == want_name or not self._is_subclass_name(name, want_name):
+                return []
+            if name not in found:
+                found.append(name)
+        return found
+
+    def _covariant_return_type(
+        self, fn: ast.FunctionDef | ast.AsyncFunctionDef, want: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """The concrete return type a def proves over its annotation.
+
+        Issue #1243's carve-out, signature side: a def annotated to return
+        a class may return an instance of a nominal subclass (declared in
+        the same compile). Dispatch is static, so the call site must see
+        the concrete class to call the subclass's method; the annotation
+        stays the accepted contract and rides along on the type as
+        `declared`. One subclass proves it; two or more prove nothing and
+        the caller fences (the static call would answer the base's body).
+        """
+
+        if _type_kind(want) != "class":
+            return None
+        want_name = want.get("name")
+        if not isinstance(want_name, str) or want_name not in self.classes:
+            return None
+        found = self._covariant_return_names(fn, want_name)
+        if len(found) != 1:
+            return None
+        concrete = {"kind": "class", "name": found[0]}
+        if self._nominal_subclass_field(want, concrete) is not None:
+            # The subclass adds a field: the carve-out refuses it, so the
+            # signature keeps the annotation and the return site fences.
+            return None
+        return dict(concrete)
+
+    def _constructed_class_name(self, node: ast.expr) -> str | None:
+        """The class a direct construction expression builds, or None.
+
+        `Sub()` names `Sub`; `Sub` (a name) names the class only when this
+        def constructed it, which the caller proves by binding; anything
+        else is not a construction.
+        """
+
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            name = node.func.id
+            if name in self.classes:
+                return name
+        return None
+
     def _is_subclass_name(self, got: str, want: str) -> bool:
         info = self.classes.get(got)
         if info is None:

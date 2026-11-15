@@ -737,6 +737,17 @@ def h(n: int, k: int = 0) -> int:
     return n + k
 @@
 y: int = h(1)''',
+  '''class Base:
+    def who(self) -> str:
+        return "base"
+class Sub(Base):
+    def who(self) -> str:
+        return "sub"
+def make() -> Base:
+    return Sub()
+@@
+b: Base = make()
+y: str = b.who()''',
   '''from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     HINT: int = 1
@@ -788,6 +799,28 @@ class B:
         return self
 @@
 y: int = 0''', "PS1103"],
+  ["a nominal subclass that adds a field", '''class Base:
+    def who(self) -> str:
+        return "base"
+class Sub(Base):
+    extra: int
+    def __init__(self, extra: int) -> None:
+        self.extra = extra
+def make() -> Base:
+    return Sub(1)
+@@
+y: int = 0''', "PS1003"],
+  ["a subclass value in a base-annotated parameter", '''class Base:
+    def who(self) -> str:
+        return "base"
+class Sub(Base):
+    def who(self) -> str:
+        return "sub"
+def take(b: Base) -> str:
+    return b.who()
+@@
+s = Sub()
+y: str = take(s)''', "PS1003"],
   ["TypeAlias declaration", '''from typing import TypeAlias
 Ids: TypeAlias = list[int]
 @@

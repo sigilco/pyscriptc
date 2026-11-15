@@ -120,6 +120,7 @@ There is no `typing` module object in the binary.
 | `TypeVar("T")` generic functions and `Generic[T]` classes | compiles, specialized per call site, including `T \| None`, `Callable[[T], U]` and a TypeVar key in `dict[K, V]` or `Mapping[K, V]`; a bound `TypeVar` erases to its bound; constraints and variance flags are accepted and not enforced (as in CPython) |
 | PEP 695 `def f[T]`, `ParamSpec`, `TypeVar(..., default=...)` | unsupported (`PS1106`, `PS2003`) |
 | `Protocol`, `ABC`, `@abstractmethod`, `@overload` | the annotation is checked, then dropped; no runtime enforcement (divergence 14) |
+| a base-annotated slot holding a field-less nominal subclass (`b: Base = Sub()`, `def make() -> Base: return Sub()`) | compiles; the slot keeps the subclass, so the overridden method answers the subclass's body (divergence 70). A subclass that adds a field, a factory over two subclasses, or a base-annotated parameter receiving a subclass fences `PS1003` |
 | `NamedTuple`, `TypedDict`, `NewType`, `Literal[...]`, `Self` | unsupported; use a `@dataclass`, a plain `dict[K, V]`, an alias, a plain `str`, or the class name |
 | `Any` as a container element (`dict[K, Any]`, `list[Any]`) | compiles in the builtin and the `typing` spelling; reads need a proven type at the read site (annotation or checker fact), an unproven read fences `PS1107`; bare `Any` or `object` as an annotation is unsupported (`PS1104`) |
 | `async def` and `await` | compiles |

@@ -500,6 +500,13 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#69",
     ),
     _row(
+        "D70",
+        "dispatch is static: a subclass value in a base-annotated parameter is refused (PS1003), where CPython "
+        "dispatches on the value's real class",
+        "d69_covariant_slot.py",
+        docs=f"{DOC}#70",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
