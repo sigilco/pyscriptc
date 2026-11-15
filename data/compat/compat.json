@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-15",
-  "commit": "29355d87d9f29a4dedb0eff5fc1951121daa359d",
+  "commit": "29707d46bd9bc589abda99b420a8fc1c36419959",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-15",
-    "commit": "29355d87d9f29a4dedb0eff5fc1951121daa359d",
+    "commit": "29707d46bd9bc589abda99b420a8fc1c36419959",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2683
+    "fences": 2681
   },
   "builtins": [
     {
@@ -2046,18 +2046,18 @@
       "island": "runs",
       "plane": {
         "definitions": 558,
-        "native": 274,
+        "native": 276,
         "island": 0,
-        "blocked": 284
+        "blocked": 282
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 545,
+      "fences": 543,
       "definitions": 558,
-      "fenced_definitions": 271,
+      "fenced_definitions": 269,
       "top_families": [
         {
           "family": "unlowered-type-name",
-          "count": 90
+          "count": 88
         },
         {
           "family": "name-resolution",
@@ -2075,7 +2075,7 @@
         },
         {
           "code": "PS1106",
-          "count": 90
+          "count": 88
         },
         {
           "code": "PS1103",
@@ -2550,7 +2550,7 @@
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 209,
+      "count": 207,
       "packages": 9
     },
     {
@@ -2659,12 +2659,12 @@
     },
     {
       "date": "2026-11-15",
-      "commit": "29355d87d9f29a4dedb0eff5fc1951121daa359d",
+      "commit": "29707d46bd9bc589abda99b420a8fc1c36419959",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2683
+      "fences": 2681
     }
   ]
 }
