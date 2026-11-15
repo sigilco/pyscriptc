@@ -247,6 +247,17 @@ class CallsMixin(EmitterBase):
                 self._abi_decl("ps_exc_isa_value", "i32", ["ptr", "i32"])
                 raw = self._call_ret("i32", "ps_exc_isa_value", [f"ptr {values[0]}", f"i32 {code}"])
                 return self._flag(raw)
+            if symbol.startswith("ps_dyn_is:"):
+                # isinstance(v, T) on a dynamic value (issue #1226): the arm
+                # rides in the symbol name and the runtime reads the cell's
+                # tag. An int arm also matches a bool cell, because
+                # CPython's bool is a subclass of int.
+                needed = self.needed
+                needed.add("dyn")
+                arm: str = symbol.split(":", 1)[1]
+                self._abi_decl("ps_dyn_is", "i32", ["ptr", "i32"])
+                raw = self._call_ret("i32", "ps_dyn_is", [f"ptr {values[0]}", f"i32 {arm}"])
+                return self._flag(raw)
             if symbol == "ps_map_del":
                 needed = self.needed
                 needed.add("map")

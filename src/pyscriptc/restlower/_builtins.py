@@ -25,6 +25,19 @@ from pyscriptc.restlower._shared import (
     _type_value,
 )
 
+# The arms of the dynamic value sum (issue #1226), by the runtime tag code
+# the cell carries. The tag codes are the PS_DYN_* enum in the runtime
+# header; `bool` is its own arm and `int` also matches it, because
+# CPython's bool is a subclass of int.
+_DYN_ARMS = {
+    "int": 2,
+    "bool": 1,
+    "float": 3,
+    "str": 4,
+    "list": 5,
+    "dict": 6,
+}
+
 
 def _isinstance(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 2:
@@ -38,6 +51,16 @@ def _isinstance(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]
         if lo._isinstance_holds(operand["elem"], want):
             return _field(obj, "_tag", _t_leaf("bool"), span)
         return _const_bool(False, span)
+    if _type_kind(operand) == "dynval":
+        # Issue #1226: the type test on a dynamic value is the runtime tag.
+        # The arm names are the lowered scalars and the two heap containers;
+        # a user class is not an arm of the sum, so it keeps its fence.
+        arm = _DYN_ARMS.get(_type_kind(want))
+        if arm is None:
+            lo.fail(node, "PS2001", "isinstance on a dynamic value is one of int, float, bool, str, list, dict")
+        if _type_name(want) == "list" and want.get("elem") is not None:
+            lo.fail(node, "PS2001", "isinstance on a dynamic value takes the bare list, not list[T]")
+        return lo._abi_call("builtins", "dyn.is", [obj], _t_leaf("bool"), f"ps_dyn_is:{arm}", span)
     if _type_kind(operand) == "exc":
         # `isinstance(e, Exc)` on a caught exception: the runtime parent chain
         # decides, because the caught value carries a code, not a static type.

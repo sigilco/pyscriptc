@@ -681,6 +681,12 @@ class AbiMixin(EmitterBase):
         kind: str = _kind(typ)
         if kind == "int":
             return [(f"i64 {value}", "i64")]
+        if kind == "bool":
+            # A bool rides an i64 widened from its i1 (the dynamic value's
+            # bool arm takes it, issue #1226).
+            wide = self.tmp()
+            self.line(f"{wide} = zext i1 {value} to i64")
+            return [(f"i64 {wide}", "i64")]
         if kind == "float":
             return [(f"double {value}", "double")]
         if kind in {"str", "bytes"}:
@@ -727,7 +733,7 @@ class AbiMixin(EmitterBase):
             self._abi_decl(symbol, "void", types)
             self._call_void(symbol, rendered)
             return ""
-        if kind in {"list", "dict", "func", "exc"} or (
+        if kind in {"list", "dict", "func", "exc", "dynval"} or (
             kind == "class"
             and (
                 _opt_str_or_none(ret, "name")

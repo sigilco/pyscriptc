@@ -41,6 +41,7 @@ from pyscriptc.lower._core import (
     _op_text,
     _show,
     _static_int,
+    _type_kind,
     _zero,
 )
 from pyscriptc.lower._expr_compare import (
@@ -215,7 +216,39 @@ class ExprMixin(ExprCompareMixin):
                 return self._opt_box(
                     None if value["type"]["kind"] == "none" else value, expect, span_of(node, self.filename)
                 )
+        if expect is not None and _type_kind(expect) == "dynval" and _type_kind(value["type"]) != "dynval":
+            # The tagged dynamic value (issue #1226) takes any lowered value
+            # by boxing it: a heap cell whose tag names the arm and whose
+            # payload carries the value. A None boxes as the None arm.
+            return self._dyn_box(value, span_of(node, self.filename), node)
         return value
+
+    def _dyn_box(self, value: dict[str, Any], span: dict[str, Any], node: ast.AST) -> dict[str, Any]:
+        """Box `value` into a dynamic value's heap cell (issue #1226).
+
+        The cell is one `ps_dyn_new_*` call per arm; the tag rides the cell
+        and the payload sits at a fixed offset. A `dynval` passes through
+        unboxed. The runtime helpers marshal like every other runtime call
+        (an int rides i64, a str its (len, ptr) pair, a heap kind its
+        pointer), so the argument carries its own static type. `bytes` is
+        not an arm of the sum (the JSON codec has no bytes), so it keeps
+        its PS2002 fence through the regular path.
+        """
+        typ = node_to_dict(_ir.t_leaf("dynval"))
+        kind = _type_kind(value["type"])
+        symbol = {
+            "none": "ps_dyn_new_none",
+            "bool": "ps_dyn_new_bool",
+            "int": "ps_dyn_new_int",
+            "float": "ps_dyn_new_float",
+            "str": "ps_dyn_new_str",
+            "list": "ps_dyn_new_list",
+            "dict": "ps_dyn_new_dict",
+        }.get(kind)
+        if symbol is None:
+            self.fail(node, "PS2002", f"{kind} is not an arm of the dynamic value sum (issue #1226)")
+        args = [] if kind == "none" else [value]
+        return self._abi_call("builtins", "dyn.new", args, typ, symbol, span)
 
     def _opt_box(self, value: dict[str, Any] | None, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         """Box `value` into the `opt_*` heap cell, or emit the tagged-empty one.
@@ -647,7 +680,12 @@ class ExprMixin(ExprCompareMixin):
         val_t = pairs[0]["value"]["type"]
         if key_t["kind"] not in {"int", "str"}:
             self.fail(node, "PS2002", "dict keys are int or str")
-        if val_t["kind"] == "bool":
+        if val_t["kind"] == "bool" and not (
+            expect and expect.get("kind") == "dict" and expect.get("value", {}).get("kind") == "dynval"
+        ):
+            # A `dict[str, dynval]` display takes a bool: it is an arm of the
+            # dynamic value sum (issue #1226). Everywhere else the bool
+            # dict-value slot stays fenced.
             self.fail(node, "PS2002", "dict values of bool are not lowered")
         for pair in pairs[1:]:
             if not types_equal(pair["key"]["type"], key_t) or not types_equal(pair["value"]["type"], val_t):
@@ -659,6 +697,12 @@ class ExprMixin(ExprCompareMixin):
                 # annotation; the display's type is the answer, and the
                 # annotation's shape rode down as the element expectation.
                 return _dict_node(pairs, typ, span)
+            if _type_kind(expect["value"]) == "dynval":
+                # Issue #1226: a `dict[str, object]` display boxes each value
+                # into the dynamic value's cell. The values rode down as the
+                # element expectation, so each one is already boxed; the
+                # display's value type is the sum, not the concrete type.
+                return _dict_node(pairs, {"kind": "dict", "key": key_t, "value": expect["value"]}, span)
             self._expect(node, typ, expect, "dict")
         return _dict_node(pairs, typ, span)
 

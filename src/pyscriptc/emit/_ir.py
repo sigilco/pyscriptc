@@ -875,6 +875,11 @@ def _llvm_type(typ: dict[str, Any]) -> str:
         # value the read site proved rides the pointer-shaped cell, like the
         # heap kinds; the read's proven type decides how it is loaded.
         return "ptr"
+    if kind == "dynval":
+        # The tagged dynamic value (issue #1226): a pointer to its heap
+        # cell, like the heap kinds. The cell's tag names the arm; the
+        # value itself is the pointer, so nothing else changes at the ABI.
+        return "ptr"
     if kind == "none":
         return "void"
     raise IRError(f"no LLVM type for {kind}")
@@ -919,6 +924,11 @@ def _elem_size(typ: dict[str, Any]) -> int:
         # value is stashed as the 16-byte prefix the runtime reads, and a
         # scalar rides the first 8 bytes of the same cell.
         return 16
+    if kind == "dynval":
+        # The dynamic value's slot holds the pointer to its cell
+        # (issue #1226); the cell itself is heap-allocated and anchored in
+        # the runtime's exit registry.
+        return 8
     if kind == "bool":
         return 1
     raise IRError(f"no element size for {kind}")

@@ -442,6 +442,11 @@ class CallAttrMixin:
                 value = self._expr(ifexp, _get_expect(expect, receiver["type"]["value"]))
                 self._expect(node, value["type"], receiver["type"]["value"], "dict.get default")
                 return value
+            if _type_kind(receiver["type"]["value"]) == "dynval":
+                # Issue #1226: `None` is an arm of the dynamic value sum, so
+                # the missing-key arm is the None cell and the read's type is
+                # the sum itself, not `dynval | None`.
+                return self._expr(ifexp, receiver["type"]["value"])
             return self._expr(ifexp)
         if kind == "dict" and receiver["type"].get("ordered") and node.func.attr in {"move_to_end", "popitem"}:
             self.fail(node, "PS2001", f"OrderedDict.{node.func.attr} is not lowered")

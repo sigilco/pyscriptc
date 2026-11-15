@@ -836,6 +836,11 @@ static void ps_owned_push(void *obj) {
     ps_owned_len += 1;
 }
 
+/* The anchoring entry the runtime modules that allocate their own heap
+   objects call (ps_dyn.c: the dynamic value's cell). Same rule as the
+   registry comment above: nothing is freed, the anchor keeps LSan silent. */
+void ps_own(void *obj) { ps_owned_push(obj); }
+
 PsSeq *ps_seq_new(int64_t elem, int64_t n) {
     if (elem <= 0 || n < 0) {
         ps_raise_code(PS_OVERFLOW);

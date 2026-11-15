@@ -133,7 +133,13 @@ def test_bare_any_still_fences_ps1104(tmp_path: Path) -> None:
     assert "PS1104" in got.stderr
 
 
-def test_object_still_fences_ps1104(tmp_path: Path) -> None:
+def test_object_erases_to_the_dynamic_value(tmp_path: Path) -> None:
+    """Issue #1226: `object` erases to the tagged dynamic value.
+
+    The value is a runtime cell, so a parameter takes it and passes it on.
+    `Any` keeps the PS1104 fence: the unresolved slot is a promise the read
+    site must prove, not a shape.
+    """
     source = "\n".join(
         [
             "def f(x: object) -> int:",
@@ -146,7 +152,9 @@ def test_object_still_fences_ps1104(tmp_path: Path) -> None:
     )
     path = write_case(tmp_path, "any_object.py", source)
     got = compile_run(tmp_path, path, "main")
-    assert "PS1104" in got.stderr
+    assert "PS1104" not in got.stderr
+    assert got.returncode == 0, got.stderr
+    assert got.stdout.strip() == "0"
 
 
 def test_dict_any_parameter_lowers(tmp_path: Path) -> None:

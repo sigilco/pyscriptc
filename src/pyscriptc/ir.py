@@ -36,6 +36,7 @@ TYPE_KINDS = {
     "func",
     "any",
     "buffer",
+    "dynval",
 }
 # The element kinds a buffer may carry (issue #372): flat numeric arrays
 # only. Multi-dimensional shapes are ndarray surface over one flat buffer,
@@ -44,6 +45,13 @@ BUFFER_ELEM_KINDS = {"int", "float"}
 # The unresolved value slot of an Any container (issue #781): the container's
 # shape is known, the value type is not, and the read site proves it.
 ANY_KIND = "any"
+# The tagged dynamic value (issue #1226): the sum of the lowered shapes
+# (None, bool, int, float, str, list, dict) in one heap cell. `object`
+# erases to it; `Any` keeps the unresolved slot above. The name is
+# `dynval` and not `dyn` because `dyn` is in FORBIDDEN_KINDS: it is
+# scriptc's JavaScript dynamic type, and the deny-list must keep failing
+# a reused scriptc node closed.
+DYN_KIND = "dynval"
 EXPR_KINDS = {
     "name",
     "const",
@@ -171,6 +179,11 @@ def type_key(typ: dict[str, Any]) -> str:
         # The unresolved slot matches only itself: an `any` value never
         # type-equal-checks against a concrete type.
         return "any"
+    if kind == "dynval":
+        # The tagged dynamic value (issue #1226): one kind, one spelling.
+        # It matches only itself: a dynamic value is never type-equal to a
+        # concrete type, the same rule the unresolved slot follows.
+        return "dynval"
     return str(kind)
 
 

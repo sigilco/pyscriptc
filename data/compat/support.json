@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-15",
-  "commit": "dc753f5621d48bf1925817d95ceaaa63ca96ba75",
+  "commit": "37a06bce9d490029fe10ea24e6fed84aa0493c5e",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -20,8 +20,8 @@
     },
     "packages": {
       "green": 2,
-      "yellow": 8,
-      "red": 8
+      "yellow": 7,
+      "red": 9
     }
   },
   "builtins": [
@@ -870,16 +870,16 @@
       "name": "python-dotenv",
       "version": "1.2.4",
       "status": "\ud83d\udd34",
-      "ratio": "42/75",
-      "blocking": "unlowered-call (25), name-resolution (18), construct-other (18)",
-      "codes": "PS2002, PS1106, PS1001"
+      "ratio": "45/75",
+      "blocking": "unlowered-call (24), construct-other (24), name-resolution (23)",
+      "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "246/641",
-      "blocking": "name-resolution (172), construct-other (120), field-lookup (51)",
+      "blocking": "name-resolution (173), construct-other (121), field-lookup (51)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -933,16 +933,16 @@
     {
       "name": "packaging",
       "version": "26.3",
-      "status": "\ud83d\udfe1",
-      "ratio": "269/558",
-      "blocking": "unlowered-type-name (88), name-resolution (77), generic-alias (53)",
-      "codes": "PS2002, PS1106, PS1103"
+      "status": "\ud83d\udd34",
+      "ratio": "284/558",
+      "blocking": "name-resolution (101), unlowered-type-name (94), field-lookup (70)",
+      "codes": "PS2002, PS2001, PS1106"
     },
     {
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "76/132",
+      "ratio": "75/132",
       "blocking": "name-resolution (30), construct-other (21), unlowered-type-name (19)",
       "codes": "PS2002, PS1106, PS1003"
     },

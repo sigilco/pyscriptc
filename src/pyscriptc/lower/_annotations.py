@@ -271,11 +271,17 @@ class AnnotationMixin:
             typ = _type({"kind": "list", "elem": self._any_annotation(node.slice)})
             self._reject_banned_type(node, typ)
             return typ
+        if isinstance(node, ast.Name) and node.id == "object":
+            # Issue #1226: `object` names a shape — any value at all — and
+            # the tagged dynamic value is that shape's only representation.
+            # It erases to `dynval` instead of fencing. `Any` keeps the
+            # unresolved slot below: a promise the read site must prove.
+            return _type({"kind": "dynval"})
         if isinstance(node, ast.Name) and (node.id == "Any" or node.id in _DYNAMIC_ANNOTATIONS):
             # Issue #781: bare `Any` and every other dynamic or structural
             # name still fences with PS1104. Only a container annotation
             # (dict[K, Any], list[Any]) resolves through the `any` element,
-            # because there the shape is known.
+            # because there the shape is known. `object` resolves above.
             self.fail(node, "PS1104", f"{node.id} is a dynamic or structural type and is not lowered")
         if isinstance(node, ast.Name) and node.id in _BARE_CONTAINER_NAMES:
             return self._bare_container_annotation(node)
@@ -323,12 +329,16 @@ class AnnotationMixin:
         `any` placeholder instead of a PS1104 fence: the container's shape is
         known (the key type, the element slots), only the value type is not,
         and every read of the container proves it from a local source or
-        fences with PS1107 at the read site. `object` and the structural
-        names (Protocol, TypeVar, Callable and friends) keep their own
-        fence: they describe a shape, not an unresolved value.
+        fences with PS1107 at the read site. `object` resolves to the
+        tagged dynamic value (issue #1226): the container's shape is known
+        and so is the value's shape, a sum. The structural names
+        (Protocol, TypeVar, Callable and friends) keep their own fence:
+        they describe a shape, not an unresolved value.
         """
         if isinstance(node, ast.Name) and node.id == "Any":
             return _type({"kind": _UNRESOLVED_KIND})
+        if isinstance(node, ast.Name) and node.id == "object":
+            return _type({"kind": "dynval"})
         if isinstance(node, ast.Name) and node.id in _DYNAMIC_ANNOTATIONS:
             self.fail(node, "PS1104", f"{node.id} is a dynamic or structural type and is not lowered")
         return self._annotation(node)

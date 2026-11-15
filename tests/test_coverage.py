@@ -62,7 +62,6 @@ def fence_codes(source: str) -> dict[str, str]:
         ("Union[int, str]", "PS1101"),
         ("Awaitable[int]", "PS1103"),
         ("Any", "PS1104"),
-        ("object", "PS1104"),
         ("'Later'", "PS1105"),
         ("Unknown", "PS1106"),
     ],
@@ -70,6 +69,16 @@ def fence_codes(source: str) -> dict[str, str]:
 def test_annotation_fences_have_specific_codes(annotation: str, code: str) -> None:
     source = f"from typing import Any, Awaitable, Optional, Union\n\ndef f(x: {annotation}) -> int:\n    return 1\n"
     assert fence_codes(source) == {"f": code}
+
+
+def test_object_erases_to_the_dynamic_value() -> None:
+    # Issue #1226: `object` names a shape, and the tagged dynamic value is
+    # that shape's only representation. It erases instead of fencing;
+    # `Any` keeps the PS1104 fence (the unresolved slot).
+    assert fence_codes("def f(x: object) -> int:\n    return 1\n") == {}
+    assert fence_codes("def f(x: Any) -> int:\n    return 1\n") == {"f": "PS1104"}
+    module = lower_source("def f(d: dict[str, object]) -> int:\n    return 1\n", "case.py")
+    assert module["fences"] == []
 
 
 def test_coverage_json_reports_each_fence(tmp_path: Path) -> None:

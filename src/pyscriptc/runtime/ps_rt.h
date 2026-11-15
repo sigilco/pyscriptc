@@ -146,6 +146,65 @@ typedef struct PsBuf {
     char *data;
 } PsBuf;
 
+/* The tagged dynamic value (issue #1226): the sum of the lowered shapes.
+   The tag names the arm; the payload sits at a fixed offset, so reading an
+   arm is a load, never a switch. The arms are the ones the JSON codec
+   produces and the ones a program can build: None, bool, int, float, str,
+   list and dict. A user class is not an arm, so `isinstance(v, SomeClass)`
+   on a dynamic value stays fenced. */
+enum {
+    PS_DYN_NONE = 0,
+    PS_DYN_BOOL = 1,
+    PS_DYN_INT = 2,
+    PS_DYN_FLOAT = 3,
+    PS_DYN_STR = 4,
+    PS_DYN_LIST = 5,
+    PS_DYN_DICT = 6
+};
+
+/* The dynamic value's cell. The tag and the pad keep the payload 8-aligned;
+   the int, bool and float payloads share the `i` word (the float rides its
+   IEEE bits), the str payload is the 16-byte PsBuf prefix, and the list and
+   dict payloads are the heap pointers the runtime already owns. The cell is
+   a heap object: the runtime has no refcounts and no GC, so it lives until
+   the process dies like every other sequence and map. */
+typedef struct PsDyn {
+    int32_t tag;
+    int32_t pad;
+    int64_t i;
+    PsBuf b;
+    void *p;
+} PsDyn;
+
+/* The constructors marshal like every other runtime call: an int rides
+   i64, a float its double bits, a str the (len, ptr) pair, a list or a
+   dict its heap pointer. */
+PsDyn *ps_dyn_new_none(void);
+PsDyn *ps_dyn_new_bool(int64_t b);
+PsDyn *ps_dyn_new_int(int64_t i);
+PsDyn *ps_dyn_new_float(double f);
+PsDyn *ps_dyn_new_str(int64_t len, char *data);
+PsDyn *ps_dyn_new_list(void *seq);
+PsDyn *ps_dyn_new_dict(void *map);
+/* The type test: 1 when the cell holds the named arm. `PS_DYN_INT` also
+   matches a bool cell, because CPython's bool is a subclass of int. */
+int ps_dyn_is(const PsDyn *v, int32_t kind);
+/* The arm projections. Each reads the payload of a cell whose arm the test
+   already proved. */
+int64_t ps_dyn_int(const PsDyn *v);
+double ps_dyn_float(const PsDyn *v);
+int64_t ps_dyn_bool(const PsDyn *v);
+PsBuf ps_dyn_str(const PsDyn *v);
+void *ps_dyn_list(const PsDyn *v);
+void *ps_dyn_dict(const PsDyn *v);
+/* The truthiness of a dynamic value, CPython's rule per arm. */
+int ps_dyn_truth(const PsDyn *v);
+/* The map cell helpers: a dynamic value crosses a map slot as a pointer to
+   its cell, so the slot copy is a pointer copy. */
+void ps_dyn_store(void *slot, const PsDyn *v);
+void ps_dyn_load(void *out, const PsDyn *v);
+
+
 typedef struct PsSeq {
     int64_t len;
     int64_t elem;
@@ -364,6 +423,11 @@ void ps_grow_init(PsGrow *g);
 void ps_grow_add(PsGrow *g, const char *p, int64_t n);
 void ps_grow_byte(PsGrow *g, unsigned char c);
 void ps_grow_finish(PsGrow *g, PsBuf *out);
+
+/* The exit registry's anchoring entry, for the runtime modules that
+   allocate their own heap objects (ps_dyn.c). Nothing is freed; the anchor
+   keeps the object reachable at exit so LeakSanitizer stays silent. */
+void ps_own(void *obj);
 
 void ps_str_slice(
     int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
