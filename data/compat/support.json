@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-15",
-  "commit": "a738f7dbc8560e1eba04d28fa330bd20a48679e7",
+  "commit": "29355d87d9f29a4dedb0eff5fc1951121daa359d",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 71,
+      "yellow": 72,
       "red": 0
     },
     "packages": {
@@ -391,10 +391,19 @@
       "label": "`os`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "scandir, system, urandom, cpu_count, kill, rmdir, getuid, keyword arguments (makedirs exist_ok)",
+      "missing": "scandir, system, urandom, cpu_count, rmdir, getuid, keyword arguments (makedirs exist_ok)",
       "codes": [
         "PS2001",
         "PS2003"
+      ]
+    },
+    {
+      "label": "`signal`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "handler registration (signal.signal), getsignal, alarm, the Signals enum, SIG_DFL",
+      "codes": [
+        "PS2001"
       ]
     },
     {

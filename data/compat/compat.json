@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-15",
-  "commit": "a738f7dbc8560e1eba04d28fa330bd20a48679e7",
+  "commit": "29355d87d9f29a4dedb0eff5fc1951121daa359d",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-15",
-    "commit": "a738f7dbc8560e1eba04d28fa330bd20a48679e7",
+    "commit": "29355d87d9f29a4dedb0eff5fc1951121daa359d",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -26,7 +26,7 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 68,
+    "stdlib_partial": 69,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
@@ -767,11 +767,28 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "scandir, system, urandom, cpu_count, kill, rmdir, getuid, keyword arguments (makedirs exist_ok)"
+        "scandir, system, urandom, cpu_count, rmdir, getuid, keyword arguments (makedirs exist_ok)"
       ],
       "fences": [
         "PS2001",
         "PS2003"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.signal",
+      "kind": "stdlib",
+      "label": "`signal`",
+      "names": [
+        "signal"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "handler registration (signal.signal), getsignal, alarm, the Signals enum, SIG_DFL"
+      ],
+      "fences": [
+        "PS2001"
       ],
       "note": ""
     },
@@ -2642,7 +2659,7 @@
     },
     {
       "date": "2026-11-15",
-      "commit": "a738f7dbc8560e1eba04d28fa330bd20a48679e7",
+      "commit": "29355d87d9f29a4dedb0eff5fc1951121daa359d",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
