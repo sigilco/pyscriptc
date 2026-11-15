@@ -88,6 +88,17 @@ _ERRNO = (
 # lowered. Values are read from this interpreter in `_load_constants`.
 _INT_SURFACE: dict[str, tuple[str, ...]] = {
     "selectors": ("EVENT_READ", "EVENT_WRITE"),
+    # The POSIX signal constants the watchdog surface carries (issue #1244).
+    # Values are read from the host interpreter; they are the kernel numbers,
+    # so the CPython 3.14 oracle and the binary agree on every platform.
+    "signal": (
+        "SIGKILL",
+        "SIGTERM",
+        "SIGINT",
+        "SIGCONT",
+        "SIGUSR1",
+        "SIGUSR2",
+    ),
     "calendar": (
         "MONDAY",
         "TUESDAY",
@@ -1567,6 +1578,11 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
         "fstat": sig([_I], _STAT, "ps_os_fstat"),
         "lstat": sig([_S], _STAT, "ps_os_lstat"),
         "utime": sig([_S], _N, "ps_os_utime"),
+        # The process-control surface a CLI watchdog needs (issue #1244):
+        # kill(pid, sig) and killpg(pgrp, sig) over the ps_os_kill runtime
+        # helpers. The signal numbers come from the `signal` module rows.
+        "kill": sig([_I, _I], _N, "ps_os_kill"),
+        "killpg": sig([_I, _I], _N, "ps_os_killpg"),
     },
     "posixpath": {
         "basename": sig([_S], _S, "ps_path_base"),
@@ -1756,6 +1772,7 @@ REST_MODULES = frozenset(
         "shlex",
         "secrets",
         "selectors",
+        "signal",
     }
 )
 

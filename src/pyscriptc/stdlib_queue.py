@@ -91,6 +91,7 @@ QUEUE: tuple[str, ...] = (
     "shlex",
     "secrets",
     "selectors",
+    "signal",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)

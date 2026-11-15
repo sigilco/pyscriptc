@@ -11,6 +11,12 @@ getenv raises KeyError, which is the subset stand-in for None.
 #include <errno.h>
 #include <fcntl.h>
 #ifndef _WIN32
+#ifndef __wasi__
+/* WASI's signal.h errors out unless the emulation is requested; the kill
+   helpers are POSIX-only and WASI refuses them at the emit, so the wasi
+   sysroot never sees the include. */
+#include <signal.h>
+#endif
 #include <pwd.h>
 #endif
 #include <stdio.h>
@@ -865,6 +871,43 @@ int32_t ps_os_access(int64_t n, const char *s, int64_t mode) {
 }
 
 int64_t ps_os_getpid(void) { return (int64_t)getpid(); }
+
+#ifndef _WIN32
+#ifndef __wasi__
+/* kill(pid, sig): the parent-side watchdog primitive (issue #1244). CPython
+   translates the errno values the same way os.rename does, so the subset
+   keeps the OSError subclasses: ESRCH is ProcessLookupError, EPERM is
+   PermissionError, anything else is the plain RuntimeError stand-in. */
+void ps_os_kill(int64_t pid, int64_t sig) {
+    int rc = kill((pid_t)pid, (int)sig);
+    int err = errno;
+    if (rc != 0) {
+        if (err == ESRCH) {
+            ps_raise_cstr(PS_PROCESSLOOKUPERROR, "No such process");
+        } else if (err == EPERM) {
+            ps_raise_cstr(PS_PERMISSIONERROR, "Operation not permitted");
+        } else {
+            ps_os_fail("kill failed");
+        }
+    }
+}
+
+/* killpg(pgrp, sig): the same translation over the process group. */
+void ps_os_killpg(int64_t pgrp, int64_t sig) {
+    int rc = killpg((pid_t)pgrp, (int)sig);
+    int err = errno;
+    if (rc != 0) {
+        if (err == ESRCH) {
+            ps_raise_cstr(PS_PROCESSLOOKUPERROR, "No such process");
+        } else if (err == EPERM) {
+            ps_raise_cstr(PS_PERMISSIONERROR, "Operation not permitted");
+        } else {
+            ps_os_fail("killpg failed");
+        }
+    }
+}
+#endif /* __wasi__ */
+#endif /* !_WIN32 */
 
 void ps_os_chdir(int64_t n, const char *s) {
     char *text = ps_cstr(n, s);

@@ -459,6 +459,14 @@ def link_binary(
                 f"target {target or ''} refuses {', '.join(link_refused)}: WASI has no "
                 "symbolic-link story the runtime lowers (see docs/divergences.md)"
             )
+        # os.kill/os.killpg lower onto ps_os_kill/ps_os_killpg; WASI has no
+        # process identifiers, so a kill call is refused here too.
+        kill_refused = [symbol for symbol in ("ps_os_kill", "ps_os_killpg") if f"@{symbol}(" in text]
+        if kill_refused:
+            raise IRError(
+                f"target {target or ''} refuses {', '.join(kill_refused)}: WASI has no "
+                "process-identifier story the runtime lowers (see docs/divergences.md)"
+            )
         sources = [source for source in sources if not source.endswith(("ps_sub.c", "ps_mix.c"))]
         sources.append(str(runtime / "wasm" / "rt_wasm.c"))
     # The `--ffi` manifest units join the same per-unit compile loop as the
