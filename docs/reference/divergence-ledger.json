@@ -1177,9 +1177,9 @@
       "probe": "probes/divergences/d69_archive.py",
       "cpython": {
         "stage": "run",
-        "exit": 1,
-        "stdout": "",
-        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d69_archive.py\", line 9, in <module>\n    tarfile.open(\"/tmp/a1241_div.tar.bz2\", \"r:bz2\")\n    ~~~~~~~~~~~~^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"<oracle>/lib/python3.14/tarfile.py\", line 1993, in open\n    return func(name, filemode, fileobj, **kwargs)\n  File \"<oracle>/lib/python3.14/tarfile.py\", line 2080, in bz2open\n    fileobj = BZ2File(fileobj or name, mode, compresslevel=compresslevel)\n  File \"<oracle>/lib/python3.14/bz2.py\", line 81, in __init__\n    self._fp = _builtin_open(filename, mode)\n               ~~~~~~~~~~~~~^^^^^^^^^^^^^^^^\nFileNotFoundError: [Errno 2] No such file or directory: '/tmp/a1241_div.tar.bz2'\n"
+        "exit": 0,
+        "stdout": "FileNotFoundError\n",
+        "stderr": ""
       },
       "pyscriptc": {
         "stage": "run",
