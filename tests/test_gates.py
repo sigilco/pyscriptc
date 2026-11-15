@@ -41,6 +41,7 @@ QUEUE = (
     "threading",
     "logging",
     "asyncio",
+    "asyncio.subprocess",
     "subprocess",
     "socket",
     "ssl",

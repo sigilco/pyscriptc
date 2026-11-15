@@ -54,6 +54,7 @@ from pyscriptc.restlower import (
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
+from pyscriptc.restlower._asyncio_proc import _proc_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
 from pyscriptc.restlower._ndarray import _ndarray_method
 from pyscriptc.tirserde import dict_to_node, node_to_dict
@@ -390,6 +391,8 @@ class CallAttrMixin:
             "AsyncQueue",
         }:
             return _prim_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "AsyncProcess":
+            return _proc_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Queue":
             return _queue_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "ndarray":

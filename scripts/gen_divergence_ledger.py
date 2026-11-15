@@ -514,6 +514,13 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#71",
     ),
     _row(
+        "D72",
+        "the async subprocess handle reads -1 for a running child's returncode, where CPython reads None; "
+        "the subset has no optional int and no stdout/stderr pipes",
+        "d72_asyncio_subprocess.py",
+        docs=f"{DOC}#72",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

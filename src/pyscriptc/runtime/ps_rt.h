@@ -632,6 +632,15 @@ void ps_to_thread_pump(void);
 void ps_to_thread_park(void *box);
 int32_t ps_threads_pending(void);
 
+/* ps_aproc.c: the async subprocess (issue #1224). The record owns the
+   child; `wait` parks the task until the child exits and the loop's pump
+   wakes it. */
+void *ps_aproc_new(PsSeq *args);
+int64_t ps_aproc_wait(void *box);
+int64_t ps_aproc_code_of(void *box);
+void ps_aproc_pump(void);
+int32_t ps_aproc_pending(void);
+
 /* ps_select.c: the closed `selectors` subset (#485), the `DefaultSelector`
    record set over the #177 poller. `register` takes a bare int fd, not a
    `fileobj`: the typed `socket` handle is #229, and until it lands the

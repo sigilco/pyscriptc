@@ -54,6 +54,7 @@ QUEUE: tuple[str, ...] = (
     "threading",
     "logging",
     "asyncio",
+    "asyncio.subprocess",
     "subprocess",
     "socket",
     "ssl",

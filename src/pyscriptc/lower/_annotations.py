@@ -576,6 +576,10 @@ class AnnotationMixin:
                 return alias_name(resolved[1], resolved[2])
             if resolved[1] == "asyncio" and resolved[2] == "Queue":
                 return "AsyncQueue"
+            if resolved[1] == "asyncio.subprocess" and resolved[2] == "Process":
+                # The async subprocess handle (issue #1224): the runtime
+                # owns the child, the class value is the record pointer.
+                return "AsyncProcess"
         return None
 
     def _typing_annotation(self, node: ast.AST) -> dict[str, Any] | None:

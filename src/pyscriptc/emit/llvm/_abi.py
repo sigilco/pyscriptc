@@ -861,6 +861,9 @@ class AbiMixin(EmitterBase):
                 "ps_asem_new",
                 "ps_aqueue_new",
                 "ps_to_thread_new",
+                # The async subprocess record (issue #1224): the runtime owns
+                # the child, the value is the record pointer.
+                "ps_aproc_new",
                 # The streaming hash context (issue #1248): the runtime owns
                 # the record and the value is its pointer.
                 "ps_hash_new",

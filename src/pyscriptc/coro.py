@@ -90,6 +90,9 @@ PRIM_MARKER = "__ps_await_prim__"
 # `await asyncio.to_thread(fn, ...)`: the callable runs on a worker thread
 # and the awaiting frame parks until the worker marks the call done.
 THREAD_MARKER = "__ps_await_thread__"
+# `await proc.wait()` on an asyncio subprocess: the frame parks until the
+# loop's pump reaps the child, then reads the exit code out of the record.
+PROC_MARKER = "__ps_await_proc__"
 SLEEP_MARKER = "__ps_sleep__"
 RETURN_MARKER = "__ps_return__"
 STATE = ".ps_state"
@@ -1711,6 +1714,8 @@ class _Frame:
                 )
             if _is_marker(stmt, THREAD_MARKER):
                 return self._await_thread(ref, {"thread_elem": _call_type(expr, "thread_elem")}, span)
+            if _is_marker(stmt, PROC_MARKER):
+                return self._await_proc(ref, span)
             if _is_marker(stmt, self.kind.marker):
                 if self.kind.marker == AWAIT_MARKER:
                     return self._await(ref, span)
@@ -2368,6 +2373,48 @@ class _Frame:
             out.append(_assign(_await_result_name(slot), read, span))
         return out
 
+    def _await_proc(self, ref: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """Expand `__ps_await_proc__(proc)` into the process park.
+
+        The runtime call polls the child: it returns 0 while the child runs
+        and 1 when the child exited. On the 0 the frame suspends with
+        status 0; the loop's process pump reaps the child and wakes the
+        task, and the resume reads the exit code out of the record.
+        """
+        self.points += 1
+        point = self.points
+        slot = ref["id"]
+        proc_t = ref["type"]
+        park = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "proc_wait"},
+            [_name(slot, proc_t, span)],
+            _INT,
+            span,
+            "ps_aproc_wait",
+        )
+        leave = [
+            *self.copy_out(span),
+            self.field_set(STATE, _const(point, _INT, span), span),
+            _if(
+                _compare("==", park, _const(0, _INT, span), span),
+                self.kind.suspend(self, _const(0, _INT, span), span),
+                [],
+                span,
+            ),
+        ]
+        arrive = [_assign(RESUME, _const(0, _INT, span), span)]
+        out: list[dict[str, Any]] = [_if(self.fresh(span), leave, arrive, span)]
+        # The exit code of the reaped child: the wait's result.
+        code = _call_node(
+            {"kind": "module", "module": "asyncio", "name": "proc_code"},
+            [_name(slot, proc_t, span)],
+            _INT,
+            span,
+            "ps_aproc_code_of",
+        )
+        out.append(_assign(_await_result_name(slot), code, span))
+        return out
+
     def _sleep(self, args: list[Any], span: dict[str, Any]) -> list[dict[str, Any]]:
         """Expand `__ps_sleep__(delay)` into arm-then-suspend.
 
@@ -2454,6 +2501,7 @@ def _suspends(stmt: Any, marker: str) -> bool:
             or _is_marker(stmt, WAIT_FOR_MARKER)
             or _is_marker(stmt, PRIM_MARKER)
             or _is_marker(stmt, THREAD_MARKER)
+            or _is_marker(stmt, PROC_MARKER)
         )
     if kind == "if":
         return any(_suspends(s, marker) for s in _node_then(stmt)) or any(

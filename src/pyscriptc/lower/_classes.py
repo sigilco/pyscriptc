@@ -1387,6 +1387,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # The asyncio semaphore's counter, the same shape the threading
             # one has: an opaque pointer with a read-only count.
             return self._abi_call("asyncio", "Semaphore._value", [obj], _leaf_type("int"), "ps_asem_value", span)
+        if class_name == "AsyncProcess" and name == "returncode":
+            # The async subprocess's exit code (issue #1224): the runtime
+            # owns the child, so the read is a call into the record. The
+            # code is -1 while the child still runs, where CPython's
+            # returncode is None.
+            return self._abi_call("asyncio", "Process.returncode", [obj], _leaf_type("int"), "ps_aproc_code_of", span)
         if class_name == "Thread" and name == "name":
             return self._abi_call("threading", "Thread.name", [obj], _leaf_type("str"), "ps_thread_name2", span)
         if class_name == "Thread" and name == "daemon":

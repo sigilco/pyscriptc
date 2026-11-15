@@ -1230,6 +1230,26 @@
       "status": "divergent"
     },
     {
+      "id": "D72",
+      "seam": "the async subprocess handle reads -1 for a running child's returncode, where CPython reads None; the subset has no optional int and no stdout/stderr pipes",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#72",
+      "probe": "probes/divergences/d72_asyncio_subprocess.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "waited 7\nreturncode 7\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "waited 7\nreturncode 7\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

@@ -36,8 +36,9 @@ ANDROID_API_DEFAULT = 24
 
 # The runtime files a mobile build does not carry. `ps_sub.c` forks and execs,
 # `ps_osfd.c` opens raw file descriptors: neither has a meaning inside an app
-# sandbox, and both pull in headers a phone SDK does not ship.
-MOBILE_EXCLUDED_SOURCES: list[str] = ["ps_osfd.c", "ps_sub.c"]
+# sandbox, and both pull in headers a phone SDK does not ship. `ps_aproc.c`
+# is the async subprocess (issue #1224): it forks and execs too.
+MOBILE_EXCLUDED_SOURCES: list[str] = ["ps_osfd.c", "ps_sub.c", "ps_aproc.c"]
 
 # The 16 KB page-alignment link flags Google Play requires of any shared
 # object built for Android 15+ (the 2025-11-01 rule). A static archive has no
@@ -168,6 +169,7 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     "ps_sub_run": "subprocess",
     "ps_sub_call": "subprocess",
     "ps_sub_check_call": "subprocess",
+    "ps_aproc_new": "subprocess",
     "ps_os_open": "osfd",
     "ps_os_close": "osfd",
     "ps_os_read": "osfd",

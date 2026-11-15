@@ -496,6 +496,26 @@ ok = [
 no = [["bare Queue annotation (element type needed)", 'y: asyncio.Queue = asyncio.Queue()', "PS1001"], ["get_event_loop", 'asyncio.get_event_loop()', "PS2001"], ["sleep outside a coroutine", 'asyncio.sleep(x)', "PS2002"]]
 
 [[stdlib]]
+names = ["asyncio.subprocess"]
+ok = ['''async def work() -> int:
+    p: asyncio.subprocess.Process = await asyncio.create_subprocess_exec("true")
+    y: int = await p.wait()
+    return y
+
+@@
+    asyncio.run(work())''']
+no = [["a stdout= pipe", '''async def work() -> None:
+    await asyncio.create_subprocess_exec("true", stdout=1)
+
+@@
+    asyncio.run(work())''', "PS2003"], ["communicate", '''async def work() -> None:
+    p: asyncio.subprocess.Process = await asyncio.create_subprocess_exec("true")
+    await p.communicate()
+
+@@
+    asyncio.run(work())''', "PS2001"]]
+
+[[stdlib]]
 names = ["subprocess"]
 ok = ['y: bytes = subprocess.check_output(ss)', 'subprocess.run(ss)', 'y: int = subprocess.run(ss).returncode', 'y: bytes = subprocess.run(ss, capture_output=True).stdout', 'y: int = subprocess.DEVNULL', 'subprocess.run(ss, timeout=5)']
 no = [["Popen, getoutput", 'y: int = subprocess.Popen(ss)', "PS2001"]]

@@ -1245,7 +1245,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "urllib.request": ("HttpRequest", "HttpResponse"),
     "urllib.error": ("HTTPError", "URLError"),
     "queue": ("Queue", "Empty", "Full"),
-    "asyncio": ("CancelledError",),
+    "asyncio": ("CancelledError", "AsyncProcess"),
     "selectors": ("DefaultSelector", "SelectorKey"),
     "tarfile": ("TarFile",),
     "zipfile": ("ZipFile",),
@@ -1295,6 +1295,9 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
         ("stdout", _S),
         ("stderr", _S),
     ],
+    # The async subprocess record (issue #1224): the runtime owns the child,
+    # the class value is the record pointer, so the class has no field.
+    "AsyncProcess": [],
     # The timeout exception (issue #1223): CPython's TimeoutExpired carries
     # the command and the bound, but the runtime's exception record holds
     # the code and the message only, so the class has no field here.
@@ -1397,10 +1400,18 @@ QUEUE_CLASSES: frozenset[str] = frozenset({"Queue"})
 # waiter list of tasks rather than a pthread condvar.
 ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSemaphore", "AsyncQueue"})
 
+# The async subprocess record (#1224) is a runtime pointer too: the child
+# lives in the runtime, the class value is the record pointer.
+APROC_CLASSES: frozenset[str] = frozenset({"AsyncProcess"})
+
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
 PTR_CLASSES: frozenset[str] = (
-    THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser", "DefaultSelector", "Hash", "TarFile", "ZipFile"}
+    THREADING_CLASSES
+    | QUEUE_CLASSES
+    | ASYNC_CLASSES
+    | APROC_CLASSES
+    | {"ArgParser", "DefaultSelector", "Hash", "TarFile", "ZipFile"}
 )
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
@@ -1455,6 +1466,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("asyncio", "Event"): "AsyncEvent",
     ("asyncio", "Semaphore"): "AsyncSemaphore",
     ("asyncio", "Queue"): "AsyncQueue",
+    ("asyncio.subprocess", "Process"): "AsyncProcess",
     ("selectors", "DefaultSelector"): "DefaultSelector",
     ("selectors", "SelectorKey"): "SelectorKey",
     ("tarfile", "TarFile"): "TarFile",
@@ -2030,11 +2042,14 @@ def member_callable(module: str, member: str) -> bool:
         "create_task",
         "wait_for",
         "to_thread",
+        "create_subprocess_exec",
         "Lock",
         "Event",
         "Semaphore",
         "Queue",
     }:
+        return True
+    if module == "asyncio.subprocess" and member == "Process":
         return True
     if module == "collections" and member in {"deque", "OrderedDict", "Counter", "defaultdict", "namedtuple"}:
         return True
