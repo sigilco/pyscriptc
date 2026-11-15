@@ -1410,11 +1410,7 @@ class ExprMixin(ExprCompareMixin):
         step = self._slice_step(slc.step, span)
         if step["kind"] == "const" and step.get("value") is not None and int(step["value"]) < 0:
             self.fail(node, "PS2001", "a negative slice step is not in the lowered subset of pyscriptc_ndarray")
-        if (
-            step["kind"] == "unary"
-            and step.get("op") == "-"
-            and step.get("operand", {}).get("kind") == "const"
-        ):
+        if step["kind"] == "unary" and step.get("op") == "-" and step.get("operand", {}).get("kind") == "const":
             # The unary minus of a constant folds to a constant, so `a[::-1]`
             # is the negative step the fence above refuses.
             self.fail(node, "PS2001", "a negative slice step is not in the lowered subset of pyscriptc_ndarray")

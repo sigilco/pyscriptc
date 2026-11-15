@@ -49,8 +49,8 @@ from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
 from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
 from pyscriptc.restlower._functools import _reduce
-from pyscriptc.restlower._heapq import _heapq_call
 from pyscriptc.restlower._hashlib import _hashlib_call, _hashlib_method
+from pyscriptc.restlower._heapq import _heapq_call
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
 from pyscriptc.restlower._io import _input, _mkstemp, _named_temp, _open, _print
 from pyscriptc.restlower._iterators import (
