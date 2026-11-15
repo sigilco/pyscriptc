@@ -302,6 +302,12 @@ def method_spec(receiver: dict[str, Any], name: str, arg_types: list[dict[str, A
         if arg_types[0]["elem"]["kind"] != receiver["kind"]:
             return None
         return {"kind": receiver["kind"]}
+    if name == "find" and len(arg_types) == 2:
+        # `s.find(needle, start)` (issue #1246): the start is a code-point
+        # index the runtime wraps like a subscript.
+        if arg_types[0]["kind"] != receiver["kind"] or arg_types[1]["kind"] != "int":
+            return None
+        return {"kind": "int"}
     if name not in STR_METHODS:
         return None
     spec = STR_METHODS[name]

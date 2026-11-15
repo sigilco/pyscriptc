@@ -1346,6 +1346,10 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
         ("body", _BY),
     ],
     "URLError": [],
+    # JSONDecodeError carries only the message: CPython's class adds the
+    # `doc` and `pos` attributes, which the lowered class keeps out of
+    # scope (issue #1246).
+    "JSONDecodeError": [],
 }
 
 # Classes whose fields grow while the statements lower. They are emitted
@@ -1354,7 +1358,9 @@ DEFERRED_CLASSES = frozenset({"Namespace"})
 
 # Synthetic classes that lower as exceptions. The runtime registers each at
 # module init, so `except` matches through the builtin parent chain.
-SYNTHETIC_EXCEPTIONS: dict[str, int] = {"HTTPError": 24, "URLError": 24}
+# JSONDecodeError parents to ValueError (51): CPython subclasses it there,
+# so `except ValueError` catches a JSON failure too.
+SYNTHETIC_EXCEPTIONS: dict[str, int] = {"HTTPError": 24, "URLError": 24, "JSONDecodeError": 51}
 
 # Synthetic classes keyed to a synthetic exception parent. `TimeoutExpired`
 # derives from `SubprocessError` (an `Exception`), not from `TimeoutError`
@@ -1449,6 +1455,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("urllib.error", "HTTPError"): "HTTPError",
     ("urllib.error", "URLError"): "URLError",
     ("subprocess", "TimeoutExpired"): "TimeoutExpired",
+    ("json", "JSONDecodeError"): "JSONDecodeError",
     ("asyncio", "Task"): "Task",
     ("asyncio", "CancelledError"): "CancelledError",
     ("asyncio", "Lock"): "AsyncLock",

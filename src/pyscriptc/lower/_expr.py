@@ -646,6 +646,14 @@ class ExprMixin(ExprCompareMixin):
             if expect is None or expect["kind"] != "list":
                 self.fail(node, "PS1001", "an empty list needs a list annotation")
             return _list_node([], expect, span)
+        starred = any(isinstance(elt, ast.Starred) for elt in node.elts)
+        if starred:
+            # `[0, *xs, 3]` builds the literal head, then extends it with each
+            # starred list in source order (issue #1246). A starred operand
+            # that is not a list of the display's element type fences; the
+            # element type comes from the first unstarred element or the
+            # annotation, so `[0, *xs]` and `[*xs, 3]` both lower.
+            return self._starred_list(node, span, expect)
         elem_expect = expect["elem"] if expect and expect["kind"] == "list" else None
         elems = [self._expr(elt, elem_expect) for elt in node.elts]
         elem = elems[0]["type"]
@@ -660,6 +668,71 @@ class ExprMixin(ExprCompareMixin):
                 return _list_node(elems, typ, span)
             self._expect(node, typ, expect, "list")
         return _list_node(elems, typ, span)
+
+    def _starred_list(self, node: ast.List, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
+        """`[head..., *spread, tail...]` with list-typed spreads.
+
+        The display lowers to a fresh list that the elements fill in
+        source order: a plain element is pushed (`ps_list_push`) and a
+        starred list is extended in place (`ps_seq_extend`). A starred
+        str, a set, or an element mismatch keeps the PS2002 fence: the
+        spread must be a list whose elements are the display's type.
+        """
+        elem_expect = expect["elem"] if expect and expect["kind"] == "list" else None
+        # The element type: the annotation's element, the first plain
+        # element's type, or the first spread's element type.
+        elem_type: dict[str, Any] | None = elem_expect
+        plain: list[ast.expr] = []
+        spreads: list[ast.expr] = []
+        for elt in node.elts:
+            if isinstance(elt, ast.Starred):
+                spreads.append(elt.value)
+                continue
+            plain.append(elt)
+            if elem_type is None:
+                elem_type = self._expr(elt, None)["type"]
+        for spread_node in spreads:
+            spread = self._expr(spread_node, {"kind": "list", "elem": elem_type} if elem_type else None)
+            if spread["type"]["kind"] != "list" or spread["type"].get("set"):
+                self.fail(spread_node, "PS2002", f"a starred list element is {_show(spread['type'])}, not a list")
+            if elem_type is None:
+                elem_type = spread["type"]["elem"]
+            elif not types_equal(spread["type"]["elem"], elem_type):
+                self.fail(spread_node, "PS1003", "list elements have one type")
+        if elem_type is None:
+            self.fail(node, "PS1001", "a starred list needs an element type")
+        typ = {"kind": "list", "elem": elem_type}
+        if expect and expect["kind"] == "list":
+            self._expect(node, typ, expect, "list")
+        acc = self._temp("star")
+        self.locals[acc] = typ
+        self.prelude.append(_assign(acc, _list_node([], typ, span), span))
+        for elt in node.elts:
+            if isinstance(elt, ast.Starred):
+                spread = self._expr(elt.value, typ)
+                call = self._abi_call(
+                    "builtins",
+                    "list.extend",
+                    [_name(acc, typ, span), spread],
+                    {"kind": "none"},
+                    "ps_seq_extend",
+                    span,
+                )
+                self.prelude.append(_expr_stmt_node(call, span))
+                continue
+            value = self._expr(elt, elem_type)
+            if not types_equal(value["type"], elem_type):
+                self.fail(elt, "PS1003", "list elements have one type")
+            push = self._abi_call(
+                "builtins",
+                "list.append",
+                [_name(acc, typ, span), value],
+                {"kind": "none"},
+                "ps_list_push",
+                span,
+            )
+            self.prelude.append(_expr_stmt_node(push, span))
+        return _name(acc, typ, span)
 
     def _dict(self, node: ast.Dict, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         if not node.keys or any(key is None for key in node.keys):

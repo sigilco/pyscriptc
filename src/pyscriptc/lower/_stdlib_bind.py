@@ -415,6 +415,10 @@ class StdlibBindMixin:
         if module == "urllib.error" and module_status("urllib.error") == "lowered":
             self.synthetics.add("HTTPError")
             self.synthetics.add("URLError")
+        if module == "json" and module_status("json") == "lowered":
+            # `except json.JSONDecodeError` names the class the json runtime
+            # raises; the runtime looks the code up by name (issue #1246).
+            self.synthetics.add("JSONDecodeError")
         for name, classes in MODULE_CLASSES.items():
             if module == name or module.startswith(name + "."):
                 if module_status(name) == "lowered":

@@ -182,8 +182,11 @@ no = [["finditer", 'for m in re.finditer("a", s): pass', "PS2001"], ["5+ groups"
 names = ["json"]
 ok = ['y: list[int] = json.loads(s)', 'y: str = json.dumps(xs, indent=2)', 'y: str = json.dumps(d, sort_keys=True)', '''with open(s) as p:
     y: dict[str, int] = json.load(p)''', '''with open(s, "w") as p:
-    json.dump(d, p)''']
-no = [["ensure_ascii=False", 'y: str = json.dumps(xs, ensure_ascii=False)', "PS2003"], ["JSONDecodeError", 'y: json.JSONDecodeError', "PS1106"]]
+    json.dump(d, p)''', '''try:
+    y: dict[str, int] = json.loads("{")
+except json.JSONDecodeError:
+    y: int = 0''']
+no = [["ensure_ascii=False", 'y: str = json.dumps(xs, ensure_ascii=False)', "PS2003"], ["JSONDecodeError() construction", 'y: json.JSONDecodeError = json.JSONDecodeError("{")', "PS2001"]]
 
 [[stdlib]]
 names = ["tomllib"]
@@ -605,7 +608,11 @@ class D:
     a: int
     b: str = "x"
 @@
-y: int = D(1).a''']
+y: int = D(1).a''', '''@dataclasses.dataclass
+class D:
+    a: int
+@@
+print(D(1))''']
 no = [["field(), asdict", '''@dataclasses.dataclass
 class D:
     a: int

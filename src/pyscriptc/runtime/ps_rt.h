@@ -468,6 +468,9 @@ void ps_str_rstrip(int64_t n, char *p, PsBuf *out);
 int32_t ps_str_startswith(int64_t n, char *p, int64_t pn, char *pp);
 int32_t ps_str_endswith(int64_t n, char *p, int64_t pn, char *pp);
 int64_t ps_str_find(int64_t n, char *p, int64_t pn, char *pp);
+/* `s.find(needle, start)`: the start is a code-point index that wraps
+   like a subscript (issue #1246). */
+int64_t ps_str_find_from(int64_t n, char *p, int64_t pn, char *pp, int64_t start);
 int32_t ps_str_eq(int64_t an, char *ap, int64_t bn, char *bp);
 int32_t ps_str_cmp(int64_t an, char *ap, int64_t bn, char *bp);
 void ps_str_upper(int64_t n, char *p, PsBuf *out);
