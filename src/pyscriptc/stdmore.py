@@ -1652,6 +1652,12 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
     "sys": {
         "stdout.write": sig([_S], _I, "ps_stdout_write"),
         "stderr.write": sig([_S], _I, "ps_stderr_write"),
+        # The stdio protocol surface (issue #1225): readline is the natural
+        # line read for a line-oriented peer, and flush is what makes a
+        # response written through `stdout.write` reach it on a pipe.
+        "stdin.readline": sig([], _S, "ps_stdin_readline"),
+        "stdout.flush": sig([], _N, "ps_stdout_flush"),
+        "stderr.flush": sig([], _N, "ps_stderr_flush"),
     },
     "unicodedata": {
         "category": sig([_S], _S, "ps_unicode_category"),

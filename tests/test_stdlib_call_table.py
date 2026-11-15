@@ -435,6 +435,11 @@ PROBES: list[Probe] = [
     _p("platform", "platform", "host", "print(platform.platform())"),
     _p("sys", "stdout.write", "host", "print(sys.stdout.write('dt') == 2)"),
     _p("sys", "stderr.write", "host", "print(sys.stderr.write('dt') == 2)"),
+    # The stdio protocol surface (issue #1225): the flushes return None and
+    # the line read comes back with its trailing newline, like CPython.
+    _p("sys", "stdout.flush", "host", "print(sys.stdout.flush() is None)"),
+    _p("sys", "stderr.flush", "host", "print(sys.stderr.flush() is None)"),
+    _p("sys", "stdin.readline", "host", "print(repr(sys.stdin.readline()))"),
     _p("socket", "gethostname", "host", "print(len(socket.gethostname()) > 0)"),
     _p("threading", "active_count", "host", "print(threading.active_count() >= 1)"),
     _p("subprocess", "check_output", "host", "print(subprocess.check_output(['echo', 'hi']))"),
@@ -572,8 +577,8 @@ def test_every_table_row_has_a_probe() -> None:
     extra = sorted(probed - inventory)
     assert not missing, f"call-table rows without a differential probe: {missing}"
     assert not extra, f"probes without a call-table row: {extra}"
-    assert len(inventory) == 174
-    assert len(PROBES) == 174
+    assert len(inventory) == 177
+    assert len(PROBES) == 177
 
 
 def _group_source(group: str) -> str:

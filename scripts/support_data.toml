@@ -415,8 +415,8 @@ no = [["TextIOWrapper, BufferedReader, io.open", 'y: io.TextIOWrapper = io.TextI
 
 [[stdlib]]
 names = ["sys"]
-ok = ['y: list[str] = sys.argv', 'sys.stdout.write(s)', 'sys.stderr.write(s)', 'sys.exit(1)', 'y: str = sys.platform', 'y: int = sys.maxsize']
-no = [["stdin, path, modules, getsizeof, getrecursionlimit, stdout.flush", 'y: str = sys.stdin.read()', "PS2001"]]
+ok = ['y: list[str] = sys.argv', 'sys.stdout.write(s)', 'sys.stderr.write(s)', 'sys.exit(1)', 'y: str = sys.platform', 'y: int = sys.maxsize', 'y: str = sys.stdin.readline()', 'sys.stdout.flush()', 'sys.stderr.flush()']
+no = [["stdin.read, path, modules, getsizeof, getrecursionlimit", 'y: str = sys.stdin.read()', "PS2001"]]
 
 [[stdlib]]
 names = ["importlib"]

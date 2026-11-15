@@ -507,6 +507,12 @@ int64_t ps_stdout_write(int64_t n, const char *s);
 int64_t ps_stderr_write(int64_t n, const char *s);
 void *ps_stderr_stream(void);
 void ps_input_line(PsBuf *out);
+/* `sys.stdin.readline()` reads one line (the trailing newline stays, like
+   CPython) and returns "" at EOF; the flush helpers push the buffered
+   bytes out to the peer. */
+void ps_stdin_readline(PsBuf *out);
+void ps_stdout_flush(void);
+void ps_stderr_flush(void);
 
 /* The stdout stream for the `fwrite` writes that carry embedded NULs. On
    Darwin `stdout` is a macro like `stderr`, so the emitted code goes through

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-15",
-  "commit": "8df87410cca27ca3a1fcd9ba15b58ca45b4c0b73",
+  "commit": "1a3c2a412b806c172a2a403c8a7ded795f74d920",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -464,7 +464,7 @@
       "label": "`sys`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "stdin, path, modules, getsizeof, getrecursionlimit, stdout.flush",
+      "missing": "stdin.read, path, modules, getsizeof, getrecursionlimit",
       "codes": [
         "PS2001"
       ]

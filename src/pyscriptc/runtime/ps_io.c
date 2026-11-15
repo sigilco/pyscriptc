@@ -530,6 +530,36 @@ int64_t ps_stderr_write(int64_t n, const char *s) {
     return n;
 }
 
+/* `sys.stdin.readline()` reads one line, like CPython. On POSIX CPython
+opens `sys.stdin` with newline="\n", so a line ends at a "\n" and the
+"\n" stays in the returned string; a "\r" is an ordinary character. The
+line that ends at EOF without a newline comes back whole, and a read at
+EOF returns the empty string. */
+void ps_stdin_readline(PsBuf *out) {
+    PsGrow grow;
+    ps_grow_init(&grow);
+    int ch = fgetc(stdin);
+    while (ch != EOF) {
+        ps_grow_byte(&grow, (unsigned char)ch);
+        if (ch == '\n') {
+            break;
+        }
+        ch = fgetc(stdin);
+    }
+    ps_grow_finish(&grow, out);
+}
+
+/* `sys.stdout.flush()` and `sys.stderr.flush()` push the buffered bytes out
+to the peer. The writes go through stdio, so a flush is what makes a
+line-oriented peer see the response. */
+void ps_stdout_flush(void) {
+    fflush(stdout);
+}
+
+void ps_stderr_flush(void) {
+    fflush(stderr);
+}
+
 /* `input()` reads one stdin line and drops the trailing newline. A first EOF
 is RuntimeError standing in for EOFError, which the exception table lacks. */
 void ps_input_line(PsBuf *out) {
