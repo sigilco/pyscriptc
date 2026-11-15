@@ -26,6 +26,7 @@ from pyscriptc.lower._classes_more import ClassesMoreMixin
 from pyscriptc.lower._core import (
     Fence,
     _assign,
+    _concat_str,
     _const_str,
     _has_typevar,
     _mk_span,
@@ -38,6 +39,7 @@ from pyscriptc.lower._core import (
 from pyscriptc.lower._ndarray import _dtype_of as _nd_dtype_of
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.reflection import annotation_note, metaclass_note
+from pyscriptc.reprspec import type_spec
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower import path_attr
 from pyscriptc.restlower._uuid import uuid_hex_attr
@@ -56,6 +58,16 @@ from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 def _const_str_node(value: str, span: dict[str, Any]) -> dict[str, Any]:
     """The const str node one dict-IR const spells."""
     return node_to_dict(_ir.const_node(_ir.P_STR, value, _ir.t_leaf("str"), _mk_span(span)))
+
+
+def _const_int_node(value: int, span: dict[str, Any]) -> dict[str, Any]:
+    """The const int node one dict-IR const spells."""
+    return node_to_dict(_ir.const_node(_ir.P_INT, str(value), _ir.t_leaf("int"), _mk_span(span)))
+
+
+def _return_node(value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The return statement node."""
+    return node_to_dict(_ir.return_stmt(dict_to_node(value), _mk_span(span)))
 
 
 def _call_node(
@@ -865,6 +877,9 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         generated = self._generated_method(node, info)
         if generated is not None:
             methods.append(generated)
+        generated_repr = self._generated_repr(node, info)
+        if generated_repr is not None:
+            methods.append(generated_repr)
         record = {
             "name": own,
             "fields": info["fields"],
@@ -971,6 +986,132 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             body = [_expr_stmt_node(_function_call(f"cls.{parent}.__init__", args, _leaf_type("none"), span), span)]
         self.locals = {param["name"]: param["type"] for param in params}
         return self._method_ir("__init__", params, ret, body, span)
+
+    def _generated_repr(self, node: ast.ClassDef, info: dict[str, Any]) -> dict[str, Any] | None:
+        """The dataclass `__repr__`: `ClassName(field=..., ...)` as one str.
+
+        CPython's `@dataclass` synthesizes `__repr__` from the field list,
+        so `print(P(1))` on a dataclass prints `P(x=1)` (issue #1246). The
+        generated body concatenates the class name with each field's
+        `name=` and repr (`ps_str_format` for the scalars, the container
+        repr rows for list/dict/set); a field whose repr is outside the
+        printable set keeps the `print` fence instead of emitting a wrong
+        string. A written `__repr__` or `__str__` wins, as in CPython.
+        """
+        mode = info.get("generated_init")
+        if mode != "dataclass" or "__repr__" in info["methods"] or "__str__" in info["methods"]:
+            return None
+        fields = info["own_fields"]
+        if any(not self._reprable_field(field["type"]) for field in fields):
+            return None
+        span = span_of(node, self.filename)
+        self_type = _class_type(node.name)
+        parts: list[dict[str, Any]] = [_const_str_node(f"{node.name}(", span)]
+        for index, field in enumerate(fields):
+            if index > 0:
+                parts.append(_const_str_node(", ", span))
+            parts.append(_const_str_node(f"{field['name']}=", span))
+            read = _attr_node(_name("self", self_type, span), field["name"], field["type"], span)
+            rendered = self._field_repr(read, field["type"], node, span)
+            if rendered is None:
+                return None
+            parts.append(rendered)
+        parts.append(_const_str_node(")", span))
+        body = [_return_node(_concat_str(parts, span), span)]
+        params = [_self_param(node.name)]
+        self.locals = {param["name"]: param["type"] for param in params}
+        info["methods"]["__repr__"] = (params, _leaf_type("str"))
+        info["method_kind"]["__repr__"] = "method"
+        info["method_owner"]["__repr__"] = node.name
+        return self._method_ir("__repr__", params, _leaf_type("str"), body, span)
+
+    def _reprable_field(self, typ: dict[str, Any], seen: frozenset[str] | None = None) -> bool:
+        """Whether a field type has a repr this lowering can spell.
+
+        The scalars, the containers whose element type is a scalar, and a
+        nested dataclass (whose own `__repr__` the generated body calls)
+        are printable; anything else keeps the `print` fence. `seen` holds
+        the classes on the way in, so a cyclic class graph stops instead
+        of recursing forever.
+        """
+        seen = seen or frozenset()
+        kind = _type_kind(typ)
+        if kind in {"int", "float", "str", "bool", "bytes", "none"}:
+            return True
+        if kind == "list":
+            elem = typ.get("elem")
+            return elem is not None and self._reprable_field(elem, seen)
+        if kind == "dict":
+            return type_spec(typ, self.classes) is not None
+        if kind == "class":
+            return self._nested_repr_callable(typ["name"], seen)
+        return False
+
+    def _nested_repr_callable(self, class_name: str, seen: frozenset[str] = frozenset()) -> bool:
+        """Whether a nested class field's own `__repr__` the generated body
+        can call: a dataclass with a printable field set, or a class that
+        wrote its own `__repr__`."""
+        info = self.classes.get(class_name)
+        if info is None:
+            return False
+        if info.get("methods", {}).get("__repr__") is not None:
+            return info.get("method_kind", {}).get("__repr__") == "method"
+        if info.get("generated_init") != "dataclass" or class_name in seen:
+            return False
+        nested = frozenset({*seen, class_name})
+        return all(self._reprable_field(field["type"], nested) for field in info.get("own_fields", []))
+
+    def _field_repr(
+        self, read: dict[str, Any], typ: dict[str, Any], node: ast.AST, span: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """One field's repr text: the scalars ride `%r`, containers ride the
+        `ps_seq_repr`/`ps_map_repr` rows, a nested dataclass rides its own
+        `__repr__`, None is the literal `None`."""
+        kind = _type_kind(typ)
+        if kind == "none":
+            return _const_str_node("None", span)
+        if kind in {"int", "float", "str", "bool", "bytes"}:
+            fmt = _const_str_node("%r", span)
+            expr = _call_node(
+                {"kind": "module", "module": "builtins", "name": "format"},
+                [fmt, read],
+                _leaf_type("str"),
+                span,
+            )
+            expr["symbol"] = "ps_str_format"
+            expr["format_style"] = "percent"
+            return expr
+        if kind == "list":
+            elem = typ.get("elem")
+            spec = type_spec(elem, self.classes) if elem is not None else None
+            if spec is None:
+                return None
+            is_set = _const_int_node(1 if typ.get("set") else 0, span)
+            expr = _call_node(
+                {"kind": "module", "module": "builtins", "name": "seq_repr"},
+                [read, _const_str_node(spec, span), is_set],
+                _leaf_type("str"),
+                span,
+            )
+            expr["symbol"] = "ps_seq_repr"
+            return expr
+        if kind == "dict":
+            spec = type_spec(typ, self.classes)
+            if spec is None or not spec.startswith("d"):
+                return None
+            expr = _call_node(
+                {"kind": "module", "module": "builtins", "name": "map_repr"},
+                [read, _const_str_node(spec, span)],
+                _leaf_type("str"),
+                span,
+            )
+            expr["symbol"] = "ps_map_repr"
+            return expr
+        if kind == "class":
+            if not self._nested_repr_callable(typ["name"]):
+                return None
+            return _function_call(f"cls.{typ['name']}.__repr__", [read], _leaf_type("str"), span)
+        return None
 
     def _param_default(self, arg: ast.arg, default_node: ast.expr, param: dict[str, Any]) -> None:
         if param["type"].get("optional"):

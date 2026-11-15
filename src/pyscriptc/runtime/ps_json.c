@@ -17,7 +17,17 @@ typedef struct PsJson {
     const PsType *types;
 } PsJson;
 
-static void ps_json_fail(const char *msg) { ps_raise_cstr(PS_VALUE, msg); }
+static void ps_json_fail(const char *msg) {
+    /* JSONDecodeError semantics (issue #1246): the class the json module
+       registered matches `except json.JSONDecodeError` through the
+       ValueError chain; a script without the import still catches the same
+       raise as ValueError. */
+    int32_t code = ps_exc_code_by_name("JSONDecodeError");
+    if (code == 0) {
+        code = PS_VALUE;
+    }
+    ps_raise_cstr(code, msg);
+}
 
 static void ps_skip(PsJson *j) {
     while (j->i < j->n) {

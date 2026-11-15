@@ -1710,19 +1710,42 @@ int32_t ps_str_endswith(int64_t n, char *p, int64_t pn, char *pp) {
 }
 
 int64_t ps_str_find(int64_t n, char *p, int64_t pn, char *pp) {
+    return ps_str_find_from(n, p, pn, pp, 0);
+}
+
+int64_t ps_str_find_from(int64_t n, char *p, int64_t pn, char *pp, int64_t start) {
     /* find over code points: the needle's UTF-8 bytes match at exactly one
        code-point boundary (UTF-8 is self-synchronizing, so a byte match
        inside a multi-byte code point cannot happen unless the offsets agree
        with a code-point boundary). The returned offset is already a
        code-point index only on ASCII; the general case counts the code
-       points before the match. */
-    if (pn == 0) {
-        return 0;
+       points before the match. `start` is a code-point index that CPython
+       wraps like a subscript (find("b", -2) searches from the second
+       character back), clamped at 0; a start past the end misses unless
+       the needle is empty and start is exactly the length (CPython's
+       slice semantics: s[len:] is the empty string, s[len+1:] is out of
+       range). */
+    int64_t chars = ps_str_nchars(n, p);
+    if (start < 0) {
+        start += chars;
+        if (start < 0) {
+            start = 0;
+        }
     }
-    if (pn > n) {
+    if (start > chars) {
         return -1;
     }
-    for (int64_t i = 0; i + pn <= n; i++) {
+    if (pn == 0) {
+        return start;
+    }
+    int64_t begin = ps_all_ascii(n, p) ? start : ps_str_offset(n, p, start);
+    if (begin < 0) {
+        return -1;
+    }
+    if (pn > n - begin) {
+        return -1;
+    }
+    for (int64_t i = begin; i + pn <= n; i++) {
         if (memcmp(p + i, pp, (size_t)pn) == 0) {
             if (ps_all_ascii(n, p)) {
                 return i;

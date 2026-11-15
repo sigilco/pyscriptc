@@ -698,6 +698,10 @@ class AbiMixin(EmitterBase):
 
     def _emit_abi(self, expr: dict[str, Any], values: list[str]) -> str:
         symbol: str = _node_symbol(expr)
+        if symbol.startswith("ps_str_"):
+            # The str primitives live in the "str" declaration block.
+            needed = self.needed
+            needed.add("str")
         if symbol.startswith("ps_hash_"):
             # The hash runtime group carries the declarations (the one-shot
             # calls and the streaming context rows, issue #1248).

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-15",
-  "commit": "6af51ba28a237455593b4f7d4e5f98f1fa570009",
+  "commit": "add4324eb3e41304371b4bf8178fc41ef1a33a10",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -208,9 +208,9 @@
       "label": "`json`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "ensure_ascii=False, JSONDecodeError",
+      "missing": "ensure_ascii=False, JSONDecodeError() construction",
       "codes": [
-        "PS1106",
+        "PS2001",
         "PS2003"
       ]
     },
