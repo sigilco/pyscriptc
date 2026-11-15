@@ -140,6 +140,7 @@ def test_wasm_link_refuses_subprocess(tmp_path: Path, capsys: pytest.CaptureFixt
     assert not (tmp_path / "sub.wasm").exists()
 
 
+@pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")
 def test_wasm_link_refuses_the_pipe_trio(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
     """wasi-libc keeps pipe and dup out of preview1, so the link refuses them."""
     src = _write(PIPE, tmp_path)
