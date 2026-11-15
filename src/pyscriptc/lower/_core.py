@@ -758,6 +758,34 @@ def _declared_globals(body: list[ast.stmt]) -> set[str]:
     return names
 
 
+def _body_bound_names(stmt: ast.stmt) -> set[str]:
+    """The names a function or class body binds itself.
+
+    A parameter, a local assignment, an import or a nested `def`/`class`
+    binds the name inside the body, so the name is not a read of the
+    module-level global of the same name. A name the body declares
+    `global` is not bound: it keeps reading the module global.
+    """
+    bound: set[str] = set()
+    globals_: set[str] = set()
+    args = getattr(stmt, "args", None)
+    if args is not None:
+        for group in (args.posonlyargs, args.args, args.kwonlyargs):
+            bound.update(arg.arg for arg in group)
+        for extra in (args.vararg, args.kwarg):
+            if extra is not None:
+                bound.add(extra.arg)
+    for node in ast.walk(stmt):
+        if isinstance(node, ast.Global):
+            globals_.update(node.names)
+        elif isinstance(node, ast.Name) and isinstance(node.ctx, (ast.Store, ast.Del)):
+            bound.add(node.id)
+        elif isinstance(node, (ast.Import, ast.ImportFrom)):
+            for alias in node.names:
+                bound.add(alias.asname or alias.name.split(".", 1)[0])
+    return bound - globals_
+
+
 def _has_typevar(typ: dict[str, Any]) -> bool:
     """True when a type carries a `{"kind": "typevar"}` placeholder."""
     if _type_kind(typ) == "typevar":

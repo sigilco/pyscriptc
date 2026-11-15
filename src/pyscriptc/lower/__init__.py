@@ -33,6 +33,7 @@ from pyscriptc.lower._core import (
     Binding,
     Fence,
     _any_accepts,
+    _body_bound_names,
     _attr,
     _compare,
     _const_none,
@@ -1462,9 +1463,17 @@ class Lowerer(
         the slot gives it one object for the process. A script whose reads
         all sit in the entry keeps the E1 path: the assign lowers there
         with its readers in source order.
+
+        A name the body binds itself is not a read of the module global: a
+        parameter (`def use(t: mod.Thing)`) or a local assignment shadows
+        the module name inside the body, so the module slot would serve a
+        reader that does not exist. The scan skips the names a body binds,
+        the way CPython's own scoping does.
         """
         for stmt in statements:
             if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                continue
+            if name in _body_bound_names(stmt):
                 continue
             for node in ast.walk(stmt):
                 if isinstance(node, ast.Name) and node.id == name:

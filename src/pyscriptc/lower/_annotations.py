@@ -19,6 +19,7 @@ from pyscriptc.builtins import EXCEPTIONS
 from pyscriptc.ffi_manifest import handle_type
 from pyscriptc.ir import type_key
 from pyscriptc.lower._core import (
+    Fence,
     _BARE_CONTAINER_NAMES,
     _DICT_FORMS,
     _LIST_FORMS,
@@ -299,6 +300,9 @@ class AnnotationMixin:
         named = self._annotation_class(node)
         if named is not None:
             return _type({"kind": "class", "name": named})
+        program_class = self._program_class_annotation(node)
+        if program_class is not None:
+            return program_class
         inst = self._generic_alias_annotation(node)
         if inst is not None:
             return inst
@@ -473,6 +477,46 @@ class AnnotationMixin:
                 return _IO_HANDLES.get(resolved[2])
             return alias_name(resolved[1], resolved[2])
         return None
+
+    def _program_class_annotation(self, node: ast.AST) -> dict[str, Any] | None:
+        """`mod.Thing` naming a class export of the program's own tree (#1242).
+
+        The call path (`mod.Thing(...)`, `mod.greet(t)`) resolves a member of
+        a program module through the package export table (status `pkg`),
+        which the plain-name form reaches through the from-import binding and
+        the qualified call reaches through `_pkg_item`. The annotation
+        checker had no `pkg` branch, so the same class fenced with PS1106
+        when the type was spelled through the module. This resolves the
+        spelling through the same table the call path uses and installs the
+        export (`_install_class_export`), so the consumer's class record is
+        the defining module's and the annotation's type is the class's name.
+        None when the chain is not a program-module class: every other
+        branch keeps its own resolution.
+        """
+        if not isinstance(node, ast.Attribute):
+            return None
+        resolved = self._resolve_module(node)
+        if resolved is None or resolved[3] != "pkg":
+            return None
+        _dotted, module, member, _status = resolved
+        item = self._export_lookup(module, member)
+        if item is None or item.get("kind") != "class":
+            return None
+        if item.get("island"):
+            # boxed:begin
+            # The defining module planned the class for its own island floor
+            # (issue #628): the annotation is the cross-module handle type,
+            # keyed by the defining module so two modules' same-named
+            # classes stay distinct.
+            owner = str(item.get("module") or module)
+            return _type(island_class_type(f"{owner}.{member}"))
+            # boxed:end
+        name = str(item["name"])
+        pending: list[Fence] = []
+        self._install_class_export(member, item, node, pending)
+        if pending:
+            raise pending[0]
+        return _type({"kind": "class", "name": name})
 
     def _annotation_alias(self, node: ast.AST) -> str | None:
         if isinstance(node, ast.Name):
