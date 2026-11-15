@@ -228,3 +228,38 @@ def test_os_chdir_returns_to_the_start(tmp_path: Path) -> None:
             ]
         ),
     )
+
+
+def test_os_kill_and_killpg(tmp_path: Path) -> None:
+    """The watchdog primitive (#1244): kill and killpg over the ps_os_kill helpers.
+
+    SIGCONT to the own process and to the own process group are no-ops for a
+    running, untracked process, so both sides run the same shape; the errno
+    translation (ESRCH -> ProcessLookupError) is the part CPython shares.
+    """
+    _oracle(
+        tmp_path,
+        "kill.py",
+        "\n".join(
+            [
+                "import os",
+                "import signal",
+                "",
+                "def run() -> int:",
+                "    os.kill(os.getpid(), signal.SIGCONT)",
+                "    print('continued')",
+                "    os.killpg(0, signal.SIGCONT)",
+                "    print('group continued')",
+                "    try:",
+                "        os.kill(999999, signal.SIGTERM)",
+                "    except ProcessLookupError:",
+                "        print('no-such-process')",
+                "    try:",
+                "        os.killpg(999999, signal.SIGKILL)",
+                "    except ProcessLookupError:",
+                "        print('no-such-group')",
+                "    return 0",
+                "",
+            ]
+        ),
+    )

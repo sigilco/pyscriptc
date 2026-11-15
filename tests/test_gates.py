@@ -78,6 +78,7 @@ QUEUE = (
     "shlex",
     "secrets",
     "selectors",
+    "signal",
 )
 
 
