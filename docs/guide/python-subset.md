@@ -140,6 +140,7 @@ For background on the typing system itself, the upstream references are the best
 The stdlib subsets that touch the outside world keep to a closed surface; each names its divergences in [Divergences from CPython](../reference/divergences.md).
 
 - `selectors`: `DefaultSelector` over the compiled event loop, with `SelectorKey`, `EVENT_READ`/`EVENT_WRITE` and `register`/`unregister`/`modify`/`select`/`get_key`/`close`. `register` takes a bare int fd, not a `fileobj` (the typed socket handle is issue #229), `select()` returns `list[SelectorKey]` rather than CPython's `(key, events)` pairs, and `get_key` of an unregistered fd returns `None` where CPython raises `KeyError`.
+- `os.kill`/`os.killpg` and `signal`: the parent-side watchdog surface (issue #1244). `os.kill(pid, sig)` and `os.killpg(pgrp, sig)` translate the errno values the way CPython does (`ProcessLookupError`, `PermissionError`); `signal` carries the POSIX constants `SIGKILL`, `SIGTERM`, `SIGINT`, `SIGCONT`, `SIGUSR1` and `SIGUSR2` as plain ints. POSIX hosts only: the wasm and Windows targets refuse the kill calls at compile time, and every handler-registration form (`signal.signal`, `signal.getsignal`, `signal.alarm`, `SIG_DFL`/`SIG_IGN`, the `Signals` enum) fences with `PS2001` because a native binary has no Python handler table.
 
 ## What stays unsupported
 

@@ -297,6 +297,14 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#40",
     ),
     _row(
+        "D64",
+        "os.kill/os.killpg and the signal POSIX constants lower on POSIX hosts; handler forms fence (PS2001)",
+        None,
+        docs=f"{DOC}#64",
+        note="the wasm/windows target refusals are cross-target; the host lane is byte-identical "
+        "(probes/differential/os_kill_signal.py)",
+    ),
+    _row(
         "D41",
         "fallback mode routes refused functions and classes to embedded CPython",
         None,
