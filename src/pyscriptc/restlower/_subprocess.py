@@ -8,6 +8,12 @@ code raises the check_call stand-in. `text=True` decodes the captured
 streams through the runtime's CPython-exact decoder (the record fields are
 str), and rides with `encoding=`/`errors=` string literals naming the codec
 and error handler. The command is a `list[str]`, the shape scripts use.
+
+`timeout=` bounds the wait (issue #1223): the value is a number literal
+(the seconds the child may take) and the runtime kills a child that
+outlives the deadline and raises `subprocess.TimeoutExpired`, the way
+CPython's does. A timeout that is not a literal fences rather than being
+ignored.
 """
 
 from __future__ import annotations
@@ -132,12 +138,61 @@ def _cwd(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     return _const_text("", "str", span)
 
 
+def _timeout_seconds(lo: Any, value: ast.expr) -> float | None:
+    """The `timeout=` value in seconds, or None when it is not a literal.
+
+    A literal number is a `Constant`, or a negated one (`-1` lowers as a
+    unary minus over the constant). Everything else fences: the runtime
+    helper takes the bound as an argument, so a computed timeout has no
+    lowering (issue #1223).
+    """
+    if isinstance(value, ast.Constant):
+        if value.value is None:
+            return None
+        if isinstance(value.value, bool) or not isinstance(value.value, (int, float)):
+            return None
+        return float(value.value)
+    if isinstance(value, ast.UnaryOp) and isinstance(value.op, ast.USub):
+        inner = value.operand
+        if (
+            isinstance(inner, ast.Constant)
+            and isinstance(inner.value, (int, float))
+            and not isinstance(inner.value, bool)
+        ):
+            return -float(inner.value)
+    return None
+
+
+def _timeout_ms(lo: Any, node: ast.Call, span: dict[str, Any]) -> int:
+    """The `timeout=` bound in whole milliseconds, or 0 for no deadline.
+
+    The value is a constant number literal: the runtime helper takes the
+    bound as an argument, so a non-literal fences instead of being ignored
+    (issue #1223). `None` and an omitted keyword are the no-deadline
+    default. Seconds convert to whole milliseconds the way CPython's
+    wait does; a timeout at or below 0 fences, because CPython raises
+    before the child starts there.
+    """
+    for keyword in node.keywords:
+        if keyword.arg == "timeout":
+            value = keyword.value
+            if isinstance(value, ast.Constant) and value.value is None:
+                return 0
+            seconds = _timeout_seconds(lo, value)
+            if seconds is None:
+                lo.fail(value, "PS2003", "subprocess.run timeout takes a number literal (seconds)")
+            if seconds <= 0:
+                lo.fail(value, "PS2003", "subprocess.run timeout takes a positive number of seconds")
+            return max(1, int(seconds * 1000 + 0.5))
+    return 0
+
+
 def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     lo.mobile_guard(node, "subprocess.run", "subprocess")
     for keyword in node.keywords:
         if keyword.arg is None:
             lo.fail(node, "PS2002", kwargs_call_note())
-        if keyword.arg not in {"capture_output", "text", "encoding", "errors", "check", "cwd"}:
+        if keyword.arg not in {"capture_output", "text", "encoding", "errors", "check", "cwd", "timeout"}:
             lo.fail(node, "PS2003", f"subprocess.run keyword {keyword.arg} is not lowered")
         if keyword.arg in _RUN_BOOL and not (
             isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, bool)
@@ -156,10 +211,11 @@ def _run(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         flag_value = capture | check
     flag = _int(flag_value, span)
     cwd = _cwd(lo, node, span)
+    timeout_ms = _timeout_ms(lo, node, span)
     return lo._abi_call(
         "subprocess",
         "run",
-        [argv, flag, cwd],
+        [argv, flag, cwd, _int(timeout_ms, span)],
         _class(record),
         "ps_sub_run",
         span,

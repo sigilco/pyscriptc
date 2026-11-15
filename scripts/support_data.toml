@@ -497,7 +497,7 @@ no = [["bare Queue annotation (element type needed)", 'y: asyncio.Queue = asynci
 
 [[stdlib]]
 names = ["subprocess"]
-ok = ['y: bytes = subprocess.check_output(ss)', 'subprocess.run(ss)', 'y: int = subprocess.run(ss).returncode', 'y: bytes = subprocess.run(ss, capture_output=True).stdout', 'y: int = subprocess.DEVNULL']
+ok = ['y: bytes = subprocess.check_output(ss)', 'subprocess.run(ss)', 'y: int = subprocess.run(ss).returncode', 'y: bytes = subprocess.run(ss, capture_output=True).stdout', 'y: int = subprocess.DEVNULL', 'subprocess.run(ss, timeout=5)']
 no = [["Popen, getoutput", 'y: int = subprocess.Popen(ss)', "PS2001"]]
 
 [[stdlib]]

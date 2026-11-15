@@ -6,6 +6,8 @@ waitstatus_to_exitcode. `run` returns the CompletedProcess record: the
 return code, the captured stdout, and the captured stderr. With
 `text=True` (or an `encoding=` name) the captured streams decode through
 the runtime's CPython-exact decoder and the record fields are str.
+`timeout=` bounds the wait: a child that outlives the deadline is killed
+and the run raises TimeoutExpired, the way CPython's does (issue #1223).
 */
 
 #include "ps_rt.h"
@@ -23,7 +25,10 @@ the runtime's CPython-exact decoder and the record fields are str.
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #ifndef _WIN32
+#include <errno.h>
+#include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -126,7 +131,7 @@ static void ps_sub_readhandle(HANDLE h, PsBuf *out) {
     ps_grow_finish(&g, out);
 }
 
-static int ps_sub_spawn(PsSeq *args, const char *cwd, PsBuf *out_stdout, PsBuf *out_stderr) {
+static int ps_sub_spawn(PsSeq *args, const char *cwd, int64_t timeout_ms, PsBuf *out_stdout, PsBuf *out_stderr) {
     char *cmdline = ps_build_cmdline(args);
     SECURITY_ATTRIBUTES sa;
     HANDLE out_read = NULL, out_write = NULL;
@@ -136,6 +141,7 @@ static int ps_sub_spawn(PsSeq *args, const char *cwd, PsBuf *out_stdout, PsBuf *
     DWORD exit_code = 0;
     BOOL ok;
     const char *cwd_arg = (cwd != NULL && cwd[0] != '\0') ? cwd : NULL;
+    int timed_out = 0;
 
     sa.nLength = sizeof(sa);
     sa.bInheritHandle = TRUE;
@@ -206,12 +212,24 @@ static int ps_sub_spawn(PsSeq *args, const char *cwd, PsBuf *out_stdout, PsBuf *
         CloseHandle(err_read);
     }
 
-    WaitForSingleObject(pi.hProcess, INFINITE);
+    if (timeout_ms > 0) {
+        /* The bounded wait: the deadline is the millisecond timeout the
+           caller passed. On expiry the child takes TerminateProcess (what
+           CPython's Popen.kill does on Windows) and the wait completes. */
+        DWORD waited = WaitForSingleObject(pi.hProcess, (DWORD)timeout_ms);
+        if (waited == WAIT_TIMEOUT) {
+            TerminateProcess(pi.hProcess, 1);
+            WaitForSingleObject(pi.hProcess, INFINITE);
+            timed_out = 1;
+        }
+    } else {
+        WaitForSingleObject(pi.hProcess, INFINITE);
+    }
     GetExitCodeProcess(pi.hProcess, &exit_code);
     CloseHandle(pi.hProcess);
     CloseHandle(pi.hThread);
 
-    return (int)exit_code;
+    return timed_out ? -1 : (int)exit_code;
 }
 
 static int64_t ps_sub_code(int status) {
@@ -246,13 +264,16 @@ static char **ps_sub_argv(PsSeq *args) {
 }
 
 /* Run argv. `out_stdout` and `out_stderr` are NULL when that stream is not
-   captured. Returns the waitpid status. */
-static int ps_sub_spawn(PsSeq *args, const char *cwd, PsBuf *out_stdout, PsBuf *out_stderr) {
+   captured; `timeout_ms` is 0 for no deadline, positive for a bounded wait.
+   Returns the waitpid status, or -1 when the deadline expired (the child
+   was killed with SIGKILL like CPython's Popen.kill path). */
+static int ps_sub_spawn(PsSeq *args, const char *cwd, int64_t timeout_ms, PsBuf *out_stdout, PsBuf *out_stderr) {
     char **argv = ps_sub_argv(args);
     int out_pipe[2] = {-1, -1};
     int err_pipe[2] = {-1, -1};
     pid_t pid;
     int status = 0;
+    int timed_out = 0;
     if (out_stdout != NULL && pipe(out_pipe) != 0) {
         ps_sub_fail("subprocess pipe failed");
     }
@@ -284,22 +305,65 @@ static int ps_sub_spawn(PsSeq *args, const char *cwd, PsBuf *out_stdout, PsBuf *
     }
     if (out_stdout != NULL) {
         close(out_pipe[1]);
+    }
+    if (out_stderr != NULL) {
+        close(err_pipe[1]);
+    }
+    if (timeout_ms > 0) {
+        /* The bounded wait: poll the child in small slices against the
+           deadline so a sleeping child cannot hold the wait forever. The
+           deadline arms before the pipe drains, so a child that writes
+           faster than the deadline cannot push the expiry out. On expiry
+           the child takes SIGKILL (what CPython's Popen.kill sends after
+           its own deadline) and the wait reaps it. */
+        struct timespec deadline;
+        clock_gettime(CLOCK_MONOTONIC, &deadline);
+        deadline.tv_sec += timeout_ms / 1000;
+        deadline.tv_nsec += (timeout_ms % 1000) * 1000000L;
+        if (deadline.tv_nsec >= 1000000000L) {
+            deadline.tv_sec += 1;
+            deadline.tv_nsec -= 1000000000L;
+        }
+        for (;;) {
+            pid_t got = waitpid(pid, &status, WNOHANG);
+            if (got == pid) {
+                break;
+            }
+            if (got < 0) {
+                if (errno == EINTR) {
+                    continue;
+                }
+                ps_sub_fail("subprocess wait failed");
+            }
+            struct timespec now;
+            clock_gettime(CLOCK_MONOTONIC, &now);
+            if (now.tv_sec > deadline.tv_sec
+                || (now.tv_sec == deadline.tv_sec && now.tv_nsec >= deadline.tv_nsec)) {
+                kill(pid, SIGKILL);
+                while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {
+                }
+                timed_out = 1;
+                break;
+            }
+            struct timespec slice = {0, 5 * 1000000L};
+            nanosleep(&slice, NULL);
+        }
+    } else if (waitpid(pid, &status, 0) < 0) {
+        ps_sub_fail("subprocess wait failed");
+    }
+    if (out_stdout != NULL) {
         ps_sub_readall(out_pipe[0], out_stdout);
         close(out_pipe[0]);
     }
     if (out_stderr != NULL) {
-        close(err_pipe[1]);
         ps_sub_readall(err_pipe[0], out_stderr);
         close(err_pipe[0]);
-    }
-    if (waitpid(pid, &status, 0) < 0) {
-        ps_sub_fail("subprocess wait failed");
     }
     for (int64_t i = 0; argv[i] != NULL; i++) {
         free(argv[i]);
     }
     free(argv);
-    return status;
+    return timed_out ? -1 : status;
 }
 
 static int64_t ps_sub_code(int status) {
@@ -314,12 +378,12 @@ static int64_t ps_sub_code(int status) {
 #endif
 
 /* call(cmd): the exit code of the child. */
-int64_t ps_sub_call(PsSeq *args) { return ps_sub_code(ps_sub_spawn(args, NULL, NULL, NULL)); }
+int64_t ps_sub_call(PsSeq *args) { return ps_sub_code(ps_sub_spawn(args, NULL, 0, NULL, NULL)); }
 
 /* check_call(cmd): the exit code of the child; a non-zero code raises
    RuntimeError, the subset stand-in for CalledProcessError. */
 int64_t ps_sub_check_call(PsSeq *args) {
-    int64_t code = ps_sub_code(ps_sub_spawn(args, NULL, NULL, NULL));
+    int64_t code = ps_sub_code(ps_sub_spawn(args, NULL, 0, NULL, NULL));
     if (code != 0) {
         ps_raise_cstr(PS_RUNTIME, "subprocess returned a non-zero exit code");
     }
@@ -519,8 +583,11 @@ static void ps_sub_decode(int64_t n, const char *p, int enc, int err, PsBuf *out
    check_call stand-in when the exit code is non-zero; capture is bit 0.
    Text mode is bit 2: the captured streams decode through the runtime's
    text decoder, the record fields are str. Bits 3-4 carry the encoding
-   code, bits 5-6 the errors code, the same numbers ps_sub_decode takes. */
-void ps_sub_run(PsSeq *args, int64_t flags, int64_t cwd_len, const char *cwd, PsCompleted *out) {
+   code, bits 5-6 the errors code, the same numbers ps_sub_decode takes.
+   `timeout_ms` bounds the wait (0 is no deadline); a child that outlives
+   the deadline is killed and the run raises TimeoutExpired, the way
+   CPython's does (issue #1223). */
+void ps_sub_run(PsSeq *args, int64_t flags, int64_t cwd_len, const char *cwd, int64_t timeout_ms, PsCompleted *out) {
     int status;
     char *cwd_cstr = NULL;
     if (cwd_len > 0 && cwd != NULL) {
@@ -531,12 +598,38 @@ void ps_sub_run(PsSeq *args, int64_t flags, int64_t cwd_len, const char *cwd, Ps
     out->stderr_buf.len = 0;
     out->stderr_buf.data = NULL;
     if (flags & 1) {
-        status = ps_sub_spawn(args, cwd_cstr, &out->stdout_buf, &out->stderr_buf);
+        status = ps_sub_spawn(args, cwd_cstr, timeout_ms, &out->stdout_buf, &out->stderr_buf);
     } else {
-        status = ps_sub_spawn(args, cwd_cstr, NULL, NULL);
+        status = ps_sub_spawn(args, cwd_cstr, timeout_ms, NULL, NULL);
     }
     if (cwd_cstr != NULL) {
         free(cwd_cstr);
+    }
+    if (status < 0) {
+        /* The deadline expired: the child was killed. The TimeoutExpired
+           class the module registered (when the script imported
+           subprocess) matches `except subprocess.TimeoutExpired`; a script
+           without the import still catches the same raise as Exception.
+           CPython's str spells `Command '<cmd repr>' timed out after N
+           seconds`, so the command list reprises through ps_seq_repr with
+           the str spec the compiler passes for a list[str]. */
+        int32_t code = ps_exc_code_by_name("TimeoutExpired");
+        if (code == 0) {
+            code = PS_EXCEPTION;
+        }
+        char msg[512];
+        PsBuf cmd_repr;
+        ps_seq_repr(args, 1, "s", 0, &cmd_repr);
+        snprintf(
+            msg,
+            sizeof msg,
+            "Command '%.*s' timed out after %.3g seconds",
+            (int)cmd_repr.len,
+            cmd_repr.data,
+            (double)timeout_ms / 1000.0
+        );
+        free(cmd_repr.data);
+        ps_raise_cstr(code, msg);
     }
     if (flags & 4) {
         int enc = (int)((flags >> 3) & 3);

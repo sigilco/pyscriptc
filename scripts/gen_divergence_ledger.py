@@ -507,6 +507,13 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#70",
     ),
     _row(
+        "D71",
+        "the TimeoutExpired record holds the code and the message only: the attributes CPython's exception "
+        "carries (cmd, timeout, output) are not readable and e.args holds the message list",
+        "d71_subprocess_timeout.py",
+        docs=f"{DOC}#71",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

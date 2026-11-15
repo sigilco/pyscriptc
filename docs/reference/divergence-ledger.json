@@ -1210,6 +1210,26 @@
       "status": "fenced"
     },
     {
+      "id": "D71",
+      "seam": "the TimeoutExpired record holds the code and the message only: the attributes CPython's exception carries (cmd, timeout, output) are not readable and e.args holds the message list",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#71",
+      "probe": "probes/divergences/d71_subprocess_timeout.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "Command '['sleep', '5']' timed out after 1 seconds\n2\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "Command '['sleep', '5']' timed out after 1 seconds\n1\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

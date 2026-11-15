@@ -1234,7 +1234,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "pathlib": ("Path", "Stat"),
     "os": ("Stat", "TerminalSize"),
     "shutil": ("TerminalSize",),
-    "subprocess": ("CompletedProcess", "CompletedProcessText"),
+    "subprocess": ("CompletedProcess", "CompletedProcessText", "TimeoutExpired"),
     "collections": ("Deque",),
     "hmac": ("Hmac",),
     "hashlib": ("Hash",),
@@ -1295,6 +1295,10 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
         ("stdout", _S),
         ("stderr", _S),
     ],
+    # The timeout exception (issue #1223): CPython's TimeoutExpired carries
+    # the command and the bound, but the runtime's exception record holds
+    # the code and the message only, so the class has no field here.
+    "TimeoutExpired": [],
     "Hmac": [
         ("_key", _BY),
         ("_msg", _BY),
@@ -1351,6 +1355,12 @@ DEFERRED_CLASSES = frozenset({"Namespace"})
 # Synthetic classes that lower as exceptions. The runtime registers each at
 # module init, so `except` matches through the builtin parent chain.
 SYNTHETIC_EXCEPTIONS: dict[str, int] = {"HTTPError": 24, "URLError": 24}
+
+# Synthetic classes keyed to a synthetic exception parent. `TimeoutExpired`
+# derives from `SubprocessError` (an `Exception`), not from `TimeoutError`
+# (an `OSError`): the parent code is what `except TimeoutError` must NOT
+# match (issue #1223).
+SYNTHETIC_EXCEPTION_PARENTS: dict[str, int] = {"TimeoutExpired": 7}
 
 # Reserved-code exceptions the import binds as classes: `except Empty:` and
 # `except Full:` match the runtime's reserved codes through the parent walk,
@@ -1438,6 +1448,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("urllib.request", "Request"): "HttpRequest",
     ("urllib.error", "HTTPError"): "HTTPError",
     ("urllib.error", "URLError"): "URLError",
+    ("subprocess", "TimeoutExpired"): "TimeoutExpired",
     ("asyncio", "Task"): "Task",
     ("asyncio", "CancelledError"): "CancelledError",
     ("asyncio", "Lock"): "AsyncLock",

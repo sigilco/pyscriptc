@@ -257,9 +257,101 @@ def test_subprocess_run_keyword_values_fence_with_named_codes() -> None:
     mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], text='yes')\n")
     assert [f["code"] for f in mod["fences"]] == ["PS2003"]
     assert "text takes a True or False literal" in mod["fences"][0]["message"]
-    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], timeout=5)\n")
-    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
-    assert "subprocess.run keyword timeout is not lowered" in mod["fences"][0]["message"]
     mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], cwd=123)\n")
     assert [f["code"] for f in mod["fences"]] == ["PS2003"]
     assert "subprocess.run cwd must be a str or Path" in mod["fences"][0]["message"]
+
+
+def test_subprocess_run_timeout_lower_and_fence_with_named_codes() -> None:
+    # The literal number loweres; the fence cases name what is wrong.
+    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], timeout=5)\n")
+    assert mod["fences"] == []
+    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], timeout=1.5)\n")
+    assert mod["fences"] == []
+    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], timeout=None)\n")
+    assert mod["fences"] == []
+    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], timeout=0)\n")
+    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
+    assert "timeout takes a positive number of seconds" in mod["fences"][0]["message"]
+    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], timeout=-1)\n")
+    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
+    assert "timeout takes a positive number of seconds" in mod["fences"][0]["message"]
+    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], timeout=t)\n")
+    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
+    assert "timeout takes a number literal (seconds)" in mod["fences"][0]["message"]
+    mod = lower_source("import subprocess\nr: subprocess.CompletedProcess = subprocess.run(['true'], timeout='5')\n")
+    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
+    assert "timeout takes a number literal (seconds)" in mod["fences"][0]["message"]
+
+
+def test_subprocess_run_timeout_inside_the_bound_keeps_the_record(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "timeout_ok.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    r: subprocess.CompletedProcess = subprocess.run(['true'], timeout=30, capture_output=True)",
+                "    print(r.returncode)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_subprocess_run_timeout_raises_the_timeout_path(tmp_path: Path) -> None:
+    # The sleeping child outlives the bound: the run raises
+    # subprocess.TimeoutExpired, the way CPython's does (issue #1223).
+    path = write_case(
+        tmp_path,
+        "timeout_expired.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    try:",
+                "        subprocess.run(['sleep', '5'], timeout=1)",
+                "        print('no timeout')",
+                "    except subprocess.TimeoutExpired as exc:",
+                "        print('timed out', str(exc))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    # The same program under the CPython oracle prints the same bytes (the
+    # oracle appends the function's return value).
+    assert got.stdout == oracle(path, "run")
+    assert got.stdout.startswith("timed out Command '['sleep', '5']' timed out after 1 seconds\n"), got.stdout
+
+
+def test_subprocess_run_timeout_is_not_the_builtin_timeout_error(tmp_path: Path) -> None:
+    # CPython's TimeoutExpired derives from SubprocessError, not from the
+    # builtin TimeoutError: `except TimeoutError` does not catch it.
+    path = write_case(
+        tmp_path,
+        "timeout_wrong_class.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    try:",
+                "        subprocess.run(['sleep', '5'], timeout=1)",
+                "        print('no timeout')",
+                "    except TimeoutError:",
+                "        print('caught the builtin TimeoutError')",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0, got.stdout
+    assert "TimeoutExpired" in got.stderr, got.stderr

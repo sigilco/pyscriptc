@@ -47,6 +47,7 @@ from pyscriptc.stdmore import (
     CLASS_FIELDS,
     DEFERRED_CLASSES,
     RESERVED_CODE_EXCEPTIONS,
+    SYNTHETIC_EXCEPTION_PARENTS,
     SYNTHETIC_EXCEPTIONS,
 )
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
@@ -335,6 +336,15 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 record["exc_code"] = self.exc_n
                 self.exc_n += 1
                 record["exc_parent"] = SYNTHETIC_EXCEPTIONS[name]
+            elif name in SYNTHETIC_EXCEPTION_PARENTS:
+                # The same registration with an explicit parent: CPython's
+                # subprocess.TimeoutExpired derives from SubprocessError (a
+                # plain Exception), so `except TimeoutError` must not match
+                # it (issue #1223).
+                record["exception"] = True
+                record["exc_code"] = self.exc_n
+                self.exc_n += 1
+                record["exc_parent"] = SYNTHETIC_EXCEPTION_PARENTS[name]
             elif name in RESERVED_CODE_EXCEPTIONS:
                 # A reserved-code exception (queue.Empty): the code is fixed
                 # at the top of the i32 space, so user codes never shift and

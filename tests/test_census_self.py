@@ -339,6 +339,10 @@ def test_self_census_ballpark() -> None:
     # subprocess text mode (#680): the text-mode decode lowering nets -1
     # self-host fence (restlower/_subprocess.py +1, emit/llvm/_driver.py
     # and emitlib.py -1 each through the lowered-compiler re-run).
+    # run(timeout=) (#1223): the timeout fence in restlower/_subprocess.py
+    # (+2) and the TimeoutExpired synthetic exception in stdmore.py move
+    # the self-host fences (bindeps 14 -> 10, verify 4 -> 7, zigshim
+    # 11 -> 9 through the lowered-compiler re-run).
     # The self-host branch adds the exception-chain lowering (#814) and the
     # program import-cycle seed (#796): the census moves 3182 -> 3185.
     # sigrec.py (named signature records) moves 3189 -> 3218 as it fences its
