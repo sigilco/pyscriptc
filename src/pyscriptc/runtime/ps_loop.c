@@ -33,7 +33,7 @@ live setjmp outside the frame's own try).
 #include <string.h>
 #include <time.h>
 
-#if defined(__ANDROID__) || (defined(__APPLE__) && defined(__arm64__) && !defined(__x86_64__) && __has_include(<TargetConditionals.h>))
+#if defined(__APPLE__)
 #include <TargetConditionals.h>
 #endif
 
