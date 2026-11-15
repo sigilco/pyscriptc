@@ -1533,10 +1533,11 @@ CLASS_METHODS: dict[str, dict[str, Sig]] = {
     },
     "HttpRequest": {},
     # The archive handles: the member names, one member's bytes, the
-    # extraction and the close.
+    # extraction and the close. `TarFile.extractfile` is not here: it
+    # returns CPython's `IO[bytes] | None`, so it lowers through the
+    # tagged-optional path in restlower/_archive.py.
     "TarFile": {
         "getnames": sig([], _LS, "ps_archive_names"),
-        "read": sig([_S], _BY, "ps_archive_read"),
         "extractall": sig([_S], _N, "ps_archive_extractall"),
         "close": sig([], _N, "ps_archive_close"),
     },

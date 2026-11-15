@@ -493,6 +493,12 @@ ROWS: list[dict[str, Any]] = [
         note="needs a toolchain and the host's shared libpython; otool/readelf read the artifact after the link",
     ),
     _row(
+        "D69",
+        "the archive read surface: r:bz2 and r:xz raise RuntimeError at run time (no bzip2 or lzma link), and the extractfile KeyError wording is the runtime's",
+        "d69_archive.py",
+        docs=f"{DOC}#69",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

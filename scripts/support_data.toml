@@ -654,13 +654,29 @@ no = [["monthcalendar", 'y: list[list[int]] = calendar.monthcalendar(n, n)', "PS
 
 [[stdlib]]
 names = ["zipfile"]
-ok = ['y: bool = zipfile.is_zipfile(s)']
-no = [["ZipFile", 'y: int = zipfile.ZipFile(s)', "PS2001"]]
+ok = [
+  'y: bool = zipfile.is_zipfile(s)',
+  '''z: zipfile.ZipFile = zipfile.ZipFile(s)
+zn: list[str] = z.namelist()
+zdata: bytes = z.read(s)
+z.extractall(s)
+z.close()''',
+]
+no = [["ZipFile", 'y: int = zipfile.ZipFile(s, "w")', "PS2001"]]
 
 [[stdlib]]
 names = ["tarfile"]
-ok = ['y: bool = tarfile.is_tarfile(s)']
-no = [["TarFile", 'y: int = tarfile.TarFile(s)', "PS2001"]]
+ok = [
+  'y: bool = tarfile.is_tarfile(s)',
+  '''t: tarfile.TarFile = tarfile.open(s, "r:gz")
+tn: list[str] = t.getnames()
+tf = t.extractfile(s)
+if tf is not None:
+    tdata: bytes = tf.read()
+t.extractall(s)
+t.close()''',
+]
+no = [["TarFile", 'y: int = tarfile.TarFile(s, "w:gz")', "PS2001"]]
 
 [[stdlib]]
 names = ["selectors"]

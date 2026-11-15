@@ -294,10 +294,12 @@ static int64_t ps_tar_octal(const unsigned char *field, int64_t size) {
 }
 
 /* The name field of a tar header: the prefix and the name join with a
-   slash, the way the ustar format spells a long path. */
+   slash, the way the ustar format spells a long path. A directory name
+   loses its trailing slash, the way CPython's tarfile reads it. */
 static void ps_tar_name(const unsigned char *header, char *out, int64_t size) {
     int64_t prefix_len = 0;
     int64_t name_len = 0;
+    int64_t total;
     while (prefix_len < 155 && header[345 + prefix_len] != '\0') {
         prefix_len++;
     }
@@ -308,11 +310,16 @@ static void ps_tar_name(const unsigned char *header, char *out, int64_t size) {
         memcpy(out, header + 345, (size_t)prefix_len);
         out[prefix_len] = '/';
         memcpy(out + prefix_len + 1, header, (size_t)name_len);
-        out[prefix_len + 1 + name_len] = '\0';
-        return;
+        total = prefix_len + 1 + name_len;
+        out[total] = '\0';
+    } else {
+        memcpy(out, header, (size_t)name_len);
+        total = name_len;
+        out[total] = '\0';
     }
-    memcpy(out, header, (size_t)name_len);
-    out[name_len] = '\0';
+    if (total > 0 && out[total - 1] == '/') {
+        out[total - 1] = '\0';
+    }
 }
 
 /* The tar reader, the archive-growing form: the handle owns the members. */
@@ -407,6 +414,7 @@ static void ps_zip_read_into(PsArchive *archive, const unsigned char *data, int6
     int64_t dir_size;
     int64_t count;
     int64_t index;
+    int64_t entry;
     for (scan = size - 22; scan >= 0; scan--) {
         if (ps_zip_u32(data, scan) == 0x06054b50) {
             eocd = scan;
@@ -426,8 +434,8 @@ static void ps_zip_read_into(PsArchive *archive, const unsigned char *data, int6
         ps_archive_fail("the zip archive has no central directory");
     }
     index = 0;
+    entry = dir_offset;
     while (index < count) {
-        int64_t entry = dir_offset;
         int64_t name_len;
         int64_t extra_len;
         int64_t comment_len;
@@ -554,44 +562,106 @@ PsSeq *ps_archive_names(void *handle) {
     return seq;
 }
 
-/* The member's bytes: the stored bytes read as they are, the deflated ones
-   inflated. */
-void ps_archive_read(void *handle, int64_t nn, const char *name, PsBuf *out) {
+/* One member's bytes into the out buffer: the stored bytes read as they
+   are, the deflated ones inflated. Shared by read and extractfile. */
+static void ps_archive_member_bytes(PsArchive *archive, PsArchiveMember *member, PsBuf *out) {
+    const unsigned char *data = archive->body;
+    if (member->offset + member->stored_size > archive->body_size) {
+        ps_archive_fail("the archive member is out of range");
+    }
+    if (member->method == 0) {
+        ps_buf_copy(out, (const char *)(data + member->offset), member->stored_size);
+        return;
+    }
+    if (member->method == 8) {
+        unsigned char *plain = malloc((size_t)(member->size > 0 ? member->size : 1));
+        if (plain == NULL) {
+            abort();
+        }
+        ps_archive_inflate(data + member->offset, member->stored_size, member->size, plain);
+        ps_buf_copy(out, (const char *)plain, member->size);
+        free(plain);
+        return;
+    }
+    ps_archive_fail("the archive member uses a compression the subset does not read");
+}
+
+/* The archive member's file object, CPython's `extractfile(name)`:
+   `ps_archive_extractfile_hit` answers whether a file member with that
+   name exists (a directory and a missing name are both a miss, the shapes
+   CPython answers None for), and `ps_archive_extractfile_make` hands back
+   the BytesIO record seeded with the member's bytes. The two-call shape
+   mirrors `os.getenv` and `re.search`: the tagged `BytesIO | None` box is
+   filled only when the probe hit. */
+int32_t ps_archive_extractfile_hit(void *handle, int64_t nn, const char *name) {
     PsArchive *archive = (PsArchive *)handle;
     char *wanted = ps_archive_cstr(nn, name);
-    const unsigned char *data = archive->body;
+    int64_t index;
+    int32_t hit = 0;
+    for (index = 0; index < archive->count; index++) {
+        PsArchiveMember *member = &archive->members[index];
+        if (strcmp(member->name, wanted) != 0) {
+            continue;
+        }
+        free(wanted);
+        if (member->kind == 0) {
+            return 1;
+        }
+        /* A directory member: CPython answers None, the miss the probe
+           reports. */
+        return 0;
+    }
+    free(wanted);
+    /* A name no member carries: CPython raises KeyError, so the probe
+       raises before the box is built. */
+    ps_raise_cstr(PS_KEY, "filename not found in the archive");
+    return 0;
+}
+
+PsIO *ps_archive_extractfile_make(void *handle, int64_t nn, const char *name) {
+    PsArchive *archive = (PsArchive *)handle;
+    char *wanted = ps_archive_cstr(nn, name);
     int64_t index;
     for (index = 0; index < archive->count; index++) {
         PsArchiveMember *member = &archive->members[index];
         if (strcmp(member->name, wanted) != 0) {
             continue;
         }
+        free(wanted);
         if (member->kind == 1) {
-            free(wanted);
             ps_archive_fail("the archive member is a directory");
         }
-        if (member->offset + member->stored_size > archive->body_size) {
-            free(wanted);
-            ps_archive_fail("the archive member is out of range");
+        {
+            PsBuf bytes;
+            PsIO *io;
+            ps_archive_member_bytes(archive, member, &bytes);
+            io = ps_io_bytes(bytes.len, bytes.data == NULL ? "" : bytes.data);
+            free(bytes.data);
+            return io;
         }
-        if (member->method == 0) {
-            ps_buf_copy(out, (const char *)(data + member->offset), member->stored_size);
-            free(wanted);
-            return;
-        }
-        if (member->method == 8) {
-            unsigned char *plain = malloc((size_t)(member->size > 0 ? member->size : 1));
-            if (plain == NULL) {
-                abort();
-            }
-            ps_archive_inflate(data + member->offset, member->stored_size, member->size, plain);
-            ps_buf_copy(out, (const char *)plain, member->size);
-            free(plain);
-            free(wanted);
-            return;
+    }
+    free(wanted);
+    ps_archive_fail("the archive has no member with that name");
+    return NULL;
+}
+
+/* The member's bytes: the stored bytes read as they are, the deflated ones
+   inflated. */
+void ps_archive_read(void *handle, int64_t nn, const char *name, PsBuf *out) {
+    PsArchive *archive = (PsArchive *)handle;
+    char *wanted = ps_archive_cstr(nn, name);
+    int64_t index;
+    for (index = 0; index < archive->count; index++) {
+        PsArchiveMember *member = &archive->members[index];
+        if (strcmp(member->name, wanted) != 0) {
+            continue;
         }
         free(wanted);
-        ps_archive_fail("the archive member uses a compression the subset does not read");
+        if (member->kind == 1) {
+            ps_archive_fail("the archive member is a directory");
+        }
+        ps_archive_member_bytes(archive, member, out);
+        return;
     }
     free(wanted);
     ps_archive_fail("the archive has no member with that name");
@@ -693,26 +763,17 @@ void ps_archive_extractall(void *handle, int64_t dn, const char *dest) {
                     free(destination);
                     ps_archive_fail("the extracted file could not be written");
                 }
-            } else if (member->method == 8) {
-                unsigned char *plain = malloc((size_t)(member->size > 0 ? member->size : 1));
-                if (plain == NULL) {
-                    abort();
-                }
-                ps_archive_inflate(data + member->offset, member->stored_size, member->size, plain);
-                if (member->size > 0 &&
-                    fwrite(plain, 1, (size_t)member->size, out) != (size_t)member->size) {
-                    free(plain);
+            } else {
+                PsBuf bytes;
+                ps_archive_member_bytes(archive, member, &bytes);
+                if (bytes.len > 0 && fwrite(bytes.data, 1, (size_t)bytes.len, out) != (size_t)bytes.len) {
+                    free(bytes.data);
                     fclose(out);
                     free(target);
                     free(destination);
                     ps_archive_fail("the extracted file could not be written");
                 }
-                free(plain);
-            } else {
-                fclose(out);
-                free(target);
-                free(destination);
-                ps_archive_fail("the archive member uses a compression the subset does not read");
+                free(bytes.data);
             }
             fclose(out);
         }
