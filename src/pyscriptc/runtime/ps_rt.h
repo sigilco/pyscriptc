@@ -276,6 +276,9 @@ PsIO *ps_io_take_fd(int fd, const char *path, int64_t mode, int64_t keep);
 PsIO *ps_temp_named(int64_t mode, int64_t keep);
 PsIO *ps_io_bytes(int64_t n, const char *s);
 void ps_io_read(PsIO *io, PsBuf *out);
+/* `read(n)`: at most n items from the current position (code points on a
+   text handle, bytes on a binary one), short at EOF. */
+void ps_io_read_n(PsIO *io, int64_t n, PsBuf *out);
 int64_t ps_io_write(PsIO *io, int64_t n, const char *s);
 /* tempfile.mkstemp: the (fd, path) pair the lowering unpacks into the
    synthetic (int, str) tuple. The fd rides the int slot; the path rides

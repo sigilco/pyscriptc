@@ -409,7 +409,8 @@ no = [["warn with a category, simplefilter", 'warnings.simplefilter("ignore")', 
 
 [[stdlib]]
 names = ["io"]
-ok = ['y: io.StringIO = io.StringIO(s)', 'y: io.BytesIO = io.BytesIO()', 'y: str = io.StringIO().getvalue()', 'y: int = io.DEFAULT_BUFFER_SIZE']
+ok = ['y: io.StringIO = io.StringIO(s)', 'y: io.BytesIO = io.BytesIO()', 'y: str = io.StringIO().getvalue()', 'y: int = io.DEFAULT_BUFFER_SIZE', '''with open(s, "rb") as fh:
+    y: bytes = fh.read(16)''']
 no = [["TextIOWrapper, BufferedReader, io.open", 'y: io.TextIOWrapper = io.TextIOWrapper(io.BytesIO())', "PS1106"]]
 
 [[stdlib]]

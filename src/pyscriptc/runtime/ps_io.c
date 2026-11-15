@@ -22,6 +22,10 @@ typedef struct PsIO {
     /* The fopen mode letters ("r", "rb", ...): text reads use it to decide
        whether universal-newline translation applies. */
     const char *how;
+    /* The byte offset of the file position: the reads and the writes keep
+       it, so a `read(n)` after a `readline()` continues where the last
+       read stopped (CPython's position semantics). */
+    int64_t tell;
 } PsIO;
 
 static PsIO *ps_blank(int kind) {
@@ -188,31 +192,37 @@ void ps_io_read(PsIO *io, PsBuf *out) {
     }
     if (io->fp != NULL) {
         long size;
+        long left;
         char *buf;
         if (fseek(io->fp, 0, SEEK_END) != 0) {
             ps_raise_cstr(PS_RUNTIME, "read failed");
         }
         size = ftell(io->fp);
-        if (size < 0 || fseek(io->fp, 0, SEEK_SET) != 0) {
+        if (size < 0 || fseek(io->fp, io->tell, SEEK_SET) != 0) {
             ps_raise_cstr(PS_RUNTIME, "read failed");
         }
-        buf = malloc((size_t)size + 1);
+        left = size - (long)io->tell;
+        if (left < 0) {
+            left = 0;
+        }
+        buf = malloc((size_t)left + 1);
         if (buf == NULL) {
             abort();
         }
-        if (size > 0 && fread(buf, 1, (size_t)size, io->fp) != (size_t)size) {
+        if (left > 0 && fread(buf, 1, (size_t)left, io->fp) != (size_t)left) {
             free(buf);
             ps_raise_cstr(PS_RUNTIME, "read failed");
         }
-        buf[size] = '\0';
+        buf[left] = '\0';
+        io->tell += left;
         /* Text mode translates: a text handle's `how` never contains 'b'. */
-        if (size > 0 && !strchr(ps_io_mode_of(io), 'b')) {
-            int64_t shrunk = size;
-            ps_universal_newlines(buf, size, &shrunk);
+        if (left > 0 && !strchr(ps_io_mode_of(io), 'b')) {
+            int64_t shrunk = left;
+            ps_universal_newlines(buf, left, &shrunk);
             buf[shrunk] = '\0';
             out->len = shrunk;
         } else {
-            out->len = size;
+            out->len = left;
         }
         out->data = buf;
         return;
@@ -222,6 +232,143 @@ void ps_io_read(PsIO *io, PsBuf *out) {
     }
     ps_buf_copy(out, io->mem.data == NULL ? "" : io->mem.data + io->pos, io->mem.len - io->pos);
     io->pos = io->mem.len;
+}
+
+/* `read(n)`: at most `n` items from the current position. A text handle
+   counts code points (CPython's `read(n)` on a text stream returns n
+   characters), a binary handle counts bytes. The read stops short at EOF
+   and returns an empty buffer there, like CPython. A negative `n` reads
+   the whole rest of the stream, as CPython's `read(-1)` does. */
+void ps_io_read_n(PsIO *io, int64_t n, PsBuf *out) {
+    ps_open_check(io);
+    if (!ps_can_read(io)) {
+        ps_raise_cstr(PS_VALUE, "read failed");
+    }
+    if (n < 0) {
+        ps_io_read(io, out);
+        return;
+    }
+    if (io->fp != NULL) {
+        /* Binary mode: bytes straight from the stream. The buffer grows as
+           the stream gives, so a large `n` does not reserve the whole
+           budget up front. */
+        if (strchr(ps_io_mode_of(io), 'b')) {
+            PsGrow grow;
+            int64_t got = 0;
+            ps_grow_init(&grow);
+            while (got < n) {
+                int64_t room = n - got;
+                char chunk[4096];
+                size_t want = room < (int64_t)sizeof(chunk) ? (size_t)room : sizeof(chunk);
+                size_t read_now = fread(chunk, 1, want, io->fp);
+                if (read_now == 0) {
+                    break;
+                }
+                ps_grow_add(&grow, chunk, (int64_t)read_now);
+                got += (int64_t)read_now;
+            }
+            if (ferror(io->fp)) {
+                free(grow.data);
+                ps_raise_cstr(PS_RUNTIME, "read failed");
+            }
+            ps_grow_finish(&grow, out);
+            io->tell += got;
+            return;
+        }
+        /* Text mode: the budget counts code points the way this str model
+           counts them (a continuation byte 10xxxxxx never starts one), so
+           the read stops on the `n`-th code point and keeps whole
+           sequences. Universal newlines translate inside the budget, the
+           way CPython counts the translated characters. */
+        {
+            PsGrow grow;
+            int64_t chars = 0;
+            int64_t bytes = 0;
+            ps_grow_init(&grow);
+            while (chars < n) {
+                int ch = fgetc(io->fp);
+                if (ch == EOF) {
+                    break;
+                }
+                bytes++;
+                if (ch == '\r') {
+                    /* Universal newlines: a `\r\n` pair reads as one `\n`. */
+                    int next = fgetc(io->fp);
+                    if (next != '\n' && next != EOF) {
+                        ungetc(next, io->fp);
+                    } else if (next == '\n') {
+                        bytes++;
+                    }
+                    ps_grow_byte(&grow, '\n');
+                    chars++;
+                    continue;
+                }
+                ps_grow_byte(&grow, (unsigned char)ch);
+                if (((unsigned char)ch & 0xC0) != 0x80) {
+                    chars++;
+                    if (chars >= n) {
+                        /* The continuation bytes of this sequence belong to
+                           the code point the budget just counted, so they
+                           ride out with it. */
+                        for (;;) {
+                            int cont = fgetc(io->fp);
+                            if (cont == EOF) {
+                                break;
+                            }
+                            if (((unsigned char)cont & 0xC0) != 0x80) {
+                                ungetc(cont, io->fp);
+                                break;
+                            }
+                            bytes++;
+                            ps_grow_byte(&grow, (unsigned char)cont);
+                        }
+                        break;
+                    }
+                }
+            }
+            if (ferror(io->fp)) {
+                free(grow.data);
+                ps_raise_cstr(PS_RUNTIME, "read failed");
+            }
+            ps_grow_finish(&grow, out);
+            io->tell += bytes;
+            return;
+        }
+    }
+    /* A memory handle (BytesIO, StringIO): the budget counts the stored
+       bytes for a binary handle and the code points for a text one, the
+       way CPython's StringIO counts characters. */
+    if (io->pos > io->mem.len) {
+        io->pos = io->mem.len;
+    }
+    if (io->kind == 2 || n == 0) {
+        int64_t left = io->mem.len - io->pos;
+        int64_t take = n < left ? n : left;
+        ps_buf_copy(out, io->mem.data == NULL ? "" : io->mem.data + io->pos, take);
+        io->pos += take;
+        return;
+    }
+    {
+        int64_t chars = 0;
+        int64_t at = io->pos;
+        while (at < io->mem.len) {
+            unsigned char ch = (unsigned char)io->mem.data[at];
+            at++;
+            if ((ch & 0xC0) != 0x80) {
+                chars++;
+                if (chars >= n) {
+                    /* The continuation bytes of this sequence ride out with
+                       the code point the budget just counted. */
+                    while (at < io->mem.len && ((unsigned char)io->mem.data[at] & 0xC0) == 0x80) {
+                        at++;
+                    }
+                    break;
+                }
+            }
+        }
+        ps_buf_copy(out, io->mem.data == NULL ? "" : io->mem.data + io->pos, at - io->pos);
+        io->pos = at;
+    }
 }
 
 int64_t ps_io_write(PsIO *io, int64_t n, const char *s) {
@@ -236,6 +383,7 @@ int64_t ps_io_write(PsIO *io, int64_t n, const char *s) {
         if (fflush(io->fp) != 0) {
             ps_raise_cstr(PS_RUNTIME, "write failed");
         }
+        io->tell += n;
         return n;
     }
     if (io->pos > io->mem.len) {
@@ -279,16 +427,20 @@ void ps_io_readline(PsIO *io, PsBuf *out) {
     if (io->fp != NULL) {
         int ch;
         int text = !strchr(ps_io_mode_of(io), 'b');
+        int64_t bytes = 0;
         for (;;) {
             ch = fgetc(io->fp);
             if (ch == EOF) {
                 break;
             }
+            bytes++;
             if (text && ch == '\r') {
                 ps_grow_byte(&line, '\n');
                 int next = fgetc(io->fp);
                 if (next != '\n' && next != EOF) {
                     ungetc(next, io->fp);
+                } else if (next == '\n') {
+                    bytes++;
                 }
             } else {
                 ps_grow_byte(&line, (unsigned char)ch);
@@ -302,6 +454,7 @@ void ps_io_readline(PsIO *io, PsBuf *out) {
             ps_raise_cstr(PS_RUNTIME, "readline failed");
         }
         ps_grow_finish(&line, out);
+        io->tell += bytes;
         return;
     }
     if (io->pos > io->mem.len) {

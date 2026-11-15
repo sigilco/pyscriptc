@@ -709,6 +709,8 @@ class CallAttrMixin:
             return self._path_scan(node, span, receiver)
         if class_name == "Path" and node.func.attr == "mkdir":
             return self._path_mkdir(node, span, receiver)
+        if class_name in {"TextIO", "BytesIO"} and node.func.attr == "read":
+            return self._io_read(node, span, receiver)
         self._reject_keywords(node)
         spec = synth_method(class_name, node.func.attr)
         if spec is None:
@@ -728,6 +730,30 @@ class CallAttrMixin:
             args.append(arg)
         module = _synth_module(class_name)
         return self._abi_call(module, f"{class_name}.{node.func.attr}", args, ret, spec["symbol"], span)
+
+    def _io_read(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+        """`fh.read()` and `fh.read(n)`: the whole stream or a bounded read.
+
+        CPython's `read` takes no keyword argument, so the size is a
+        positional int. The zero-argument form keeps the `ps_io_read` row;
+        the sized form lowers onto `ps_io_read_n`, which reads at most `n`
+        items (code points on a text handle, bytes on a binary one), stops
+        short at EOF and leaves the position where the read ended.
+        """
+        self._reject_keywords(node)
+        if len(node.args) > 1:
+            self.fail(node, "PS2003", "read expects 0 or 1 argument(s)")
+        class_name = receiver["type"]["name"]
+        spec = synth_method(class_name, "read")
+        if spec is None:
+            self.fail(node, "PS2001", f"{class_name}.read is not lowered")
+        ret = spec["return"]
+        if not node.args:
+            return self._abi_call("io", f"{class_name}.read", [receiver], ret, spec["symbol"], span)
+        size = self._expr(node.args[0])
+        if _type_kind(size["type"]) != "int":
+            self.fail(node, "PS1003", "read size is an int")
+        return self._abi_call("io", f"{class_name}.read_n", [receiver, size], ret, "ps_io_read_n", span)
 
     def _path_read_text(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
         if node.args:
