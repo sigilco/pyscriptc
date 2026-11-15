@@ -315,6 +315,7 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_sub_run",
         "ps_sub_call",
         "ps_sub_check_call",
+        "ps_aproc_new",
         "ps_os_open",
         "ps_os_close",
         "ps_os_read",

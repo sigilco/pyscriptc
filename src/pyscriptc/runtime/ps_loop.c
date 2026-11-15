@@ -33,6 +33,17 @@ live setjmp outside the frame's own try).
 #include <string.h>
 #include <time.h>
 
+#if defined(__ANDROID__) || (defined(__APPLE__) && defined(__arm64__) && !defined(__x86_64__) && __has_include(<TargetConditionals.h>))
+#include <TargetConditionals.h>
+#endif
+
+/* The mobile archive leaves ps_aproc.c out (no fork/exec in an app sandbox),
+   so the loop's two hooks into it become no-ops there. */
+#if defined(__ANDROID__) || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)
+void ps_aproc_pump(void) {}
+int32_t ps_aproc_pending(void) { return 0; }
+#endif
+
 /* The fd poller (#177): kqueue, epoll or poll() behind one call. This file
    owns the wait; the poller owns the kernel interface. */
 #include "ps_poller.h"
