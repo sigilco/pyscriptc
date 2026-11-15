@@ -33,13 +33,14 @@ live setjmp outside the frame's own try).
 #include <string.h>
 #include <time.h>
 
-#if defined(__APPLE__)
-#include <TargetConditionals.h>
-#endif
-
-/* The mobile archive leaves ps_aproc.c out (no fork/exec in an app sandbox),
-   so the loop's two hooks into it become no-ops there. */
-#if defined(__ANDROID__) || (defined(TARGET_OS_IPHONE) && TARGET_OS_IPHONE)
+/* The mobile archive and the WASI link leave ps_aproc.c out (no fork/exec in
+   an app sandbox or a WASI sandbox), so the loop's two hooks into it become
+   no-ops there. The macros are clang builtins the target triple sets, so no
+   Apple, Android or WASI header is needed: __ANDROID__ covers the NDK
+   builds, the two iPhone macros cover the device and the simulator, and
+   __wasm__ covers the WASI targets. */
+#if defined(__ANDROID__) || defined(__ENVIRONMENT_IPHONE_OS_VERSION_MIN_REQUIRED__) \
+    || defined(__ENVIRONMENT_IPHONE_SIMULATOR_VERSION_MIN_REQUIRED__) || defined(__wasm__)
 void ps_aproc_pump(void) {}
 int32_t ps_aproc_pending(void) { return 0; }
 #endif
