@@ -680,10 +680,10 @@
       "status": "divergent"
     },
     {
-      "id": "D64",
+      "id": "D68",
       "seam": "os.kill/os.killpg and the signal POSIX constants lower on POSIX hosts; handler forms fence (PS2001)",
       "listed": true,
-      "docs": "docs/reference/divergences.md#64",
+      "docs": "docs/reference/divergences.md#68",
       "probe": null,
       "note": "the wasm/windows target refusals are cross-target; the host lane is byte-identical (probes/differential/os_kill_signal.py)",
       "cpython": null,

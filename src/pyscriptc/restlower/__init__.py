@@ -77,8 +77,8 @@ from pyscriptc.restlower._random import _random_call
 from pyscriptc.restlower._secrets import _secrets_call
 from pyscriptc.restlower._selectors import _selector_method, _selectors_call
 from pyscriptc.restlower._shlex import _shlex_call
-from pyscriptc.restlower._statistics import _statistics_call
 from pyscriptc.restlower._signal import _signal_call
+from pyscriptc.restlower._statistics import _statistics_call
 from pyscriptc.restlower._subprocess import _call as _sub_call
 from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
 from pyscriptc.restlower._subprocess import _run as _sub_run
