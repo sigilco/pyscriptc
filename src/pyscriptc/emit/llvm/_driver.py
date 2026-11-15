@@ -162,6 +162,9 @@ _THREAD_SYMBOLS = (
 PS_HTTP_CURL_SYMBOL = "@ps_http_request("
 PS_CURL_DYNAMIC_ENV = "PSC_CURL_DYNAMIC"
 PS_HAVE_CURL_DEFINE = "PSC_HAVE_CURL"
+# The zlib define of the archive runtime (issue #1241): the driver compiles
+# the runtime units with it exactly when the link line gains zlib.
+PS_HAVE_ZLIB_DEFINE = "PSC_HAVE_ZLIB"
 
 
 def _https_reachable(text: str) -> bool:
@@ -173,6 +176,17 @@ def _https_reachable(text: str) -> bool:
     the detection.
     """
     return PS_HTTP_CURL_SYMBOL in text and "https://" in text
+
+
+# The archive open symbols (#1241): the compressed members of a `.tar.gz`
+# and the deflated zip members read through zlib, so their callers are the
+# programs that gain the link flag.
+_ARCHIVE_SYMBOLS = ("@ps_tarfile_open(", "@ps_zipfile_open(")
+
+
+def _archive_reachable(text: str) -> bool:
+    """The emitted IR opens an archive (the tarfile or zipfile surface)."""
+    return any(symbol in text for symbol in _ARCHIVE_SYMBOLS)
 
 
 def curl_link_flags(text: str, target: str | None = None) -> list[str]:
@@ -211,6 +225,24 @@ def curl_link_flags(text: str, target: str | None = None) -> list[str]:
         "PSC_CURL_DYNAMIC=1 to build without it (https then raises URLError "
         "at run time)"
     )
+
+
+def zlib_link_flags(text: str, target: str | None = None) -> list[str]:
+    """The zlib link arguments this program's link line gains, if any.
+
+    The archive runtime (ps_archive.c) reads the gzip stream of a `.tar.gz`
+    and the deflate method of a zip member through zlib, so a program that
+    reaches one of the archive symbols links zlib. A program that never
+    touches an archive carries no zlib dependency, the way an http-only
+    program carries no libcurl. The wasm and Windows targets never link
+    zlib: their toolchains ship no zlib, and the compressed members raise
+    at run time there.
+    """
+    if target is not None and (target.startswith("wasm32") or target.endswith("windows")):
+        return []
+    if not _archive_reachable(text):
+        return []
+    return ["-lz"]
 
 
 def refuse_unsupported_target(text: str, target: str | None) -> None:
@@ -344,6 +376,12 @@ def link_binary(
     # symbol references) exist only under the macro, so a no-curl link never
     # sees one. The define rides the per-unit flags, not the link line.
     curl_defines: list[str] = [f"-D{PS_HAVE_CURL_DEFINE}"] if curl_flags else []
+    # The archive runtime units compile with PSC_HAVE_ZLIB exactly when the
+    # link line gains zlib: the gzip and deflate readers of ps_archive.c
+    # exist only under the macro, so a program that never opens an archive
+    # links no zlib symbol (issue #1241).
+    zlib_flags = zlib_link_flags(text, target)
+    zlib_defines: list[str] = [f"-D{PS_HAVE_ZLIB_DEFINE}"] if zlib_flags else []
     # Engine defines (issue #667): the island runtime's engine seam
     # (`PS_ENGINE_START` in ps_island.c) compiles the PyPy embedding path
     # under `-DPS_ENGINE_PYPY`. The driver emits the define from the
@@ -353,8 +391,8 @@ def link_binary(
     # file; a PyPy engine without one refuses with a clear error. The
     # default (no engine or the built-in cpython) emits nothing and keeps
     # the CPython path byte-identical.
-    defines: list[str] = [*curl_defines, *(engine_defines or [])]
-    tail: list[str] = san_flags + ["-lm"] + curl_flags + ["-o", str(output)]
+    defines: list[str] = [*curl_defines, *zlib_defines, *(engine_defines or [])]
+    tail: list[str] = san_flags + ["-lm"] + curl_flags + zlib_flags + ["-o", str(output)]
     if "ps_island_" in text:
         if target is not None:
             raise IRError(

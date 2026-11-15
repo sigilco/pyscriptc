@@ -1247,6 +1247,8 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "queue": ("Queue", "Empty", "Full"),
     "asyncio": ("CancelledError",),
     "selectors": ("DefaultSelector", "SelectorKey"),
+    "tarfile": ("TarFile",),
+    "zipfile": ("ZipFile",),
 }
 
 CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
@@ -1314,6 +1316,10 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     "Namespace": [],
     # The logger carries the name getLogger recorded.
     "Logger": [("_name", _S)],
+    # The archive handles are opaque runtime pointers: the member list lives
+    # in the runtime record the open call returns.
+    "TarFile": [],
+    "ZipFile": [],
     # The request record carries what urlopen sends; the response carries what
     # came back. The headers ride as the wire block ("Name: value\n" rows).
     "HttpRequest": [
@@ -1384,7 +1390,7 @@ ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSema
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
 PTR_CLASSES: frozenset[str] = (
-    THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser", "DefaultSelector", "Hash"}
+    THREADING_CLASSES | QUEUE_CLASSES | ASYNC_CLASSES | {"ArgParser", "DefaultSelector", "Hash", "TarFile", "ZipFile"}
 )
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
@@ -1440,6 +1446,8 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("asyncio", "Queue"): "AsyncQueue",
     ("selectors", "DefaultSelector"): "DefaultSelector",
     ("selectors", "SelectorKey"): "SelectorKey",
+    ("tarfile", "TarFile"): "TarFile",
+    ("zipfile", "ZipFile"): "ZipFile",
 }
 
 # Instance methods. `elem` means the deque's element type.
@@ -1524,6 +1532,20 @@ CLASS_METHODS: dict[str, dict[str, Sig]] = {
         "read": sig([], _BY, "ps_http_read"),
     },
     "HttpRequest": {},
+    # The archive handles: the member names, one member's bytes, the
+    # extraction and the close.
+    "TarFile": {
+        "getnames": sig([], _LS, "ps_archive_names"),
+        "read": sig([_S], _BY, "ps_archive_read"),
+        "extractall": sig([_S], _N, "ps_archive_extractall"),
+        "close": sig([], _N, "ps_archive_close"),
+    },
+    "ZipFile": {
+        "namelist": sig([], _LS, "ps_archive_names"),
+        "read": sig([_S], _BY, "ps_archive_read"),
+        "extractall": sig([_S], _N, "ps_archive_extractall"),
+        "close": sig([], _N, "ps_archive_close"),
+    },
 }
 
 PATH_ATTRS: dict[str, tuple[T, str]] = {
@@ -1684,6 +1706,14 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
     "tarfile": {
         "is_tarfile": sig([_S], _B, "ps_tarfile_is_tarfile"),
     },
+}
+
+# The archive opens. The mode is a str constant the runtime reads, so the
+# row carries the path and the mode; the write modes are fenced at compile
+# time by the restlower handler, not by this table.
+ARCHIVE_OPEN: dict[tuple[str, str], Sig] = {
+    ("tarfile", "open"): sig([_S, _S], t_class("TarFile"), "ps_tarfile_open"),
+    ("zipfile", "ZipFile"): sig([_S], t_class("ZipFile"), "ps_zipfile_open"),
 }
 
 # Callable, but only in a particular statement shape.
@@ -2130,5 +2160,9 @@ def member_callable(module: str, member: str) -> bool:
     if module == "urllib.request" and member in {"urlopen", "Request"}:
         return True
     if module == "selectors" and member in {"DefaultSelector", "SelectorKey"}:
+        return True
+    if module == "tarfile" and member in {"open", "TarFile"}:
+        return True
+    if module == "zipfile" and member == "ZipFile":
         return True
     return False

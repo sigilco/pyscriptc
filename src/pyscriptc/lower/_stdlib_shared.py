@@ -73,6 +73,10 @@ def _synth_module(class_name: str) -> str:
         return "csv"
     if class_name in {"HttpRequest", "HttpResponse"}:
         return "urllib.request"
+    if class_name == "TarFile":
+        return "tarfile"
+    if class_name == "ZipFile":
+        return "zipfile"
     return "builtins"
 
 

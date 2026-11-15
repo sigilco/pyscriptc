@@ -753,6 +753,10 @@ class AbiMixin(EmitterBase):
                     # selector and its keys, so the value is the record pointer.
                     "DefaultSelector",
                     "SelectorKey",
+                    # The archive handles (#1241): the runtime record is the
+                    # member list, the handle is the pointer.
+                    "TarFile",
+                    "ZipFile",
                 }
                 or symbol.startswith("ps_ffi_")
                 # boxed:begin

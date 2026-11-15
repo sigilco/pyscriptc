@@ -853,6 +853,8 @@ class StmtBMixin:
         ctx_v = self._expr(ctx)
         if _node_type_kind(ctx_v) == "class" and ctx_v["type"].get("name") in {"TextIO", "BytesIO"}:
             return self._with_io(stmt, item, ctx_v, span)
+        if _node_type_kind(ctx_v) == "class" and ctx_v["type"].get("name") in {"TarFile", "ZipFile"}:
+            return self._with_archive(stmt, item, ctx_v, span)
         if _node_type_kind(ctx_v) == "class" and "__enter__" in self.classes.get(ctx_v["type"].get("name"), {}).get(
             "methods", {}
         ):
@@ -1322,6 +1324,47 @@ class StmtBMixin:
             self.locals[target.id] = ctx_v["type"]
             out.append(_assign(target.id, hold_n, span))
         close = _expr_wrap(self._abi_call("io", "close", [hold_n], {"kind": "none"}, "ps_io_close", span), span)
+        body = self._inject_close(self._body(list(stmt.body)), close)
+        out.append(
+            node_to_dict(
+                _ir.try_stmt(
+                    [*dict_to_list(body), dict_to_node(close)],
+                    [
+                        _ir.Handler(
+                            ["Exception"],
+                            None,
+                            [dict_to_node(close), dict_to_node(_raise_node("Exception", span, reraise=True))],
+                        )
+                    ],
+                    _mk_span_of(span),
+                )
+            )
+        )
+        return out
+
+    def _with_archive(
+        self, stmt: ast.With, item: ast.withitem, ctx_v: dict[str, Any], span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """`with tarfile.open(...) as t` / `with zipfile.ZipFile(...) as z`:
+        the archive handle is its own context manager, the way the file
+        handle is: `as` rebinds the same handle, and both the normal and
+        the raised path close it (CPython's TarFile.__exit__ closes).
+        """
+        target = item.optional_vars
+        if target is not None and not isinstance(target, ast.Name):
+            self.fail(stmt, "PS2002", "with-as needs a name")
+        hold = self._temp("archive")
+        self.locals[hold] = ctx_v["type"]
+        hold_n = _name(hold, ctx_v["type"], span)
+        out = [_assign(hold, ctx_v, span)]
+        if target is not None:
+            if target.id in self.bindings or target.id in self.constants:
+                self.fail(target, "PS2002", f"{target.id} is already bound")
+            self.locals[target.id] = ctx_v["type"]
+            out.append(_assign(target.id, hold_n, span))
+        close = _expr_wrap(
+            self._abi_call("archive", "close", [hold_n], {"kind": "none"}, "ps_archive_close", span), span
+        )
         body = self._inject_close(self._body(list(stmt.body)), close)
         out.append(
             node_to_dict(

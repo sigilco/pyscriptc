@@ -27,6 +27,7 @@ from pyscriptc.restlower._asyncio_sync import (
     _to_thread,
 )
 from pyscriptc.restlower._binascii import _binascii_call
+from pyscriptc.restlower._archive import _tarfile_open, _zipfile_open
 from pyscriptc.restlower._builtins import (
     _abs,
     _base_repr,
@@ -215,6 +216,9 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
 # Per-attribute handlers that run before keyword arguments are rejected.
 _BEFORE_KEYWORDS: dict[tuple[str, str], Handler] = {
     **{("datetime", attr): _datetime_row(attr) for attr in _DATETIME_ROWS},
+    ("tarfile", "open"): _tarfile_open,
+    ("tarfile", "TarFile"): _tarfile_open,
+    ("zipfile", "ZipFile"): _zipfile_open,
     ("collections", "OrderedDict"): lambda lo, node, span, expect, attr: _ordered(lo, node, span, expect),
     ("collections", "Counter"): lambda lo, node, span, expect, attr: _counter(lo, node, span, expect),
     ("collections", "defaultdict"): lambda lo, node, span, expect, attr: _defaultdict(lo, node, span, expect),
