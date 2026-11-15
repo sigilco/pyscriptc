@@ -494,7 +494,8 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D69",
-        "the archive read surface: r:bz2 and r:xz raise RuntimeError at run time (no bzip2 or lzma link), and the extractfile KeyError wording is the runtime's",
+        "the archive read surface: r:bz2 and r:xz raise RuntimeError at run time (no bzip2 or lzma link), "
+        "and the extractfile KeyError wording is the runtime's",
         "d69_archive.py",
         docs=f"{DOC}#69",
     ),

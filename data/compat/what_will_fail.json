@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "29707d46bd9bc589abda99b420a8fc1c36419959",
+  "commit": "280243c27c1838c346a6ffed53a1fdcdb38bca57",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
@@ -70,12 +70,6 @@
           "construct": "`time.process_time`",
           "code": "PS2001",
           "diagnostic": "time.process_time is not in the lowered subset of time"
-        },
-        {
-          "module": "zipfile",
-          "construct": "`zipfile.ZipFile`",
-          "code": "PS2001",
-          "diagnostic": "zipfile.ZipFile is not in the lowered subset of zipfile"
         }
       ]
     },
@@ -144,6 +138,12 @@
           "construct": "`zip()` with >2 args",
           "code": "PS2003",
           "diagnostic": "zip takes at least 2 lists"
+        },
+        {
+          "module": "builtins",
+          "construct": "call arity",
+          "code": "PS2003",
+          "diagnostic": "too many positional arguments"
         },
         {
           "module": "builtins",

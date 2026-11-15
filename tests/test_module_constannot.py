@@ -170,14 +170,23 @@ print(z_real, z_fake, t_real, t_fake, zs, zd)
 
 
 def test_unlowered_stdlib_fences_cleanly(tmp_path: Path) -> None:
+    not_lowered = "is not in the lowered subset of"
     cases = [
-        ("plat_fence.py", "import platform\ndef f() -> None:\n    platform.processor()\n"),
-        ("cal_fence.py", "import calendar\ndef f() -> None:\n    calendar.monthcalendar(2024, 1)\n"),
-        ("zip_fence.py", "import zipfile\ndef f() -> None:\n    zipfile.ZipFile('x')\n"),
-        ("tar_fence.py", "import tarfile\ndef f() -> None:\n    tarfile.TarFile('x')\n"),
+        ("plat_fence.py", "import platform\ndef f() -> None:\n    platform.processor()\n", not_lowered),
+        ("cal_fence.py", "import calendar\ndef f() -> None:\n    calendar.monthcalendar(2024, 1)\n", not_lowered),
+        (
+            "zip_fence.py",
+            "import zipfile\ndef f() -> None:\n    zipfile.ZipFile('x', 'w')\n",
+            "mode 'r' is the only lowered mode",
+        ),
+        (
+            "tar_fence.py",
+            "import tarfile\ndef f() -> None:\n    tarfile.TarFile('x', 'w')\n",
+            "is not lowered: the archive surface is read-only",
+        ),
     ]
-    for name, source in cases:
+    for name, source, message in cases:
         p = write_case(tmp_path, name, source)
         got = run_cli("compile", str(p), "--emit", "llvm", "-o", str(tmp_path / f"{name}.ll"))
         assert got.returncode == 3
-        assert "is not in the lowered subset of" in got.stderr
+        assert message in got.stderr
