@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-15",
-  "commit": "9c0ff78e424dd5dd8793bb69dd97de1c2d7fb2aa",
+  "commit": "682c91a4328f9d566671a8abb237d9dbec49a2f4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-15",
-    "commit": "9c0ff78e424dd5dd8793bb69dd97de1c2d7fb2aa",
+    "commit": "682c91a4328f9d566671a8abb237d9dbec49a2f4",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2870
+    "fences": 2869
   },
   "builtins": [
     {
@@ -2087,17 +2087,17 @@
         "blocked": 291
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 684,
+      "fences": 683,
       "definitions": 558,
       "fenced_definitions": 279,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 118
+          "count": 117
         },
         {
           "family": "unlowered-type-name",
-          "count": 98
+          "count": 97
         },
         {
           "family": "field-lookup",
@@ -2107,15 +2107,15 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 290
+          "count": 287
         },
         {
           "code": "PS2001",
-          "count": 117
+          "count": 120
         },
         {
           "code": "PS1106",
-          "count": 98
+          "count": 97
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -2568,7 +2568,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1429,
+      "count": 1426,
       "packages": 16
     },
     {
@@ -2580,13 +2580,13 @@
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 322,
+      "count": 325,
       "packages": 14
     },
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 229,
+      "count": 228,
       "packages": 9
     },
     {
@@ -2713,12 +2713,12 @@
     },
     {
       "date": "2026-11-15",
-      "commit": "9c0ff78e424dd5dd8793bb69dd97de1c2d7fb2aa",
+      "commit": "682c91a4328f9d566671a8abb237d9dbec49a2f4",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2870
+      "fences": 2869
     }
   ]
 }

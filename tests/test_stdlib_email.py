@@ -14,6 +14,7 @@ PS1003, and a keyword the subset does not read refuses with PS2003.
 from __future__ import annotations
 
 import email as py_email
+import email.message as py_email_message
 from pathlib import Path
 
 from tests.test_gates import compile_run, write_case
@@ -274,3 +275,193 @@ def test_multipart_payload_raises(tmp_path: Path) -> None:
     got = compile_run(tmp_path, path, "run")
     assert got.returncode != 0
     assert "get_payload on a multipart message" in got.stderr, got.stderr
+
+
+def test_builder_text_matches_cpython(tmp_path: Path) -> None:
+    """The builder: an empty message, a stored header and a text body.
+
+    The compiled output must equal the CPython oracle's output: the rows
+    land in store order, the body is 7bit within the 78-column limit and
+    MIME-Version lands last.
+    """
+    source = "\n".join(
+        [
+            "from email.message import EmailMessage",
+            "",
+            "def run() -> int:",
+            "    msg = EmailMessage()",
+            "    msg['Subject'] = 'Quarterly report'",
+            "    msg['X-Tag'] = 'one'",
+            "    msg['X-Tag'] = 'two'",
+            "    msg.set_content('plain body')",
+            "    print(msg.as_string(), end='')",
+            "    return 0",
+            "",
+        ]
+    )
+    msg = py_email_message.EmailMessage()
+    msg["Subject"] = "Quarterly report"
+    msg["X-Tag"] = "one"
+    msg["X-Tag"] = "two"
+    msg.set_content("plain body")
+    expected = msg.as_string() + "0\n"
+    assert _oracle_bytes(tmp_path, "builder_text.py", source) == expected
+
+
+def test_builder_qp_matches_cpython(tmp_path: Path) -> None:
+    """A long line takes the quoted-printable soft break exactly where
+    CPython's body_encode puts it."""
+    source = "\n".join(
+        [
+            "from email.message import EmailMessage",
+            "",
+            "def run() -> int:",
+            "    msg = EmailMessage()",
+            "    msg['Subject'] = 'wrap'",
+            "    msg.set_content('line1\\n' + 'z' * 90 + '\\n')",
+            "    print(msg.as_string(), end='')",
+            "    return 0",
+            "",
+        ]
+    )
+    msg = py_email_message.EmailMessage()
+    msg["Subject"] = "wrap"
+    msg.set_content("line1\n" + "z" * 90 + "\n")
+    assert _oracle_bytes(tmp_path, "builder_qp.py", source) == msg.as_string() + "0\n"
+
+
+def test_builder_8bit_munges_to_base64(tmp_path: Path) -> None:
+    """A short non-ASCII text stores 8bit at build time and as_string
+    re-serializes it as base64, the way CPython's generator munges the
+    payload through the charset."""
+    source = "\n".join(
+        [
+            "from email.message import EmailMessage",
+            "",
+            "def run() -> int:",
+            "    msg = EmailMessage()",
+            "    msg.set_content('caf\\u00e9 body')",
+            "    print(msg.as_string(), end='')",
+            "    return 0",
+            "",
+        ]
+    )
+    msg = py_email_message.EmailMessage()
+    msg.set_content("café body")
+    assert _oracle_bytes(tmp_path, "builder_8bit.py", source) == msg.as_string() + "0\n"
+
+
+def test_builder_bytes_attachment_matches_cpython(tmp_path: Path) -> None:
+    """The bytes body: base64 over the maintype/subtype the call spells."""
+    source = "\n".join(
+        [
+            "from email.message import EmailMessage",
+            "",
+            "def run() -> int:",
+            "    msg = EmailMessage()",
+            "    msg['Subject'] = 'attachment'",
+            "    msg.set_content(b'hello attachment', maintype='application', subtype='octet-stream')",
+            "    print(msg.as_string(), end='')",
+            "    return 0",
+            "",
+        ]
+    )
+    msg = py_email_message.EmailMessage()
+    msg["Subject"] = "attachment"
+    msg.set_content(b"hello attachment", maintype="application", subtype="octet-stream")
+    assert _oracle_bytes(tmp_path, "builder_bytes.py", source) == msg.as_string() + "0\n"
+
+
+def test_builder_header_fold_matches_cpython(tmp_path: Path) -> None:
+    """A long Subject folds into the RFC 2047 utf-8 run CPython's default
+    policy produces, continuation lines included."""
+    source = "\n".join(
+        [
+            "from email.message import EmailMessage",
+            "",
+            "def run() -> int:",
+            "    msg = EmailMessage()",
+            "    msg['Subject'] = 'y' * 100",
+            "    msg.set_content('body')",
+            "    print(msg.as_string(), end='')",
+            "    return 0",
+            "",
+        ]
+    )
+    msg = py_email_message.EmailMessage()
+    msg["Subject"] = "y" * 100
+    msg.set_content("body")
+    assert _oracle_bytes(tmp_path, "builder_fold.py", source) == msg.as_string() + "0\n"
+
+
+def test_builder_unique_header_refuses_second_row(tmp_path: Path) -> None:
+    """A second Subject raises ValueError at run time, with CPython's
+    message naming the caller's spelling of the header."""
+    source = "\n".join(
+        [
+            "from email.message import EmailMessage",
+            "",
+            "def run() -> int:",
+            "    msg = EmailMessage()",
+            "    msg['Subject'] = 'first'",
+            "    try:",
+            "        msg['Subject'] = 'second'",
+            "        print('allowed')",
+            "    except ValueError as exc:",
+            "        print('ValueError:', exc)",
+            "    return 0",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "builder_unique.py", source)
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == "ValueError: There may be at most 1 Subject headers in a message\n0\n"
+
+
+def test_builder_set_content_clears_content_rows(tmp_path: Path) -> None:
+    """set_content drops the content-* rows a previous set landed and
+    keeps the rest, the way CPython's clear_content does."""
+    source = "\n".join(
+        [
+            "from email.message import EmailMessage",
+            "",
+            "def run() -> int:",
+            "    msg = EmailMessage()",
+            "    msg['Subject'] = 'kept'",
+            "    msg.set_content('one')",
+            "    msg.set_content('two')",
+            "    print(msg.as_string(), end='')",
+            "    return 0",
+            "",
+        ]
+    )
+    msg = py_email_message.EmailMessage()
+    msg["Subject"] = "kept"
+    msg.set_content("one")
+    msg.set_content("two")
+    assert _oracle_bytes(tmp_path, "builder_clear.py", source) == msg.as_string() + "0\n"
+
+
+def test_builder_out_of_subset_fences() -> None:
+    _fence(
+        "from email.message import EmailMessage\n"
+        "def run() -> int:\n"
+        "    msg = EmailMessage()\n"
+        "    msg.add_attachment(b'x', maintype='application', subtype='octet-stream')\n"
+        "    return 0\n",
+        "PS2001",
+        "not in the lowered subset",
+    )
+
+
+def test_builder_bytes_without_maintype_fences() -> None:
+    _fence(
+        "from email.message import EmailMessage\n"
+        "def run() -> int:\n"
+        "    msg = EmailMessage()\n"
+        "    msg.set_content(b'x')\n"
+        "    return 0\n",
+        "PS2003",
+        "maintype and a subtype for bytes",
+    )

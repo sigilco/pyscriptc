@@ -190,6 +190,23 @@ class MiscEmitMixin:
         elif kind == "dict":
             self._expect(target, index["type"], container["type"]["key"], "dict key")
             value = self._expr(stmt.value, container["type"]["value"])
+        elif kind == "class" and container["type"].get("name") == "EmailMessage":
+            # `msg[name] = value`: the header store (issue #1268). The name
+            # and the value are both str; the runtime owns the header list.
+            if _node_type_kind(index) != "str":
+                self.fail(target, "PS1003", "a message header name is str")
+            value = self._expr(stmt.value)
+            if _node_type_kind(value) != "str":
+                self.fail(target, "PS1003", "a message header value is str")
+            call = self._abi_call(
+                "email",
+                "header.set",
+                [container, index, value],
+                {"kind": "none"},
+                "ps_email_header_set",
+                span,
+            )
+            return _expr_node(call, span)
         else:
             self.fail(target, "PS2002", "item assignment targets a list or dict")
         return _setitem_node(container, index, value, span)

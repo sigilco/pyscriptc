@@ -6,15 +6,18 @@ value, and the message answers its headers (`get`, `get_all`, `keys`,
 `items`), its structure (`is_multipart`, `walk`) and its payload
 (`get_payload`, `get_content_type`, `get_filename`).
 
-The runtime (`ps_email.c`) parses the message the way CPython's
-compat32 policy does: the header block, the folded continuation lines,
-the RFC 2047 encoded words in the header values, the RFC 2046 multipart
-split on the boundary and the quoted-printable and base64 transfer
-encodings in the payload.
+The builder side (issue #1268) lowers `email.message.EmailMessage()`,
+the header store (`msg[name] = value`), `set_content` and `as_string`:
+a message is built empty, the headers are stored one row at a time, and
+the content lands as MIME text (`str`) or as a base64 attachment
+(`bytes`). The runtime (`ps_email.c`) encodes the body the way CPython's
+raw data manager does over the default policy (charset utf-8, line limit
+78): ASCII text that fits the limit stays 7bit and everything else is
+quoted-printable, byte for byte what `email.quoprimime.body_encode`
+writes.
 
-Everything else in the `email` package (the `mime` builders, the `policy`
-API, `EmailMessage` construction, `sendmail`, the header registry) is
-refused with `PS2001`: the subset reads a message, it does not build one.
+Everything else in the `email` package (the `policy` API, `sendmail`,
+`add_attachment`, the header registry) is refused with `PS2001`.
 """
 
 # SPDX-License-Identifier: Apache-2.0
@@ -34,6 +37,10 @@ _MESSAGE = {"kind": "class", "name": "EmailMessage"}
 def _email_call(lo: Any, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
     """`email.message_from_string(text)`, `message_from_bytes(data)` and
     `message_from_file(fp)`."""
+    if attr in {"EmailMessage", "Message"}:
+        # `email.message.EmailMessage()` (the spelling CPython uses) and
+        # the `Message` alias of the same module: an empty message.
+        return _email_message_new(lo, node, span)
     if attr not in {"message_from_string", "message_from_bytes", "message_from_file"}:
         lo.fail(node, "PS2001", f"email.{attr} is not in the lowered subset of email")
     lo._reject_keywords(node)
@@ -79,6 +86,8 @@ def _email_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
         return _email_is_multipart(lo, node, span, receiver)
     if attr == "as_string":
         return _email_as_string(lo, node, span, receiver)
+    if attr == "set_content":
+        return _email_set_content(lo, node, span, receiver)
     lo.fail(node, "PS2001", f"EmailMessage.{attr} is not in the lowered subset of email")
     raise AssertionError("unreachable")
 
@@ -242,3 +251,60 @@ def _email_as_string(lo: Any, node: ast.Call, span: dict[str, Any], receiver: di
     if node.args:
         lo.fail(node, "PS2003", "Message.as_string expects 0 argument(s)")
     return lo._abi_call("email", "as_string", [receiver], _STR, "ps_email_as_string", span)
+
+
+def _email_message_new(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+    """`email.message.EmailMessage()`: an empty message.
+
+    CPython's EmailMessage takes no argument (the policy and the content
+    manager are not lowered), so the call is the empty record the runtime
+    owns.
+    """
+    lo._reject_keywords(node)
+    if node.args:
+        lo.fail(node, "PS2003", "EmailMessage expects 0 argument(s)")
+    return lo._abi_call("email", "EmailMessage", [], _MESSAGE, "ps_email_message_new", span)
+
+
+def _email_set_content(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+    """`msg.set_content(text)`: the MIME text body.
+
+    CPython's `set_content` takes the content, a subtype, a charset, a
+    transfer encoding, a disposition, a filename, a content id, the
+    parameters and the extra headers. The subset lowers the content
+    alone: a `str` becomes the MIME text body (charset utf-8, the default
+    transfer-encoding heuristic) and `bytes` becomes the base64
+    attachment, with the `maintype` and `subtype` the bytes handler
+    requires (CPython refuses a bytes content without them). Every other
+    keyword the closed surface does not read fences with `PS2003`, where
+    CPython accepts it.
+    """
+    slots = lo._place_nodes(node, ["content", "maintype", "subtype"])
+    if slots[0] is None:
+        lo.fail(node, "PS2003", "EmailMessage.set_content expects 1 argument(s)")
+    assert slots[0] is not None
+    content = lo._expr(slots[0])
+    kind = _node_type_kind(content)
+    if kind == "str":
+        if slots[1] is not None or slots[2] is not None:
+            lo.fail(node, "PS2003", "EmailMessage.set_content takes no maintype or subtype for text")
+        return lo._abi_call("email", "set_content", [receiver, content], {"kind": "none"}, "ps_email_set_content", span)
+    if kind == "bytes":
+        # The bytes handler takes the maintype and the subtype; CPython
+        # refuses the call without them.
+        if slots[1] is None or slots[2] is None:
+            lo.fail(node, "PS2003", "EmailMessage.set_content takes a maintype and a subtype for bytes")
+        maintype = lo._expr(slots[1])
+        subtype = lo._expr(slots[2])
+        if _node_type_kind(maintype) != "str" or _node_type_kind(subtype) != "str":
+            lo.fail(node, "PS1003", "EmailMessage.set_content maintype and subtype are str")
+        return lo._abi_call(
+            "email",
+            "set_bytes",
+            [receiver, content, maintype, subtype],
+            {"kind": "none"},
+            "ps_email_set_bytes",
+            span,
+        )
+    lo.fail(node, "PS1003", "EmailMessage.set_content takes str or bytes")
+    raise AssertionError("unreachable")

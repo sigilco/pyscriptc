@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-15",
-  "commit": "9c0ff78e424dd5dd8793bb69dd97de1c2d7fb2aa",
+  "generated": "2026-11-16",
+  "commit": "682c91a4328f9d566671a8abb237d9dbec49a2f4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -824,10 +824,11 @@
       "label": "`email`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "the builders, the policy API and the writers, the setters (the subset reads a message, it does not build one), a computed decode flag",
+      "missing": "the policy API and the writers, the payload setter (the subset reads a message, it does not set a payload), a computed decode flag, a bytes body without a maintype and a subtype",
       "codes": [
         "PS1003",
-        "PS2001"
+        "PS2001",
+        "PS2003"
       ]
     },
     {
@@ -954,7 +955,7 @@
       "version": "26.3",
       "status": "\ud83d\udfe1",
       "ratio": "279/558",
-      "blocking": "name-resolution (118), unlowered-type-name (98), field-lookup (82)",
+      "blocking": "name-resolution (117), unlowered-type-name (97), field-lookup (82)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {

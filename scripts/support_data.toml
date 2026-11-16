@@ -722,14 +722,22 @@ for part in m3.walk():
     body: bytes = part.get_payload(decode=True)
 multi: bool = m3.is_multipart()
 out: str = m3.as_string()''',
+  'from email.message import EmailMessage',
+  '''m4: EmailMessage = EmailMessage()
+m4["Subject"] = "Quarterly report"
+m4.set_content("plain body")
+out2: str = m4.as_string()''',
 ]
 no = [
-  ["the builders, the policy API and the writers", 'y: str = email.mime_text("hi")', "PS2001"],
-  ["the setters (the subset reads a message, it does not build one)", '''m: email.Message = email.message_from_string(s)
+  ["the policy API and the writers", 'y: str = email.mime_text("hi")', "PS2001"],
+  ["the payload setter (the subset reads a message, it does not set a payload)", '''m: email.Message = email.message_from_string(s)
 m.set_payload("x")''', "PS2001"],
   ["a computed decode flag", '''m: email.Message = email.message_from_string(s)
 flag: bool = True
 m.get_payload(decode=flag)''', "PS1003"],
+  ["a bytes body without a maintype and a subtype", '''from email.message import EmailMessage
+m5: EmailMessage = EmailMessage()
+m5.set_content(b"x")''', "PS2003"],
 ]
 
 [[stdlib]]

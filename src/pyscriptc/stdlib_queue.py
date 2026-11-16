@@ -101,8 +101,10 @@ LOWERED: frozenset[str] = frozenset(QUEUE)
 # User spellings that resolve onto another module's lowered table. `os.path`
 # is the posixpath surface: `import os.path`, `from os.path import join`, and
 # `os.path.join(...)` all lower through the posixpath rows while fence
-# messages keep the user's dotted spelling.
-MODULE_ALIASES: dict[str, str] = {"os.path": "posixpath"}
+# messages keep the user's dotted spelling. `email.message` is the same
+# surface under the module the class actually lives in (issue #1268): the
+# read subset and the builder both bind through the email rows.
+MODULE_ALIASES: dict[str, str] = {"os.path": "posixpath", "email.message": "email"}
 
 
 def canonical_module(name: str) -> str:
