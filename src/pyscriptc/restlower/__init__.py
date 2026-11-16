@@ -410,4 +410,11 @@ def path_attr(name: str) -> tuple[dict[str, Any], str] | None:
 
 
 def alias_name(module: str, member: str) -> str | None:
-    return type_alias(module, member)
+    found = type_alias(module, member)
+    if found is not None:
+        return found
+    # The submodule spelling of a class the parent module lowers
+    # (`email.message.Message` names the EmailMessage the `email` table
+    # holds): the dotted member keeps its path, the leaf answers the alias.
+    head, _, tail = member.rpartition(".")
+    return type_alias(module, tail) if head else None

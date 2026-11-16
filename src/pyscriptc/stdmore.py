@@ -1484,6 +1484,10 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("zipfile", "ZipFile"): "ZipFile",
     ("email", "Message"): "EmailMessage",
     ("email", "EmailMessage"): "EmailMessage",
+    # The class CPython names at `email.message.Message` (the module the
+    # class lives in); the subset lowers it as the one EmailMessage.
+    ("email.message", "Message"): "EmailMessage",
+    ("email.message", "EmailMessage"): "EmailMessage",
 }
 
 # Instance methods. `elem` means the deque's element type.
@@ -2036,6 +2040,13 @@ def member_callable(module: str, member: str) -> bool:
     if fixed_spec(module, member) is not None:
         return True
     if type_alias(module, member) is not None:
+        return True
+    # The submodule spellings of a class the parent module lowers
+    # (`email.message.Message` names the EmailMessage the `email` table
+    # holds): the dotted member joins against the parent module through
+    # `_finish_resolve`, so the alias row answers there.
+    head, _, tail = member.rpartition(".")
+    if head and type_alias(module, tail) is not None:
         return True
     if (module, member) in FOR_ONLY or (module, member) in WITH_ONLY:
         return True
