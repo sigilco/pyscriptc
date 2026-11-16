@@ -24,6 +24,7 @@ from pyscriptc.restlower._shared import (
     _t_leaf,
     _type_kind,
     _type_name,
+    _type_value,
 )
 
 _OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6}
@@ -68,7 +69,7 @@ def _container_repr(lo: Any, arg: dict[str, Any], span: dict[str, Any]) -> dict[
     typ = _node_type(arg)
     kind = _type_kind(typ)
     if kind == "dict":
-        if _type_kind(typ["value"]) == "dynval":
+        if _type_kind(_type_value(typ)) == "dynval":
             return lo._abi_call("builtins", "dyn_map_repr", [arg], _t_leaf("str"), "ps_dyn_map_repr", span)
         spec = type_spec(typ, lo.classes)
         if spec is None:
