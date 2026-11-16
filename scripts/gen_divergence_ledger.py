@@ -521,6 +521,13 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#72",
     ),
     _row(
+        "D73",
+        "the email read subset: get_payload() on a multipart part raises ValueError (CPython answers the list of "
+        "the child parts) and an encoded word in an undecoded charset keeps the raw word",
+        "d73_email.py",
+        docs=f"{DOC}#73",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

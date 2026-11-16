@@ -707,6 +707,32 @@ t.close()''',
 no = [["TarFile", 'y: int = tarfile.TarFile(s, "w:gz")', "PS2001"]]
 
 [[stdlib]]
+names = ["email"]
+ok = [
+  'm: email.Message = email.message_from_string(s)',
+  'm2: email.Message = email.message_from_bytes(b)',
+  '''m3: email.Message = email.message_from_string(s)
+subject: str | None = m3.get("Subject")
+tags: list[str] | None = m3.get_all("X-Tag")
+names: list[str] = m3.keys()
+pairs: list[tuple[str, str]] = m3.items()
+for part in m3.walk():
+    ctype: str = part.get_content_type()
+    name: str | None = part.get_filename()
+    body: bytes = part.get_payload(decode=True)
+multi: bool = m3.is_multipart()
+out: str = m3.as_string()''',
+]
+no = [
+  ["the builders, the policy API and the writers", 'y: str = email.mime_text("hi")', "PS2001"],
+  ["the setters (the subset reads a message, it does not build one)", '''m: email.Message = email.message_from_string(s)
+m.set_payload("x")''', "PS2001"],
+  ["a computed decode flag", '''m: email.Message = email.message_from_string(s)
+flag: bool = True
+m.get_payload(decode=flag)''', "PS1003"],
+]
+
+[[stdlib]]
 names = ["selectors"]
 ok = [
   '''sel: selectors.DefaultSelector = selectors.DefaultSelector()

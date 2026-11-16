@@ -51,6 +51,7 @@ from pyscriptc.restlower._csv import _csv_call
 from pyscriptc.restlower._ctypes import _sizeof
 from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
+from pyscriptc.restlower._email import _email_call, _email_method
 from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
 from pyscriptc.restlower._functools import _reduce
 from pyscriptc.restlower._hashlib import _hashlib_call, _hashlib_method
@@ -117,6 +118,7 @@ from pyscriptc.stdmore import (
 
 __all__ = [
     "_archive_method",
+    "_email_method",
     "_hashlib_method",
     "_lock_method",
     "_mk_iter",
@@ -211,6 +213,7 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
     "copy": lambda lo, node, span, expect, attr: _copy_call(lo, node, span, attr),
     "tomllib": lambda lo, node, span, expect, attr: _tomllib_call(lo, node, span, expect, attr),
     "dotenv": lambda lo, node, span, expect, attr: _dotenv_call(lo, node, span, expect, attr),
+    "email": lambda lo, node, span, expect, attr: _email_call(lo, node, span, attr),
     "yaml": lambda lo, node, span, expect, attr: _yaml_call(lo, node, span, expect, attr),
     "urllib.request": lambda lo, node, span, expect, attr: _urllib_request_call(lo, node, span, expect, attr),
     "jwt": lambda lo, node, span, expect, attr: _jwt_call(lo, node, span, expect, attr),

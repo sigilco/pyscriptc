@@ -767,6 +767,10 @@ class AbiMixin(EmitterBase):
                     # member list, the handle is the pointer.
                     "TarFile",
                     "ZipFile",
+                    # The parsed message (issue #1228): the runtime record
+                    # owns the header map and the part tree, the handle is
+                    # the pointer.
+                    "EmailMessage",
                 }
                 or symbol.startswith("ps_ffi_")
                 # boxed:begin

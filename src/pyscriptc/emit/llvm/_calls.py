@@ -284,6 +284,21 @@ class CallsMixin(EmitterBase):
                 self.line(f"{voff} = ptrtoint ptr {voff_ptr} to i64")
                 self._abi_decl("ps_dict_items", "ptr", ["ptr", "i64", "i64"])
                 return self._call_ret("ptr", "ps_dict_items", [f"ptr {values[0]}", f"i64 {voff}", f"i64 {size}"])
+            if symbol == "ps_email_items":
+                # The element is the synthetic (str, str) tuple class; the
+                # C side packs the pair cells at the class layout, the shape
+                # `dict.items` uses.
+                tname2: str = dict_to_type(_elem_of(typ)).name
+                size2_ptr = self.tmp()
+                size2 = self.tmp()
+                self.line(f"{size2_ptr} = getelementptr %cls.{tname2}, ptr null, i64 1")
+                self.line(f"{size2} = ptrtoint ptr {size2_ptr} to i64")
+                voff2_ptr = self.tmp()
+                voff2 = self.tmp()
+                self.line(f"{voff2_ptr} = getelementptr %cls.{tname2}, ptr null, i32 0, i32 1")
+                self.line(f"{voff2} = ptrtoint ptr {voff2_ptr} to i64")
+                self._abi_decl("ps_email_items", "ptr", ["ptr", "i64", "i64"])
+                return self._call_ret("ptr", "ps_email_items", [f"ptr {values[0]}", f"i64 {voff2}", f"i64 {size2}"])
             if symbol == "ps_os_walk":
                 # The element is the synthetic (str, list[str], list[str]) tuple
                 # class; the C side builds one heap record per walk row at the

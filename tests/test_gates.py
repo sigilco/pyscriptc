@@ -80,6 +80,7 @@ QUEUE = (
     "secrets",
     "selectors",
     "signal",
+    "email",
 )
 
 

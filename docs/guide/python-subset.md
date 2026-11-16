@@ -166,7 +166,7 @@ Common failure modes on real scripts:
 
 - An assignment without an annotation (`files = os.listdir(d)`) stops with `PS1001`, and every later read of the name stops with `PS2002`; the first one is the cause and the rest follow from it.
 - A keyword argument to a stdlib call (`shutil.copy(src, dst, follow_symlinks=False)`) stops with `PS2003`.
-- A module outside the closed import table (`platform`, `calendar`, `zipfile`, `tarfile`, `sqlite3`) stops with `PS2002` on the import.
+- A module outside the closed import table (`sqlite3`, `pickle`) stops with `PS2002` on the import.
 Run the module through embedded CPython (fallback mode) instead, see [Libraries and fallback mode](libraries.md).
 
 Related commands:

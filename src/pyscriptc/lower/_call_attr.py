@@ -44,6 +44,7 @@ from pyscriptc.lower._stdlib_shared import _mod_call, _synth_module
 from pyscriptc.reflection import inspect_note, kwargs_call_note, typing_note
 from pyscriptc.restlower import (
     _archive_method,
+    _email_method,
     _hashlib_method,
     _lock_method,
     _mk_iter,
@@ -423,6 +424,8 @@ class CallAttrMixin:
             return _selector_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] in {"TarFile", "ZipFile"}:
             return _archive_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "EmailMessage":
+            return _email_method(self, node, span, receiver)
         if kind == "class" and synth_method(receiver["type"]["name"], node.func.attr) is not None:
             return self._synth_call(node, span, receiver)
         if kind == "dict" and node.func.attr == "keys":
