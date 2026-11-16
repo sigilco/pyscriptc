@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-16",
-  "commit": "682c91a4328f9d566671a8abb237d9dbec49a2f4",
+  "commit": "c5850150c225a7f4601aadcee9edcd4a0d33d44d",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -536,7 +536,7 @@
       "label": "`asyncio.subprocess`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "a stdout= pipe, communicate",
+      "missing": "a non-PIPE stdout value, stdin=, proc.stdin",
       "codes": [
         "PS2001",
         "PS2003"

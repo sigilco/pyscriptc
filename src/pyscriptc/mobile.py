@@ -170,6 +170,10 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     "ps_sub_call": "subprocess",
     "ps_sub_check_call": "subprocess",
     "ps_aproc_new": "subprocess",
+    # The pipe form of the async subprocess (issue #1266): the same
+    # excluded file owns the spawn and the two capture reads.
+    "ps_aproc_stdout": "subprocess",
+    "ps_aproc_stderr": "subprocess",
     # os.system shells out, so its helper lives in the same excluded file
     # (issue #503): an app sandbox has no fork/exec either.
     "ps_os_system": "subprocess",

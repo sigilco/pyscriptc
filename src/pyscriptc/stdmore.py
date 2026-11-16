@@ -88,6 +88,9 @@ _ERRNO = (
 # lowered. Values are read from this interpreter in `_load_constants`.
 _INT_SURFACE: dict[str, tuple[str, ...]] = {
     "selectors": ("EVENT_READ", "EVENT_WRITE"),
+    # The asyncio subprocess capture constants (issue #1266): PIPE is -1,
+    # the value CPython uses, and the runtime's pipe mask reads it whole.
+    "asyncio.subprocess": ("PIPE",),
     # The POSIX signal constants the watchdog surface carries (issue #1244).
     # Values are read from the host interpreter; they are the kernel numbers,
     # so the CPython 3.14 oracle and the binary agree on every platform.

@@ -22,8 +22,10 @@ from pyscriptc.restlower._shared import (
     _node_type,
     _node_type_kind,
     _t_leaf,
+    _type_elem,
     _type_kind,
     _type_name,
+    _type_value,
 )
 
 _OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6}
@@ -60,19 +62,27 @@ def _container_repr(lo: Any, arg: dict[str, Any], span: dict[str, Any]) -> dict[
     becomes a `ps_seq_repr`/`ps_map_repr` abi call whose str result the
     ordinary print walk emits. The element type rides as a recursive spec
     string (`pyscriptc.reprspec`); every shape outside the printable set
-    keeps the PS2003 fence.
+    keeps the PS2003 fence. A `dict[str, dynval]` (issue #1267) rides the
+    dynamic walk instead: the values are the tagged cells, so the spec
+    string has nothing to say and `ps_dyn_map_repr` reads the tags.
     """
 
     typ = _node_type(arg)
     kind = _type_kind(typ)
     if kind == "dict":
+        if _type_kind(_type_value(typ)) == "dynval":
+            return lo._abi_call("builtins", "dyn_map_repr", [arg], _t_leaf("str"), "ps_dyn_map_repr", span)
         spec = type_spec(typ, lo.classes)
         if spec is None:
             return None
         spec_arg = _const_text(spec, "str", span)
         return lo._abi_call("builtins", "map_repr", [arg, spec_arg], _t_leaf("str"), "ps_map_repr", span)
     if kind == "list":
-        elem_spec = type_spec(typ["elem"], lo.classes)
+        if _type_kind(_type_elem(typ)) == "dynval":
+            # A `list[object]` (issue #1267): the elements are the tagged
+            # cells, so the walk is the dynamic one.
+            return lo._abi_call("builtins", "dyn_seq_repr", [arg], _t_leaf("str"), "ps_dyn_seq_repr", span)
+        elem_spec = type_spec(_type_elem(typ), lo.classes)
         if elem_spec is None:
             return None
         spec_arg = _const_text(elem_spec, "str", span)
@@ -117,6 +127,12 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
             # A namedtuple prints `P(x=1, y=2)` in CPython; the tuple-class
             # print here would show `(1, 2)`. Fence instead of diverging.
             lo.fail(node, "PS2003", "print of a namedtuple is not lowered; print its fields")
+        if _node_type_kind(arg) == "dynval":
+            # The tagged dynamic value (issue #1267): print calls str(), and
+            # str() of a dynamic value is its arm's str form (the str arm's
+            # text, every other arm's repr).
+            args[index] = lo._abi_call("builtins", "dyn.str", [arg], _t_leaf("str"), "ps_dyn_str_form", span)
+            continue
         if not _printable(lo, _node_type(arg)):
             if _node_type_kind(arg) == "class":
                 called = lo._dunder_call(node, arg, "__str__", [], _node_span(arg)) or lo._dunder_call(

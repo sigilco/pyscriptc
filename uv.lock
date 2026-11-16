@@ -750,7 +750,7 @@ wheels = [
 
 [[package]]
 name = "pyscriptc"
-version = "0.10.0b1"
+version = "0.10.0"
 source = { editable = "." }
 dependencies = [
     { name = "pyrefly" },

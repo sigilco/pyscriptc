@@ -249,6 +249,10 @@ static int64_t ps_slot(int kind) {
 
 static void ps_parse_value(PsJson *j, int32_t idx, void *out);
 
+/* The dynamic arm (issue #1267): the parser builds the tagged cell and
+   the slot carries its pointer, like the other heap kinds. */
+static void ps_parse_dyn(PsJson *j, PsDyn **out);
+
 static void ps_expect(PsJson *j, char c) {
     if (ps_peek(j) != c) {
         ps_json_fail("JSON value does not match the annotation");
@@ -260,6 +264,13 @@ static void ps_parse_value(PsJson *j, int32_t idx, void *out) {
     PsType typ = j->types[idx];
     char c = ps_peek(j);
     if (c == 'n' && j->i + 4 <= j->n && memcmp(j->p + j->i, "null", 4) == 0) {
+        if (typ.kind == PS_JSON_DYN) {
+            /* The dynamic arm (issue #1267): null is the None arm. */
+            j->i += 4;
+            PsDyn *v = ps_dyn_new_none();
+            memcpy(out, &v, sizeof v);
+            return;
+        }
         if (typ.kind != PS_JSON_OPT) {
             ps_json_fail("JSON value does not match the annotation");
         }
@@ -275,6 +286,14 @@ static void ps_parse_value(PsJson *j, int32_t idx, void *out) {
         ps_parse_value(j, typ.child, cell + off);
         cell[0] = 1;
         memcpy(out, &cell, 8);
+        return;
+    }
+    if (typ.kind == PS_JSON_DYN) {
+        /* The dynamic slot (issue #1267): the tagged cell is the value and
+           the slot carries its pointer, the way the other heap kinds do. */
+        PsDyn *v = NULL;
+        ps_parse_dyn(j, &v);
+        memcpy(out, &v, sizeof v);
         return;
     }
     if (typ.kind == PS_JSON_INT) {
@@ -517,6 +536,9 @@ static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow 
    own line, the way `json.dumps(indent=n)` does. */
 static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact);
 
+/* The dynamic arm's writer (issue #1267): the tagged tree walks itself. */
+static void ps_dump_dyn_cell(const PsDyn *v, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact);
+
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g) {
     ps_dump_fmt(types, idx, value, g, 0, 0, 0, 0);
 }
@@ -567,6 +589,14 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
         }
         PsType child = types[typ.child];
         ps_dump_fmt(types, typ.child, cell + ps_opt_off(child.kind), g, indent, level, sort_keys, compact);
+        return;
+    }
+    if (typ.kind == PS_JSON_DYN) {
+        /* The dynamic slot (issue #1267): the tagged cell is the value and
+           the slot carries its pointer. */
+        PsDyn *v = NULL;
+        memcpy(&v, value, sizeof v);
+        ps_dump_dyn_cell(v, g, indent, level, sort_keys, compact);
         return;
     }
     if (typ.kind == PS_JSON_STR) {
@@ -690,4 +720,317 @@ void ps_json_dumps_opts(const PsType *types, int32_t root, void *value, int32_t 
     int32_t compact = flags & PS_JSON_COMPACT;
     ps_dump_fmt(types, root, value, &g, indent, 0, sort_keys, compact);
     ps_grow_finish(&g, out);
+}
+
+/* ---- the dynamic value path (issue #1267) ---------------------------- */
+
+/* json.loads over a dynamic annotation builds the tagged cells directly:
+   the value's shape is a run-time fact (the tag names the arm), so the
+   parser assigns the tag instead of checking one. The arms are the ones
+   ps_dyn.c spells: null -> None, true/false -> bool, an integral literal
+   -> int, a real -> float, a string -> str, an array -> list of cells,
+   an object -> a str-keyed map of cells (PsBuf keys, PsDyn* values). */
+
+static void ps_parse_dyn(PsJson *j, PsDyn **out);
+
+static void ps_parse_dyn_number(PsJson *j, PsDyn **out) {
+    int is_float = 0;
+    int64_t start = ps_scan_number(j, &is_float);
+    /* The literal starts here, sign included: the float fallback below
+       reads the text as it was written. */
+    int64_t text_start = start;
+    if (!is_float) {
+        int neg = 0;
+        if (j->p[start] == '-') {
+            neg = 1;
+            start++;
+        }
+        uint64_t mag = 0;
+        int64_t cur = start;
+        int over = 0;
+        while (cur < j->i) {
+            int digit = j->p[cur] - '0';
+            if (mag > (UINT64_MAX - (uint64_t)digit) / 10) {
+                over = 1;
+                break;
+            }
+            mag = mag * 10 + (uint64_t)digit;
+            cur++;
+        }
+        if (!over) {
+            if (!neg && mag <= (uint64_t)INT64_MAX) {
+                *out = ps_dyn_new_int((int64_t)mag);
+                return;
+            }
+            if (neg && mag <= (uint64_t)INT64_MAX + 1) {
+                *out = ps_dyn_new_int(mag == (uint64_t)INT64_MAX + 1 ? INT64_MIN : -(int64_t)mag);
+                return;
+            }
+        }
+        /* CPython's json makes a too-wide integer a float through its
+           parse_float default; the dyn parser does the same. */
+    }
+    double v = 0.0;
+    int64_t len = j->i - text_start;
+    char *tmp = ps_alloc(len + 1);
+    memcpy(tmp, j->p + text_start, (size_t)len);
+    v = strtod(tmp, NULL);
+    *out = ps_dyn_new_float(v);
+}
+
+static void ps_parse_dyn(PsJson *j, PsDyn **out) {
+    char c = ps_peek(j);
+    if (c == 'n' && j->i + 4 <= j->n && memcmp(j->p + j->i, "null", 4) == 0) {
+        j->i += 4;
+        *out = ps_dyn_new_none();
+        return;
+    }
+    if (j->i + 4 <= j->n && memcmp(j->p + j->i, "true", 4) == 0) {
+        j->i += 4;
+        *out = ps_dyn_new_bool(1);
+        return;
+    }
+    if (j->i + 5 <= j->n && memcmp(j->p + j->i, "false", 5) == 0) {
+        j->i += 5;
+        *out = ps_dyn_new_bool(0);
+        return;
+    }
+    if (c == '"') {
+        PsBuf buf;
+        ps_parse_string(j, &buf);
+        *out = ps_dyn_new_str(buf.len, buf.data);
+        return;
+    }
+    if (c == '[') {
+        j->i++;
+        PsSeq *seq = ps_seq_new(8, 0);
+        ps_skip(j);
+        if (j->i < j->n && j->p[j->i] == ']') {
+            j->i++;
+            *out = ps_dyn_new_list(seq);
+            return;
+        }
+        for (;;) {
+            PsDyn *item = NULL;
+            ps_parse_dyn(j, &item);
+            ps_seq_push(seq, &item);
+            ps_skip(j);
+            if (j->i < j->n && j->p[j->i] == ',') {
+                j->i++;
+                continue;
+            }
+            if (j->i < j->n && j->p[j->i] == ']') {
+                j->i++;
+                break;
+            }
+            ps_json_fail("JSON array is not closed");
+        }
+        *out = ps_dyn_new_list(seq);
+        return;
+    }
+    if (c == '{') {
+        j->i++;
+        PsMap *map = ps_map_new(2, 16, 8, 0);
+        ps_skip(j);
+        if (j->i < j->n && j->p[j->i] == '}') {
+            j->i++;
+            *out = ps_dyn_new_dict(map);
+            return;
+        }
+        for (;;) {
+            PsBuf key;
+            ps_parse_string(j, &key);
+            ps_skip(j);
+            if (j->i >= j->n || j->p[j->i] != ':') {
+                ps_json_fail("JSON object expects ':'");
+            }
+            j->i++;
+            PsDyn *item = NULL;
+            ps_parse_dyn(j, &item);
+            ps_map_put(map, &key, &item);
+            ps_skip(j);
+            if (j->i < j->n && j->p[j->i] == ',') {
+                j->i++;
+                continue;
+            }
+            if (j->i < j->n && j->p[j->i] == '}') {
+                j->i++;
+                break;
+            }
+            ps_json_fail("JSON object is not closed");
+        }
+        *out = ps_dyn_new_dict(map);
+        return;
+    }
+    if (c == '-' || (c >= '0' && c <= '9')) {
+        ps_parse_dyn_number(j, out);
+        return;
+    }
+    ps_json_fail("JSON value does not match the annotation");
+}
+
+void ps_json_loads_dyn(int64_t n, char *p, void *out) {
+    PsJson j = {p, n, 0, NULL};
+    PsDyn *v = NULL;
+    ps_parse_dyn(&j, &v);
+    ps_skip(&j);
+    if (j.i != j.n) {
+        ps_json_fail("trailing JSON");
+    }
+    memcpy(out, &v, sizeof v);
+}
+
+/* The dump side walks the tagged tree and writes each arm by its tag, so
+   json.dumps of a dynamic value round-trips what loads built. The float
+   arm rides the same repr writer the typed path uses, and the flag word is
+   the typed writer's (sort keys, indent width, compact). The sorted order
+   is the same insertion sort over the map's dense rows the typed dict arm
+   runs. */
+
+static void ps_dump_dyn_cell(const PsDyn *v, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact) {
+    if (v == NULL || v->tag == PS_DYN_NONE) {
+        ps_grow_add(g, "null", 4);
+        return;
+    }
+    if (v->tag == PS_DYN_BOOL) {
+        if (v->i) {
+            ps_grow_add(g, "true", 4);
+        } else {
+            ps_grow_add(g, "false", 5);
+        }
+        return;
+    }
+    if (v->tag == PS_DYN_INT) {
+        char tmp[32];
+        int wrote = snprintf(tmp, sizeof tmp, "%lld", (long long)v->i);
+        if (wrote < 0) {
+            ps_json_fail("cannot format JSON integer");
+        }
+        ps_grow_add(g, tmp, wrote);
+        return;
+    }
+    if (v->tag == PS_DYN_FLOAT) {
+        double f;
+        memcpy(&f, &v->i, sizeof f);
+        ps_dump_float(f, g);
+        return;
+    }
+    if (v->tag == PS_DYN_STR) {
+        ps_dump_str(v->b, g);
+        return;
+    }
+    if (v->tag == PS_DYN_LIST) {
+        PsSeq *seq = (PsSeq *)v->p;
+        ps_grow_byte(g, '[');
+        if (seq->len == 0) {
+            ps_grow_byte(g, ']');
+            return;
+        }
+        for (int64_t i = 0; i < seq->len; i++) {
+            if (i > 0) {
+                ps_grow_byte(g, ',');
+                if (!indent && !compact) {
+                    ps_grow_byte(g, ' ');
+                }
+            }
+            if (indent) {
+                ps_dump_pad(g, indent, level + 1);
+            }
+            PsDyn *item = NULL;
+            memcpy(&item, (char *)seq->data + (size_t)i * (size_t)seq->elem, sizeof item);
+            ps_dump_dyn_cell(item, g, indent, level + 1, sort_keys, compact);
+        }
+        if (indent) {
+            ps_dump_pad(g, indent, level);
+        }
+        ps_grow_byte(g, ']');
+        return;
+    }
+    if (v->tag == PS_DYN_DICT) {
+        PsMap *map = (PsMap *)v->p;
+        int64_t n = ps_map_len(map);
+        int64_t *order = NULL;
+        if (sort_keys && n > 1) {
+            order = malloc((size_t)n * sizeof(int64_t));
+            if (order == NULL) {
+                abort();
+            }
+            for (int64_t i = 0; i < n; i++) {
+                order[i] = i;
+            }
+            for (int64_t i = 1; i < n; i++) {
+                int64_t take = order[i];
+                int64_t j = i - 1;
+                PsBuf key;
+                ps_map_key_at(map, take, &key);
+                while (j >= 0) {
+                    PsBuf prev;
+                    ps_map_key_at(map, order[j], &prev);
+                    size_t cmp_len = (size_t)(key.len < prev.len ? key.len : prev.len);
+                    int cmp = memcmp(key.data, prev.data, cmp_len);
+                    if (cmp > 0 || (cmp == 0 && key.len >= prev.len)) {
+                        break;
+                    }
+                    order[j + 1] = order[j];
+                    j -= 1;
+                }
+                order[j + 1] = take;
+            }
+        }
+        ps_grow_byte(g, '{');
+        if (n == 0) {
+            ps_grow_byte(g, '}');
+            free(order);
+            return;
+        }
+        char *key = malloc((size_t)map->key_size);
+        if (key == NULL) {
+            abort();
+        }
+        for (int64_t i = 0; i < n; i++) {
+            int64_t at = order ? order[i] : i;
+            if (i > 0) {
+                ps_grow_byte(g, ',');
+                if (!indent && !compact) {
+                    ps_grow_byte(g, ' ');
+                }
+            }
+            if (indent) {
+                ps_dump_pad(g, indent, level + 1);
+            }
+            ps_map_key_at(map, at, key);
+            PsBuf kb;
+            memcpy(&kb, key, sizeof kb);
+            ps_dump_str(kb, g);
+            ps_grow_byte(g, ':');
+            if (!compact || indent) {
+                ps_grow_byte(g, ' ');
+            }
+            PsDyn *item = NULL;
+            ps_map_val_at(map, at, &item);
+            ps_dump_dyn_cell(item, g, indent, level + 1, sort_keys, compact);
+        }
+        free(key);
+        if (indent) {
+            ps_dump_pad(g, indent, level);
+        }
+        ps_grow_byte(g, '}');
+        free(order);
+        return;
+    }
+    ps_json_fail("JSON type is not lowered");
+}
+
+void ps_json_dumps_dyn_opts(const PsDyn *v, int32_t flags, PsBuf *out) {
+    PsGrow g;
+    ps_grow_init(&g);
+    int32_t indent = (flags >> 8) & 0xff;
+    int32_t sort_keys = flags & PS_JSON_SORT_KEYS;
+    int32_t compact = flags & PS_JSON_COMPACT;
+    ps_dump_dyn_cell(v, &g, indent, 0, sort_keys, compact);
+    ps_grow_finish(&g, out);
+}
+
+void ps_json_dumps_dyn(const PsDyn *v, PsBuf *out) {
+    ps_json_dumps_dyn_opts(v, 0, out);
 }

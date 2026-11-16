@@ -116,6 +116,13 @@ def _type_value(typ: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
+def _type_elem(typ: dict[str, Any]) -> dict[str, Any]:
+    """The element type a list type record carries."""
+
+    elem: dict[str, Any] = typ["elem"]
+    return elem
+
+
 def _field_name(field: dict[str, Any]) -> str:
     """The name a class-field record carries."""
 

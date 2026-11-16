@@ -126,3 +126,147 @@ void ps_dyn_store(void *slot, const PsDyn *v) {
 }
 
 void ps_dyn_load(void *out, const PsDyn *v) { memcpy(out, &v, sizeof v); }
+
+/* ---- the repr and the str form (issue #1267) --------------------------- */
+
+/* CPython's repr of the sum's arms, recursive over the list and dict arms.
+   The str arm rides the shared escape engine (ps_repr_str), the float arm
+   the shortest round-trip writer (ps_f64_str), and the list and dict arms
+   walk their slots (a list cell is a PsDyn* pointer, a dict value slot is
+   a PsDyn* pointer under a PsBuf key).
+
+   The `str_form` walk is the same walk with one difference: print calls
+   str(), and str() of a str arm is the text itself where the repr quotes
+   it. Every other arm's str form is its repr form. */
+
+static void dyn_repr_cell(PsGrow *g, const PsDyn *v, int str_form);
+
+/* A str arm's repr: the shared escape engine (ps_repr_str) writes the
+   quoted form and picks the quote character the way CPython does (single
+   quotes unless the text holds one and no double quote). */
+static void repr_dyn_str(PsGrow *g, int64_t n, const char *p) {
+    PsBuf t;
+    ps_repr_str(n, p, &t);
+    ps_grow_add(g, t.data, t.len);
+    free(t.data);
+}
+
+static void dyn_repr_seq(PsGrow *g, PsSeq *s, int str_form) {
+    ps_grow_byte(g, '[');
+    for (int64_t i = 0; i < s->len; i++) {
+        if (i > 0) {
+            ps_grow_add(g, ", ", 2);
+        }
+        PsDyn *item = NULL;
+        memcpy(&item, (char *)s->data + (size_t)i * (size_t)s->elem, sizeof item);
+        dyn_repr_cell(g, item, str_form);
+    }
+    ps_grow_byte(g, ']');
+}
+
+static void dyn_repr_map(PsGrow *g, PsMap *m, int str_form) {
+    char *key = malloc((size_t)m->key_size);
+    char *val = malloc((size_t)m->val_size);
+    if (key == NULL || val == NULL) {
+        abort();
+    }
+    ps_grow_byte(g, '{');
+    for (int64_t i = 0; i < m->len; i++) {
+        if (i > 0) {
+            ps_grow_add(g, ", ", 2);
+        }
+        ps_map_key_at(m, i, key);
+        PsBuf kb;
+        memcpy(&kb, key, sizeof kb);
+        repr_dyn_str(g, kb.len, kb.data);
+        ps_grow_add(g, ": ", 2);
+        ps_map_val_at(m, i, val);
+        PsDyn *item = NULL;
+        memcpy(&item, val, sizeof item);
+        dyn_repr_cell(g, item, str_form);
+    }
+    ps_grow_byte(g, '}');
+    free(key);
+    free(val);
+}
+
+static void dyn_repr_cell(PsGrow *g, const PsDyn *v, int str_form) {
+    if (v == NULL || v->tag == PS_DYN_NONE) {
+        ps_grow_add(g, "None", 4);
+        return;
+    }
+    if (v->tag == PS_DYN_BOOL) {
+        if (v->i) {
+            ps_grow_add(g, "True", 4);
+        } else {
+            ps_grow_add(g, "False", 5);
+        }
+        return;
+    }
+    if (v->tag == PS_DYN_INT) {
+        PsBuf t;
+        ps_i64_str(v->i, &t);
+        ps_grow_add(g, t.data, t.len);
+        free(t.data);
+        return;
+    }
+    if (v->tag == PS_DYN_FLOAT) {
+        double f;
+        memcpy(&f, &v->i, sizeof f);
+        PsBuf t;
+        ps_f64_str(f, &t);
+        ps_grow_add(g, t.data, t.len);
+        free(t.data);
+        return;
+    }
+    if (v->tag == PS_DYN_STR) {
+        if (str_form) {
+            ps_grow_add(g, v->b.data, v->b.len);
+        } else {
+            repr_dyn_str(g, v->b.len, v->b.data);
+        }
+        return;
+    }
+    if (v->tag == PS_DYN_LIST) {
+        /* A container's str form is its repr form, so the nested cells
+           keep the quoted str spelling (CPython's `str([...])`). */
+        dyn_repr_seq(g, (PsSeq *)v->p, 0);
+        return;
+    }
+    if (v->tag == PS_DYN_DICT) {
+        dyn_repr_map(g, (PsMap *)v->p, 0);
+        return;
+    }
+    ps_raise_code(PS_RUNTIME);
+}
+
+void ps_dyn_repr(const PsDyn *v, PsBuf *out) {
+    PsGrow g;
+    ps_grow_init(&g);
+    dyn_repr_cell(&g, v, 0);
+    ps_grow_finish(&g, out);
+}
+
+/* The `str()` form print lowers to: the str arm's text, every other arm's
+   repr. A `dict[str, object]` print rides the same rule: the map itself is
+   always its repr, only the nested str arms change. */
+void ps_dyn_str_form(const PsDyn *v, PsBuf *out) {
+    PsGrow g;
+    ps_grow_init(&g);
+    dyn_repr_cell(&g, v, 1);
+    ps_grow_finish(&g, out);
+}
+
+void ps_dyn_map_repr(const PsMap *m, PsBuf *out) {
+    PsGrow g;
+    ps_grow_init(&g);
+    dyn_repr_map(&g, (PsMap *)m, 0);
+    ps_grow_finish(&g, out);
+}
+
+void ps_dyn_seq_repr(const PsSeq *s, PsBuf *out) {
+    PsGrow g;
+    ps_grow_init(&g);
+    dyn_repr_seq(&g, (PsSeq *)s, 0);
+    ps_grow_finish(&g, out);
+}
