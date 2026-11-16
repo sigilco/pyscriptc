@@ -1281,6 +1281,26 @@
       "status": "unprobed"
     },
     {
+      "id": "D75",
+      "seam": "a JSON integer literal too large for i64 parses as the dynamic value's float arm, where CPython's json grows an arbitrary-precision int",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#75",
+      "probe": "probes/divergences/d75_json_dynval_number.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "12345678901234567890123\n-12345678901234567890123\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1.2345678901234568e+22\n-1.2345678901234568e+22\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

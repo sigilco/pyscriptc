@@ -692,7 +692,7 @@ class AbiMixin(EmitterBase):
         if kind in {"str", "bytes"}:
             length, ptr = self._buf_parts(value)
             return [(f"i64 {length}", "i64"), (f"ptr {ptr}", "ptr")]
-        if kind in {"list", "dict", "class", "exc", "func"}:
+        if kind in {"list", "dict", "class", "exc", "func", "dynval"}:
             return [(f"ptr {value}", "ptr")]
         raise IRError(f"cannot pass {kind} to a runtime call")
 

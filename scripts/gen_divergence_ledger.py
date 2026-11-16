@@ -537,6 +537,13 @@ ROWS: list[dict[str, Any]] = [
         "refusal, the mobile compile-time fence and the Windows CRT shell status are cross-target",
     ),
     _row(
+        "D75",
+        "a JSON integer literal too large for i64 parses as the dynamic value's float arm, where CPython's "
+        "json grows an arbitrary-precision int",
+        "d75_json_dynval_number.py",
+        docs=f"{DOC}#75",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
