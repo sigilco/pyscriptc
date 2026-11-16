@@ -42,9 +42,11 @@ from pyscriptc.lower import MAX_LOWER_DEPTH, _ast_depth, _deepest_node, lower_so
 # `code` is the required fence-code subset (the case must carry at least
 # these, in this order among its first fences). `""` pins a clean lower.
 MUST_FENCE: list[tuple[str, str, tuple[str, ...]]] = [
-    # -- annotation edge cases (PS1001/PS1101-PS1106) ------------------------
+    # -- annotation edge cases (PS1001/PS1102-PS1106) ------------------------
     ("ann-call-expression", "def f(x: 1 + 2) -> int:\n    return x\n", ("PS1001",)),
-    ("ann-string-literal", "def f(x: 'int') -> int:\n    return x\n", ("PS1105",)),
+    # Issue #413: a quoted annotation that names a resolvable type lowers,
+    # so the must-fence case is a name the module never defines.
+    ("ann-string-literal", "def f(x: 'NeverDefinedHere') -> int:\n    return x\n", ("PS1105",)),
     ("ann-non-name-subscript", "def f(x: list[0]) -> int:\n    return 0\n", ("PS1001",)),
     ("ann-union-of-three", "def f(x: int | str | None) -> int:\n    return 0\n", ("PS1102",)),
     ("ann-optional", "def f(x: int | None) -> int:\n    return 0\n", ()),

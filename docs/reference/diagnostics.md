@@ -29,7 +29,6 @@ A code is never reused or renumbered; the stability contract is in [Stability an
 | `PS1001` | A parameter, return, or variable needs an annotation the subset can read, or an annotation form has no more specific code. | Annotate the name with int, float, bool, str, bytes, list[T], dict[K, V], tuple[...], or a class the compiler takes. |
 | `PS1003` | An operation received a type the compiler does not accept for it. | Convert the operand explicitly, for example int(flag) before math calls. |
 | `PS1004` | A function with a non-None return type has a path that reaches the end without a return. | End every path with a return or a raise. |
-| `PS1101` | The IR has no tagged union yet, so `A | B` and `Union[A, B]` have no representation. | Narrow the annotation to one arm, or split the function per arm. |
 | `PS1102` | An optional of one type (`T | None`, `Optional[T]`) compiles. `A | B | None` and `Union[A, B, None]` need a multi-arm union, which the IR does not have yet. | Narrow to `T | None` with one arm, or split the function per arm. |
 | `PS1103` | A subscripted annotation such as Mapping[K, V], Sequence[T], Iterator[T], Callable[...], or type[T] is not a container the compiler takes. | Use list[T], dict[K, V], or tuple[...] in the signature. |
 | `PS1104` | object, Any, Protocol, TypeVar, Generic, Callable and ABC bases name dynamic shapes the IR has no slot for. Typing names are annotation-only: they steer compilation, they are never runtime values. | Annotate with the concrete type the function really takes. |

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-15",
-  "commit": "32faf4fa4d74da3d83a0d180c094105e3eeb5470",
+  "commit": "908f3eb966ac810ec958b023569e281bc13380fd",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,13 +15,13 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 74,
+      "yellow": 73,
       "red": 0
     },
     "packages": {
       "green": 2,
-      "yellow": 7,
-      "red": 9
+      "yellow": 8,
+      "red": 8
     }
   },
   "builtins": [
@@ -821,16 +821,6 @@
       ]
     },
     {
-      "label": "`email`",
-      "status": "\ud83d\udfe1",
-      "count": 1,
-      "missing": "the builders, the policy API and the writers, the setters (the subset reads a message, it does not build one), a computed decode flag",
-      "codes": [
-        "PS1003",
-        "PS2001"
-      ]
-    },
-    {
       "label": "`selectors`",
       "status": "\ud83d\udfe1",
       "count": 1,
@@ -845,10 +835,9 @@
       "label": "`typing`, `typing_extensions`",
       "status": "\ud83d\udfe1",
       "count": 2,
-      "missing": "Any annotation, bare Callable, multi-arm union, optional of a multi-arm union, Literal annotation, Self return, a nominal subclass that adds a field, a subclass value in a base-annotated parameter, TypeAlias declaration, PEP 695 type alias, PEP 695 TypeVar parameter, forward reference string, TypedDict class base, NamedTuple class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read",
+      "missing": "Any annotation, bare Callable, optional of a multi-arm union, multi-arm union as a later arm's value, Literal annotation, Self return, a nominal subclass that adds a field, a subclass value in a base-annotated parameter, PEP 695 type alias, PEP 695 TypeVar parameter, unresolvable forward reference string, TypedDict class base, NamedTuple class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read",
       "codes": [
         "PS1003",
-        "PS1101",
         "PS1102",
         "PS1103",
         "PS1104",
@@ -891,40 +880,40 @@
       "version": "1.2.4",
       "status": "\ud83d\udd34",
       "ratio": "45/75",
-      "blocking": "unlowered-call (24), construct-other (24), name-resolution (23)",
+      "blocking": "unlowered-call (25), name-resolution (24), construct-other (24)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "246/641",
-      "blocking": "name-resolution (173), construct-other (121), field-lookup (51)",
+      "ratio": "250/641",
+      "blocking": "name-resolution (183), construct-other (121), field-lookup (64)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
       "name": "h11",
       "version": "0.16.0",
       "status": "\ud83d\udd34",
-      "ratio": "74/133",
-      "blocking": "unlowered-type-name (17), reflection (16), generic-alias (14)",
+      "ratio": "71/133",
+      "blocking": "unlowered-type-name (20), reflection (17), generic-alias (14)",
       "codes": "PS2002, PS1106, PS1203"
     },
     {
       "name": "idna",
       "version": "3.20",
       "status": "\ud83d\udd34",
-      "ratio": "37/56",
-      "blocking": "keyword-args (22), name-resolution (13), unlowered-call (8)",
-      "codes": "PS2002, PS2003, PS1101"
+      "ratio": "35/56",
+      "blocking": "keyword-args (47), name-resolution (31), type-mismatch (13)",
+      "codes": "PS2003, PS2002, PS1003"
     },
     {
       "name": "iniconfig",
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
-      "ratio": "13/34",
-      "blocking": "type-mismatch (5), union-types (4), call-arity (4)",
-      "codes": "PS2002, PS1003, PS1101"
+      "ratio": "10/34",
+      "blocking": "type-mismatch (5), call-arity (4), construct-other (3)",
+      "codes": "PS2002, PS1003, PS2003"
     },
     {
       "name": "jmespath",
@@ -938,40 +927,40 @@
       "name": "pyjwt",
       "version": "2.15.1",
       "status": "\ud83d\udfe1",
-      "ratio": "51/171",
-      "blocking": "name-resolution (17), union-types (14), unlowered-type-name (11)",
-      "codes": "PS2002, PS1101, PS2001"
+      "ratio": "47/171",
+      "blocking": "name-resolution (18), unlowered-type-name (18), construct-other (5)",
+      "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "mdurl",
       "version": "0.1.2",
       "status": "\ud83d\udfe1",
       "ratio": "6/12",
-      "blocking": "name-resolution (5), construct-other (3), unlowered-call (3)",
+      "blocking": "name-resolution (15), construct-other (7), call-arity (4)",
       "codes": "PS2002, PS2003, PS2001"
     },
     {
       "name": "packaging",
       "version": "26.3",
-      "status": "\ud83d\udd34",
-      "ratio": "284/558",
-      "blocking": "name-resolution (101), unlowered-type-name (94), field-lookup (70)",
+      "status": "\ud83d\udfe1",
+      "ratio": "279/558",
+      "blocking": "name-resolution (118), unlowered-type-name (98), field-lookup (82)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "75/132",
-      "blocking": "name-resolution (30), construct-other (21), unlowered-type-name (19)",
+      "ratio": "77/132",
+      "blocking": "name-resolution (30), unlowered-type-name (21), construct-other (21)",
       "codes": "PS2002, PS1106, PS1003"
     },
     {
       "name": "platformdirs",
       "version": "4.13.0",
       "status": "\ud83d\udfe1",
-      "ratio": "155/388",
-      "blocking": "construct-other (63), name-resolution (63), optional-types (33)",
+      "ratio": "135/388",
+      "blocking": "name-resolution (65), construct-other (63), optional-types (33)",
       "codes": "PS2002, PS1102, PS2001"
     },
     {

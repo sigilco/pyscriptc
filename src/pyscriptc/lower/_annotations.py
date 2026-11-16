@@ -223,6 +223,12 @@ class AnnotationMixin:
     def _annotation(self, node: ast.AST) -> dict[str, Any]:
         if isinstance(node, ast.Name) and node.id in self.tv_subst:
             return self.tv_subst[node.id]
+        if isinstance(node, ast.Name) and node.id in self.type_alias_types:
+            # A module-level type alias (issue #413): `X: TypeAlias = T`
+            # binds the name to the annotation it spells, so an annotation
+            # that names the alias lowers as the aliased type. The value
+            # reads lazily, so an alias may name a class collected later.
+            return self._type_alias_type(node)
         if isinstance(node, ast.Name) and node.id in self.typevars:
             bound = self.typevars[node.id]
             if bound is not None:
@@ -232,10 +238,17 @@ class AnnotationMixin:
             opt = self._optional_pipe(node)
             if opt is not None:
                 return opt
-            self.fail(node, "PS1101", "union types are not in the IR")
+            return self._union_annotation(node)
         formed = self._typing_annotation(node)
         if formed is not None:
             return formed
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            # A quoted forward reference (issue #413): the text names an
+            # annotation the module defines by the time the signature pass
+            # runs (every class is collected first), so the string parses
+            # and lowers through the ordinary annotation path. One that
+            # never resolves keeps the PS1105 fence naming the text.
+            return self._forward_ref_annotation(node)
         if isinstance(node, ast.Attribute):
             # `typing.NoReturn` / `typing.Never` (issue #645): the qualified
             # spelling of the bottom type.
@@ -321,6 +334,112 @@ class AnnotationMixin:
         if inst is not None:
             return inst
         self._fail_annotation(node)
+
+    def _is_type_alias_stmt(self, stmt: ast.AnnAssign) -> bool:
+        """True for a PEP 613 `X: TypeAlias = T` statement (issue #413).
+
+        The annotation is the erased `TypeAlias` name itself, and the value
+        is the type the alias spells. Both spellings bind: `from typing
+        import TypeAlias` and `from typing_extensions import TypeAlias`.
+        """
+        node = stmt.annotation
+        if isinstance(node, ast.Name):
+            return self.type_aliases.get(node.id) == "TypeAlias"
+        if isinstance(node, ast.Attribute):
+            resolved = self._resolve_module(node)
+            return resolved is not None and resolved[3] == "erased" and resolved[2] == "TypeAlias"
+        return False
+
+    def _declare_type_alias(self, name: str, value: ast.expr, stmt: ast.AnnAssign) -> None:
+        """Bind `name` to the annotation `value` spells (issue #413).
+
+        The alias is annotation-only: it binds a name in the module's
+        annotation namespace, never a runtime value. The value is stored as
+        its syntax and read lazily, so an alias may name a class defined
+        later in the module (the quoted forward-reference spelling covers
+        the remaining case). The aliased type is the erased type of the
+        expression, so `X: TypeAlias = str | bytes` binds the union's
+        first arm and an annotation that names `X` lowers as that arm.
+        """
+        if name in self.type_alias_types:
+            self.fail(stmt, "PS2002", f"{name} is already bound")
+        self.type_alias_types[name] = value
+        self.declared.add(name)
+
+    def _type_alias_type(self, node: ast.Name) -> dict[str, Any]:
+        """The erased type an alias name stands for (issue #413).
+
+        The resolving chain is visited, not recursed into blind: a cycle
+        (`A: TypeAlias = "B"`, `B: TypeAlias = "A"`) fences with PS1105
+        naming the entry alias instead of exhausting the stack. The chain
+        is the set of aliases being resolved right now, so a hop through a
+        quoted forward reference (`A: TypeAlias = "B"`) counts too.
+        """
+        if node.id in self.type_alias_stack:
+            self.fail(node, "PS1105", f"the type alias {node.id} is part of a cycle: it names itself back")
+        self.type_alias_stack.add(node.id)
+        try:
+            return self._annotation(self.type_alias_types[node.id])
+        finally:
+            self.type_alias_stack.discard(node.id)
+
+    def _forward_ref_annotation(self, node: ast.Constant) -> dict[str, Any]:
+        """`'Node'` parses and lowers as the annotation it spells (issue #413).
+
+        CPython defers the text to module end; the signature pass already
+        runs there (every class body is collected before the first
+        signature lowers), so the quoted name resolves through the same
+        tables the unquoted spelling uses. A parse failure or a name the
+        module never defines keeps the PS1105 fence, naming the text —
+        the quoted spelling never becomes a value and never silently
+        widens: a form the parse cannot read is refused, not guessed.
+        """
+        text = node.value
+        try:
+            parsed = ast.parse(text, mode="eval")
+        except SyntaxError:
+            self.fail(node, "PS1105", f"the forward reference {text!r} does not parse as an annotation")
+        body = parsed.body
+        if isinstance(body, ast.Constant) and isinstance(body.value, str):
+            # `'N'` inside `'N'` quotes a string, not a type.
+            self.fail(node, "PS1105", f"the forward reference {text!r} quotes a string, not a type")
+        try:
+            return self._annotation(body)
+        except Fence as exc:
+            if exc.code == "PS1106":
+                self.fail(node, "PS1105", f"the forward reference {text!r} never resolves: no definition by module end")
+            raise
+
+    def _union_annotation(self, node: ast.BinOp) -> dict[str, Any]:
+        """A multi-arm union without a `None` arm erases to its first arm (issue #413).
+
+        The annotation is annotation-only: the emitted binary carries the
+        first arm's layout, so value flow lowers exactly like the
+        hand-narrowed spelling of that arm. The union is not a runtime
+        value and never widens a slot: every value crossing an erased
+        union's slot still carries the first arm's type and a value of
+        another arm fences at its use site with PS1003. The
+        `None`-armed floor keeps PS1102: an optional of a multi-arm union
+        still has no representation.
+        """
+        arms = self._union_arms(node)
+        return self._annotation(arms[0])
+
+    def _erased_union(self, arms: list[ast.expr], node: ast.AST) -> dict[str, Any]:
+        """The erased type of a `Union[...]` spelling: its first arm (issue #413)."""
+        return self._annotation(arms[0])
+
+    def _union_arms(self, node: ast.AST) -> list[ast.expr]:
+        """The arms of a `|` union, left to right."""
+        arms: list[ast.expr] = []
+        pending: list[ast.AST] = [node]
+        while pending:
+            cur = pending.pop(0)
+            if isinstance(cur, ast.BinOp) and isinstance(cur.op, ast.BitOr):
+                pending = [cur.left, *pending, cur.right]
+            else:
+                arms.append(cur)
+        return arms
 
     def _any_annotation(self, node: ast.AST) -> dict[str, Any]:
         """The value slot of an Any container annotation (issue #781).
@@ -667,7 +786,9 @@ class AnnotationMixin:
                         return self._opt_type(self._annotation(parts[1 - i]), node)
             if any(isinstance(part, ast.Constant) and part.value is None for part in parts):
                 self.fail(node, "PS1102", "an optional of a multi-arm union is not in the IR")
-            self.fail(node, "PS1101", "union types are not in the IR")
+            # A multi-arm union without a `None` arm erases to its first arm
+            # (issue #413), the same way the `A | B` spelling does.
+            return self._erased_union(parts, node)
         self.fail(node, "PS1103", f"{alias} is not a lowered type in the IR")
 
     def _typing_alias(self, node: ast.AST) -> str | None:

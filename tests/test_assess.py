@@ -65,10 +65,12 @@ def pure_calc(x: int, y: int) -> int:
 
 MIXED_LIBRARY_B = """
 import requests
+from typing import Awaitable
+
 from .mod_a import pure_calc
 
 
-def with_union(x: int | str) -> int:
+def with_construct(x: Awaitable[int]) -> int:
     return pure_calc(1, 2)
 """
 
@@ -256,8 +258,10 @@ def test_assess_pure_python_library_directory(tmp_path: Path, capsys: pytest.Cap
     assert len(mod_b["groupedFences"]["untyped-import"]) >= 1
     assert len(mod_b["groupedFences"]["unsupported-construct"]) >= 1
 
-    # Stays blocked should contain the union type fence
-    assert any("union" in blk["family"] or "union" in blk["message"] for blk in data["islandRouting"]["staysBlocked"])
+    # Stays blocked should contain the generic-alias fence
+    assert any(
+        "generic" in blk["family"] or "Awaitable" in blk["message"] for blk in data["islandRouting"]["staysBlocked"]
+    )
 
 
 def test_assess_skips_a_pyinstaller_hook_file(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -402,10 +406,10 @@ def test_assess_import_level_island_share(tmp_path: Path, capsys: pytest.Capture
 
 
 def test_assess_capping_and_all_flag(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
-    # A script with 5 unsupported constructs (5 unions)
-    unions = "\n".join(f"def f{i}(x: int | str) -> int:\n    return 0" for i in range(5))
+    # A script with 5 unsupported constructs (5 unlowered generic aliases)
+    aliases = "\n".join(f"def f{i}(x: Awaitable[int]) -> int:\n    return 0" for i in range(5))
     script = tmp_path / "many_fences.py"
-    script.write_text(unions + "\n", encoding="utf-8")
+    script.write_text("from typing import Awaitable\n\n" + aliases + "\n", encoding="utf-8")
 
     # Default capped report
     code_capped = cli.main(["assess", str(script)])
@@ -418,10 +422,10 @@ def test_assess_capping_and_all_flag(tmp_path: Path, capsys: pytest.CaptureFixtu
     assert code_all == 0
     text_all = capsys.readouterr().out
     assert "use --all for full list" not in text_all
-    assert "line 1:" in text_all
-    assert "line 7:" in text_all
+    assert "line 3:" in text_all
+    assert "line 5:" in text_all
     assert "line 9:" in text_all
-    assert "line 7:" not in text_capped
+    assert "line 9:" not in text_capped
 
 
 _IR_KEYS = frozenset({"kind", "functions", "classes", "body", "span"})

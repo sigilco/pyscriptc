@@ -90,8 +90,6 @@ _HINTS: dict[str, str] = {
     "typing-value": "A typing name is used as a runtime value. Typing names steer the lowering; keep them in "
     "annotations.",
     "uninitialized-field": "Give the field an initial value in __init__ or at the assignment.",
-    "union-types": "Narrow the annotation to one arm, or split the function per arm. A tagged union is a "
-    "compiler epic.",
     "unlowered-call": "Call a lowered function, or rewrite the call with lowered constructs.",
     "unlowered-type-name": "Replace the alias or imported name with a lowered type, or lower the class it names.",
     "value-type": "Use list[T], dict[K, V] or a lowered class for this annotation.",
@@ -104,8 +102,6 @@ def family_of(code: str, message: str) -> str:
         return "reflection"
     if re.search(r"keyword forwarding \(\*\*kwargs\)", message) is not None:
         return "reflection"
-    if code == "PS1101":
-        return "union-types"
     if code == "PS1102":
         return "optional-types"
     if code == "PS1103":

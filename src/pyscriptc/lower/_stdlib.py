@@ -1121,6 +1121,9 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 if stmt.value is None:
                     self._annotation(stmt.annotation)  # a bare declaration binds nothing
                     return
+                if self._is_type_alias_stmt(stmt):
+                    self._declare_type_alias(stmt.target.id, stmt.value, stmt)
+                    return
                 typ = self._annotation(stmt.annotation)
                 is_call = isinstance(stmt.value, ast.Call)
                 shape = stmt.value.func if is_call else None

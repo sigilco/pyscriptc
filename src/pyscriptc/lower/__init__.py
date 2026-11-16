@@ -420,6 +420,14 @@ class Lowerer(
         # that local binds keywords like a call to a module-level def. A
         # rebound local carries a different type object and loses the entry.
         self.local_sigs: dict[int, tuple[dict[str, Any], list[dict[str, Any]]]] = {}
+        # The value a module-level type alias spells (issue #413): the name
+        # a `X: TypeAlias = T` statement binds, and the annotation syntax an
+        # annotation that names `X` lowers as. The value is the syntax, not
+        # the lowered type, so an alias may name a class collected later.
+        self.type_alias_types: dict[str, ast.expr] = {}
+        # The aliases being resolved right now (issue #413): a cycle in the
+        # alias chain fences instead of recursing forever.
+        self.type_alias_stack: set[str] = set()
         # User exception classes take codes after the builtin table (1–8).
         self.exc_n = USER_EXC_BASE
         # TypeVar erasure (tier-2): name -> bound type or None when unbound.

@@ -153,11 +153,16 @@ def test_r26_optional_default_and_reassign(tmp_path: Path) -> None:
     assert got.stdout == oracle(path, "run")
 
 
-def test_r26_union_of_two_values_still_fences(tmp_path: Path) -> None:
+def test_r26_union_of_two_values_erases_to_the_first_arm(tmp_path: Path) -> None:
+    # Issue #413: a multi-arm union without a `None` arm erases to its
+    # first arm; an optional of a multi-arm union still fences.
     path = write_case(tmp_path, "union2.py", "def f(x: int | str) -> int:\n    return 1\n")
     got = run_cli("compile", str(path), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "u.ir.json"))
+    assert got.returncode == 0, got.stderr
+    path = write_case(tmp_path, "union3.py", "def f(x: int | str | None) -> int:\n    return 1\n")
+    got = run_cli("compile", str(path), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "u3.ir.json"))
     assert got.returncode == 3
-    assert "union types are not in the IR" in got.stderr
+    assert "an optional of a multi-arm union is not in the IR" in got.stderr
 
 
 def test_r26_optional_attribute_narrowing(tmp_path: Path) -> None:

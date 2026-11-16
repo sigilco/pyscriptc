@@ -844,8 +844,11 @@ y: int | None = first(xs)''',
 no = [
   ["Any annotation", 'y: typing.Any = n', "PS1104"],
   ["bare Callable", 'y: typing.Callable = None', "PS1104"],
-  ["multi-arm union", 'y: typing.Union[int, str] = n', "PS1101"],
   ["optional of a multi-arm union", 'y: typing.Union[int, str, None] = n', "PS1102"],
+  ["multi-arm union as a later arm's value", '''def take(x: int | str) -> int:
+    return 0
+@@
+y: int = take(1.5)''', "PS1003"],
   ["Literal annotation", 'v: typing.Literal["a"] = "a"', "PS1103"],
   ["Self return", '''from typing import Self
 class B:
@@ -875,10 +878,6 @@ def take(b: Base) -> str:
 @@
 s = Sub()
 y: str = take(s)''', "PS1003"],
-  ["TypeAlias declaration", '''from typing import TypeAlias
-Ids: TypeAlias = list[int]
-@@
-y: list[int] = []''', "PS1103"],
   ["PEP 695 type alias", '''type Ids = list[int]
 @@
 y: list[int] = []''', "PS2002"],
@@ -886,8 +885,8 @@ y: list[int] = []''', "PS2002"],
     return xs[0]
 @@
 y: int = g(xs)''', "PS1106"],
-  ["forward reference string", '''class N2:
-    nxt: "N2"
+  ["unresolvable forward reference string", '''def later(x: "NeverDefined") -> int:
+    return 0
 @@
 y: int = 0''', "PS1105"],
   ["TypedDict class base", '''from typing import TypedDict

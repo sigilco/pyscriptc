@@ -13,7 +13,6 @@ ALL_EMITTED_CODES = frozenset(
         "PS1001",
         "PS1003",
         "PS1004",
-        "PS1101",
         "PS1102",
         "PS1103",
         "PS1104",

@@ -1,20 +1,19 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "add4324eb3e41304371b4bf8178fc41ef1a33a10",
+  "commit": "908f3eb966ac810ec958b023569e281bc13380fd",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 48,
+    "total_fences": 47,
     "unique_codes": [
       "PS1001",
       "PS1003",
       "PS1103",
       "PS1104",
-      "PS1105",
       "PS1106",
       "PS1202",
       "PS2001",
@@ -170,12 +169,6 @@
       "title": "Type annotations and inference",
       "description": "pyscriptc requires type annotations on function parameters, return types, and local variable declarations that cannot be inferred from literals or lowered calls.",
       "fences": [
-        {
-          "module": "builtins",
-          "construct": "forward class reference",
-          "code": "PS1105",
-          "diagnostic": "the forward reference 'Config' is not lowered"
-        },
         {
           "module": "builtins",
           "construct": "function without return annotation",

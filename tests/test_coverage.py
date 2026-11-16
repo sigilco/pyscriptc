@@ -25,7 +25,7 @@ SOURCE = "\n".join(
         "def opt(x: Optional[int]) -> int:",
         "    return 1",
         "",
-        "def uni(x: Union[int, str]) -> int:",
+        "def uni(x: int | str | None) -> int:",
         "    return 1",
         "",
         "def alias(x: Awaitable[int]) -> int:",
@@ -58,8 +58,7 @@ def fence_codes(source: str) -> dict[str, str]:
 @pytest.mark.parametrize(
     ("annotation", "code"),
     [
-        ("int | str", "PS1101"),
-        ("Union[int, str]", "PS1101"),
+        ("int | str | None", "PS1102"),
         ("Awaitable[int]", "PS1103"),
         ("Any", "PS1104"),
         ("'Later'", "PS1105"),
@@ -69,6 +68,44 @@ def fence_codes(source: str) -> dict[str, str]:
 def test_annotation_fences_have_specific_codes(annotation: str, code: str) -> None:
     source = f"from typing import Any, Awaitable, Optional, Union\n\ndef f(x: {annotation}) -> int:\n    return 1\n"
     assert fence_codes(source) == {"f": code}
+
+
+def test_union_annotation_erases_to_the_first_arm() -> None:
+    # Issue #413: a multi-arm union without a `None` arm erases to its
+    # first arm, so neither spelling fences any more.
+    assert fence_codes("def f(x: int | str) -> int:\n    return 1\n") == {}
+    assert fence_codes("from typing import Union\n\ndef f(x: Union[int, str]) -> int:\n    return 1\n") == {}
+
+
+def test_forward_reference_resolves_at_module_end() -> None:
+    # Issue #413: a quoted annotation parses at the signature pass, when
+    # every class body is collected, so a name the module defines lowers.
+    assert fence_codes("class Node:\n    a: int\n\ndef f() -> 'Node':\n    return Node()\n") == {}
+    # One the module never defines keeps the fence, naming the text.
+    assert fence_codes("def f(x: 'Later') -> int:\n    return 1\n") == {"f": "PS1105"}
+
+
+def test_type_alias_binds_the_name_it_spells() -> None:
+    # Issue #413: `X: TypeAlias = T` binds the alias name as an erased
+    # annotation, so an annotation naming `X` lowers as `T`.
+    source = (
+        "from typing import TypeAlias\n\nIds: TypeAlias = list[int]\n\ndef f(xs: Ids) -> int:\n    return len(xs)\n"
+    )
+    assert fence_codes(source) == {}
+    # The alias reads lazily, so it may name a class the module defines
+    # after the alias statement.
+    late = (
+        "from typing import TypeAlias\n\n"
+        "NodeAlias: TypeAlias = 'Node'\n\n"
+        "class Node:\n    a: int\n\n"
+        "def f(n: NodeAlias) -> int:\n    return n.a\n"
+    )
+    assert fence_codes(late) == {}
+    # A cycle in the alias chain fences instead of recursing forever.
+    cyclic = (
+        "from typing import TypeAlias\n\nA: TypeAlias = 'B'\nB: TypeAlias = 'A'\n\ndef f(x: A) -> int:\n    return 1\n"
+    )
+    assert fence_codes(cyclic) == {"f": "PS1105"}
 
 
 def test_object_erases_to_the_dynamic_value() -> None:
@@ -88,7 +125,7 @@ def test_coverage_json_reports_each_fence(tmp_path: Path) -> None:
     report = json.loads(got.stdout)
     assert report["schemaVersion"] == 2
     families = {entry["family"] for entry in report["fences"]}
-    assert {"union-types", "generic-alias", "dynamic-annotation", "forward-reference"} <= families
+    assert {"optional-types", "generic-alias", "dynamic-annotation", "forward-reference"} <= families
     assert "except-as" in families
     assert report["summary"]["definitions"] == 7
     assert report["summary"]["nativeDefinitions"] == 2
@@ -111,11 +148,11 @@ def test_coverage_json_reports_each_fence(tmp_path: Path) -> None:
 
 
 def test_coverage_text_has_frame_and_hint(tmp_path: Path) -> None:
-    path = write_case(tmp_path, "one.py", "def f(x: int | str) -> int:\n    return 1\n")
+    path = write_case(tmp_path, "one.py", "def f(x: int | str | None) -> int:\n    return 1\n")
     got = run_cli("coverage", str(path))
     assert got.returncode == 0, got.stderr
-    assert "PS1101" in got.stdout
-    assert "family: union-types" in got.stdout
+    assert "PS1102" in got.stdout
+    assert "family: optional-types" in got.stdout
     assert "hint:" in got.stdout
     assert "^" in got.stdout
     assert "(0 native)" in got.stdout
@@ -156,20 +193,20 @@ def test_coverage_walks_a_directory(tmp_path: Path) -> None:
     pkg = tmp_path / "pkg"
     pkg.mkdir()
     (pkg / "__init__.py").write_text("", encoding="utf-8")
-    (pkg / "a.py").write_text("def f(x: int | str) -> int:\n    return 1\n", encoding="utf-8")
+    (pkg / "a.py").write_text("def f(x: int | str | None) -> int:\n    return 1\n", encoding="utf-8")
     (pkg / "b.py").write_text("def g(x: 'B') -> int:\n    return 1\n", encoding="utf-8")
     got = run_cli("coverage", str(pkg), "--json")
     assert got.returncode == 0, got.stderr
     report = json.loads(got.stdout)
     assert report["summary"]["files"] == 3
-    assert {"union-types", "forward-reference"} <= {entry["family"] for entry in report["fences"]}
+    assert {"optional-types", "forward-reference"} <= {entry["family"] for entry in report["fences"]}
 
 
 def test_compile_still_fails_closed_on_a_fence(tmp_path: Path) -> None:
-    path = write_case(tmp_path, "opt.py", "def f(x: int | str) -> int:\n    return 1\n")
+    path = write_case(tmp_path, "opt.py", "def f(x: int | str | None) -> int:\n    return 1\n")
     got = run_cli("compile", str(path), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "opt.ir.json"))
     assert got.returncode == 3
-    assert "PS1101" in got.stderr
+    assert "PS1102" in got.stderr
 
 
 def test_coverage_walks_a_program_graph(tmp_path: Path) -> None:
@@ -397,9 +434,9 @@ def test_a_cycle_fence_carries_its_own_family(tmp_path: Path) -> None:
 
 
 def test_explain_known_and_unknown_code() -> None:
-    got = run_cli("explain", "ps1101")
+    got = run_cli("explain", "ps1102")
     assert got.returncode == 0
-    assert "PS1101" in got.stdout
+    assert "PS1102" in got.stdout
     assert "Fix:" in got.stdout
     missing = run_cli("explain", "PS9999")
     assert missing.returncode == 2

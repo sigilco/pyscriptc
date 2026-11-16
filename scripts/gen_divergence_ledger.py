@@ -522,9 +522,9 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D73",
-        "the email read subset: get_payload() on a multipart part raises ValueError (CPython answers the list of "
-        "the child parts) and an encoded word in an undecoded charset keeps the raw word",
-        "d73_email.py",
+        "a union annotation erases to its first arm, so a call that passes a later arm's value stops the "
+        "compile with PS1003 where CPython runs the program",
+        "d73_union_first_arm.py",
         docs=f"{DOC}#73",
     ),
     _row(

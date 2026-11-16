@@ -110,7 +110,8 @@ There is no `typing` module object in the binary.
 | --- | --- |
 | `list[int]`, `dict[str, int]`, `set[int]`, `tuple[int, str]`, `tuple[int, ...]` | compiles; the annotation fixes the element layout |
 | `T \| None`, `Optional[T]` | compiles as a tagged optional; `is None` narrowing drives the branches |
-| `A \| B` (neither arm `None`), `Union[A, B, None]` | unsupported (`PS1101` / `PS1102`) |
+| `A \| B` (neither arm `None`), `Union[A, B]` | compiles as an erased annotation: the slot carries the first arm's layout, and a value of another arm fences at the call site (`PS1003`) |
+| `A \| B \| None`, `Union[A, B, None]` | unsupported (`PS1102`): an optional of a multi-arm union has no representation |
 | `Final`, `Final[int]`, `ClassVar[T]` | the inner annotation compiles; the checker enforces no reassignment |
 | `Annotated[int, "..."]` | the first argument compiles, the rest is dropped |
 | `Callable[[int], int]` | compiles over functions and lambdas; bare `Callable` is unsupported (`PS1104`) |
@@ -118,6 +119,7 @@ There is no `typing` module object in the binary.
 | `Mapping[K, V]`, `MutableMapping[K, V]`, `MutableSequence[T]`, `Collection[T]`, `AbstractSet[T]`, `MutableSet[T]` | compiles as the concrete container (`dict[K, V]`, `list[T]`, `set[T]`); the argument must be that container, so a `set` passed to a `Collection[T]` parameter is refused (`PS1003`) |
 | `collections.abc` or `typing` names used as values (`isinstance(v, Sequence)`, `print(Mapping)`) | unsupported (`PS2002`, or `PS2001` inside `isinstance`); they are annotation-only |
 | `TypeVar("T")` generic functions and `Generic[T]` classes | compiles, specialized per call site, including `T \| None`, `Callable[[T], U]` and a TypeVar key in `dict[K, V]` or `Mapping[K, V]`; a bound `TypeVar` erases to its bound; constraints and variance flags are accepted and not enforced (as in CPython) |
+| `X: TypeAlias = T` (PEP 613) | compiles as an erased annotation: the alias binds the name to the type it spells, so an annotation naming `X` lowers as that type |
 | PEP 695 `def f[T]`, `ParamSpec`, `TypeVar(..., default=...)` | unsupported (`PS1106`, `PS2003`) |
 | `Protocol`, `ABC`, `@abstractmethod`, `@overload` | the annotation is checked, then dropped; no runtime enforcement (divergence 14) |
 | a base-annotated slot holding a field-less nominal subclass (`b: Base = Sub()`, `def make() -> Base: return Sub()`) | compiles; the slot keeps the subclass, so the overridden method answers the subclass's body (divergence 70). A subclass that adds a field, a factory over two subclasses, or a base-annotated parameter receiving a subclass fences `PS1003` |
@@ -127,7 +129,7 @@ There is no `typing` module object in the binary.
 | `dataclasses.dataclass` with no options | compiles as a native record; `frozen=True` and other decorators are unsupported (`PS1201`) |
 | `cast(t, v)`, `get_type_hints`, `__annotations__` reads | unsupported (`PS2002`); write the type on an annotated local instead |
 | `isinstance(v, list[int])` | unsupported (`PS2001`); runtime checks take scalar and class names only |
-| quoted forward references (`"Node"`) | unsupported (`PS1105`); define the class first and write the name unquoted |
+| quoted forward references (`"Node"`) | compiles when the module defines the name by module end; one that never resolves fences (`PS1105`) |
 | a class of another module of the same tree, spelled `mod.Thing` | compiles; the qualified spelling resolves through the same export table the call path uses, so `def use(t: mod.Thing)` and `mod.Thing(...)` agree on the class |
 
 Constructs with runtime meaning beyond their annotation (pydantic models, `attrs` validators, anything that reads annotations at run time) are not typing failures: run them through embedded CPython (fallback mode), see [Libraries and fallback mode](libraries.md).

@@ -69,10 +69,10 @@ def test_coverage_fail_on(tmp_path: Path, source: str, mode: str | None, code: i
 
 
 def test_compile_single_fence_output_unchanged(tmp_path: Path) -> None:
-    path = write_case(tmp_path, "single.py", "def f(x: int | str) -> int:\n    return 1\n")
+    path = write_case(tmp_path, "single.py", "def f(x: int | str | None) -> int:\n    return 1\n")
     got = run_cli("compile", str(path), "--skip-check")
     assert got.returncode == 3
-    assert "PS1101" in got.stderr
+    assert "PS1102" in got.stderr
     assert "more fence" not in got.stderr
 
 

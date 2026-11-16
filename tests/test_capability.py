@@ -24,7 +24,7 @@ CAPABILITY_SOURCE = "\n".join(
         "def native(x: int) -> int:",
         "    return x",
         "",
-        "def optional(x: Union[int, str]) -> int:",
+        "def optional(x: Union[int, str, None]) -> int:",
         "    return 1",
         "",
         "def signature(fn: int) -> int:",

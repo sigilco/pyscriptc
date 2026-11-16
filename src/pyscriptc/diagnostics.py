@@ -86,12 +86,6 @@ _ENTRIES = (
         "End every path with a return or a raise.",
     ),
     Diagnostic(
-        "PS1101",
-        "union annotation",
-        "The IR has no tagged union yet, so `A | B` and `Union[A, B]` have no representation.",
-        "Narrow the annotation to one arm, or split the function per arm.",
-    ),
-    Diagnostic(
         "PS1102",
         "Optional annotation",
         "An optional of one type (`T | None`, `Optional[T]`) compiles. "

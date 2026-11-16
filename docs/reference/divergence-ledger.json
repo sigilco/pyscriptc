@@ -1251,23 +1251,23 @@
     },
     {
       "id": "D73",
-      "seam": "the email read subset: get_payload() on a multipart part raises ValueError (CPython answers the list of the child parts) and an encoded word in an undecoded charset keeps the raw word",
+      "seam": "a union annotation erases to its first arm, so a call that passes a later arm's value stops the compile with PS1003 where CPython runs the program",
       "listed": true,
       "docs": "docs/reference/divergences.md#73",
-      "probe": "probes/divergences/d73_email.py",
+      "probe": "probes/divergences/d73_union_first_arm.py",
       "cpython": {
         "stage": "run",
         "exit": 0,
-        "stdout": "1\n=?koi8-r?Q?test?=\nbody\n\n",
+        "stdout": "1\n",
         "stderr": ""
       },
       "pyscriptc": {
-        "stage": "run",
-        "exit": 0,
-        "stdout": "ValueError\n=?koi8-r?Q?test?=\nbody\n\n",
-        "stderr": ""
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d73_union_first_arm.py:12:11: PS1003: argument x of take has the wrong type\n      print(take(\"five\"))\n            ^\n"
       },
-      "status": "divergent"
+      "status": "fenced"
     },
     {
       "id": "AUDIT-D1",
