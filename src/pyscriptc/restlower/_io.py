@@ -22,6 +22,7 @@ from pyscriptc.restlower._shared import (
     _node_type,
     _node_type_kind,
     _t_leaf,
+    _type_elem,
     _type_kind,
     _type_name,
     _type_value,
@@ -77,11 +78,11 @@ def _container_repr(lo: Any, arg: dict[str, Any], span: dict[str, Any]) -> dict[
         spec_arg = _const_text(spec, "str", span)
         return lo._abi_call("builtins", "map_repr", [arg, spec_arg], _t_leaf("str"), "ps_map_repr", span)
     if kind == "list":
-        if _type_kind(typ["elem"]) == "dynval":
+        if _type_kind(_type_elem(typ)) == "dynval":
             # A `list[object]` (issue #1267): the elements are the tagged
             # cells, so the walk is the dynamic one.
             return lo._abi_call("builtins", "dyn_seq_repr", [arg], _t_leaf("str"), "ps_dyn_seq_repr", span)
-        elem_spec = type_spec(typ["elem"], lo.classes)
+        elem_spec = type_spec(_type_elem(typ), lo.classes)
         if elem_spec is None:
             return None
         spec_arg = _const_text(elem_spec, "str", span)
