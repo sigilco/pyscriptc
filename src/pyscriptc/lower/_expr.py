@@ -655,6 +655,11 @@ class ExprMixin(ExprCompareMixin):
             # annotation, so `[0, *xs]` and `[*xs, 3]` both lower.
             return self._starred_list(node, span, expect)
         elem_expect = expect["elem"] if expect and expect["kind"] == "list" else None
+        if expect is not None and _type_kind(expect) == "dynval":
+            # Issue #1267: a list boxed into the dynamic value's sum holds
+            # the tagged cells, so the elements box the way a `list[object]`
+            # display does and the container's own type is `list[dynval]`.
+            elem_expect = expect
         elems = [self._expr(elt, elem_expect) for elt in node.elts]
         elem = elems[0]["type"]
         for item in elems[1:]:
@@ -664,7 +669,7 @@ class ExprMixin(ExprCompareMixin):
         if expect and expect["kind"] == "list":
             if _any_contains(expect) and not _any_contains(typ):
                 # Issue #781: a concrete display satisfies an Any container
-                # annotation; the display's element type is the answer.
+                # annotation; the display's type is the answer.
                 return _list_node(elems, typ, span)
             self._expect(node, typ, expect, "list")
         return _list_node(elems, typ, span)
@@ -743,6 +748,12 @@ class ExprMixin(ExprCompareMixin):
             return _dict_node([], expect, span)
         key_expect = expect["key"] if expect and expect["kind"] == "dict" else None
         val_expect = expect["value"] if expect and expect["kind"] == "dict" else None
+        if expect is not None and _type_kind(expect) == "dynval":
+            # Issue #1267: a dict boxed into the dynamic value's sum holds
+            # the tagged cells, so the values box the way a `dict[str,
+            # object]` display does and the container's own value type is
+            # the sum.
+            val_expect = expect
         pairs = []
         for key_node, val_node in zip(node.keys, node.values, strict=True):
             assert key_node is not None

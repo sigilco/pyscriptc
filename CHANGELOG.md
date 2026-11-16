@@ -1,8 +1,8 @@
 # Changelog
 
-## [0.10.0b1] - 2026-11-12
+## [0.10.0] - 2026-11-16
 
-v0.10.0 widens what compiles and runs without a Python install. The tool host now runs on any CPython 3.11-3.15 host with the C toolchain one `zig` extra away, while compiled programs still target 3.14. More of the stdlib lowers natively (bisect, the finite itertools names, os.symlink and readlink, tempfile.mkstemp, uuid, binascii, shlex and secrets), inference picks up chained facts from pyrefly and an own-inference arm, decorators and class bodies lower further, and the embed engine grows a capability manifest, an engine descriptor with `--island-engine` and a PyPy seam. This is the first beta of the 0.10.0 line: it is a checkpoint tag, it never reaches PyPI, and the stable promotion comes with the remaining milestone items.
+v0.10.0 widens what compiles and runs without a Python install. The tool host now runs on any CPython 3.11-3.15 host with the C toolchain one `zig` extra away, while compiled programs still target 3.14. More of the stdlib lowers natively (bisect, the finite itertools names, os.symlink and readlink, tempfile.mkstemp, uuid, binascii, shlex and secrets), inference picks up chained facts from pyrefly and an own-inference arm, decorators and class bodies lower further, and the embed engine grows a capability manifest, an engine descriptor with `--island-engine` and a PyPy seam.
 
 ### Highlights
 
@@ -11,15 +11,48 @@ v0.10.0 widens what compiles and runs without a Python install. The tool host no
 - **More of the stdlib lowers natively:** bisect.insort over int, float and str lists (#945), the remaining finite itertools eager names (#946), os.symlink and os.readlink (#1164), tempfile.mkstemp returning the (fd, path) tuple (#1177), and the uuid, binascii, shlex and secrets subsets (#806).
 - **Class bodies and decorators lower further:** class-body assignments with a runtime value become class attributes (#1204), class-body constants lower (#1166), stacked user decorators lower (#1163), and method and function decorators outside the closed set are erased (#1200).
 - **Inference grows two arms:** chained param and return facts arrive via pyrefly infer, and `infer --bridge own` runs the own-inference arm (#731, #1165, #1184).
+- **Scripts that shell out, serve files and read mail compile:** `os.system` (#503), `os.pipe`, `os.dup`, `os.dup2`, `os.kill` and `os.killpg` (#1244, #1245), `subprocess.run(timeout=)` with `TimeoutExpired` (#1223), `asyncio.create_subprocess_exec` (#1224), the streaming `hashlib` object (#1249), `tarfile` and `zipfile` reads (#1253), `file.read(n)` (#1227), `sys.stdin.readline` and the stdout and stderr flush (#1225), the `email` read subset (#1228) and the json file surface with non-ASCII input (#495).
+- **Annotations accept more shapes:** unions, generic aliases and forward references erase as annotations (#413), `collections.abc` annotations and common `TypeVar` shapes lower (#412), and `object` erases to a tagged dynamic value (#1226).
+- **More stdlib subsets:** `heapq` (#487), `selectors` over the loop (#485), `statistics`, `csv.DictReader` and `csv.DictWriter`, `random` choices, samples and distributions (#494), `struct.calcsize` and `unpack_from` (#489), and the `math` inverse and hyperbolic helpers.
+- **Packaging and data plane:** a post-link audit refuses a binary that links host libpython (#1247), a pinned static CPython build (#1210), the `pyscriptc-arrow` Arrow C Data adapter (#1229) and the `pyscriptc-ndarray` M1 surface (#1230).
 
 ### Receipt
 
-- Visible corpus score on the release commit (`nightly` visible-score job, CPython 3.14.9 oracle): 13,798 probes scored, 1,671 pass, 10,721 fence, 1,396 excluded, 10 build-error, weighted pass 972.1.
-- Self-host fences (`tests/census_pins/` pin sum): 3,414 at v0.9.0 down to 3,178 on the release commit.
-- Boxed ledger window (`mise run boxed:cost`, newest window `466c29f91097..e4c713b61e96`, 10 commits): code 5.2%, churn 0.0%, bugs 0.0%, tax 10.0%, drop flag false.
-- Release rehearsal on the release commit `e4c713b61e967334233b4a163695629cf62281f7`: the build matrix, smoke and wheel verify pass.
+- Visible corpus score on the release commit (`nightly` visible-score job, run 43900530732, CPython 3.14.9 oracle): 13,798 probes scored, 1,727 pass, 10,662 fence, 1,398 excluded, 11 build-error, weighted pass 1026.3. The 0.10.0 beta checkpoint measured 1,671 pass and weighted pass 972.1.
+- Self-host fences (`tests/census_pins/` pin sum): 3,414 at v0.9.0 and 3,740 on the release commit. The sum grows because the new stdlib families and the host-only runtime files add self-host code; it is not a quality score.
+- Boxed ledger window (`mise run boxed:cost`, newest window `fab0df01a254..682c91a4328f`, 10 commits): code 5.4%, churn 0.0%, bugs 0.0%, tax 0.0%, drop flag false.
+- Release rehearsal on the release commit `682c91a4328f9d566671a8abb237d9dbec49a2f4` (run 43803028514): the build matrix, smoke and wheel verify pass.
 
 ### Features
+- `os.system` shells out through the host shell (#503) (#1265)
+- unions, generic aliases and forward references as erased annotations (#413) (#1264)
+- the email read subset, `message_from_string` and the MIME walk (#1263)
+- json bytes input, `ensure_ascii=False` and the non-ASCII reader contract (#495) (#1262)
+- `asyncio.create_subprocess_exec` lowers the spawn and the awaited wait (#1224) (#1260)
+- `str.find` with a start, starred list displays, dataclass repr and `except json.JSONDecodeError` (#1246) (#1261)
+- `subprocess.run(timeout=)` bounds the child and raises `TimeoutExpired` (#1223) (#1259)
+- `sys.stdin.readline` and the stdout and stderr flush (#1225) (#1258)
+- `file.read(n)`, the bounded read over a file handle (#1227) (#1257)
+- `object` erases to the tagged dynamic value (#1226) (#1256)
+- `os.pipe`, `os.dup` and `os.dup2` over the fd runtime (#1245) (#1255)
+- a base-annotated slot accepts a field-less nominal subclass (#1243) (#1254)
+- the archive surface an installer needs, `tarfile` and `zipfile` reads (#1253)
+- `os.kill`, `os.killpg` and the `signal` POSIX constants (#1244) (#1251)
+- the streaming hash object, a zero-argument constructor with `update` and `digest` (#1249)
+- post-link audit refuses a binary that links host libpython (#1247) (#1250)
+- the `/compare` page, the unlisted-is-a-bug pull-quote and the live hero (#1234, #1237, #1238)
+- `csv.DictReader` and `csv.DictWriter` over the `ps_csv` core (#1199)
+- a closed `heapq` subset (#487) (#1207)
+- `collections.abc` annotations and `TypeVar` common shapes (#412) (#1220)
+- the `pyscriptc-ndarray` M1 surface, the pack and the perf receipt (#1230)
+- `statistics` subset over `list[int]` and `list[float]` (#1231)
+- `pyscriptc-arrow`, the Arrow C Data and C Stream data-plane adapter (#1229)
+- the `ps_loop` fd poller and the closed `selectors` subset (#1215, #485) (#1219)
+- `random` choices, sample, randbytes and the distribution draws (#494) (#1222)
+- `struct.calcsize` and `struct.unpack_from` with a literal format (#489) (#1221)
+- static single-binary CPython from a pinned source build (#1210)
+- PyPy runtime pack, engine GIL discipline and language gate (#1213)
+- the `math` inverse, hyperbolic, integer and float helpers (#1217)
 - publish the island verdict and the plane split next to the native verdict (#804)
 - onefile output for island bundles, composite passes both baselines (#802)
 - class-body assignments with a runtime value lower as class attributes (#732) (#1204)
@@ -48,6 +81,9 @@ v0.10.0 widens what compiles and runs without a Python install. The tool host no
 - lower stacked user decorators on module and nested defs (#1163)
 
 ### Fixes
+- the qualified `module.Class` annotation names a cross-module class (#1252)
+- model `try`/`finally` in `_always_terminates` in the IR verifier (#1185) (#1218)
+- anchor the hero CTA scrim to the button row (#1233)
 - stop inferring an island top level from closed-import-table fences (#1175)
 - next(iter(d)) peeks the first key instead of materializing it (#1170)
 - a module island-value binding adopts the seed's object (#769)
@@ -645,5 +681,5 @@ Initial release.
 - `try`/`except` for builtin exceptions and user subclasses; `sys.argv` as `list[str]`.
 
 [0.9.0]: https://github.com/sigilco/pyscriptc/compare/v0.8.0...v0.9.0
-[0.10.0b1]: https://github.com/sigilco/pyscriptc/compare/v0.9.0...v0.10.0-beta.1
+[0.10.0]: https://github.com/sigilco/pyscriptc/compare/v0.9.0...v0.10.0
 [0.8.0]: https://github.com/sigilco/pyscriptc/compare/v0.7.0...v0.8.0

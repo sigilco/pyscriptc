@@ -1282,9 +1282,29 @@
     },
     {
       "id": "D75",
-      "seam": "the asyncio subprocess pipe form: stdout=/stderr= take only asyncio.subprocess.PIPE (PS2003 otherwise) and communicate answers the (stdout, stderr) pair of bytes with an inherited stream reading as the empty bytes, where CPython answers None there",
+      "seam": "a JSON integer literal too large for i64 parses as the dynamic value's float arm, where CPython's json grows an arbitrary-precision int",
       "listed": true,
       "docs": "docs/reference/divergences.md#75",
+      "probe": "probes/divergences/d75_json_dynval_number.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "12345678901234567890123\n-12345678901234567890123\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1.2345678901234568e+22\n-1.2345678901234568e+22\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D76",
+      "seam": "the asyncio subprocess pipe form: stdout=/stderr= take only asyncio.subprocess.PIPE (PS2003 otherwise) and communicate answers the (stdout, stderr) pair of bytes with an inherited stream reading as the empty bytes, where CPython answers None there",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#76",
       "probe": null,
       "note": "the host lane is byte-identical (probes/differential/asyncio_subprocess_pipes.py); the None-versus-empty-bytes seam and the missing stdin pipe are the rest of the entry",
       "cpython": null,

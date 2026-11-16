@@ -131,7 +131,8 @@ enum {
     PS_JSON_LIST = 4,
     PS_JSON_DICT = 5,
     PS_JSON_FLOAT = 6,
-    PS_JSON_OPT = 7
+    PS_JSON_OPT = 7,
+    PS_JSON_DYN = 8
 };
 
 /* The str payload crosses the ABI as { i64, ptr, i64, i32 } (byte length,
@@ -203,6 +204,12 @@ int ps_dyn_truth(const PsDyn *v);
    its cell, so the slot copy is a pointer copy. */
 void ps_dyn_store(void *slot, const PsDyn *v);
 void ps_dyn_load(void *out, const PsDyn *v);
+/* The repr of a dynamic value: CPython's repr of the arm (the str arm in
+   quotes, the dict arm as a str-keyed map, the list arm as a sequence). */
+void ps_dyn_repr(const PsDyn *v, PsBuf *out);
+/* The `str()` form print lowers to: the str arm's text, every other arm's
+   repr (str of a container is its repr in CPython). */
+void ps_dyn_str_form(const PsDyn *v, PsBuf *out);
 
 
 typedef struct PsSeq {
@@ -268,6 +275,19 @@ typedef struct PsType {
     int32_t kind;
     int32_t child;
 } PsType;
+
+/* The JSON codec over a dynamic value (issue #1267): the parser assigns the
+   arm instead of checking one, and the writer walks the tagged tree. The
+   loads entry writes the cell pointer through `out`; the dumps entry writes
+   the JSON text through `out`. */
+void ps_json_loads_dyn(int64_t n, char *p, void *out);
+void ps_json_dumps_dyn(const PsDyn *v, PsBuf *out);
+void ps_json_dumps_dyn_opts(const PsDyn *v, int32_t flags, PsBuf *out);
+/* The repr of a `dict[str, object]`: the map's values are the tagged cells
+   the map holds, so the walk is the dynamic one. */
+void ps_dyn_map_repr(const PsMap *m, PsBuf *out);
+/* The repr of a `list[object]`: the same walk over the sequence's cells. */
+void ps_dyn_seq_repr(const PsSeq *s, PsBuf *out);
 
 /* The open-file handle is private to ps_io.c. tempfile.NamedTemporaryFile
    lives in ps_osmore.c and wraps an mkstemp fd in one of these. */

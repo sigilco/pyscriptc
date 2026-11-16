@@ -253,6 +253,15 @@ class StdlibMixin(EmitterBase):
         return self._buf_out("ps_struct_pack", [f"i64 {fmt_len}", f"ptr {fmt_ptr}", f"ptr {arg_ptr}", f"i64 {packed}"])
 
     def _emit_json_loads(self, text: str, typ: dict[str, Any]) -> str:
+        if _kind(typ) == "dynval":
+            # The dynamic annotation (issue #1267): no shape table, the
+            # parser assigns the arm as it reads. The result is the cell
+            # pointer the type already carries.
+            self._abi_decl("ps_json_loads_dyn", "void", ["i64", "ptr", "ptr"])
+            length, ptr = self._buf_parts(text)
+            slot = self._alloca("ptr")
+            self.line(f"call void @ps_json_loads_dyn(i64 {length}, ptr {ptr}, ptr {slot})")
+            return self._load("ptr", slot)
         symbol, root = self._json_global(typ)
         length, ptr = self._buf_parts(text)
         slot = self._json_alloca(typ)
@@ -260,6 +269,15 @@ class StdlibMixin(EmitterBase):
         return self._json_read(typ, slot)
 
     def _emit_json_dumps(self, value: str, typ: dict[str, Any], flags: int = 0) -> str:
+        if _kind(typ) == "dynval":
+            # The dynamic value's dump walks the tagged tree (issue #1267);
+            # the flag word is the typed writer's (sort keys, indent), so
+            # the closed dumps subset rides the same way.
+            if flags:
+                self._abi_decl("ps_json_dumps_dyn_opts", "void", ["ptr", "i32", "ptr"])
+                return self._buf_out("ps_json_dumps_dyn_opts", [f"ptr {value}", f"i32 {flags}"])
+            self._abi_decl("ps_json_dumps_dyn", "void", ["ptr", "ptr"])
+            return self._buf_out("ps_json_dumps_dyn", [f"ptr {value}"])
         symbol, root = self._json_global(typ)
         slot = self._json_write(typ, value)
         if flags:
@@ -287,6 +305,11 @@ class StdlibMixin(EmitterBase):
                 entries[idx] = (5, child)
             elif kind == "float":
                 entries[idx] = (6, 0)
+            elif kind == "dynval":
+                # Issue #1267: a dynamic slot inside a typed shape (the
+                # `dict[str, object]` value). The runtime cell already
+                # carries the arm, so the table entry is the bare kind.
+                entries[idx] = (8, 0)
             elif _is_optional(node):
                 child = add(_elem_type(node))
                 entries[idx] = (7, child)

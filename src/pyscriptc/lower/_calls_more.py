@@ -258,6 +258,11 @@ class CallsMoreMixin:
         kind = _type_kind(typ)
         if kind in {"int", "bool", "str", "float"}:
             return
+        if kind == "dynval":
+            # Issue #1267: a dynamic annotation is the codec's own sum, so
+            # every JSON value fits: the parser assigns the arm instead of
+            # checking one (the `PS_JSON_DYN` table entry, `ps_json_loads_dyn`).
+            return
         if typ.get("optional"):
             self._json_type(node, typ["elem"], what)
             return
@@ -269,6 +274,8 @@ class CallsMoreMixin:
         if kind == "dict":
             if _type_kind(typ["key"]) != "str":
                 self.fail(node, "PS2001", "JSON object keys are str")
+            if _type_kind(typ["value"]) == "dynval":
+                return
             if _type_kind(typ["value"]) == "bool":
                 self.fail(node, "PS2002", "dict values of bool are not lowered")
             self._json_type(node, typ["value"], what)

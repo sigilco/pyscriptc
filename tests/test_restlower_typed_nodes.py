@@ -90,6 +90,7 @@ ACCESSORS = frozenset(
         "_node_span",
         "_node_op",
         "_type_value",
+        "_type_elem",
         "_field_name",
         "_field_type",
     }

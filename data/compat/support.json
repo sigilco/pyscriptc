@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-15",
-  "commit": "682c91a4328f9d566671a8abb237d9dbec49a2f4",
+  "generated": "2026-11-16",
+  "commit": "4b1650c6c3fb83880432dae4f4492829af57bcf6",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
