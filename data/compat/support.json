@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-15",
-  "commit": "908f3eb966ac810ec958b023569e281bc13380fd",
+  "commit": "770cc5537a2d9ac2c50834a10d01e7c875a6986b",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 73,
+      "yellow": 74,
       "red": 0
     },
     "packages": {
@@ -817,6 +817,16 @@
       "count": 1,
       "missing": "TarFile",
       "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`email`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "the builders, the policy API and the writers, the setters (the subset reads a message, it does not build one), a computed decode flag",
+      "codes": [
+        "PS1003",
         "PS2001"
       ]
     },
