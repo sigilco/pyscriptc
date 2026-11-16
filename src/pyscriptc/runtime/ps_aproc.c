@@ -32,12 +32,20 @@ extern void ps_loop_wake_task(void *task);
 /* The record one create_subprocess_exec call owns. live is 1 while the
    child runs and 0 once it is reaped; code holds the exit status then
    (waitstatus_to_exitcode, the mapping the sync subprocess applies).
-   waiter is the task parked on wait(), if any. */
+   waiter is the task parked on wait(), if any. out_fd/err_fd hold the
+   read ends of the stdout/stderr pipes the spawn made when the caller
+   asked for PIPE (issue #1266); -1 when that stream is inherited.
+   out_buf/err_buf hold the drained bytes after the first communicate, so
+   a second read answers the same bytes. */
 typedef struct PsAProc {
     int64_t pid;
     int32_t live;
     int32_t reaped;
     int64_t code;
+    int32_t out_fd;
+    int32_t err_fd;
+    PsBuf out_buf;
+    PsBuf err_buf;
     void *waiter;
     struct PsAProc *next;
 } PsAProc;
@@ -45,6 +53,10 @@ typedef struct PsAProc {
 /* Every live process record, so the loop can reap without a user call. The
    list is only touched by the loop's thread, so it needs no lock. */
 static PsAProc *ps_aprocs;
+
+/* The reap is declared before the drain that calls it: the drain waits
+   for the child to exit, the reap is the one that sees it. */
+static int64_t ps_aproc_reap(PsAProc *proc);
 
 static PsAProc *ps_aproc_check(void *box) {
     PsAProc *proc = (PsAProc *)box;
@@ -95,31 +107,60 @@ static char **ps_aproc_argv(PsSeq *args) {
 }
 #endif
 
-/* `asyncio.create_subprocess_exec(argv)`: the child starts now. The stdout
-   and stderr pipes are the child's; the record keeps the read ends so a
-   later read sees the output. A spawn failure raises RuntimeError, the
-   stand-in the sync subprocess raises for a failed spawn. */
-void *ps_aproc_new(PsSeq *args) {
+/* `asyncio.create_subprocess_exec(argv)`: the child starts now. A spawn
+   failure raises RuntimeError, the stand-in the sync subprocess raises for
+   a failed spawn. pipe_mask names the streams to pipe: bit 0 stdout, bit 1
+   stderr (issue #1266). The other streams inherit the parent's, the way
+   CPython's create_subprocess_exec does when the caller passes None. */
+void *ps_aproc_new(PsSeq *args, int64_t pipe_mask) {
     PsAProc *proc = calloc(1, sizeof(PsAProc));
     if (proc == NULL) {
         ps_raise_cstr(PS_RUNTIME, "out of memory");
     }
+    proc->out_fd = -1;
+    proc->err_fd = -1;
 #ifdef _WIN32
+    (void)pipe_mask;
     ps_raise_cstr(PS_RUNTIME, "asyncio.create_subprocess_exec is not available on this platform");
 #else
     {
         char **argv = ps_aproc_argv(args);
+        int out_pipe[2] = {-1, -1};
+        int err_pipe[2] = {-1, -1};
+        if ((pipe_mask & 1) != 0 && pipe(out_pipe) != 0) {
+            free(argv);
+            ps_raise_cstr(PS_RUNTIME, "asyncio.create_subprocess_exec pipe failed");
+        }
+        if ((pipe_mask & 2) != 0 && pipe(err_pipe) != 0) {
+            free(argv);
+            ps_raise_cstr(PS_RUNTIME, "asyncio.create_subprocess_exec pipe failed");
+        }
         pid_t pid = fork();
         if (pid < 0) {
             free(argv);
             ps_raise_cstr(PS_RUNTIME, "asyncio.create_subprocess_exec fork failed");
         }
         if (pid == 0) {
-            /* The child inherits the parent's stdout and stderr, the way
-               CPython's create_subprocess_exec does when the caller did not
-               ask for pipes. */
+            if (out_pipe[0] >= 0) {
+                close(out_pipe[0]);
+                dup2(out_pipe[1], STDOUT_FILENO);
+                close(out_pipe[1]);
+            }
+            if (err_pipe[0] >= 0) {
+                close(err_pipe[0]);
+                dup2(err_pipe[1], STDERR_FILENO);
+                close(err_pipe[1]);
+            }
             execvp(argv[0], argv);
             _exit(127);
+        }
+        if (out_pipe[0] >= 0) {
+            close(out_pipe[1]);
+            proc->out_fd = out_pipe[0];
+        }
+        if (err_pipe[0] >= 0) {
+            close(err_pipe[1]);
+            proc->err_fd = err_pipe[0];
         }
         proc->pid = (int64_t)pid;
         proc->live = 1;
@@ -130,8 +171,62 @@ void *ps_aproc_new(PsSeq *args) {
     return proc;
 }
 
+/* Drain one pipe end into a grow buffer and close it. An fd the process
+   already closed reads EOF and drains to what is buffered. */
+static void ps_aproc_drain(int fd, PsBuf *out) {
+    PsGrow g;
+    char chunk[4096];
+    ssize_t n;
+    ps_grow_init(&g);
+    if (fd >= 0) {
+        while ((n = read(fd, chunk, sizeof chunk)) > 0) {
+            ps_grow_add(&g, chunk, (int64_t)n);
+        }
+        close(fd);
+    }
+    ps_grow_finish(&g, out);
+}
+
+/* `await proc.communicate()`: drain both pipes to EOF, then reap the
+   child (the wait rides inside communicate, the way CPython's reads the
+   streams and waits). A stream the caller left inherited comes back
+   empty, the empty bytes CPython's None stream reads through its own
+   noop. The drain runs first: reading to EOF consumes as the child
+   writes, so a child whose output overflows the pipe buffer is never
+   blocked waiting for a reader that will not come (the deadlock a
+   reap-first order would deadlock into). EOF on both pipes is the
+   child's exit for the streams it owns, so the reap after the drains is
+   a waitpid that only reaps. */
+static void ps_aproc_collect(PsAProc *proc) {
+    ps_aproc_drain(proc->out_fd, &proc->out_buf);
+    ps_aproc_drain(proc->err_fd, &proc->err_buf);
+    while (!ps_aproc_reap(proc)) {
+    }
+    proc->out_fd = -1;
+    proc->err_fd = -1;
+}
+
+/* The stdout half of communicate: the drained bytes (issue #1266). */
+void ps_aproc_stdout(void *box, PsBuf *out) {
+    PsAProc *proc = ps_aproc_check(box);
+    if (!proc->reaped) {
+        ps_aproc_collect(proc);
+    }
+    ps_buf_copy(out, proc->out_buf.data, proc->out_buf.len);
+}
+
+/* The stderr half of communicate: the drained bytes (issue #1266). */
+void ps_aproc_stderr(void *box, PsBuf *out) {
+    PsAProc *proc = ps_aproc_check(box);
+    if (!proc->reaped) {
+        ps_aproc_collect(proc);
+    }
+    ps_buf_copy(out, proc->err_buf.data, proc->err_buf.len);
+}
+
 /* Reap the child if it exited. Returns 1 when the record holds the exit
-   code and 0 while the child still runs. */
+   code and 0 while the child still runs. A record whose pipes are still
+   open keeps the read ends: communicate drains them at its own call. */
 static int64_t ps_aproc_reap(PsAProc *proc) {
     if (proc->reaped) {
         return 1;

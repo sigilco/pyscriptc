@@ -1231,7 +1231,7 @@
     },
     {
       "id": "D72",
-      "seam": "the async subprocess handle reads -1 for a running child's returncode, where CPython reads None; the subset has no optional int and no stdout/stderr pipes",
+      "seam": "the async subprocess handle reads -1 for a running child's returncode, where CPython reads None; the subset has no optional int and no stdin pipe",
       "listed": true,
       "docs": "docs/reference/divergences.md#72",
       "probe": "probes/divergences/d72_asyncio_subprocess.py",
@@ -1276,6 +1276,17 @@
       "docs": "docs/reference/divergences.md#74",
       "probe": null,
       "note": "the host lane is byte-identical (probes/differential/os_system.py); the wasm link-time refusal, the mobile compile-time fence and the Windows CRT shell status are cross-target",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D75",
+      "seam": "the asyncio subprocess pipe form: stdout=/stderr= take only asyncio.subprocess.PIPE (PS2003 otherwise) and communicate answers the (stdout, stderr) pair of bytes with an inherited stream reading as the empty bytes, where CPython answers None there",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#75",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/asyncio_subprocess_pipes.py); the None-versus-empty-bytes seam and the missing stdin pipe are the rest of the entry",
       "cpython": null,
       "pyscriptc": null,
       "status": "unprobed"

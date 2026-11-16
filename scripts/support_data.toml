@@ -506,14 +506,25 @@ ok = ['''async def work() -> int:
     return y
 
 @@
+    asyncio.run(work())''', '''async def work() -> None:
+    p: asyncio.subprocess.Process = await asyncio.create_subprocess_exec("true", stdout=asyncio.subprocess.PIPE)
+    out: bytes
+    err: bytes
+    out, err = await p.communicate()
+
+@@
     asyncio.run(work())''']
-no = [["a stdout= pipe", '''async def work() -> None:
+no = [["a non-PIPE stdout value", '''async def work() -> None:
     await asyncio.create_subprocess_exec("true", stdout=1)
 
 @@
-    asyncio.run(work())''', "PS2003"], ["communicate", '''async def work() -> None:
-    p: asyncio.subprocess.Process = await asyncio.create_subprocess_exec("true")
-    await p.communicate()
+    asyncio.run(work())''', "PS2003"], ["stdin=", '''async def work() -> None:
+    await asyncio.create_subprocess_exec("true", stdin=asyncio.subprocess.PIPE)
+
+@@
+    asyncio.run(work())''', "PS2003"], ["proc.stdin", '''async def work() -> None:
+    p: asyncio.subprocess.Process = await asyncio.create_subprocess_exec("true", stdout=asyncio.subprocess.PIPE)
+    x: int = p.stdin
 
 @@
     asyncio.run(work())''', "PS2001"]]

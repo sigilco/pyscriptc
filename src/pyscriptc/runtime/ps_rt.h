@@ -637,10 +637,13 @@ int32_t ps_threads_pending(void);
 
 /* ps_aproc.c: the async subprocess (issue #1224). The record owns the
    child; `wait` parks the task until the child exits and the loop's pump
-   wakes it. */
-void *ps_aproc_new(PsSeq *args);
+   wakes it. The pipe form (issue #1266): pipe_mask bit 0 pipes stdout,
+   bit 1 stderr, and the communicate halves drain both read ends. */
+void *ps_aproc_new(PsSeq *args, int64_t pipe_mask);
 int64_t ps_aproc_wait(void *box);
 int64_t ps_aproc_code_of(void *box);
+void ps_aproc_stdout(void *box, PsBuf *out);
+void ps_aproc_stderr(void *box, PsBuf *out);
 void ps_aproc_pump(void);
 int32_t ps_aproc_pending(void);
 

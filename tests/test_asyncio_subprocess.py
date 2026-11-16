@@ -87,6 +87,52 @@ print(asyncio.run(main()))
 """
 
 
+PIPES = """\
+import asyncio
+
+
+async def main() -> None:
+    piped: asyncio.subprocess.Process = await asyncio.create_subprocess_exec(
+        "sh",
+        "-c",
+        "echo out-line; echo err-line >&2",
+        stdout=asyncio.subprocess.PIPE,
+        stderr=asyncio.subprocess.PIPE,
+    )
+    out: bytes
+    err: bytes
+    out, err = await piped.communicate()
+    print("out", out.decode().strip())
+    print("err", err.decode().strip())
+    print("rc", piped.returncode)
+
+    one: asyncio.subprocess.Process = await asyncio.create_subprocess_exec(
+        "sh", "-c", "echo before; exit 3", stdout=asyncio.subprocess.PIPE
+    )
+    before: bytes
+    _rest: bytes
+    before, _rest = await one.communicate()
+    print("before", before.decode().strip())
+    print("rc3", one.returncode)
+
+    plain: asyncio.subprocess.Process = await asyncio.create_subprocess_exec("sh", "-c", "exit 5")
+    print("rc5", await plain.wait())
+
+    slow: asyncio.subprocess.Process = await asyncio.create_subprocess_exec("sh", "-c", "sleep 0.2; exit 1")
+    fast: asyncio.subprocess.Process = await asyncio.create_subprocess_exec(
+        "sh", "-c", "sleep 0.1; echo fast-out", stdout=asyncio.subprocess.PIPE
+    )
+    fast_out: bytes
+    fast_err: bytes
+    fast_out, fast_err = await fast.communicate()
+    print("fast", fast_out.decode().strip())
+    print("slow", await slow.wait())
+
+
+asyncio.run(main())
+"""
+
+
 def _run_both(tmp_path: Path, name: str, source: str) -> tuple[str, str]:
     path = tmp_path / f"{name}.py"
     path.write_text(source, encoding="utf-8")
@@ -120,6 +166,7 @@ def _run_both(tmp_path: Path, name: str, source: str) -> tuple[str, str]:
         ("wait", WAIT),
         ("two_children", TWO_CHILDREN),
         ("returncode", RETURNCODE),
+        ("pipes", PIPES),
     ],
 )
 def test_async_subprocess_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
@@ -128,7 +175,15 @@ def test_async_subprocess_matches_cpython(tmp_path: Path, name: str, source: str
     assert got == expected
 
 
-def test_unlowered_keywords_fence() -> None:
+def test_pipe_value_is_cpipys() -> None:
+    # The constant CPython uses: the fence message names it and the value
+    # rides the int constant table, so both spellings agree with CPython.
+    from pyscriptc.stdmore import module_constant
+
+    assert module_constant("asyncio.subprocess", "PIPE") == ("-1", {"kind": "int"})
+
+
+def test_non_pipe_value_fences() -> None:
     source = "\n".join(
         [
             "import asyncio",
@@ -142,7 +197,43 @@ def test_unlowered_keywords_fence() -> None:
     )
     module = lower_source(source, "main.py")
     messages = [f["message"] for f in module["fences"]]
-    assert any("stdout is not lowered" in message for message in messages), messages
+    assert any("takes asyncio.subprocess.PIPE" in message for message in messages), messages
+
+
+def test_communicate_lowering_is_the_pair() -> None:
+    source = "\n".join(
+        [
+            "import asyncio",
+            "",
+            "async def main() -> None:",
+            "    proc: asyncio.subprocess.Process = await asyncio.create_subprocess_exec("
+            "'true', stdout=asyncio.subprocess.PIPE)",
+            "    out: bytes",
+            "    err: bytes",
+            "    out, err = await proc.communicate()",
+            "",
+            "asyncio.run(main())",
+        ]
+    )
+    module = lower_source(source, "main.py")
+    assert module["fences"] == []
+
+
+def test_unlowered_keyword_still_fences() -> None:
+    source = "\n".join(
+        [
+            "import asyncio",
+            "",
+            "async def main() -> None:",
+            "    proc: asyncio.subprocess.Process = await asyncio.create_subprocess_exec('true', env={})",
+            "    await proc.wait()",
+            "",
+            "asyncio.run(main())",
+        ]
+    )
+    module = lower_source(source, "main.py")
+    messages = [f["message"] for f in module["fences"]]
+    assert any("env is not lowered" in message for message in messages), messages
 
 
 def test_non_str_argument_fences() -> None:

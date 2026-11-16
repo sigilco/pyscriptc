@@ -516,7 +516,7 @@ ROWS: list[dict[str, Any]] = [
     _row(
         "D72",
         "the async subprocess handle reads -1 for a running child's returncode, where CPython reads None; "
-        "the subset has no optional int and no stdout/stderr pipes",
+        "the subset has no optional int and no stdin pipe",
         "d72_asyncio_subprocess.py",
         docs=f"{DOC}#72",
     ),
@@ -535,6 +535,16 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#74",
         note="the host lane is byte-identical (probes/differential/os_system.py); the wasm link-time "
         "refusal, the mobile compile-time fence and the Windows CRT shell status are cross-target",
+    ),
+    _row(
+        "D75",
+        "the asyncio subprocess pipe form: stdout=/stderr= take only asyncio.subprocess.PIPE (PS2003 "
+        "otherwise) and communicate answers the (stdout, stderr) pair of bytes with an inherited stream "
+        "reading as the empty bytes, where CPython answers None there",
+        None,
+        docs=f"{DOC}#75",
+        note="the host lane is byte-identical (probes/differential/asyncio_subprocess_pipes.py); the "
+        "None-versus-empty-bytes seam and the missing stdin pipe are the rest of the entry",
     ),
     _row(
         "AUDIT-D1",

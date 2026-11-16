@@ -320,6 +320,8 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_sub_call",
         "ps_sub_check_call",
         "ps_aproc_new",
+        "ps_aproc_stdout",
+        "ps_aproc_stderr",
         "ps_os_system",
         "ps_os_open",
         "ps_os_close",
