@@ -390,6 +390,22 @@ int64_t ps_sub_check_call(PsSeq *args) {
     return code;
 }
 
+/* os.system(command) (issue #503): run the command through the host shell
+   and wait for it. CPython's os.system hands back the raw wait status on
+   POSIX (the exit code of the child shifted into the high byte, the signal
+   number in the low one), not the decoded exit code, so the status travels
+   as it comes; the Windows CRT returns the child's exit code directly, the
+   same value CPython's Windows build reports. */
+int64_t ps_os_system(int64_t n, const char *s) {
+    char *text = ps_cstr_dup(n, s);
+    int status = system(text);
+    free(text);
+    if (status == -1) {
+        ps_sub_fail("system failed");
+    }
+    return (int64_t)status;
+}
+
 /* Text-mode decode for the captured streams: CPython's
    TextIOWrapper.decode + _translate_newlines over one buffer. enc is 0
    utf-8, 1 ascii, 2 latin-1; err is 0 strict, 1 replace, 2 ignore,

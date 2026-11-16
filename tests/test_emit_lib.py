@@ -54,6 +54,7 @@ DESKTOP = "aarch64-linux-gnu"
 HELLO = "def main() -> None:\n    print(str(1 + 1))\n\n\nmain()\n"
 SUBPROC = 'import subprocess\n\n\ndef main() -> int:\n    return subprocess.run(["ls"]).returncode\n'
 OSOPEN = 'import os\n\n\ndef main() -> int:\n    return os.open("x", 0)\n'
+OSSYSTEM = 'import os\n\n\ndef main() -> int:\n    return os.system("ls")\n'
 
 
 def _sdk_present(sdk: str) -> bool:
@@ -287,7 +288,10 @@ def test_runtime_sources_exclude_the_mobile_hostile_files() -> None:
 # --- target-aware fences: excluded runtime never reaches the archive ---
 
 
-@pytest.mark.parametrize("source,surface", [(SUBPROC, "subprocess.run"), (OSOPEN, "os.open")])
+@pytest.mark.parametrize(
+    "source,surface",
+    [(SUBPROC, "subprocess.run"), (OSOPEN, "os.open"), (OSSYSTEM, "os.system")],
+)
 def test_mobile_compile_fences_the_excluded_runtime(tmp_path: Path, source: str, surface: str) -> None:
     """A call whose symbol the mobile archive drops fences at compile time."""
     path = write_case(tmp_path, "app.py", source)
@@ -300,7 +304,7 @@ def test_mobile_compile_fences_the_excluded_runtime(tmp_path: Path, source: str,
     assert not list(tmp_path.rglob("*.a"))
 
 
-@pytest.mark.parametrize("source", [SUBPROC, OSOPEN])
+@pytest.mark.parametrize("source", [SUBPROC, OSOPEN, OSSYSTEM])
 def test_desktop_compile_still_lowers_the_same_source(tmp_path: Path, source: str) -> None:
     """Without a mobile target the very same code lowers untouched."""
     path = write_case(tmp_path, "app.py", source)
@@ -316,6 +320,7 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_sub_call",
         "ps_sub_check_call",
         "ps_aproc_new",
+        "ps_os_system",
         "ps_os_open",
         "ps_os_close",
         "ps_os_read",

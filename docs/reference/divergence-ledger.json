@@ -1270,6 +1270,17 @@
       "status": "fenced"
     },
     {
+      "id": "D74",
+      "seam": "os.system answers CPython's raw POSIX wait status (the exit code in the high byte) and the command rides the host shell; the bytes form and the PathLike form are refused (PS1003)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#74",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/os_system.py); the wasm link-time refusal, the mobile compile-time fence and the Windows CRT shell status are cross-target",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

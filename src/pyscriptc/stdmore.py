@@ -1646,6 +1646,9 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
         # helpers. The signal numbers come from the `signal` module rows.
         "kill": sig([_I, _I], _N, "ps_os_kill"),
         "killpg": sig([_I, _I], _N, "ps_os_killpg"),
+        # The shell-out a script reaches for (issue #503): the command runs
+        # through the host shell and the call answers the child's exit code.
+        "system": sig([_S], _I, "ps_os_system"),
     },
     "posixpath": {
         "basename": sig([_S], _S, "ps_path_base"),

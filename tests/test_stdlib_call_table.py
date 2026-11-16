@@ -262,6 +262,12 @@ PROBES: list[Probe] = [
     _p("os", "getpid", "os", "print(os.getpid() > 0)"),
     _p(
         "os",
+        "system",
+        "os",
+        "print(os.system('echo ran > ' + os.path.join(os_dir, 'system_out.txt')) == 0)",
+    ),
+    _p(
+        "os",
         "chdir",
         "os",
         "os.chdir(os_dir)",
@@ -577,8 +583,8 @@ def test_every_table_row_has_a_probe() -> None:
     extra = sorted(probed - inventory)
     assert not missing, f"call-table rows without a differential probe: {missing}"
     assert not extra, f"probes without a call-table row: {extra}"
-    assert len(inventory) == 177
-    assert len(PROBES) == 177
+    assert len(inventory) == 178
+    assert len(PROBES) == 178
 
 
 def _group_source(group: str) -> str:

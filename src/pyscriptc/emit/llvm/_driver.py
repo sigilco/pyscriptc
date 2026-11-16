@@ -512,6 +512,14 @@ def link_binary(
                 f"target {target or ''} refuses {', '.join(kill_refused)}: WASI has no "
                 "process-identifier story the runtime lowers (see docs/divergences.md)"
             )
+        # os.system lowers onto ps_os_system, which shells out; WASI has no
+        # subprocess story, so the call is refused here too.
+        system_refused = [symbol for symbol in ("ps_os_system",) if f"@{symbol}(" in text]
+        if system_refused:
+            raise IRError(
+                f"target {target or ''} refuses {', '.join(system_refused)}: WASI has no "
+                "subprocess story the runtime lowers (see docs/divergences.md)"
+            )
         sources = [source for source in sources if not source.endswith(("ps_sub.c", "ps_mix.c", "ps_aproc.c"))]
         sources.append(str(runtime / "wasm" / "rt_wasm.c"))
     # The `--ffi` manifest units join the same per-unit compile loop as the

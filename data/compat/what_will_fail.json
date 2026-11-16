@@ -1,14 +1,14 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "770cc5537a2d9ac2c50834a10d01e7c875a6986b",
+  "commit": "9c0ff78e424dd5dd8793bb69dd97de1c2d7fb2aa",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 47,
+    "total_fences": 46,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -39,12 +39,6 @@
           "construct": "`itertools.product`",
           "code": "PS2001",
           "diagnostic": "itertools.product is not in the lowered subset of itertools"
-        },
-        {
-          "module": "os",
-          "construct": "`os.system`",
-          "code": "PS2001",
-          "diagnostic": "os.system is not in the lowered subset of os"
         },
         {
           "module": "pathlib",

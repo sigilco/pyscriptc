@@ -528,6 +528,15 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#73",
     ),
     _row(
+        "D74",
+        "os.system answers CPython's raw POSIX wait status (the exit code in the high byte) and the command "
+        "rides the host shell; the bytes form and the PathLike form are refused (PS1003)",
+        None,
+        docs=f"{DOC}#74",
+        note="the host lane is byte-identical (probes/differential/os_system.py); the wasm link-time "
+        "refusal, the mobile compile-time fence and the Windows CRT shell status are cross-target",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

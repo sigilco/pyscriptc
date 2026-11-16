@@ -67,6 +67,16 @@ if __name__ == "__main__":
     go()
 """
 
+SYSTEM = """\
+import os
+
+def go() -> int:
+    return os.system("echo hi")
+
+if __name__ == "__main__":
+    print(go())
+"""
+
 
 def _wasmtime() -> str | None:
     found = shutil.which(WASMTIME)
@@ -164,6 +174,32 @@ def test_wasm_link_refuses_the_pipe_trio(tmp_path: Path, capsys: pytest.CaptureF
     assert "refuses ps_os_pipe" in err
     assert "wasm32-wasi-musl" in err
     assert not (tmp_path / "pipe.wasm").exists()
+
+
+@pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")
+def test_wasm_link_refuses_os_system(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """os.system shells out, so WASI refuses it the way it refuses subprocess."""
+    src = _write(SYSTEM, tmp_path)
+    from pyscriptc.cli import main
+
+    ret = main(
+        [
+            "compile",
+            str(src),
+            "--emit",
+            "bin",
+            "--skip-check",
+            "--target",
+            "wasm32-wasi-musl",
+            "-o",
+            str(tmp_path / "system"),
+        ]
+    )
+    assert ret != 0
+    err = capsys.readouterr().err
+    assert "refuses ps_os_system" in err
+    assert "wasm32-wasi-musl" in err
+    assert not (tmp_path / "system.wasm").exists()
 
 
 @pytest.mark.skipif(shutil.which("zig") is None, reason="zig not on PATH")
