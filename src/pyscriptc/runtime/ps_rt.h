@@ -198,6 +198,11 @@ int64_t ps_dyn_bool(const PsDyn *v);
 PsBuf ps_dyn_str(const PsDyn *v);
 void *ps_dyn_list(const PsDyn *v);
 void *ps_dyn_dict(const PsDyn *v);
+/* The narrowed read of the str arm (issue #1280): the cell carries the
+   16-byte PsBuf prefix, the compiler's `str` value wants the four-field
+   header (byte length, data pointer, code-point count, flags), so the
+   projection fills the count and the flag from the bytes. */
+void ps_dyn_get_str(const PsDyn *v, int64_t *nbytes, char **data, int64_t *nchars, int32_t *flags);
 /* The truthiness of a dynamic value, CPython's rule per arm. */
 int ps_dyn_truth(const PsDyn *v);
 /* The map cell helpers: a dynamic value crosses a map slot as a pointer to

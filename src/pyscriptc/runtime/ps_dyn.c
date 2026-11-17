@@ -92,6 +92,25 @@ void *ps_dyn_list(const PsDyn *v) { return v->p; }
 
 void *ps_dyn_dict(const PsDyn *v) { return v->p; }
 
+/* The narrowed read of the str arm (issue #1280): the compiler's `str`
+   value is the four-field %ps.str aggregate (byte length, data pointer,
+   code-point count, flags), while the cell carries only the 16-byte
+   PsBuf prefix. The projection fills the count and the flag from the
+   bytes, the same walk `ps_str_counts` does for every other str the
+   runtime hands back. */
+void ps_dyn_get_str(const PsDyn *v, int64_t *nbytes, char **data, int64_t *nchars, int32_t *flags) {
+    if (v == NULL) {
+        *nbytes = 0;
+        *data = NULL;
+        *nchars = 0;
+        *flags = 0;
+        return;
+    }
+    *nbytes = v->b.len;
+    *data = v->b.data;
+    ps_str_counts(v->b.len, v->b.data, nchars, flags);
+}
+
 int ps_dyn_truth(const PsDyn *v) {
     if (v == NULL) {
         return 0;
