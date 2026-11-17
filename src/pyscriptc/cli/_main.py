@@ -1547,7 +1547,7 @@ def _resolve_default_driver(target: str | None = None, sanitize: list[str] | Non
     - If a sanitizer is requested -> prefer clang: `zig cc` compiles with
       `-fsanitize=` but ships no linkable sanitizer runtime, so the link
       fails with `undefined symbol: __asan_init`.
-    - If shutil.which("zig") is found on PATH -> prefer zig.
+    - If a zig resolves (on PATH, or the `ziglang` wheel shim) -> prefer zig.
     - Otherwise, fall back to clang on macOS/Linux if found on PATH.
     - If neither is found, return None.
     """
@@ -1557,7 +1557,7 @@ def _resolve_default_driver(target: str | None = None, sanitize: list[str] | Non
         if shutil.which("clang") is not None:
             return "clang"
         return None
-    if shutil.which("zig") is not None:
+    if zigshim.resolve_zig() is not None:
         return "zig"
     if shutil.which("clang") is not None:
         return "clang"

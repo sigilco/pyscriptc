@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from tests.test_spike import ROOT
 
+from pyscriptc import zigshim
 from pyscriptc.cli import _apply_env_defaults, _require_toolchain, _resolve_default_driver
 from pyscriptc.errors import IRError
 from pyscriptc.llvm import link_binary
@@ -104,14 +105,24 @@ def test_default_driver_falls_back_to_clang_when_zig_missing(monkeypatch: pytest
         return None
 
     monkeypatch.setattr(shutil, "which", fake_which)
+    monkeypatch.setattr(zigshim, "resolve_zig", lambda: None)
     monkeypatch.setattr(sys, "platform", "darwin")
     assert _resolve_default_driver() == "clang"
 
 
 def test_default_driver_returns_none_when_neither_found(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    monkeypatch.setattr(zigshim, "resolve_zig", lambda: None)
     monkeypatch.setattr(sys, "platform", "linux")
     assert _resolve_default_driver() is None
+
+
+def test_default_driver_finds_the_ziglang_shim_off_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wheel-only install has no `zig` on PATH; the shim must still select the zig driver."""
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    monkeypatch.setattr(zigshim, "resolve_zig", lambda: "/home/u/.cache/pyscriptc/shim/zig")
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert _resolve_default_driver() == "zig"
 
 
 def test_default_driver_prefers_zig_when_target_set(monkeypatch: pytest.MonkeyPatch) -> None:
