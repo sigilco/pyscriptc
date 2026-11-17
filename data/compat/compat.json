@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-16",
-  "commit": "c95e5ee4c11ca4187554c3ac8953a223a3449d24",
+  "commit": "6098eab55544b8b3adfdcbe7bc2058d9a99b8215",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-16",
-    "commit": "c95e5ee4c11ca4187554c3ac8953a223a3449d24",
+    "commit": "6098eab55544b8b3adfdcbe7bc2058d9a99b8215",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 8,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2869
+    "fences": 2865
   },
   "builtins": [
     {
@@ -1395,7 +1395,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "field(), asdict, order= and other options"
+        "asdict, order= and other options"
       ],
       "fences": [
         "PS1201",
@@ -1761,14 +1761,14 @@
       "island": "runs",
       "plane": {
         "definitions": 641,
-        "native": 370,
+        "native": 371,
         "island": 4,
-        "blocked": 267
+        "blocked": 266
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 745,
+      "fences": 741,
       "definitions": 641,
-      "fenced_definitions": 250,
+      "fenced_definitions": 249,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1786,11 +1786,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 427
+          "count": 424
         },
         {
           "code": "PS2001",
-          "count": 115
+          "count": 114
         },
         {
           "code": "PS1103",
@@ -2108,11 +2108,11 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 287
+          "count": 288
         },
         {
           "code": "PS2001",
-          "count": 120
+          "count": 119
         },
         {
           "code": "PS1106",
@@ -2569,7 +2569,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1426,
+      "count": 1424,
       "packages": 16
     },
     {
@@ -2581,7 +2581,7 @@
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 325,
+      "count": 323,
       "packages": 14
     },
     {
@@ -2723,12 +2723,12 @@
     },
     {
       "date": "2026-11-16",
-      "commit": "c95e5ee4c11ca4187554c3ac8953a223a3449d24",
+      "commit": "6098eab55544b8b3adfdcbe7bc2058d9a99b8215",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,
       "packages_none": 8,
-      "fences": 2869
+      "fences": 2865
     }
   ]
 }

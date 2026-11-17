@@ -643,8 +643,14 @@ y: int = D(1).a''', '''@dataclasses.dataclass
 class D:
     a: int
 @@
-print(D(1))''']
-no = [["field(), asdict", '''@dataclasses.dataclass
+print(D(1))''', '''@dataclasses.dataclass
+class D:
+    xs: list[int] = dataclasses.field(default_factory=list)
+@@
+one = D()
+one.xs.append(1)
+y: int = len(D().xs)''']
+no = [["asdict", '''@dataclasses.dataclass
 class D:
     a: int
 @@

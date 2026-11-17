@@ -322,7 +322,11 @@ def test_self_census_ballpark() -> None:
     # 80,365, so the ceiling moves to 82k; after the csv dict IO merge it measures 82,858,
     # so the ceiling moves to 84k; after the fd pipe/dup lowering it measures 84,023,
     # so the ceiling moves to 86k.
-    assert 11_000 <= census["lines"] <= 86_000
+    # The dataclass field factory (#1279): the factory marker, the
+    # per-instance replay at the construction site and the generated
+    # `__eq__` add about 130 lines, taking the census to 86,123, so the
+    # ceiling moves to 88k.
+    assert 11_000 <= census["lines"] <= 88_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.

@@ -127,6 +127,7 @@ There is no `typing` module object in the binary.
 | `Any` as a container element (`dict[K, Any]`, `list[Any]`) | compiles in the builtin and the `typing` spelling; reads need a proven type at the read site (annotation or checker fact), an unproven read fences `PS1107`; bare `Any` or `object` as an annotation is unsupported (`PS1104`) |
 | `async def` and `await` | compiles |
 | `dataclasses.dataclass` with no options | compiles as a native record; `frozen=True` and other decorators are unsupported (`PS1201`) |
+| `dataclasses.field(default_factory=list/dict/set/callable)` | compiles as a per-instance default: each construction that omits the field calls the factory, so two instances never share a container; `field` with other keywords fences (`PS2002`) |
 | `cast(t, v)`, `get_type_hints`, `__annotations__` reads | unsupported (`PS2002`); write the type on an annotated local instead |
 | `isinstance(v, list[int])` | unsupported (`PS2001`); runtime checks take scalar and class names only |
 | quoted forward references (`"Node"`) | compiles when the module defines the name by module end; one that never resolves fences (`PS1105`) |

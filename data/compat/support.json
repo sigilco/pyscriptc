@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-16",
-  "commit": "c95e5ee4c11ca4187554c3ac8953a223a3449d24",
+  "generated": "2026-11-17",
+  "commit": "6098eab55544b8b3adfdcbe7bc2058d9a99b8215",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -731,7 +731,7 @@
       "label": "`dataclasses`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "field(), asdict, order= and other options",
+      "missing": "asdict, order= and other options",
       "codes": [
         "PS1201",
         "PS2001"
@@ -898,7 +898,7 @@
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "250/641",
+      "ratio": "249/641",
       "blocking": "name-resolution (183), construct-other (121), field-lookup (64)",
       "codes": "PS2002, PS2001, PS1103"
     },
