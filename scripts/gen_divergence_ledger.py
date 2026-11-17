@@ -606,6 +606,16 @@ ROWS: list[dict[str, Any]] = [
         "readexactly exception class, the read(n) short read and the target fences are the rest of the entry",
     ),
     _row(
+        "D82",
+        "the verify oracle is the target's minor, not its exact patch: any 3.14.x is accepted silently, "
+        "and an older oracle (3.11 through 3.13) is opt-in through --oracle-version or PYSC_ORACLE_ANY=1 "
+        "(issue #1290)",
+        None,
+        docs=f"{DOC}#82",
+        note="the oracle choice is a tool input, not a program behaviour: the ledger cannot record it as "
+        "recorded bytes, so the entry names the contract instead",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

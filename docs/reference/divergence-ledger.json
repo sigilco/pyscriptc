@@ -1377,6 +1377,17 @@
       "status": "unprobed"
     },
     {
+      "id": "D82",
+      "seam": "the verify oracle is the target's minor, not its exact patch: any 3.14.x is accepted silently, and an older oracle (3.11 through 3.13) is opt-in through --oracle-version or PYSC_ORACLE_ANY=1 (issue #1290)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#82",
+      "probe": null,
+      "note": "the oracle choice is a tool input, not a program behaviour: the ledger cannot record it as recorded bytes, so the entry names the contract instead",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
