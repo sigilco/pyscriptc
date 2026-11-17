@@ -1798,6 +1798,15 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         handler_attr = self._http_handler_attr(node, obj, name, span)
         if handler_attr is not None:
             return handler_attr
+        # The http.server server's bound-address attributes (issue #1270,
+        # slice 2): `server.server_port` and `server.server_address` are
+        # runtime reads over the server record, not instance fields.
+        if class_name == "HTTPServer":
+            from pyscriptc.restlower._httpserver import server_attr
+
+            server_hook = server_attr(self, node, span, obj)
+            if server_hook is not None:
+                return server_hook
         for field in info["fields"]:
             if field["name"] == name:
                 return _attr_node(obj, name, field["type"], span)

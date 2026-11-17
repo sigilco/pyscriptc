@@ -154,7 +154,7 @@ def _no_args(lo: Any, node: ast.Call, what: str) -> None:
 
 def _httpserver_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
     """`server.serve_forever()`, `server.handle_request()`,
-    `server.shutdown()`, `server.server_close()`, `server.getsockname()`."""
+    `server.shutdown()`, `server.server_close()`."""
     assert isinstance(node.func, ast.Attribute)
     attr = node.func.attr
     if attr == "serve_forever":
@@ -171,25 +171,32 @@ def _httpserver_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: 
         _no_args(lo, node, "HTTPServer.server_close")
         lo.mobile_symbol_guard(node, "ps_httpsrv_close")
         return lo._abi_call("http.server", "server_close", [receiver], _NONE, "ps_httpsrv_close", span)
-    if attr == "getsockname":
-        lo._reject_keywords(node)
-        _no_args(lo, node, "HTTPServer.getsockname")
-        lo.mobile_symbol_guard(node, "ps_httpsrv_getsockname")
-        # CPython's getsockname answers the (host, port) pair of the bound
-        # address; port 0 lets the kernel pick, so a program reads the
-        # assigned port back here (the probe and the tests bind 0). The
-        # pair rides the server record: getsockname fills it and the two
-        # reads come after, in the same call order that filled it.
-        lo.prelude.append(
-            _expr_stmt(
-                lo._abi_call("http.server", "getsockname", [receiver], _NONE, "ps_httpsrv_getsockname", span), span
-            )
-        )
+    lo.fail(node, "PS2001", f"HTTPServer.{attr} is not in the lowered subset of http.server")
+    raise AssertionError("unreachable")
+
+
+def server_attr(lo: Any, node: ast.Attribute, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any] | None:
+    """`server.server_port` and `server.server_address`: the bound address.
+
+    CPython's `HTTPServer` carries the bound address as two attributes:
+    `server_address` is the `(host, port)` pair and `server_port` the port
+    on its own. The runtime holds the same two halves, so each read is a
+    runtime call over the server record. Port 0 lets the kernel pick, so a
+    program reads the assigned port back through `server_port`.
+
+    None means the attribute is not one of the two, so the caller falls
+    through to the ordinary field read.
+    """
+    attr = node.attr
+    if attr == "server_port":
+        lo.mobile_symbol_guard(node, "ps_httpsrv_port")
+        return lo._abi_call("http.server", "port_of", [receiver], _INT, "ps_httpsrv_port", span)
+    if attr == "server_address":
+        lo.mobile_symbol_guard(node, "ps_httpsrv_host")
         host = lo._abi_call("http.server", "host_of", [receiver], _STR, "ps_httpsrv_host", span)
         port = lo._abi_call("http.server", "port_of", [receiver], _INT, "ps_httpsrv_port", span)
         return lo._materialize_tuple([host, port], span, node)
-    lo.fail(node, "PS2001", f"HTTPServer.{attr} is not in the lowered subset of http.server")
-    raise AssertionError("unreachable")
+    return None
 
 
 def _serve_forever(
@@ -304,17 +311,18 @@ def _serve_forever(
         )
     )
     body.extend(dispatch)
-    # The flag-break while: the loop runs while the stop flag is false, the
-    # way `_user_while` spells it. `handle_request` serves one request, so
-    # its loop ends after the first pass.
-    loop = _while_stmt(_not(stop, span), body, span)
     lo.prelude.append(_asg(instance_t, _instance_of(handler, span), span))
-    lo.prelude.append(_asg(stop_t, _const_bool(False, span), span))
-    lo.prelude.append(loop)
-    if not forever:
-        # `handle_request` serves exactly one request: the loop body runs
-        # once and the stop flag ends it.
-        lo.prelude.append(_asg(stop_t, _const_bool(True, span), span))
+    if forever:
+        # `serve_forever` is the flag-break while: the loop runs while the
+        # stop flag is false, the way `_user_while` spells it. The flag
+        # ends the loop after the runtime answers that the server was shut
+        # down (CPython's serve_forever/shutdown pair).
+        lo.prelude.append(_asg(stop_t, _const_bool(False, span), span))
+        lo.prelude.append(_while_stmt(_not(stop, span), body, span))
+    else:
+        # `handle_request` serves exactly one request: the body runs once
+        # and there is no loop to run again.
+        lo.prelude.extend(body)
     return _const_none(span)
 
 

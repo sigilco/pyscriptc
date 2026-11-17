@@ -698,44 +698,62 @@ void ps_httpsrv_finish(void *box, void *resp_box) {
     char head[128];
     int wrote = snprintf(head, sizeof head, "HTTP/1.0 %ld %s\r\n", (long)resp->status,
                          ps_http_reason(resp->status));
-    if (wrote > 0) {
-        ssize_t put = write(fd, head, (size_t)wrote);
-        (void)put;
-    }
     /* The Date header, CPython's BaseHTTPRequestHandler writes one. */
+    char stamp[64];
+    int stamp_len = 0;
     {
-        char stamp[64];
         time_t now = time(NULL);
         struct tm tm;
         gmtime_r(&now, &tm);
-        int len = strftime(stamp, sizeof stamp, "Date: %a, %d %b %Y %H:%M:%S GMT\r\n", &tm);
-        if (len > 0) {
-            ssize_t put = write(fd, stamp, (size_t)len);
-            (void)put;
-        }
+        stamp_len = strftime(stamp, sizeof stamp, "Date: %a, %d %b %Y %H:%M:%S GMT\r\n", &tm);
     }
     /* The Server header. */
-    {
-        const char *server = "Server: BaseHTTP/1.0\r\n";
-        ssize_t put = write(fd, server, strlen(server));
-        (void)put;
-    }
+    const char *server = "Server: BaseHTTP/1.0\r\n";
+    size_t server_len = strlen(server);
     /* The header block the handler wrote. CPython's end_headers is what
        closes the block, so an absent block means end_headers never ran and
        the blank line closes it here, the way a missing end_headers still
        yields a parseable response. */
-    if (resp->headers_len > 0) {
-        ssize_t put = write(fd, resp->headers, (size_t)resp->headers_len);
-        (void)put;
-    } else {
-        ssize_t put = write(fd, "\r\n", 2);
-        (void)put;
+    const char *block = resp->headers_len > 0 ? resp->headers : "\r\n";
+    size_t block_len = resp->headers_len > 0 ? (size_t)resp->headers_len : 2;
+    /* The whole response goes out in one write: CPython's wfile is a
+       buffered writer, so the peer reads the response as one segment and
+       not as the four pieces the parts would be. */
+    size_t total = (wrote > 0 ? (size_t)wrote : 0) + (stamp_len > 0 ? (size_t)stamp_len : 0) + server_len + block_len +
+                   (resp->body_len > 0 ? (size_t)resp->body_len : 0);
+    char *out = malloc(total > 0 ? total : 1);
+    if (out == NULL) {
+        abort();
     }
-    /* The body. */
+    size_t at = 0;
+    if (wrote > 0) {
+        memcpy(out + at, head, (size_t)wrote);
+        at += (size_t)wrote;
+    }
+    if (stamp_len > 0) {
+        memcpy(out + at, stamp, (size_t)stamp_len);
+        at += (size_t)stamp_len;
+    }
+    memcpy(out + at, server, server_len);
+    at += server_len;
+    memcpy(out + at, block, block_len);
+    at += block_len;
     if (resp->body_len > 0) {
-        ssize_t put = write(fd, resp->body, (size_t)resp->body_len);
-        (void)put;
+        memcpy(out + at, resp->body, (size_t)resp->body_len);
+        at += (size_t)resp->body_len;
     }
+    size_t done = 0;
+    while (done < at) {
+        ssize_t put = write(fd, out + done, at - done);
+        if (put <= 0) {
+            if (put < 0 && errno == EINTR) {
+                continue;
+            }
+            break;
+        }
+        done += (size_t)put;
+    }
+    free(out);
     close(fd);
     free(req->headers);
     free(req->body);
