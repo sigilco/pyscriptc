@@ -7,8 +7,11 @@ oracle and the linked binary with the same argv and stdin, then reports the firs
 place stdout, stderr or the exit code differ. The receipt is a differential smoke
 test over the paths the inputs exercised, not a proof over every path.
 
-The oracle is pinned and probed, never assumed: comparing a binary to CPython 3.13
-or 3.15 would report divergences that belong to the wrong interpreter.
+The oracle is pinned to the target's minor (3.14) and probed, never assumed: any
+3.14.x patch is accepted silently (the scorer's micro stamp is informational),
+while an older oracle (3.11-3.13) is opt-in only (`--oracle-version` or
+`PYSC_ORACLE_ANY=1`) and warns that parity is then meaningful for the shared
+subset, not for the numbered divergences. A 3.15 interpreter is never accepted.
 """
 
 from __future__ import annotations
@@ -32,6 +35,12 @@ TARGET_MINOR: str = "3.14"
 TARGET_MINOR_INFO: tuple[int, int] = (3, 14)
 ORACLE_PIN: tuple[int, int] = TARGET_MINOR_INFO
 ORACLE_NAME: str = "CPython 3.14"
+# The oldest oracle an explicit `--oracle-version` / `PYSC_ORACLE_ANY=1` accepts:
+# anything older shares too little with the 3.14 target for the comparison to mean.
+ORACLE_FLOOR: tuple[int, int] = (3, 11)
+ORACLE_FLOOR_NAME: str = "CPython 3.11"
+# The exact fix the PS3001 refusal and `pyscriptc doctor` print (issue #1290).
+ORACLE_INSTALL_FIX: str = "uv python install 3.14"
 DEFAULT_TIMEOUT: float = 60.0
 TIMEOUT_EXIT: int = 124
 
@@ -67,10 +76,15 @@ elif result is not None:
 
 @dataclass(frozen=True)
 class Oracle:
-    """The probed CPython 3.14 interpreter."""
+    """The probed CPython interpreter the comparison runs against."""
 
     executable: str
     version: str
+    # The oracle's minor, as "3.14". Empty when the probe could not read one.
+    minor: str = ""
+    # True when the oracle is older than the target: the comparison then only
+    # speaks for the subset both interpreters share (issue #1290).
+    subset_only: bool = False
 
 
 @dataclass(frozen=True)
@@ -114,6 +128,8 @@ class Receipt:
         oracle_dict: dict[str, Any] = {}
         oracle_dict["executable"] = self.oracle.executable
         oracle_dict["version"] = self.oracle.version
+        oracle_dict["minor"] = self.oracle.minor
+        oracle_dict["subsetOnly"] = self.oracle.subset_only
         oracle_dict["targetVersion"] = TARGET_CPYTHON
         oracle_dict["microMismatch"] = micro_mismatch
 
@@ -165,75 +181,253 @@ def _version_of(executable: str) -> str | None:
         return None
 
 
-def find_oracle() -> Oracle:
-    """The pinned CPython 3.14 executable, or a `PS3001` refusal.
-
-    Resolution mirrors the compat2 scorer: `PYSC_ORACLE`, `PYSC_ORACLE_DIR`,
-    `python3.14` on PATH, `uv python find 3.14`, then the interpreter running
-    pyscriptc. An explicit `PYSC_ORACLE` is never silently replaced by another
-    interpreter: a wrong pin is a refusal, not a fallback.
-    """
-    explicit = os.environ.get("PYSC_ORACLE")
-    if explicit:
-        if not (os.path.isfile(explicit) and os.access(explicit, os.X_OK)):
-            raise VersionError(f"PYSC_ORACLE={explicit!r} is not an executable path; the oracle must be {ORACLE_NAME}")
-        version = _version_of(explicit)
-        if not _is_pinned(version):
-            v_str: str = version if version is not None else "unknown"
-            raise VersionError(f"PYSC_ORACLE={explicit!r} is CPython {v_str}; the oracle is pinned to {ORACLE_NAME}")
-        if version is not None and version != TARGET_CPYTHON:
-            warnings.warn(f"oracle is CPython {version}, declared target is {TARGET_CPYTHON}")  # noqa: B028
-        return Oracle(explicit, version or "")
-    candidates: list[str] = []
-    oracle_dir = os.environ.get("PYSC_ORACLE_DIR")
-    if oracle_dir:
-        candidates += sorted([str(p) for p in Path(oracle_dir).glob("cpython-3.14.*/bin/python3")])
-    for name in ("python3.14", "python3", "python"):
-        found = shutil.which(name)
-        if found is not None:
-            candidates.append(found)
-    try:
-        # `uv` prints the interpreter it would use; a missing uv is not fatal.
-        found_proc = subprocess.run(["uv", "python", "find", "3.14"], capture_output=True, text=True, check=True)
-        candidates.append(found_proc.stdout.strip())
-    except Exception:
-        pass
-    candidates.append(sys.executable)
-    chosen: Oracle | None = None
-    seen_candidates: list[str] = []
-    for candidate in candidates:
-        if candidate and candidate not in seen_candidates:
-            seen_candidates.append(candidate)
-    for candidate in seen_candidates:
-        version = _version_of(candidate)
-        if _is_pinned(version):
-            oracle = Oracle(candidate, version or "")
-            if version == TARGET_CPYTHON:
-                return oracle
-            if chosen is None:
-                chosen = oracle
-    if chosen is not None:
-        cv: str = chosen.version
-        warnings.warn(f"oracle is CPython {cv}, declared target is {TARGET_CPYTHON}")  # noqa: B028
-        return chosen
-    raise VersionError(
-        f"no {ORACLE_NAME} interpreter for the oracle: set PYSC_ORACLE=/path/to/python3.14, "
-        f"set PYSC_ORACLE_DIR, or run `uv python install 3.14`"
-    )
-
-
-def _is_pinned(version: str | None) -> bool:
+def _minor_of(version: str | None) -> tuple[int, int] | None:
+    """The (major, minor) of a probed version, or None when it is unreadable."""
     if not version:
-        return False
+        return None
     split_parts = version.split(".")
     if len(split_parts) < 2:
-        return False
+        return None
     try:
         major = int(split_parts[0])
         minor = int(split_parts[1])
     except ValueError:
+        return None
+    return (major, minor)
+
+
+def _minor_text(minor: tuple[int, int] | None) -> str:
+    """The "3.14" spelling of a (major, minor) pair."""
+    if minor is None:
+        return ""
+    return f"{minor[0]}.{minor[1]}"
+
+
+def _is_pinned(version: str | None) -> bool:
+    """True when the version is the target's minor (any patch)."""
+    return _minor_of(version) == ORACLE_PIN
+
+
+def _is_subset_minor(minor: tuple[int, int] | None) -> bool:
+    """True when the minor is an older one the opt-in oracle lane accepts."""
+    if minor is None:
         return False
-    return (major, minor) == ORACLE_PIN
+    return ORACLE_FLOOR <= minor < ORACLE_PIN
+
+
+def _env_allows_any() -> bool:
+    """True when `PYSC_ORACLE_ANY=1` opts the run into an older oracle."""
+    return os.environ.get("PYSC_ORACLE_ANY", "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _parse_oracle_version(oracle_version: str | None) -> tuple[int, int] | None:
+    """The minor an `--oracle-version` names, or None when the flag is absent.
+
+    The spelling is "3.12" or "3.12.4"; the patch is dropped, because the
+    lane picks an interpreter of that minor, not of that exact build.
+    """
+    if oracle_version is None:
+        return None
+    text = oracle_version.strip()
+    if not text:
+        return None
+    parts = text.split(".")
+    try:
+        major = int(parts[0])
+        minor = int(parts[1]) if len(parts) > 1 else 0
+    except (IndexError, ValueError) as exc:
+        raise VersionError(
+            f"--oracle-version={oracle_version!r} is not a CPython version; "
+            f"write it as {ORACLE_FLOOR_NAME} or {ORACLE_NAME} (for example 3.12)"
+        ) from exc
+    return (major, minor)
+
+
+def _oracle(version: str, executable: str, *, subset_only: bool = False) -> Oracle:
+    """The probed oracle record, with its minor and the subset-only flag."""
+    minor = _minor_of(version)
+    return Oracle(executable, version, _minor_text(minor), subset_only)
+
+
+def _warn_subset(oracle: Oracle) -> None:
+    """Warn that an older oracle only speaks for the subset both share."""
+    warnings.warn(  # noqa: B028
+        f"oracle is CPython {oracle.version}, older than the {TARGET_MINOR} target: parity is meaningful "
+        f"only for the subset CPython {oracle.minor} and {TARGET_MINOR} share, and the numbered "
+        f"divergences are stated against {TARGET_CPYTHON}",
+        UserWarning,
+        stacklevel=3,
+    )
+
+
+def _candidate_paths(minor: str) -> list[str]:
+    """Every place an interpreter of one minor can live, best first."""
+    candidates: list[str] = []
+    oracle_dir = os.environ.get("PYSC_ORACLE_DIR")
+    if oracle_dir:
+        candidates += sorted([str(p) for p in Path(oracle_dir).glob(f"cpython-{minor}.*/bin/python3")])
+    found = shutil.which(f"python{minor}")
+    if found is not None:
+        candidates.append(found)
+    try:
+        # `uv` prints the interpreter it would use; a missing uv is not fatal.
+        found_proc = subprocess.run(["uv", "python", "find", minor], capture_output=True, text=True, check=True)
+        candidates.append(found_proc.stdout.strip())
+    except Exception:
+        pass
+    return candidates
+
+
+def _find_minor_oracle(minor: tuple[int, int]) -> Oracle | None:
+    """The first interpreter of one minor that answers the version probe."""
+    text = _minor_text(minor)
+    for candidate in _candidate_paths(text):
+        if not candidate:
+            continue
+        version = _version_of(candidate)
+        if _minor_of(version) == minor:
+            return _oracle(version or "", candidate)
+    if _minor_of(sys.version.split()[0]) == minor:
+        return _oracle(sys.version.split()[0], sys.executable)
+    return None
+
+
+def _find_target_oracle() -> Oracle | None:
+    """The target's interpreter: any 3.14 patch, the exact target first."""
+    chosen: Oracle | None = None
+    for candidate in _candidate_paths(TARGET_MINOR):
+        if not candidate:
+            continue
+        version = _version_of(candidate)
+        if not _is_pinned(version):
+            continue
+        oracle = _oracle(version or "", candidate)
+        if version == TARGET_CPYTHON:
+            return oracle
+        if chosen is None:
+            chosen = oracle
+    for name in ("python3", "python"):
+        found = shutil.which(name)
+        if found is None:
+            continue
+        version = _version_of(found)
+        if not _is_pinned(version):
+            continue
+        oracle = _oracle(version or "", found)
+        if version == TARGET_CPYTHON:
+            return oracle
+        if chosen is None:
+            chosen = oracle
+    if _is_pinned(sys.version.split()[0]):
+        oracle = _oracle(sys.version.split()[0], sys.executable)
+        if chosen is None:
+            chosen = oracle
+        if sys.version.split()[0] == TARGET_CPYTHON:
+            return oracle
+    return chosen
+
+
+def _find_subset_oracle() -> Oracle | None:
+    """The newest older interpreter the opt-in lane accepts, if any."""
+    for minor in (3, 13), (3, 12), (3, 11):
+        if not _is_subset_minor(minor):
+            continue
+        oracle = _find_minor_oracle(minor)
+        if oracle is not None:
+            return oracle
+    return None
+
+
+def _explicit_oracle(explicit: str, wanted: tuple[int, int] | None, allow_any: bool) -> Oracle:
+    """The interpreter `PYSC_ORACLE` names, or a `PS3001` refusal.
+
+    An explicit pin is never silently replaced by another interpreter: a
+    wrong pin is a refusal, not a fallback. The only exception is an older
+    minor under the opt-in lane, which is accepted with a warning.
+    """
+    if not (os.path.isfile(explicit) and os.access(explicit, os.X_OK)):
+        raise VersionError(f"PYSC_ORACLE={explicit!r} is not an executable path; the oracle must be {ORACLE_NAME}")
+    version = _version_of(explicit)
+    minor = _minor_of(version)
+    if minor == ORACLE_PIN:
+        # Any 3.14 patch is the oracle: the micro of the declared target is
+        # informational, not a mismatch to warn about (issue #1290).
+        return _oracle(version or "", explicit)
+    if _is_subset_minor(minor):
+        accepted = allow_any or (wanted is not None and wanted == minor)
+        if not accepted:
+            v_str = version if version is not None else "unknown"
+            raise VersionError(
+                f"PYSC_ORACLE={explicit!r} is CPython {v_str}; the oracle is pinned to {ORACLE_NAME}. "
+                f"Opt in to an older oracle with --oracle-version {v_str.split('.')[0]}.{v_str.split('.')[1]} "
+                f"or PYSC_ORACLE_ANY=1, or run `{ORACLE_INSTALL_FIX}`"
+            )
+        oracle = _oracle(version or "", explicit, subset_only=True)
+        _warn_subset(oracle)
+        return oracle
+    v_str = version if version is not None else "unknown"
+    raise VersionError(
+        f"PYSC_ORACLE={explicit!r} is CPython {v_str}; the oracle is pinned to {ORACLE_NAME}, "
+        f"or to an older minor ({ORACLE_FLOOR_NAME} through 3.13) under the opt-in lane; "
+        f"run `{ORACLE_INSTALL_FIX}`"
+    )
+
+
+def find_oracle(*, oracle_version: str | None = None, allow_any: bool | None = None) -> Oracle:
+    """The oracle interpreter, or a `PS3001` refusal.
+
+    Resolution mirrors the compat2 scorer's shape: `PYSC_ORACLE`,
+    `PYSC_ORACLE_DIR`, `python3.14` on PATH, `uv python find 3.14`, then the
+    interpreter running pyscriptc. Any 3.14 patch is accepted silently; the
+    micro of the declared target is informational.
+
+    An older oracle (3.11 through 3.13) is opt-in: `--oracle-version 3.12`
+    names the minor to use, `PYSC_ORACLE_ANY=1` accepts whichever older
+    interpreter is around. Either way the run warns that parity is then
+    meaningful only for the subset both interpreters share (issue #1290).
+
+    The frozen compat2 scorer keeps its own resolver and stays on 3.14.
+    """
+    if allow_any is None:
+        allow_any = _env_allows_any()
+    wanted = _parse_oracle_version(oracle_version)
+    if wanted is not None and wanted > ORACLE_PIN:
+        raise VersionError(
+            f"--oracle-version={oracle_version!r} is newer than the {TARGET_MINOR} target; "
+            f"the oracle is pinned to {ORACLE_NAME}"
+        )
+    explicit = os.environ.get("PYSC_ORACLE")
+    if explicit:
+        return _explicit_oracle(explicit, wanted, allow_any)
+    if wanted is not None and wanted != ORACLE_PIN:
+        oracle = _find_minor_oracle(wanted)
+        if oracle is None:
+            raise VersionError(
+                f"no CPython {_minor_text(wanted)} interpreter for the oracle: set "
+                f"PYSC_ORACLE=/path/to/python{_minor_text(wanted)}, set PYSC_ORACLE_DIR, "
+                f"or run `uv python install {_minor_text(wanted)}`"
+            )
+        subset_oracle = _oracle(oracle.version, oracle.executable, subset_only=True)
+        _warn_subset(subset_oracle)
+        return subset_oracle
+    if allow_any:
+        oracle = _find_subset_oracle()
+        if oracle is None:
+            raise VersionError(
+                f"no {ORACLE_FLOOR_NAME} to {TARGET_MINOR} interpreter for the oracle: set "
+                f"PYSC_ORACLE=/path/to/python3.12, set PYSC_ORACLE_DIR, or run "
+                f"`{ORACLE_INSTALL_FIX}`"
+            )
+        subset_oracle = _oracle(oracle.version, oracle.executable, subset_only=True)
+        _warn_subset(subset_oracle)
+        return subset_oracle
+    oracle = _find_target_oracle()
+    if oracle is None:
+        raise VersionError(
+            f"no {ORACLE_NAME} interpreter for the oracle: set PYSC_ORACLE=/path/to/python3.14, "
+            f"set PYSC_ORACLE_DIR, or run `{ORACLE_INSTALL_FIX}`"
+        )
+    return oracle
 
 
 def _decode(data: bytes) -> str:
@@ -356,9 +550,13 @@ def render_text(receipt: Receipt) -> str:
             differing += 1
     verdict: str = "match" if receipt.match else f"divergence ({differing} of {len(receipt.checks)} checks differ)"
     lines: list[str] = [f"verify {receipt.source}: {verdict}"]
-    if receipt.oracle.version != TARGET_CPYTHON:
+    if receipt.oracle.minor and receipt.oracle.minor != TARGET_MINOR:
         lines.append(
             f"  oracle: {receipt.oracle.executable} (CPython {receipt.oracle.version}, target {TARGET_CPYTHON})"
+        )
+        lines.append(
+            f"  note: parity is meaningful only for the subset CPython {receipt.oracle.minor} and "
+            f"{TARGET_MINOR} share; the numbered divergences are stated against {TARGET_CPYTHON}"
         )
     else:
         lines.append(f"  oracle: {receipt.oracle.executable} (CPython {receipt.oracle.version})")
@@ -444,6 +642,8 @@ def failure_receipt(
     oracle_dict: dict[str, Any] = {}
     oracle_dict["executable"] = oracle.executable
     oracle_dict["version"] = oracle.version
+    oracle_dict["minor"] = oracle.minor
+    oracle_dict["subsetOnly"] = oracle.subset_only
     oracle_dict["targetVersion"] = TARGET_CPYTHON
     oracle_dict["microMismatch"] = micro_mismatch
 

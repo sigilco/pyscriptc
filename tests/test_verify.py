@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import json
 import shutil
+import warnings
 from pathlib import Path
 
 import pytest
@@ -207,12 +208,189 @@ def test_receipt_carries_target_version_and_micro_mismatch(tmp_path: Path, capsy
     assert "microMismatch" in receipt["oracle"]
 
 
-def test_oracle_micro_mismatch_warns(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_oracle_micro_mismatch_is_silent(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Any 3.14.x patch is the oracle: the micro draws no warning (issue #1290)."""
     fake_exe = tmp_path / "fake_python"
     fake_exe.write_text("#!/bin/sh\nexit 0\n")
     fake_exe.chmod(0o755)
     monkeypatch.setenv("PYSC_ORACLE", str(fake_exe))
     monkeypatch.setattr(verify, "_version_of", lambda _: "3.14.8")
-    with pytest.warns(UserWarning, match="oracle is CPython 3.14.8, declared target is 3.14.9"):
+    with warnings.catch_warnings():
+        warnings.simplefilter("error")
         oracle = verify.find_oracle()
     assert oracle.version == "3.14.8"
+    assert oracle.minor == "3.14"
+    assert oracle.subset_only is False
+
+
+def _fake_oracle(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, version: str) -> str:
+    """An executable the version probe reads as `version`."""
+    fake_exe = tmp_path / f"python-{version}"
+    fake_exe.write_text("#!/bin/sh\nexit 0\n")
+    fake_exe.chmod(0o755)
+    monkeypatch.setattr(verify, "_version_of", lambda _: version)
+    return str(fake_exe)
+
+
+def test_older_oracle_needs_the_opt_in(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 3.13 oracle is refused until the run opts in (issue #1290)."""
+    explicit = _fake_oracle(tmp_path, monkeypatch, "3.13.5")
+    monkeypatch.setenv("PYSC_ORACLE", explicit)
+    monkeypatch.delenv("PYSC_ORACLE_ANY", raising=False)
+    with pytest.raises(verify.VersionError) as excinfo:
+        verify.find_oracle()
+    message = str(excinfo.value)
+    assert "pinned to CPython 3.14" in message
+    assert "PYSC_ORACLE_ANY=1" in message
+    assert "uv python install 3.14" in message
+
+
+def test_older_oracle_with_the_env_opt_in_warns_about_the_subset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`PYSC_ORACLE_ANY=1` accepts the older oracle and warns (issue #1290)."""
+    explicit = _fake_oracle(tmp_path, monkeypatch, "3.12.4")
+    monkeypatch.setenv("PYSC_ORACLE", explicit)
+    monkeypatch.setenv("PYSC_ORACLE_ANY", "1")
+    with pytest.warns(UserWarning, match="meaningful only for the subset"):
+        oracle = verify.find_oracle()
+    assert oracle.version == "3.12.4"
+    assert oracle.minor == "3.12"
+    assert oracle.subset_only is True
+
+
+def test_older_oracle_with_the_flag_opt_in_warns_about_the_subset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`--oracle-version 3.12` accepts the older oracle and warns (issue #1290)."""
+    explicit = _fake_oracle(tmp_path, monkeypatch, "3.12.4")
+    monkeypatch.setenv("PYSC_ORACLE", explicit)
+    monkeypatch.delenv("PYSC_ORACLE_ANY", raising=False)
+    with pytest.warns(UserWarning, match="meaningful only for the subset"):
+        oracle = verify.find_oracle(oracle_version="3.12")
+    assert oracle.version == "3.12.4"
+    assert oracle.subset_only is True
+
+
+def test_a_newer_than_target_oracle_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A 3.15 oracle is never the oracle: the target is the ceiling."""
+    monkeypatch.delenv("PYSC_ORACLE", raising=False)
+    monkeypatch.delenv("PYSC_ORACLE_ANY", raising=False)
+    with pytest.raises(verify.VersionError) as excinfo:
+        verify.find_oracle(oracle_version="3.15")
+    assert "newer than the 3.14 target" in str(excinfo.value)
+
+
+def test_a_malformed_oracle_version_is_refused(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYSC_ORACLE", raising=False)
+    with pytest.raises(verify.VersionError) as excinfo:
+        verify.find_oracle(oracle_version="three-twelve")
+    assert "is not a CPython version" in str(excinfo.value)
+
+
+def test_a_too_old_oracle_is_never_accepted(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """3.10 shares too little with 3.14: the floor is 3.11."""
+    explicit = _fake_oracle(tmp_path, monkeypatch, "3.10.14")
+    monkeypatch.setenv("PYSC_ORACLE", explicit)
+    monkeypatch.setenv("PYSC_ORACLE_ANY", "1")
+    with pytest.raises(verify.VersionError) as excinfo:
+        verify.find_oracle()
+    assert "pinned to CPython 3.14" in str(excinfo.value)
+
+
+def test_receipt_records_the_oracle_version_and_the_subset_flag(tmp_path: Path) -> None:
+    """The receipt names the oracle it ran against (issue #1290)."""
+    oracle = verify.Oracle("/bin/python3.12", "3.12.4", "3.12", True)
+    receipt = verify.Receipt(
+        source="prog.py",
+        oracle=oracle,
+        binary="/tmp/prog",
+        binary_bytes=10,
+        argv=[],
+        stdin_path=None,
+        stdin_bytes=0,
+        checks=[{"name": "stdout", "match": True, "oracleBytes": 0, "nativeBytes": 0, "difference": None}],
+        call=None,
+        cache_hit=0,
+        compile_ms=1,
+        duration_ms=1,
+        timeout_seconds=60.0,
+    )
+    data = receipt.as_dict()
+    assert data["oracle"]["version"] == "3.12.4"
+    assert data["oracle"]["minor"] == "3.12"
+    assert data["oracle"]["subsetOnly"] is True
+    assert data["oracle"]["targetVersion"] == "3.14.9"
+
+
+def test_the_text_receipt_names_the_subset_when_the_oracle_is_older() -> None:
+    """The human receipt says parity is a subset claim (issue #1290)."""
+    oracle = verify.Oracle("/bin/python3.12", "3.12.4", "3.12", True)
+    receipt = verify.Receipt(
+        source="prog.py",
+        oracle=oracle,
+        binary="/tmp/prog",
+        binary_bytes=10,
+        argv=[],
+        stdin_path=None,
+        stdin_bytes=0,
+        checks=[{"name": "stdout", "match": True, "oracleBytes": 0, "nativeBytes": 0, "difference": None}],
+        call=None,
+        cache_hit=0,
+        compile_ms=1,
+        duration_ms=1,
+        timeout_seconds=60.0,
+    )
+    text = verify.render_text(receipt)
+    assert "CPython 3.12.4" in text
+    assert "meaningful only for the subset" in text
+
+
+def test_the_text_receipt_stays_quiet_on_a_3_14_patch() -> None:
+    """A 3.14.x patch draws no subset note (issue #1290)."""
+    oracle = verify.Oracle("/bin/python3.14", "3.14.10", "3.14", False)
+    receipt = verify.Receipt(
+        source="prog.py",
+        oracle=oracle,
+        binary="/tmp/prog",
+        binary_bytes=10,
+        argv=[],
+        stdin_path=None,
+        stdin_bytes=0,
+        checks=[{"name": "stdout", "match": True, "oracleBytes": 0, "nativeBytes": 0, "difference": None}],
+        call=None,
+        cache_hit=0,
+        compile_ms=1,
+        duration_ms=1,
+        timeout_seconds=60.0,
+    )
+    text = verify.render_text(receipt)
+    assert "CPython 3.14.10" in text
+    assert "meaningful only for the subset" not in text
+
+
+def test_the_cli_takes_the_oracle_version_flag() -> None:
+    """`verify --oracle-version` reaches the resolver (issue #1290)."""
+    from pyscriptc.cli import build_parser
+
+    parser = build_parser()
+    args = parser.parse_args(["verify", "prog.py", "--oracle-version", "3.12"])
+    assert args.oracle_version == "3.12"
+
+
+def test_the_cli_refuses_a_newer_oracle_version(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    source = _script(tmp_path, MATCHING)
+    assert cli.main(["verify", str(source), "--skip-check", "--oracle-version", "3.15"]) == 4
+    assert "newer than the 3.14 target" in capsys.readouterr().err
+
+
+def test_doctor_names_the_oracle_and_the_fix() -> None:
+    """`doctor` reports the oracle and the exact fix when it is missing (issue #1290)."""
+    from pyscriptc import doctor
+
+    info = doctor.gather()
+    assert info["oracle"]["targetVersion"] == "3.14.9"
+    assert info["oracle"]["fix"] == "uv python install 3.14"
+    text = doctor.render(info)
+    assert "oracle:" in text
+    assert "uv python install 3.14" in text
