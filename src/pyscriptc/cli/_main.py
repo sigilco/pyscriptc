@@ -1548,8 +1548,7 @@ def _resolve_default_driver(target: str | None = None, sanitize: list[str] | Non
       `-fsanitize=` but ships no linkable sanitizer runtime, so the link
       fails with `undefined symbol: __asan_init`.
     - If shutil.which("zig") is found on PATH -> prefer zig.
-    - Otherwise, fall back to clang on macOS/Linux if found on PATH, then to the
-      `ziglang` wheel shim.
+    - Otherwise, fall back to clang on macOS/Linux if found on PATH.
     - If neither is found, return None.
     """
     if target is not None or sys.platform == "win32":
@@ -1562,12 +1561,6 @@ def _resolve_default_driver(target: str | None = None, sanitize: list[str] | Non
         return "zig"
     if shutil.which("clang") is not None:
         return "clang"
-    # A wheel-only install (`pip install ziglang`) has no `zig` on PATH: the
-    # shim is the last resort, so it never displaces a system zig or clang.
-    from pyscriptc import zigshim as _zs
-
-    if _zs.resolve_zig() is not None:
-        return "zig"
     return None
 
 
@@ -1692,6 +1685,12 @@ def _require_toolchain(args: argparse.Namespace) -> None:
         return
     driver: str | None = args.driver
     if driver is None:
+        # A wheel-only install (`pip install ziglang`) has no `zig` on PATH, so
+        # default selection found nothing; the shim is the last resort.
+        zigshim.ensure_on_path()
+        if shutil.which("zig") is not None:
+            args.driver = "zig"
+            return
         raise IRError(
             "no C toolchain found on PATH (neither zig nor clang), and compiling to a binary needs a C toolchain. "
             f"{zigshim.install_hint()}, or clang (xcode-select --install, apt install clang, ...). "
