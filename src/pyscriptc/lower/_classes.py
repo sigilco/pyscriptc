@@ -27,21 +27,26 @@ from pyscriptc.lower._core import (
     Fence,
     _assign,
     _concat_str,
+    _const_bool,
     _const_str,
     _has_typevar,
     _mk_span,
     _mk_type,
     _name,
+    _node_type,
+    _node_type_kind,
     _plain_const_kind,
     _show,
     _sig_typevars,
 )
+from pyscriptc.lower._expr_compare import _assign_node, _compare_node, _if_node
 from pyscriptc.lower._ndarray import _dtype_of as _nd_dtype_of
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.reflection import annotation_note, metaclass_note
 from pyscriptc.reprspec import type_spec
 from pyscriptc.restlower import method_spec as synth_method
-from pyscriptc.restlower import path_attr
+from pyscriptc.restlower import path_attr, rest_call
+from pyscriptc.restlower._dataclasses import container_factory, factory_ast
 from pyscriptc.restlower._uuid import uuid_hex_attr
 from pyscriptc.sigrec import T, type_to_dict
 from pyscriptc.stdmore import (
@@ -366,6 +371,50 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 record["exc_parent"] = 7
             self.classes[name] = record
 
+    def _is_field_call(self, node: ast.expr) -> bool:
+        """Whether the expression is the `dataclasses.field` call, spelled
+        either `field(...)` or `dataclasses.field(...)`."""
+
+        if not isinstance(node, ast.Call):
+            return False
+        if isinstance(node.func, ast.Name):
+            binding = self.bindings.get(node.func.id)
+            return binding is not None and binding.module == "dataclasses" and binding.attr == "field"
+        if isinstance(node.func, ast.Attribute):
+            resolved = self._resolve_module(node.func)
+            return resolved is not None and resolved[1] == "dataclasses" and resolved[2] == "field"
+        return False
+
+    def _field_default(self, node: ast.Call, typ: dict[str, Any]) -> dict[str, Any]:
+        """Lower one `field(default_factory=...)` into the factory marker.
+
+        The call rides the rest handler (`rest_call`); the expectation is
+        the annotation's field type, so a callable factory's return type
+        is checked against the annotation here.
+        """
+        return rest_call(self, node, span_of(node, self.filename), "dataclasses", "field", typ)
+
+    def _check_factory_default(self, stmt: ast.AnnAssign, marker: dict[str, Any], typ: dict[str, Any]) -> None:
+        """Type-check one factory default against the annotation.
+
+        The container factories build the empty container of the field's
+        type, so a container annotation is the only shape that lowers; a
+        callable factory's result type is the annotation itself, which the
+        rest handler already checked.
+        """
+        name = container_factory(marker)
+        if name is None:
+            return
+        if name == "list" and _type_kind(typ) == "list" and not typ.get("set") and typ.get("elem") is not None:
+            return
+        if name == "set" and _type_kind(typ) == "list" and typ.get("set") and typ.get("elem") is not None:
+            return
+        if name == "dict" and _type_kind(typ) == "dict":
+            return
+        if _type_kind(typ) == "func":
+            return
+        self.fail(stmt, "PS1003", f"default_factory={name} needs a matching container annotation")
+
     def _collect_class(self, node: ast.ClassDef) -> None:
         keywords = [kw for kw in node.keywords if not self._is_abcmeta_keyword(kw)]
         if keywords:
@@ -496,19 +545,32 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                                         self.fail(elt, "PS2002", "a tuple default element must be a constant")
                                     elems.append(ev)
                                 default = _tuple_default(elems, typ)
+                            elif self._is_field_call(stmt.value):
+                                # `field(default_factory=...)` (issue #1279): the
+                                # per-instance default. The marker carries the
+                                # factory, not a value, so the construction
+                                # site replays it.
+                                default = self._field_default(stmt.value, typ)
                             else:
                                 default = self._expr(stmt.value, None if typ.get("optional") else typ)
                         finally:
                             self.prelude = saved_prelude
-                        if _node_kind(default) not in {"const", "tuple-default"}:
+                        if _record_kind(default) == "factory-default":
+                            # The factory default: the field takes the
+                            # factory's value per construction, so the
+                            # annotation drives the factory's result type.
+                            self._check_factory_default(stmt, default, typ)
+                            field["factory"] = default
+                        elif _node_kind(default) not in {"const", "tuple-default"}:
                             self.fail(stmt, "PS2002", "a dataclass default must be a constant")
-                        if typ.get("optional"):
+                        elif typ.get("optional"):
                             if _type_kind(default["type"]) != "none" and not types_equal(default["type"], typ["elem"]):
                                 self.fail(stmt, "PS1003", f"{stmt.target.id} default is not {_show(typ)}")
                             field["optdefault"] = True
                         else:
                             self._expect(stmt, default["type"], typ, stmt.target.id)
-                        field["default"] = default
+                        if _record_kind(default) != "factory-default":
+                            field["default"] = default
                         seen_default = True
                     elif seen_default:
                         self.fail(stmt, "PS2002", "a non-default field follows a default")
@@ -610,6 +672,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     )
                 )
         generated: str | None = None
+        generated_eq = False
         init_target: str | None = None
         if deco == "dataclass":
             if wrote_init:
@@ -621,11 +684,34 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     param["default"] = field["default"]
                     if field.get("optdefault"):
                         param["optdefault"] = True
+                if "factory" in field:
+                    # The per-instance default (issue #1279): the
+                    # construction site that omits the argument calls the
+                    # factory, so every instance gets its own value.
+                    param["factory"] = field["factory"]
                 params.append(param)
             method_sigs["__init__"] = (params, _leaf_type("none"))
             kinds["__init__"] = "method"
             owners["__init__"] = node.name
             generated = "dataclass"
+            if (
+                "__eq__" not in method_sigs
+                and fields
+                and all(self._eq_comparable_field(field["type"], current=node.name) for field in fields)
+            ):
+                # The dataclass `__eq__` (issue #1279): CPython synthesizes
+                # it, so the signature is registered here, in the collect
+                # pass, and the compare sites find it before the body pass
+                # lowers the method. A written `__eq__` wins. A field the
+                # chain cannot spell keeps the identity fallback.
+                eq_params = [
+                    _self_param(node.name),
+                    {"name": "other", "type": _class_type(node.name)},
+                ]
+                method_sigs["__eq__"] = (eq_params, _leaf_type("bool"))
+                kinds["__eq__"] = "method"
+                owners["__eq__"] = node.name
+                generated_eq = True
         elif not wrote_init and "__init__" in method_sigs:
             if fields:
                 self.fail(node, "PS1001", f"{node.name} needs __init__")
@@ -679,6 +765,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if generated is not None:
             info["generated_init"] = generated
             info["init_target"] = init_target
+        if generated_eq:
+            info["generated_eq"] = True
         if exception:
             info["exception"] = True
             info["exc_code"] = self.exc_n
@@ -835,11 +923,48 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         emit = self._emit_owner(class_name, name)
         return _function_call(f"cls.{emit}.{name}", [receiver, *args], ret, span)
 
+    def _lower_factories(self, info: dict[str, Any]) -> None:
+        """Lower the callable factories of one class into callable values.
+
+        The class-body collect pass runs before the module's function
+        signatures are known, so a factory that names a module function
+        could not be lowered there. The class body pass runs after, so the
+        callable value is built here and stored on the `__init__` parameter
+        the construction site replays.
+        """
+        params = info.get("methods", {}).get("__init__")
+        if params is None:
+            return
+        for param in params[0]:
+            marker = param.get("factory")
+            if marker is None:
+                continue
+            ast_node = factory_ast(marker)
+            if ast_node is None:
+                continue
+            ret = param["type"]
+            if ret.get("optional"):
+                ret = ret["elem"]
+            ftype = {"kind": "func", "params": [], "return": ret}
+            saved_prelude = self.prelude
+            self.prelude = []
+            try:
+                value = self._expr(ast_node, ftype)
+            finally:
+                self.prelude = saved_prelude
+            if _node_type_kind(value) != "func":
+                self.fail(ast_node, "PS2002", "default_factory takes a callable with no parameters")
+            if _node_type(value)["params"]:
+                self.fail(ast_node, "PS2003", "default_factory takes no arguments")
+            marker["factory"] = value
+            marker["factory_ast"] = None
+
     def _lower_class(self, node: ast.ClassDef, emit_name: str | None = None) -> dict[str, Any] | None:
         own = emit_name or node.name
         info = self.classes[own]
         if info.get("enum"):
             return None
+        self._lower_factories(info)
         own_names = {field["name"] for field in info.get("own_fields", info["fields"])}
         methods: list[dict[str, Any]] = []
         for stmt in node.body:
@@ -880,6 +1005,9 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         generated_repr = self._generated_repr(node, info)
         if generated_repr is not None:
             methods.append(generated_repr)
+        generated_eq = self._generated_eq(node, info)
+        if generated_eq is not None:
+            methods.append(generated_eq)
         record = {
             "name": own,
             "fields": info["fields"],
@@ -1024,6 +1152,103 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         info["method_kind"]["__repr__"] = "method"
         info["method_owner"]["__repr__"] = node.name
         return self._method_ir("__repr__", params, _leaf_type("str"), body, span)
+
+    def _generated_eq(self, node: ast.ClassDef, info: dict[str, Any]) -> dict[str, Any] | None:
+        """The dataclass `__eq__`: fieldwise equality, identity if equal.
+
+        CPython's `@dataclass` synthesizes `__eq__` as `other is self or
+        self._fields == other._fields` (issue #1279), so `C(1) == C(1)` is
+        True where the identity fallback answered False. The generated body
+        is the identity compare plus one short-circuiting chain over the
+        field pairs; each field compare recurses through `_compare_values`,
+        so a container or nested-dataclass field compares by value. A
+        written `__eq__` wins, as in CPython; `eq=False` on the decorator
+        is a different decorator spelling and never reaches this class
+        lowering.
+        """
+        if not info.get("generated_eq"):
+            return None
+        fields = info["own_fields"]
+        if any(not self._eq_comparable_field(field["type"], current=node.name) for field in fields):
+            return None
+        span = span_of(node, self.filename)
+        self_type = _class_type(node.name)
+        params = info["methods"]["__eq__"][0]
+        self.locals = {param["name"]: param["type"] for param in params}
+        self_n = _name("self", self_type, span)
+        other_n = _name("other", self_type, span)
+        bool_t = _leaf_type("bool")
+        res = self._temp("eq")
+        self.locals[res] = bool_t
+        res_n = _name(res, bool_t, span)
+        field_stmts: list[dict[str, Any]] = []
+        for field in fields:
+            f_self = _attr_node(self_n, field["name"], field["type"], span)
+            f_other = _attr_node(other_n, field["name"], field["type"], span)
+            saved = self.prelude
+            self.prelude = []
+            try:
+                pair = self._compare_values(node, "==", f_self, f_other, span)
+            finally:
+                inner = self.prelude
+                self.prelude = saved
+            cond = self._truthy(res_n, span)
+            field_stmts.append(_if_node(cond, [*inner, _assign_node(res, pair, span)], [], span))
+        body = [
+            # `other is self` answers True without reading a field; the
+            # chain below runs only for two distinct instances.
+            _assign_node(res, _const_bool(True, span), span),
+            _if_node(_compare_node("is not", self_n, other_n, span), field_stmts, [], span),
+            _return_node(res_n, span),
+        ]
+        return self._method_ir("__eq__", params, bool_t, body, span)
+
+    def _eq_comparable_field(
+        self, typ: dict[str, Any], seen: frozenset[str] | None = None, current: str | None = None
+    ) -> bool:
+        """Whether a field type has an `==` this lowering can spell.
+
+        The scalars, the containers, and a nested dataclass (whose own
+        generated `__eq__` the body calls) are comparable; anything else
+        keeps the identity fallback. `current` names the class whose
+        `__eq__` is being decided, so a self-referencing field (a tree of
+        nodes) stays comparable: the body calls the class's own `__eq__`
+        and the recursion ends on the data, not on the types.
+        """
+        seen = seen or frozenset()
+        kind = _type_kind(typ)
+        if kind in {"int", "float", "str", "bool", "bytes", "none"}:
+            return True
+        if kind == "list":
+            elem = typ.get("elem")
+            return elem is not None and self._eq_comparable_field(elem, seen, current)
+        if kind == "dict":
+            key = typ.get("key")
+            value = typ.get("value")
+            return (
+                key is not None
+                and value is not None
+                and self._eq_comparable_field(key, seen, current)
+                and self._eq_comparable_field(value, seen, current)
+            )
+        if kind == "class":
+            class_name = str(typ["name"])
+            if class_name == current:
+                return True
+            class_info = self.classes.get(class_name)
+            if class_info is None:
+                # A class the collect pass has not reached yet: it is a
+                # forward reference, and its own pass decides whether it
+                # gets an `__eq__`.
+                return False
+            if class_info.get("generated_eq"):
+                return True
+            if class_info.get("generated_init") == "dataclass":
+                return True
+            if class_info.get("methods", {}).get("__eq__") is not None:
+                return class_info.get("method_kind", {}).get("__eq__") == "method"
+            return False
+        return False
 
     def _reprable_field(self, typ: dict[str, Any], seen: frozenset[str] | None = None) -> bool:
         """Whether a field type has a repr this lowering can spell.

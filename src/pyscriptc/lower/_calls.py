@@ -60,6 +60,7 @@ from pyscriptc.lower._core import (
 )
 from pyscriptc.reflection import kwargs_call_note, typing_note
 from pyscriptc.restlower import _static_builtin_fold, builtin_call
+from pyscriptc.restlower._dataclasses import container_factory, factory_value
 from pyscriptc.tirserde import dict_to_node, node_to_dict
 
 
@@ -99,6 +100,31 @@ def _node_type_kind(node: dict[str, Any]) -> str:
 
     typ: dict[str, Any] = node["type"]
     return _type_kind(typ)
+
+
+def _node_type(node: dict[str, Any]) -> dict[str, Any]:
+    """The type record an IR node carries."""
+
+    typ: dict[str, Any] = node["type"]
+    return typ
+
+
+def _list_node(elems: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The list display node."""
+
+    return node_to_dict(_ir.list_lit([dict_to_node(elem) for elem in elems], _mk_type(typ), _mk_span(span)))
+
+
+def _dict_node(pairs: list[Any], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The dict display node; a pair is the `{"key": .., "value": ..}` dict."""
+
+    return node_to_dict(
+        _ir.dict_lit(
+            [_ir.Pair(dict_to_node(pair["key"]), dict_to_node(pair["value"])) for pair in pairs],
+            _mk_type(typ),
+            _mk_span(span),
+        )
+    )
 
 
 def _maybe_node_type_kind(node: dict[str, Any]) -> str | None:
@@ -525,11 +551,15 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 continue
             got = slots[index]
             if got is None:
-                if "default" not in param:
+                if "default" not in param and "factory" not in param:
                     self.fail(node, "PS1003", f"{what} misses {param['name']}")
-                got = param["default"]
-                if param.get("optdefault"):
-                    got = self._opt_box(got, param["type"], span_of(node, self.filename))
+                if "factory" in param:
+                    # The per-instance default (issue #1279).
+                    got = self._factory_default(param["factory"], param["type"], node)
+                else:
+                    got = param["default"]
+                    if param.get("optdefault"):
+                        got = self._opt_box(got, param["type"], span_of(node, self.filename))
             want = self._subst(param["type"], mapping, node)
             if want.get("optional") and not _has_typevar(want) and not got["type"].get("optional"):
                 # A plain value or None for a `T | None` parameter boxes into
@@ -746,25 +776,76 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         for index, param in enumerate(params):
             got = slots[index]
             if got is None:
-                if "default" not in param:
+                if "default" not in param and "factory" not in param:
                     self.fail(node, "PS1003", f"{what} expects {len(params)} argument(s)")
-                got = param["default"]
-                if _maybe_node_kind(got) == "tuple-default":
+                if _maybe_node_kind(param.get("default", {})) == "tuple-default":
+                    got = param["default"]
                     # A fixed-shape tuple default: each call site that omits
                     # the argument materializes its own record (CPython
                     # shares one tuple; value-identical replay here).
                     got = self._materialize_tuple(list(got["elems"]), span_of(node, self.filename), node)
                     self._expect(node, got["type"], param["type"], param["name"])
+                elif "factory" in param:
+                    # The per-instance default (issue #1279): the
+                    # construction site that omits the argument calls the
+                    # factory, so every instance gets its own value.
+                    got = self._factory_default(param["factory"], param["type"], node)
                 elif param.get("optdefault"):
+                    got = param["default"]
                     got = self._opt_box(
                         None if _node_type_kind(got) == "none" else got,
                         param["type"],
                         got.get("span", span_of(node, self.filename)),
                     )
+                else:
+                    got = param["default"]
             if not types_equal(got["type"], param["type"]) and not self._accepts_protocol(param["type"], got["type"]):
                 self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
             args.append(got)
         return args
+
+    def _factory_default(self, marker: dict[str, Any], typ: dict[str, Any], node: ast.Call) -> dict[str, Any]:
+        """The value one factory-default marker produces at this construction
+        site.
+
+        A container factory builds the empty container of the field's
+        type (`list()` is the fresh list, `set()` the fresh set); a
+        callable factory lowers to a call of the callable value with no
+        arguments, so the result is per construction exactly as CPython's
+        `default_factory` is per `__init__` call.
+        """
+        span = span_of(node, self.filename)
+        name = container_factory(marker)
+        if name == "list":
+            elem = typ.get("elem")
+            if elem is None or _type_kind(typ) != "list" or typ.get("set"):
+                self.fail(node, "PS1003", f"default_factory=list needs a list annotation, got {_show(typ)}")
+            return _list_node([], typ, span)
+        if name == "set":
+            elem = typ.get("elem")
+            if elem is None or _type_kind(typ) != "list" or not typ.get("set"):
+                self.fail(node, "PS1003", f"default_factory=set needs a set annotation, got {_show(typ)}")
+            return _list_node([], typ, span)
+        if name == "dict":
+            if _type_kind(typ) != "dict":
+                self.fail(node, "PS1003", f"default_factory=dict needs a dict annotation, got {_show(typ)}")
+            return _dict_node([], typ, span)
+        value = factory_value(marker)
+        if value is None:
+            self.fail(node, "PS2002", "the factory default carries no factory")
+        if _type_kind(_node_type(value)) != "func":
+            self.fail(node, "PS2002", "the factory default is not a callable")
+        return node_to_dict(
+            _ir.call(
+                _ir.value_callee(dict_to_node(value)),
+                [],
+                _mk_type(_node_type(value)["return"]),
+                _mk_span(span),
+                "",
+                "",
+                -1,
+            )
+        )
 
     def _pin_arg_order(self, slots: list[dict[str, Any] | None], order: list[int], span: dict[str, Any]) -> None:
         """Keyword arguments written out of parameter order still evaluate left to right.

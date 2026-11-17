@@ -1863,6 +1863,9 @@ REST_MODULES = frozenset(
         "selectors",
         "signal",
         "email",
+        # The dataclass field marker (issue #1279): `dataclasses.field`
+        # is the one lowered member of the module.
+        "dataclasses",
     }
 )
 
@@ -2144,7 +2147,7 @@ def member_callable(module: str, member: str) -> bool:
         return True
     if module == "enum" and member in {"Enum", "IntEnum", "auto"}:
         return True
-    if module == "dataclasses" and member == "dataclass":
+    if module == "dataclasses" and member in {"dataclass", "field"}:
         return True
     if module == "random" and member in {
         "seed",

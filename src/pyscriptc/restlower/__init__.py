@@ -49,6 +49,7 @@ from pyscriptc.restlower._collections import _counter, _defaultdict, _deque, _or
 from pyscriptc.restlower._copy import _copy_call
 from pyscriptc.restlower._csv import _csv_call
 from pyscriptc.restlower._ctypes import _sizeof
+from pyscriptc.restlower._dataclasses import _dataclass_field
 from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
 from pyscriptc.restlower._email import _email_call, _email_method
@@ -236,6 +237,10 @@ _BEFORE_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("collections", "Counter"): lambda lo, node, span, expect, attr: _counter(lo, node, span, expect),
     ("collections", "defaultdict"): lambda lo, node, span, expect, attr: _defaultdict(lo, node, span, expect),
     ("collections", "namedtuple"): _namedtuple_only,
+    # The dataclass field marker (issue #1279): the keyword carries the
+    # per-instance default, so the handler runs before the keyword
+    # rejection.
+    ("dataclasses", "field"): _dataclass_field,
     ("subprocess", "run"): lambda lo, node, span, expect, attr: _sub_run(lo, node, span),
     ("subprocess", "call"): lambda lo, node, span, expect, attr: _sub_call(lo, node, span),
     ("subprocess", "check_call"): lambda lo, node, span, expect, attr: _sub_check_call(lo, node, span),
