@@ -250,6 +250,27 @@ class ExprMixin(ExprCompareMixin):
         args = [] if kind == "none" else [value]
         return self._abi_call("builtins", "dyn.new", args, typ, symbol, span)
 
+    def _dyn_project(self, name: str, arm: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """The narrowed read of a dynamic value (issue #1280): one runtime
+        call per arm, the payload projected off the cell the `isinstance`
+        tag test already proved. The cell rides the argument as its own
+        `dynval` type; the call's result type is the arm's."""
+        kind: str = arm["kind"]
+        symbol = {
+            "bool": "ps_dyn_bool",
+            "int": "ps_dyn_int",
+            "float": "ps_dyn_float",
+            "str": "ps_dyn_get_str",
+            "list": "ps_dyn_list",
+            "dict": "ps_dyn_dict",
+        }[kind]
+        cell = _name(name, self.locals[name], span)
+        if kind == "str":
+            # The str projection fills the four-field header (the cell
+            # carries only the 16-byte prefix), so the result type is str.
+            return self._abi_call("builtins", "dyn.get", [cell], {"kind": "str"}, symbol, span)
+        return self._abi_call("builtins", "dyn.get", [cell], arm, symbol, span)
+
     def _opt_box(self, value: dict[str, Any] | None, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
         """Box `value` into the `opt_*` heap cell, or emit the tagged-empty one.
 
@@ -354,6 +375,11 @@ class ExprMixin(ExprCompareMixin):
             if narrowed is not None:
                 # Inside `if x is not None:` a read of x is its tagged value.
                 return _attr_node(_name(node.id, narrowed, span), "_val", narrowed["elem"], span)
+            arm = self.dyn_narrow.get(node.id)
+            if arm is not None:
+                # Inside `if isinstance(x, T):` a read of x is the arm's
+                # payload, projected off the same cell (issue #1280).
+                return self._dyn_project(node.id, arm, span)
             return _name(node.id, self.locals[node.id], span)
         elif node.id in self.captures:
             return _name(node.id, self.captures[node.id], span)
@@ -1054,12 +1080,26 @@ class ExprMixin(ExprCompareMixin):
         self.locals[temp] = typ
         self.prelude.append(_assign_node(temp, first, span))
         proven: set[str] = set()
+        dyn_proven: dict[str, dict[str, Any]] = {}
         for index, value_node in enumerate(node.values[1:], start=1):
             when_true, when_false = self._narrow_names(node.values[index - 1])
             proven |= when_true if op_and else when_false
+            if op_and:
+                dyn_true, _ = self._narrow_dyn_names(node.values[index - 1])
+                for name, arm in dyn_true.items():
+                    if name in dyn_proven and not types_equal(dyn_proven[name], arm):
+                        dyn_proven.pop(name)
+                        continue
+                    dyn_proven[name] = arm
             saved = self.prelude
             self.prelude = []
-            right = self._narrowed(proven, node, lambda value_node=value_node: self._bool_operand(value_node, as_cond))
+            right = self._narrowed_dyn(
+                dyn_proven,
+                value_node,
+                lambda value_node=value_node, proven=proven: self._narrowed(
+                    proven, value_node, lambda: self._bool_operand(value_node, as_cond)
+                ),
+            )
             inner = self.prelude
             self.prelude = saved
             if not types_equal(right["type"], typ):

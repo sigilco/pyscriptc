@@ -348,6 +348,7 @@ class BoxedResolveMixin:
                 "captures": self.captures,
                 "frozen": self.frozen_names,
                 "unwrap": self.opt_unwrap,
+                "dyn_narrow": self.dyn_narrow,
                 "boxed": self.boxed_names,
                 "fn_body": self.fn_body,
                 "handle_locals": self.handle_locals,
@@ -367,6 +368,7 @@ class BoxedResolveMixin:
                 self.locals = {param["name"]: param["type"] for param in params}
                 self.frozen_names = set()
                 self.opt_unwrap = {}
+                self.dyn_narrow = {}
                 self.boxed_names = set()
                 self.fn_body = list(fn.body)
                 self.handle_locals = {}
@@ -400,6 +402,7 @@ class BoxedResolveMixin:
                 self.captures = saved["captures"]
                 self.frozen_names = saved["frozen"]
                 self.opt_unwrap = saved["unwrap"]
+                self.dyn_narrow = saved["dyn_narrow"]
                 self.boxed_names = saved["boxed"]
                 self.fn_body = saved["fn_body"]
                 self.handle_locals = saved["handle_locals"]

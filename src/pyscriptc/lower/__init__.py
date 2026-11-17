@@ -411,6 +411,10 @@ class Lowerer(
         # `if x is not None:` narrowing on a tagged optional: inside the taken
         # branch a read of the name lowers to its `_val` field. name -> opt typ.
         self.opt_unwrap: dict[str, dict[str, Any]] = {}
+        # `if isinstance(x, T):` narrowing on a tagged dynamic value (issue
+        # #1280): inside the taken branch a read of the name lowers to the
+        # arm's projection off the same cell. name -> arm type.
+        self.dyn_narrow: dict[str, dict[str, Any]] = {}
         # Proven element types of Any-container reads (issue #781), keyed by
         # the read node's (line, col): the emitter loads the proven LLVM
         # shape out of the unresolved cell.
@@ -897,6 +901,7 @@ class Lowerer(
     def _body(self, statements: list[ast.stmt]) -> list[dict[str, Any]]:
         body: list[dict[str, Any]] = []
         saved_unwrap = dict(self.opt_unwrap)
+        saved_dyn = dict(self.dyn_narrow)
         try:
             for index, stmt in enumerate(statements):
                 if _is_docstring(stmt):
@@ -907,6 +912,15 @@ class Lowerer(
                     self.caught.append(exc)
                     continue
                 body.extend(lowered)
+                # A rebinding drops the dynamic-value proof from here on
+                # (issue #1280): the name holds a fresh value, so the
+                # narrowed projection would read the wrong cell. The rule is
+                # per statement, not per scope: a rebinding after the read
+                # keeps the proof for the statements before it, the ones
+                # this loop already lowered.
+                for name in list(self.dyn_narrow):
+                    if self._stmt_rebinds(stmt, name):
+                        self.dyn_narrow.pop(name)
                 # `if x is None: <arm always exits>` (or any test that proves
                 # x set when the other arm is the only one left) narrows x to
                 # its tagged value for the rest of this body, unless a later
@@ -923,6 +937,14 @@ class Lowerer(
                         opt = self._narrow_opt_type(name)
                         if opt is not None and not self._key_rebinds(name, rest):
                             self.opt_unwrap[name] = opt
+                    # The same rule for the dynamic-value narrowing (issue
+                    # #1280): `if not isinstance(x, T): <arm always exits>`
+                    # leaves x a T for the rest of this body.
+                    dyn_true, dyn_false = self._narrow_dyn_names(stmt.test)
+                    dyn_proven = dyn_false if then_exits and not else_exits else dyn_true if else_exits else {}
+                    for name, arm in dyn_proven.items():
+                        if not self._key_rebinds(name, rest):
+                            self.dyn_narrow[name] = arm
                 elif isinstance(stmt, ast.Assert):
                     # `assert x is not None` proves x set for the rest of
                     # this body, the same rule the if-exit arm applies.
@@ -932,6 +954,12 @@ class Lowerer(
                         opt = self._narrow_opt_type(name)
                         if opt is not None and not self._key_rebinds(name, rest):
                             self.opt_unwrap[name] = opt
+                    # `assert isinstance(x, T)` proves x a T for the rest of
+                    # this body (issue #1280).
+                    dyn_true, _ = self._narrow_dyn_names(stmt.test)
+                    for name, arm in dyn_true.items():
+                        if not self._key_rebinds(name, rest):
+                            self.dyn_narrow[name] = arm
                 skips = (self.break_flag is not None and _stmt_breaks_this_loop(stmt)) or (
                     self.continue_flag is not None and _stmt_continues_this_loop(stmt)
                 )
@@ -943,6 +971,7 @@ class Lowerer(
             return body
         finally:
             self.opt_unwrap = saved_unwrap
+            self.dyn_narrow = saved_dyn
 
     def _bool_cond(self, node: ast.expr) -> dict[str, Any]:
         if isinstance(node, ast.BoolOp):
