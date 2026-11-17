@@ -20,6 +20,7 @@ system install) provides is what runs. The supported version range lives in
 
 from __future__ import annotations
 
+import functools
 import os
 import shutil
 import subprocess
@@ -44,6 +45,7 @@ def _python_has_ziglang(python: str) -> bool:
     return proc.returncode == 0
 
 
+@functools.cache
 def find_ziglang_interpreter() -> str | None:
     """An interpreter whose `python -m ziglang` works.
 

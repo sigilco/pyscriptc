@@ -1547,8 +1547,9 @@ def _resolve_default_driver(target: str | None = None, sanitize: list[str] | Non
     - If a sanitizer is requested -> prefer clang: `zig cc` compiles with
       `-fsanitize=` but ships no linkable sanitizer runtime, so the link
       fails with `undefined symbol: __asan_init`.
-    - If a zig resolves (on PATH, or the `ziglang` wheel shim) -> prefer zig.
-    - Otherwise, fall back to clang on macOS/Linux if found on PATH.
+    - If shutil.which("zig") is found on PATH -> prefer zig.
+    - Otherwise, fall back to clang on macOS/Linux if found on PATH, then to the
+      `ziglang` wheel shim.
     - If neither is found, return None.
     """
     if target is not None or sys.platform == "win32":
@@ -1557,12 +1558,16 @@ def _resolve_default_driver(target: str | None = None, sanitize: list[str] | Non
         if shutil.which("clang") is not None:
             return "clang"
         return None
+    if shutil.which("zig") is not None:
+        return "zig"
+    if shutil.which("clang") is not None:
+        return "clang"
+    # A wheel-only install (`pip install ziglang`) has no `zig` on PATH: the
+    # shim is the last resort, so it never displaces a system zig or clang.
     from pyscriptc import zigshim as _zs
 
     if _zs.resolve_zig() is not None:
         return "zig"
-    if shutil.which("clang") is not None:
-        return "clang"
     return None
 
 
