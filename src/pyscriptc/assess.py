@@ -651,7 +651,7 @@ def assess(
     if verify_diff or bench:
         for entry in compilable_entries:
             if oracle is None:
-                err_msg = "no CPython 3.14 oracle available: set PYSC_ORACLE or run uv python install 3.14"
+                err_msg = "no CPython 3.14 oracle available: set PYSC_ORACLE or run `uv python install 3.14`"
                 if verify_diff:
                     verify_receipts.append({"entry": str(entry), "error": err_msg})
                 if bench:
@@ -1063,6 +1063,8 @@ def render_text(
                 oracle_info: dict[str, Any] = rec["oracle"]
                 oracle_exe: str = oracle_info["executable"]
                 oracle_ver: str = oracle_info["version"]
+                oracle_minor: str = oracle_info.get("minor", "")
+                oracle_subset: bool = bool(oracle_info.get("subsetOnly", False))
                 native_info: dict[str, Any] = rec["native"]
                 native_bin: str = native_info["binary"]
                 native_bytes: int = native_info["bytes"]
@@ -1078,7 +1080,7 @@ def render_text(
                 rec_timeout: float = rec["timeoutSeconds"]
                 receipt_obj = Receipt(
                     source=rec_source,
-                    oracle=Oracle(oracle_exe, oracle_ver),
+                    oracle=Oracle(oracle_exe, oracle_ver, oracle_minor, oracle_subset),
                     binary=native_bin,
                     binary_bytes=native_bytes,
                     argv=rec_argv,
