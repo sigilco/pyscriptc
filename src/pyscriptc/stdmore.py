@@ -1248,7 +1248,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "urllib.request": ("HttpRequest", "HttpResponse"),
     "urllib.error": ("HTTPError", "URLError"),
     "queue": ("Queue", "Empty", "Full"),
-    "asyncio": ("CancelledError", "AsyncProcess"),
+    "asyncio": ("CancelledError", "AsyncProcess", "StreamReader", "StreamWriter"),
     "selectors": ("DefaultSelector", "SelectorKey"),
     "socket": ("Socket",),
     "tarfile": ("TarFile",),
@@ -1303,6 +1303,11 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # The async subprocess record (issue #1224): the runtime owns the child,
     # the class value is the record pointer, so the class has no field.
     "AsyncProcess": [],
+    # The asyncio stream handles (issue #1281) are opaque runtime
+    # pointers: the socket, the read buffer and the out buffer live in
+    # the record, so the class carries no field.
+    "StreamReader": [],
+    "StreamWriter": [],
     # The timeout exception (issue #1223): CPython's TimeoutExpired carries
     # the command and the bound, but the runtime's exception record holds
     # the code and the message only, so the class has no field here.
@@ -1422,6 +1427,11 @@ ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSema
 # lives in the runtime, the class value is the record pointer.
 APROC_CLASSES: frozenset[str] = frozenset({"AsyncProcess"})
 
+# The asyncio stream records (issue #1281): the reader and the writer
+# CPython answers are two handles over one runtime record, so the value
+# each carries is the record pointer.
+STREAM_CLASSES: frozenset[str] = frozenset({"StreamReader", "StreamWriter"})
+
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
 PTR_CLASSES: frozenset[str] = (
@@ -1429,6 +1439,7 @@ PTR_CLASSES: frozenset[str] = (
     | QUEUE_CLASSES
     | ASYNC_CLASSES
     | APROC_CLASSES
+    | STREAM_CLASSES
     | {"ArgParser", "DefaultSelector", "Hash", "TarFile", "ZipFile", "EmailMessage", "Socket"}
 )
 
@@ -1486,6 +1497,10 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("asyncio", "Event"): "AsyncEvent",
     ("asyncio", "Semaphore"): "AsyncSemaphore",
     ("asyncio", "Queue"): "AsyncQueue",
+    # The asyncio stream handles (issue #1281): the reader and the writer
+    # CPython answers are two handles over one runtime record.
+    ("asyncio", "StreamReader"): "StreamReader",
+    ("asyncio", "StreamWriter"): "StreamWriter",
     ("asyncio.subprocess", "Process"): "AsyncProcess",
     ("selectors", "DefaultSelector"): "DefaultSelector",
     ("selectors", "SelectorKey"): "SelectorKey",
@@ -2083,6 +2098,7 @@ def member_callable(module: str, member: str) -> bool:
         "wait_for",
         "to_thread",
         "create_subprocess_exec",
+        "open_connection",
         "Lock",
         "Event",
         "Semaphore",

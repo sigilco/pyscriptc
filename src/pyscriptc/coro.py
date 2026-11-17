@@ -140,6 +140,10 @@ _PRIM_SYMBOLS: dict[str, str] = {
     "event_wait": "ps_aevent_wait",
     "sem_acquire": "ps_asem_acquire",
     "queue_get": "ps_aqueue_take",
+    # The stream read (issue #1281): the socket has bytes or the task
+    # parks on the descriptor. The bytes themselves come out of the
+    # record on the reader call the lowerer emits after the marker.
+    "stream_read": "ps_stream_park",
 }
 # The resume shim's outward type: every coroutine's callable cell carries it.
 _RESUME_FUNC = {"kind": "func", "params": [{"kind": "class", "name": "@frame"}], "return": {"kind": "int"}}
@@ -2292,11 +2296,15 @@ class _Frame:
             ),
         ]
         arrive = [_assign(RESUME, _const(0, _INT, span), span)]
-        if op == "queue_get":
+        if op in {"queue_get", "stream_read"}:
             # A put wakes the parked getter, but the element stays in the
             # queue: the getter takes it on the resume. A take that finds
             # the queue empty again (another getter was faster) parks the
             # task once more, at the same point.
+            #
+            # The stream read is the same shape: the socket may have
+            # delivered a partial line (or a short read), so the resume
+            # parks again until the request is satisfiable.
             arrive = [
                 _assign(RESUME, _const(0, _INT, span), span),
                 _if(

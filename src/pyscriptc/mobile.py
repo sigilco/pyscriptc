@@ -39,8 +39,10 @@ ANDROID_API_DEFAULT = 24
 # sandbox, and both pull in headers a phone SDK does not ship. `ps_aproc.c`
 # is the async subprocess (issue #1224): it forks and execs too. `ps_sock.c`
 # is the TCP socket surface (issue #1270): an app sandbox does not open
-# listening sockets either.
-MOBILE_EXCLUDED_SOURCES: list[str] = ["ps_osfd.c", "ps_sub.c", "ps_aproc.c", "ps_sock.c"]
+# listening sockets either. `ps_stream.c` is the asyncio stream surface
+# (issue #1281): it rides the same socket, so the sandbox has no story
+# for it either.
+MOBILE_EXCLUDED_SOURCES: list[str] = ["ps_osfd.c", "ps_sub.c", "ps_aproc.c", "ps_sock.c", "ps_stream.c"]
 
 # The 16 KB page-alignment link flags Google Play requires of any shared
 # object built for Android 15+ (the 2025-11-01 rule). A static archive has no
@@ -196,6 +198,19 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     "ps_sock_sendall": "sock",
     "ps_sock_close": "sock",
     "ps_sock_fileno": "sock",
+    # The asyncio stream surface (issue #1281) rides the same excluded
+    # file's socket: every helper lives in ps_stream.c, and the open
+    # connection is a socket story an app sandbox does not carry either.
+    "ps_stream_open": "sock",
+    "ps_stream_park": "sock",
+    "ps_stream_want": "sock",
+    "ps_stream_read": "sock",
+    "ps_stream_readline": "sock",
+    "ps_stream_readexactly": "sock",
+    "ps_stream_write_buf": "sock",
+    "ps_stream_drain": "sock",
+    "ps_stream_close": "sock",
+    "ps_stream_wait_closed": "sock",
     "ps_os_open": "osfd",
     "ps_os_close": "osfd",
     "ps_os_read": "osfd",

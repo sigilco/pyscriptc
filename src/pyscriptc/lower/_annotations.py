@@ -695,6 +695,11 @@ class AnnotationMixin:
                 return alias_name(resolved[1], resolved[2])
             if resolved[1] == "asyncio" and resolved[2] == "Queue":
                 return "AsyncQueue"
+            if resolved[1] == "asyncio" and resolved[2] in {"StreamReader", "StreamWriter"}:
+                # The asyncio stream handles (issue #1281): the reader and
+                # the writer share one runtime record, the class value is
+                # the record pointer.
+                return resolved[2]
             if resolved[1] == "asyncio.subprocess" and resolved[2] == "Process":
                 # The async subprocess handle (issue #1224): the runtime
                 # owns the child, the class value is the record pointer.

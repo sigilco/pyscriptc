@@ -26,6 +26,11 @@ from pyscriptc.restlower._asyncio import (
 from pyscriptc.restlower._asyncio_proc import (
     _create_subprocess_exec,
 )
+from pyscriptc.restlower._asyncio_streams import (
+    _open_connection,
+    _reader_method,
+    _writer_method,
+)
 from pyscriptc.restlower._asyncio_sync import (
     _prim_call,
     _to_thread,
@@ -180,6 +185,7 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("asyncio", "gather"): _asyncio_gather,
     ("asyncio", "create_task"): _asyncio_create_task,
     ("asyncio", "wait_for"): _asyncio_wait_for,
+    ("asyncio", "open_connection"): _open_connection,
     ("asyncio", "to_thread"): _to_thread,
     ("asyncio", "create_subprocess_exec"): _create_subprocess_exec,
     ("asyncio", "Lock"): _prim_call,

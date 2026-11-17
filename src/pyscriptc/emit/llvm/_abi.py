@@ -766,6 +766,10 @@ class AbiMixin(EmitterBase):
                     # The socket handle (#1270): the runtime owns the fd, the
                     # value is the record pointer.
                     "Socket",
+                    # The asyncio stream handles (#1281): the reader and the
+                    # writer share one runtime record, the value is its pointer.
+                    "StreamReader",
+                    "StreamWriter",
                     # The archive handles (#1241): the runtime record is the
                     # member list, the handle is the pointer.
                     "TarFile",
@@ -881,6 +885,9 @@ class AbiMixin(EmitterBase):
                 # The socket handle (issue #1270): the runtime owns the fd,
                 # the value is the record pointer.
                 "ps_sock_new",
+                # The asyncio stream record (issue #1281): the runtime owns
+                # the socket and both buffers, the value is its pointer.
+                "ps_stream_open",
             }:
                 # The runtime owns the record: the value is the record pointer.
                 self._abi_decl(symbol, "ptr", types)

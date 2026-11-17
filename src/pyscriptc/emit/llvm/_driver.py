@@ -490,8 +490,12 @@ def link_binary(
             )
         # socket.socket lowers onto the ps_sock_* helpers; WASI has no socket
         # story, so a socket call is refused here like the subprocess one.
+        # The asyncio stream surface (#1281) rides the same socket, so its
+        # helpers are refused by the same probe.
         sock_refused = [
-            symbol for symbol in ("ps_sock_new", "ps_sock_bind", "ps_sock_connect") if f"@{symbol}(" in text
+            symbol
+            for symbol in ("ps_sock_new", "ps_sock_bind", "ps_sock_connect", "ps_stream_open")
+            if f"@{symbol}(" in text
         ]
         if sock_refused:
             raise IRError(
@@ -531,7 +535,9 @@ def link_binary(
                 "subprocess story the runtime lowers (see docs/divergences.md)"
             )
         sources = [
-            source for source in sources if not source.endswith(("ps_sub.c", "ps_mix.c", "ps_aproc.c", "ps_sock.c"))
+            source
+            for source in sources
+            if not source.endswith(("ps_sub.c", "ps_mix.c", "ps_aproc.c", "ps_sock.c", "ps_stream.c"))
         ]
         sources.append(str(runtime / "wasm" / "rt_wasm.c"))
     # The `--ffi` manifest units join the same per-unit compile loop as the

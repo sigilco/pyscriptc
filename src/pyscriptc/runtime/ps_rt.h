@@ -560,6 +560,8 @@ void ps_stream_write_buf(void *stream, int64_t n, const char *s);
 void ps_stream_drain(void *stream);
 void ps_stream_close(void *stream);
 void ps_stream_wait_closed(void *stream);
+int64_t ps_stream_park(void *stream);
+void ps_stream_want(void *stream, int64_t mode, int64_t n);
 int64_t ps_sock_fd(void *sock);
 void ps_map_del(PsMap *m, void *key);
 void ps_map_clear(PsMap *m);
