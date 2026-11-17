@@ -81,6 +81,7 @@ QUEUE = (
     "selectors",
     "signal",
     "email",
+    "http.server",
 )
 
 
