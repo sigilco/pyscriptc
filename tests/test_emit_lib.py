@@ -347,6 +347,19 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_sock_sendall",
         "ps_sock_close",
         "ps_sock_fileno",
+        "ps_sock_fd",
+        # The asyncio stream surface (issue #1281) lives in ps_stream.c and
+        # rides the same socket, so the sandbox fences it the same way.
+        "ps_stream_open",
+        "ps_stream_park",
+        "ps_stream_want",
+        "ps_stream_read",
+        "ps_stream_readline",
+        "ps_stream_readexactly",
+        "ps_stream_write_buf",
+        "ps_stream_drain",
+        "ps_stream_close",
+        "ps_stream_wait_closed",
     }
 
 
@@ -368,6 +381,25 @@ def test_the_socket_symbols_cover_the_socket_file() -> None:
     assert defined, "ps_sock.c: no ps_* definitions found"
     missing = sorted(defined - set(MOBILE_EXCLUDED_SYMBOLS))
     assert not missing, f"ps_sock.c defines symbols the mobile guard does not fence: {missing}"
+
+
+def test_the_stream_symbols_cover_the_stream_file() -> None:
+    """The asyncio stream surface (issue #1281) lives in the excluded
+    ps_stream.c, so every `ps_*` symbol it defines must be fenced the same
+    way: a mobile call naming one would skip the fence and die as an
+    undefined symbol at link.
+    """
+    import re
+
+    from pyscriptc.mobile import MOBILE_EXCLUDED_SYMBOLS
+
+    text = (runtime_dir() / "ps_stream.c").read_text(encoding="utf-8")
+    defined = {
+        match.group(1) for match in re.finditer(r"^(?:void \*?|int64_t )\**\s*(ps_\w+)\(", text, flags=re.MULTILINE)
+    }
+    assert defined, "ps_stream.c: no ps_* definitions found"
+    missing = sorted(defined - set(MOBILE_EXCLUDED_SYMBOLS))
+    assert not missing, f"ps_stream.c defines symbols the mobile guard does not fence: {missing}"
 
 
 # --- the emitted IR shape (in-process emitter, no cross toolchain) ---
