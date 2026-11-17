@@ -547,6 +547,20 @@ void ps_stderr_flush(void);
    the runtime for the FILE* too. */
 void *ps_stdout_stream(void);
 void ps_stream_write(void *stream, const char *data, int64_t len);
+
+/* ps_stream.c: the asyncio stream surface (#1281). One record per
+   `asyncio.open_connection(host, port)` call; the reader and the writer
+   CPython answers are two handles over the same record, the value of
+   each the record pointer. */
+void *ps_stream_open(int64_t n, const char *host, int64_t port);
+void ps_stream_read(void *stream, int64_t n, PsBuf *out);
+void ps_stream_readline(void *stream, PsBuf *out);
+void ps_stream_readexactly(void *stream, int64_t n, PsBuf *out);
+void ps_stream_write_buf(void *stream, int64_t n, const char *s);
+void ps_stream_drain(void *stream);
+void ps_stream_close(void *stream);
+void ps_stream_wait_closed(void *stream);
+int64_t ps_sock_fd(void *sock);
 void ps_map_del(PsMap *m, void *key);
 void ps_map_clear(PsMap *m);
 void ps_map_update(PsMap *dst, PsMap *src);

@@ -255,6 +255,14 @@ int64_t ps_sock_fileno(void *box) {
     return (int64_t)sock->fd;
 }
 
+/* The descriptor the socket record owns. The stream surface (ps_stream.c)
+   rides this socket, and the loop waits on the descriptor, so the stream
+   reads it through this accessor instead of knowing the socket layout. */
+int64_t ps_sock_fd(void *box) {
+    PsSock *sock = ps_sock_of(box);
+    return (int64_t)sock->fd;
+}
+
 #else /* __wasi__ || _WIN32 */
 
 /* No sockets on a target without them: the records exist so the link
@@ -344,6 +352,11 @@ void ps_sock_close(void *box) {
 }
 
 int64_t ps_sock_fileno(void *box) {
+    (void)box;
+    return -1;
+}
+
+int64_t ps_sock_fd(void *box) {
     (void)box;
     return -1;
 }
