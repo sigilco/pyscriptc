@@ -61,7 +61,7 @@ def plugin(version: str) -> type:
 def _subset_plugin_class() -> type:
     try:
         from mypy.plugin import FunctionContext, Plugin
-        from mypy.types import AnyType, Instance, Type, TypeOfAny
+        from mypy.types import AnyType, Instance, TupleType, Type, TypeOfAny
     except ImportError as exc:
         raise CheckFailed("mypy is not installed; install the extra: pip install 'pyscriptc[oracle-mypy]'") from exc
 
@@ -85,6 +85,25 @@ def _subset_plugin_class() -> type:
         # subset does not model; Any keeps the value assignable to Callable.
         return AnyType(TypeOfAny.explicit)
 
+    def gather_type(ctx: FunctionContext) -> Type:
+        # asyncio.gather answers a list of the results (issue #1278), not the
+        # tuple typeshed spells on the fixed-arity overloads (typing has no
+        # variadic type variable). The lowerer collects into a list literal,
+        # so `await gather(...)` is a list on both lanes. A heterogeneous
+        # tuple falls back to `list[Any]`: the lowerer fences it anyway
+        # (gather takes coroutines of one result type).
+        ret = ctx.default_return_type
+        if not (isinstance(ret, Instance) and ret.args):
+            return ret
+        if ret.type.fullname not in ("_asyncio.Future", "asyncio.Future"):
+            return ret
+        arg = ret.args[0]
+        if isinstance(arg, TupleType) and arg.items:
+            head = arg.items[0]
+            elem: Type = head if all(a == head for a in arg.items) else AnyType(TypeOfAny.explicit)
+            return ctx.api.named_generic_type(ret.type.fullname, [ctx.api.named_generic_type("builtins.list", [elem])])
+        return ret
+
     hooks: dict[str, Callable[[FunctionContext], Type]] = {
         "struct.unpack": unpack_type,
         "_struct.unpack": unpack_type,
@@ -93,6 +112,8 @@ def _subset_plugin_class() -> type:
         "builtins.frozenset": frozenset_type,
         "range": range_type,
         "builtins.range": range_type,
+        "asyncio.gather": gather_type,
+        "asyncio.tasks.gather": gather_type,
     }
 
     class _SubsetPlugin(Plugin):
@@ -231,19 +252,31 @@ _VENDORED_TYPESHED = Path(__file__).with_name("_typeshed")
 
 _BUILTINS_FROZENSET = "class frozenset(AbstractSet[_T_co]):"
 
+# `asyncio.gather` returns a list (issue #1278). Typeshed types the
+# fixed-arity overloads as `Future[tuple[_T1, _T2, ...]]` because typing
+# has no variadic type variables, and the tuple annotation is what the
+# stub comment above it says too. The lowered `gather` collects the
+# results into a list literal (`restlower/_asyncio.py`), and CPython
+# answers a list, so the checker has to read the list: the stub rows
+# that answer `Future[tuple[...]]` are the ones to realign.
+_GATHER_TUPLE_RETURN = "-> Future[tuple["
+_GATHER_LIST_RETURN = "-> Future[list["
+
 
 def _patched_typeshed(dest: Path) -> Path:
-    """Copy the vendored typeshed stdlib and realign builtins with the lowered contract.
+    """Copy the vendored typeshed stdlib and realign it with the lowered contract.
 
     `frozenset(...)` is the set list (`frozenset[T]` subclasses `set[T]`),
-    and `range(...)` materializes `list[int]` (`range.__new__` yields a
-    list). Everything else stays stock typeshed. The snapshot in
-    `_typeshed/` is a pristine copy of mypy 2.4's bundled stdlib stubs: it
-    types `str.split*` as `list[str]` where pyrefly's own bundled snapshot
-    says `list[LiteralString]`, and it removes the dependency on mypy being
-    installed. A `search-path` `builtins.pyi` override does not work:
-    pyrefly then loads two `builtins` modules and `list[int]` stops matching
-    `list[int]`, so the whole tree is handed over via `typeshed-path`.
+    `range(...)` materializes `list[int]` (`range.__new__` yields a
+    list), and `asyncio.gather(...)` answers the list of results
+    (`Future[list[...]]`, issue #1278). Everything else stays stock
+    typeshed. The snapshot in `_typeshed/` is a pristine copy of mypy
+    2.4's bundled stdlib stubs: it types `str.split*` as `list[str]`
+    where pyrefly's own bundled snapshot says `list[LiteralString]`, and
+    it removes the dependency on mypy being installed. A `search-path`
+    `builtins.pyi` override does not work: pyrefly then loads two
+    `builtins` modules and `list[int]` stops matching `list[int]`, so the
+    whole tree is handed over via `typeshed-path`.
     """
     shutil.copytree(_VENDORED_TYPESHED, dest)
     builtins = dest / "stdlib" / "builtins.pyi"
@@ -257,7 +290,24 @@ def _patched_typeshed(dest: Path) -> Path:
     rel: int = tail.index("\nclass ")
     block: str = tail[:rel].replace("-> Self:", "-> list[int]:")
     builtins.write_text(text[:start] + block + tail[rel:])
+    _patch_gather(dest / "stdlib" / "asyncio" / "tasks.pyi")
     return dest
+
+
+def _patch_gather(tasks: Path) -> None:
+    """Realign the `asyncio.gather` rows to the list the lowered call answers.
+
+    Only the `gather` overloads move: every `Future[tuple[...]]` row in
+    the file belongs to `gather`, and the variadic rows already answer
+    `Future[list[...]]`. The anchor is the tuple return itself, so a
+    typeshed refresh that renames the rows keeps the patch working, and
+    a file without the anchor is a hard error rather than a silent
+    mismatch.
+    """
+    text = tasks.read_text(encoding="utf-8")
+    if _GATHER_TUPLE_RETURN not in text:
+        raise CheckFailed("vendored typeshed asyncio/tasks.pyi no longer matches the subset patch anchors")
+    tasks.write_text(text.replace(_GATHER_TUPLE_RETURN, _GATHER_LIST_RETURN), encoding="utf-8")
 
 
 # The patched tree is identical for every compile, so it is built once per
@@ -269,10 +319,11 @@ def _patched_typeshed(dest: Path) -> Path:
 _TYPESHED_COMPLETE = ".pysc-complete"
 
 _TYPESHED_PATCH_KEY_PARTS = (
-    "v1",
+    "v2",
     _BUILTINS_FROZENSET,
     "class frozenset(set[_T_co]):",
     "-> list[int]:",
+    _GATHER_LIST_RETURN,
 )
 
 
@@ -312,7 +363,15 @@ def _typeshed_entry_valid(root: Path) -> bool:
         text = builtins.read_text(encoding="utf-8")
     except OSError:
         return False
-    return "class frozenset(set[_T_co]):" in text and "-> list[int]:" in text
+    if "class frozenset(set[_T_co]):" not in text or "-> list[int]:" not in text:
+        return False
+    tasks = root / "stdlib" / "asyncio" / "tasks.pyi"
+    if not tasks.is_file():
+        return False
+    try:
+        return _GATHER_LIST_RETURN in tasks.read_text(encoding="utf-8")
+    except OSError:
+        return False
 
 
 def _patched_typeshed_cached(fallback: Path) -> Path:

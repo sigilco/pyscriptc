@@ -185,7 +185,19 @@ def _asyncio_gather(
     lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = ""
 ) -> dict[str, Any]:
     if not node.args:
-        lo.fail(node, "PS2003", "asyncio.gather expects at least 1 argument")
+        lo.fail(node, "PS2003", "asyncio.gather expects at least 1 argument(s)")
+    # `return_exceptions=True` changes what CPython's gather answers (the
+    # exceptions land in the list instead of propagating), so accepting the
+    # keyword and dropping it would answer a list of results where CPython
+    # answers a list with exceptions in it. The runtime has no exception
+    # slot in the result cells, so the keyword fences. The default
+    # (`False`, the behavior the subset lowers) is accepted.
+    for keyword in node.keywords:
+        if keyword.arg == "return_exceptions":
+            if not (isinstance(keyword.value, ast.Constant) and keyword.value.value is False):
+                lo.fail(keyword.value, "PS2003", "asyncio.gather return_exceptions is not lowered")
+            node.keywords = [kw for kw in node.keywords if kw.arg != "return_exceptions"]
+    lo._reject_keywords(node)
     frames: list[dict[str, Any]] = []
     elem: dict[str, Any] | None = None
     for arg in node.args:
@@ -208,4 +220,6 @@ def _asyncio_gather(
         _run_stmt(lo, span, "ps_loop_ready", [frame])
     _run_stmt(lo, span, "ps_loop_run", [])
     assert elem is not None
+    # CPython's gather answers a list of the results in argument order
+    # (issue #1278), and the checker reads the same list.
     return _list_lit([_field(frame, ".ps_result", elem, span) for frame in frames], elem, span)
