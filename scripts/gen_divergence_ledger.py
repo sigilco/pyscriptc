@@ -584,6 +584,16 @@ ROWS: list[dict[str, Any]] = [
         "return_exceptions fence and the one-result-type rule (PS2002) are the rest of the entry",
     ),
     _row(
+        "D82",
+        "the asyncio stream surface (issue #1281): open_connection and the StreamReader / StreamWriter pair "
+        "over the TCP socket runtime; readexactly raises RuntimeError where CPython raises IncompleteReadError, "
+        "read(n) answers the bytes the buffer holds when the socket answered, and the surface is native-only",
+        None,
+        docs=f"{DOC}#82",
+        note="the host lane is byte-identical (probes/differential/asyncio_streams.py); the "
+        "readexactly exception class, the read(n) short read and the target fences are the rest of the entry",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

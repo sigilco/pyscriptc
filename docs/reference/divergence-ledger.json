@@ -1355,6 +1355,17 @@
       "status": "unprobed"
     },
     {
+      "id": "D82",
+      "seam": "the asyncio stream surface (issue #1281): open_connection and the StreamReader / StreamWriter pair over the TCP socket runtime; readexactly raises RuntimeError where CPython raises IncompleteReadError, read(n) answers the bytes the buffer holds when the socket answered, and the surface is native-only",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#82",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/asyncio_streams.py); the readexactly exception class, the read(n) short read and the target fences are the rest of the entry",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
