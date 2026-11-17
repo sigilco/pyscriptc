@@ -222,6 +222,12 @@ def build_parser() -> argparse.ArgumentParser:
         prog="pyscriptc",
         description="Compile a typed Python subset to native code through LLVM.",
     )
+    parser.add_argument(
+        "-V",
+        "--version",
+        action="version",
+        version=f"pyscriptc {__import__('pyscriptc').__version__} (targets CPython 3.14)",
+    )
     common: argparse.ArgumentParser = argparse.ArgumentParser(add_help=False)
     common.add_argument("-v", "--verbose", action="store_true", help="enable DEBUG audit records")
     sub = parser.add_subparsers(dest="cmd", required=True)
