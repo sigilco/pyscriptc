@@ -261,7 +261,7 @@ _ENTRIES = (
         "PS3001",
         "version mismatch",
         "The running interpreter is not the CPython version the subset targets.",
-        "Run under the pinned CPython version.",
+        "Run under the pinned CPython version; for the verify oracle that means `uv python install 3.14`.",
     ),
     Diagnostic(
         "PS4001",

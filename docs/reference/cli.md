@@ -91,6 +91,7 @@ pyscriptc verify SOURCE [options]
 | `--skip-check` |  | skip the type-checker preflight |
 | `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight (default `pyrefly`) |
 | `--no-cache` |  | always recompile (env PYSC_NO_RUN_CACHE=1) |
+| `--oracle-version X.Y` | `X.Y` | use an oracle of that CPython minor instead of the pinned 3.14 (3.11 through 3.13; parity is then meaningful only for the subset both share) |
 | `--ffi MANIFEST` | `MANIFEST` | bind a typed extern manifest (TOML) and link its C sources; repeatable |
 
 ### `assess`
@@ -260,8 +261,14 @@ Use `pyscriptc coverage FILE` to see every individual code.
 
 Exit codes: 0 when every check matches, 1 on a divergence, 3 when the compiler refuses the program, 4 when no CPython 3.14 oracle is available.
 
-The oracle is resolved from `PYSC_ORACLE` (an explicit path, refused if it is not 3.14), `PYSC_ORACLE_DIR`, `python3.14` on PATH, `uv python find 3.14`, then the interpreter running pyscriptc.
+The oracle is resolved from `PYSC_ORACLE` (an explicit path), `PYSC_ORACLE_DIR`, `python3.14` on PATH, `uv python find 3.14`, then the interpreter running pyscriptc.
 It is probed before use: verify never compares a binary against the wrong interpreter.
+Any CPython 3.14.x patch is accepted silently: the patch of the declared target is informational, so an oracle at 3.14.10 draws no warning against a 3.14.9 target.
+
+An older oracle (3.11 through 3.13) is opt-in: `--oracle-version 3.12` names the minor, and `PYSC_ORACLE_ANY=1` accepts whichever older interpreter is around.
+The run then warns that parity is meaningful only for the subset the two interpreters share, and the receipt records the oracle it ran against (its version, its minor and the subset-only flag).
+A newer oracle (3.15) is refused.
+The PS3001 refusal names the exact fix: `uv python install 3.14`.
 
 Verify is a differential smoke test, not a proof.
 It covers the paths the argv and stdin exercised in that run.
