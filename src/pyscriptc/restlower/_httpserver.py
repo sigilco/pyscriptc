@@ -138,13 +138,38 @@ def _handler_class(lo: Any, arg: ast.expr) -> str:
     name = arg.id
     info = lo.classes.get(name)
     if info is None:
-        lo.fail(arg, "PS1003", "http.server.HTTPServer handler is a handler class")
+        # A module-scope assignment lowers before the class pass fills the
+        # class table, so the handler class may only exist as its AST. The
+        # scan answers the same three facts the table would: the class is
+        # one of the module's own, it extends the handler base, and it
+        # defines at least one of the handler methods.
+        info = _ast_handler_info(lo, name)
+        if info is None:
+            lo.fail(arg, "PS1003", "http.server.HTTPServer handler is a handler class")
     if info.get("base") != HANDLER_BASE:
         lo.fail(arg, "PS2002", "the http.server handler class extends BaseHTTPRequestHandler")
     methods = info.get("methods", {})
     if not any(method in methods for method in HANDLER_METHODS):
         lo.fail(arg, "PS2002", "the http.server handler class defines no do_GET or do_POST")
     return name
+
+
+def _ast_handler_info(lo: Any, name: str) -> dict[str, Any] | None:
+    """The handler facts of a class the class table does not carry yet.
+
+    The module's own `ast.ClassDef` nodes are the source: the base spelling
+    resolves the same way the class pass resolves it, and the method names
+    are the body's `FunctionDef`s. None means the module defines no such
+    class.
+    """
+    nodes = getattr(lo, "module_class_nodes", None) or []
+    node = next((candidate for candidate in nodes if candidate.name == name), None)
+    if node is None:
+        return None
+    if len(node.bases) != 1 or lo._http_handler_base_name(node.bases[0]) is None:
+        return None
+    methods = {stmt.name for stmt in node.body if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    return {"base": HANDLER_BASE, "methods": methods}
 
 
 def _no_args(lo: Any, node: ast.Call, what: str) -> None:
@@ -403,6 +428,7 @@ def handler_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
     attr = node.func.attr if isinstance(node.func, ast.Attribute) else ""
     if attr not in _RESPONSE_METHODS:
         return None
+    lo.mobile_guard(node, f"BaseHTTPRequestHandler.{attr}", "httpsrv")
     lo._reject_keywords(node)
     response = _field(receiver, "_response", _RESPONSE, span)
     if attr == "send_response":
@@ -458,15 +484,19 @@ def handler_attr(lo: Any, node: ast.Attribute, span: dict[str, Any], receiver: d
     """
     attr = node.attr
     if attr == "path":
+        lo.mobile_guard(node, "BaseHTTPRequestHandler.path", "httpsrv")
         request = _field(receiver, "_request", _REQUEST, span)
         return lo._abi_call("http.server", "path_of", [request], _STR, "ps_httpreq_path", span)
     if attr == "headers":
+        lo.mobile_guard(node, "BaseHTTPRequestHandler.headers", "httpsrv")
         request = _field(receiver, "_request", _REQUEST, span)
         return lo._abi_call("http.server", "headers_of", [request], _HEADERS, "ps_httpreq_headers", span)
     if attr == "rfile":
+        lo.mobile_guard(node, "BaseHTTPRequestHandler.rfile", "httpsrv")
         request = _field(receiver, "_request", _REQUEST, span)
         return lo._abi_call("http.server", "rfile_of", [request], _READER, "ps_httpreq_rfile", span)
     if attr == "wfile":
+        lo.mobile_guard(node, "BaseHTTPRequestHandler.wfile", "httpsrv")
         response = _field(receiver, "_response", _RESPONSE, span)
         return lo._abi_call("http.server", "wfile_of", [response], _WRITER, "ps_httpresp_wfile", span)
     return None
@@ -481,6 +511,7 @@ def headers_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
     """
     if node.func.attr != "get":
         return None
+    lo.mobile_guard(node, "BaseHTTPRequestHandler.headers.get", "httpsrv")
     lo._reject_keywords(node)
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "HttpHeaders.get expects 1 argument(s)")
@@ -494,6 +525,7 @@ def reader_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
     """`self.rfile.read(n)`: the request's body bytes."""
     if node.func.attr != "read":
         return None
+    lo.mobile_guard(node, "BaseHTTPRequestHandler.rfile.read", "httpsrv")
     lo._reject_keywords(node)
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "HttpReader.read expects 1 argument(s)")
@@ -507,6 +539,7 @@ def writer_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
     """`self.wfile.write(data)`: the response's body bytes."""
     if node.func.attr != "write":
         return None
+    lo.mobile_guard(node, "BaseHTTPRequestHandler.wfile.write", "httpsrv")
     lo._reject_keywords(node)
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "HttpWriter.write expects 1 argument(s)")

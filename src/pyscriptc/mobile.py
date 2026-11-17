@@ -39,10 +39,19 @@ ANDROID_API_DEFAULT = 24
 # sandbox, and both pull in headers a phone SDK does not ship. `ps_aproc.c`
 # is the async subprocess (issue #1224): it forks and execs too. `ps_sock.c`
 # is the TCP socket surface (issue #1270): an app sandbox does not open
-# listening sockets either. `ps_stream.c` is the asyncio stream surface
+# listening sockets either. `ps_http_server.c` is the http.server surface
+# (issue #1270, slice 2): it sits on the listening socket, so the sandbox
+# has no story for it either. `ps_stream.c` is the asyncio stream surface
 # (issue #1281): it rides the same socket, so the sandbox has no story
 # for it either.
-MOBILE_EXCLUDED_SOURCES: list[str] = ["ps_osfd.c", "ps_sub.c", "ps_aproc.c", "ps_sock.c", "ps_stream.c"]
+MOBILE_EXCLUDED_SOURCES: list[str] = [
+    "ps_osfd.c",
+    "ps_sub.c",
+    "ps_aproc.c",
+    "ps_sock.c",
+    "ps_http_server.c",
+    "ps_stream.c",
+]
 
 # The 16 KB page-alignment link flags Google Play requires of any shared
 # object built for Android 15+ (the 2025-11-01 rule). A static archive has no
@@ -165,6 +174,7 @@ MOBILE_FENCE_HINTS: dict[str, str] = {
     ),
     "osfd": ("raw file descriptors have no meaning inside an app sandbox: the mobile archive leaves ps_osfd.c out"),
     "sock": ("a socket server has no meaning inside an app sandbox: the mobile archive leaves ps_sock.c out"),
+    "httpsrv": ("an HTTP server has no meaning inside an app sandbox: the mobile archive leaves ps_http_server.c out"),
 }
 
 
@@ -212,6 +222,32 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     "ps_stream_drain": "sock",
     "ps_stream_close": "sock",
     "ps_stream_wait_closed": "sock",
+    # The http.server surface (issue #1270, slice 2): every helper lives in
+    # the excluded ps_http_server.c, and an app sandbox has no listening
+    # socket for the server to sit on either.
+    "ps_httpsrv_new": "httpsrv",
+    "ps_httpsrv_shutdown": "httpsrv",
+    "ps_httpsrv_getsockname": "httpsrv",
+    "ps_httpsrv_host": "httpsrv",
+    "ps_httpsrv_port": "httpsrv",
+    "ps_httpsrv_serve_one": "httpsrv",
+    "ps_httpsrv_finish": "httpsrv",
+    "ps_httpsrv_close": "httpsrv",
+    "ps_httpsrv_stopped": "httpsrv",
+    "ps_httpresp_new": "httpsrv",
+    "ps_httpresp_send_response": "httpsrv",
+    "ps_httpresp_send_header": "httpsrv",
+    "ps_httpresp_end_headers": "httpsrv",
+    "ps_httpresp_wfile_write": "httpsrv",
+    "ps_httpresp_wfile": "httpsrv",
+    "ps_httpresp_status": "httpsrv",
+    "ps_httpreq_method": "httpsrv",
+    "ps_httpreq_path": "httpsrv",
+    "ps_httpreq_body": "httpsrv",
+    "ps_httpreq_header": "httpsrv",
+    "ps_httpreq_headers": "httpsrv",
+    "ps_httpreq_rfile": "httpsrv",
+    "ps_httpreq_rfile_read": "httpsrv",
     "ps_os_open": "osfd",
     "ps_os_close": "osfd",
     "ps_os_read": "osfd",
@@ -237,4 +273,6 @@ def mobile_fence_hint(text: str) -> str | None:
         return MOBILE_FENCE_HINTS["osfd"]
     if "sock" in text.lower():
         return MOBILE_FENCE_HINTS["sock"]
+    if "httpsrv" in text.lower():
+        return MOBILE_FENCE_HINTS["httpsrv"]
     return None

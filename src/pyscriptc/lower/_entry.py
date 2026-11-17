@@ -39,6 +39,12 @@ class EntryMixin:
         entry_stmts: list[ast.stmt] = []
         failed_assigns: list[tuple[ast.stmt, int]] = []
         bare_decls: list[ast.AnnAssign] = []
+        # The module's own classes (issue #1270): the http.server handler
+        # check resolves the handler class from the AST when the class
+        # table does not carry it yet. A module-scope assignment lowers
+        # before the class pass collects the class table, so the AST is
+        # the only source of the handler's methods at that point.
+        self.module_class_nodes = class_nodes
         definitions = (ast.Import, ast.ImportFrom, ast.Pass, ast.FunctionDef, ast.ClassDef, ast.AnnAssign, ast.Assign)
         self._script_line = min(
             (stmt.lineno for stmt in live if not isinstance(stmt, definitions) and not _is_docstring(stmt)),

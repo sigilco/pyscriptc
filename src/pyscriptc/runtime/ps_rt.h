@@ -746,6 +746,7 @@ void ps_httpresp_send_header(void *box, int64_t n, const char *name, int64_t vle
 void ps_httpresp_end_headers(void *box);
 void ps_httpresp_wfile_write(void *box, int64_t n, const char *data);
 void *ps_httpresp_wfile(void *box);
+int64_t ps_httpresp_status(void *box);
 void ps_httpreq_method(void *box, PsBuf *out);
 void ps_httpreq_path(void *box, PsBuf *out);
 void ps_httpreq_body(void *box, PsBuf *out);

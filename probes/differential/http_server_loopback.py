@@ -42,7 +42,12 @@ def client(port: int) -> None:
     conn: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     conn.connect(("127.0.0.1", port))
     conn.sendall(b"GET /probe?q=1 HTTP/1.0\r\nHost: probe\r\nX-Probe: sent\r\n\r\n")
-    data: bytes = conn.recv(4096)
+    data: bytes = b""
+    while True:
+        chunk: bytes = conn.recv(4096)
+        if not chunk:
+            break
+        data += chunk
     print("status", data.startswith(b"HTTP/1.0 200 OK"))
     print("path", data.endswith(b"hello /probe?q=1"))
     print("header", b"X-Echo: sent" in data)
