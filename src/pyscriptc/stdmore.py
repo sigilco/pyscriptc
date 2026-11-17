@@ -1683,6 +1683,7 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
         "time": sig([], _F, "ps_time_time"),
         "monotonic": sig([], _F, "ps_time_monotonic"),
         "perf_counter": sig([], _F, "ps_time_perf_counter"),
+        "process_time": sig([], _F, "ps_time_process_time"),
         "strftime": sig([_S, _STM], _S, "ps_time_strftime"),
         "mktime": sig([_STM], _F, "ps_time_mktime"),
     },

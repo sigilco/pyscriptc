@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-17",
-  "commit": "40d8864e1d55f80a4b616e1f131c041f9d3d8551",
+  "commit": "20345fe7286a3ddfdac06d3c3a1e69d0bc9d252d",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-17",
-    "commit": "40d8864e1d55f80a4b616e1f131c041f9d3d8551",
+    "commit": "20345fe7286a3ddfdac06d3c3a1e69d0bc9d252d",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -430,11 +430,10 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "ensure_ascii=False, JSONDecodeError() construction"
+        "JSONDecodeError() construction"
       ],
       "fences": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ],
       "note": ""
     },
@@ -662,7 +661,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "time_ns, ctime, process_time"
+        "time_ns, ctime"
       ],
       "fences": [
         "PS2001"
@@ -2749,7 +2748,7 @@
     },
     {
       "date": "2026-11-17",
-      "commit": "40d8864e1d55f80a4b616e1f131c041f9d3d8551",
+      "commit": "20345fe7286a3ddfdac06d3c3a1e69d0bc9d252d",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

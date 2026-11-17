@@ -373,3 +373,145 @@ def test_os_walk_island_unchanged(tmp_path: Path) -> None:
     want = subprocess.run([sys.executable, str(src)], capture_output=True, text=True, cwd=tmp_path)
     assert got.returncode == want.returncode == 0, (got.stderr, want.stderr)
     assert got.stdout == want.stdout
+
+
+def test_time_process_time_matches_cpython(tmp_path: Path) -> None:
+    """`time.process_time` (issue #503) reads the process CPU clock: it is a
+    float seconds count at least zero that sits under the wall clock."""
+    _oracle_run(
+        tmp_path,
+        "pcpu.py",
+        "\n".join(
+            [
+                "import time",
+                "",
+                "def run() -> int:",
+                "    cpu: float = time.process_time()",
+                "    wall: float = time.perf_counter()",
+                "    print(cpu >= 0.0)",
+                "    print(wall >= cpu)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_time_process_time_fences_stay_closed(tmp_path: Path) -> None:
+    path = write_case(
+        tmp_path,
+        "pthr.py",
+        "import time\n\ndef f() -> int:\n    return time.thread_time()  # type: ignore[attr-defined]\n",
+    )
+    got = run_cli("compile", str(path), "--emit", "llvm", "-o", str(tmp_path / "pthr.ll"))
+    assert got.returncode != 0
+    combined = got.stderr + got.stdout
+    assert "PS2001" in combined
+    assert "time.thread_time is not in the lowered subset of time" in combined
+
+
+def test_json_loads_bytes_matches_cpython(tmp_path: Path) -> None:
+    """`json.loads(b"...")` (issue #495) decodes the bytes as UTF-8 and
+    parses the same document the text form carries."""
+    _oracle_run(
+        tmp_path,
+        "jbytes.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    d: dict[str, int] = json.loads(b'{\"a\": 7}')",
+                "    print(d['a'])",
+                "    xs: list[int] = json.loads(b'[1, 2, 3]')",
+                "    print(xs[0] + xs[2])",
+                "    s: str = json.loads(b'\"caf\\\\u00e9\"')",
+                "    print(s)",
+                "    raw: str = json.loads(b'\"caf\\xc3\\xa9\"')",
+                "    print(raw)",
+                "    b: bool = json.loads(b'true')",
+                "    print(b)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_json_loads_bytes_malformed_raises_unicode_decode_error(tmp_path: Path) -> None:
+    """A malformed byte sequence raises the UnicodeDecodeError family the
+    way CPython's decode does, before the JSON scan runs."""
+    _oracle_run(
+        tmp_path,
+        "jbadbytes.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    try:",
+                '        d: dict[str, int] = json.loads(b\'{"a": "\\xff"}\')',
+                "        print(d)",
+                "    except UnicodeDecodeError:",
+                "        print('unicode decode error')",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_json_ensure_ascii_false_matches_cpython(tmp_path: Path) -> None:
+    """`ensure_ascii=False` (issue #495) writes the non-ASCII text raw as
+    UTF-8; the default escapes it as CPython's `\\uXXXX` (surrogate pair
+    above the BMP), and the reader accepts both forms."""
+    _oracle_run(
+        tmp_path,
+        "jraw.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                "    print(json.dumps('café'))",
+                "    print(json.dumps('café', ensure_ascii=False))",
+                "    print(json.dumps('😀'))",
+                "    print(json.dumps('😀', ensure_ascii=False))",
+                "    print(json.dumps({'k': 'é'}, ensure_ascii=False))",
+                "    back: str = json.loads(json.dumps('café', ensure_ascii=False))",
+                "    print(back)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_json_dump_ensure_ascii_false_file_matches_cpython(tmp_path: Path) -> None:
+    """`json.dump(obj, fp, ensure_ascii=False)` writes the raw form to the
+    handle, byte-identical to CPython's file."""
+    doc = tmp_path / "raw.json"
+    _oracle_run(
+        tmp_path,
+        "jdraw.py",
+        "\n".join(
+            [
+                "import json",
+                "",
+                "def run() -> int:",
+                f"    p: str = {str(doc)!r}",
+                "    with open(p, 'w') as f:",
+                "        json.dump('café', f, ensure_ascii=False)",
+                "    with open(p, 'r') as f:",
+                "        s: str = f.read()",
+                "    print(s)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    want = tmp_path / "want.json"
+    import json as _json
+
+    want.write_text(_json.dumps("café", ensure_ascii=False), encoding="utf-8")
+    assert doc.read_text(encoding="utf-8") == want.read_text(encoding="utf-8")
