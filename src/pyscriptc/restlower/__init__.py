@@ -28,8 +28,6 @@ from pyscriptc.restlower._asyncio_proc import (
 )
 from pyscriptc.restlower._asyncio_streams import (
     _open_connection,
-    _reader_method,
-    _writer_method,
 )
 from pyscriptc.restlower._asyncio_sync import (
     _prim_call,

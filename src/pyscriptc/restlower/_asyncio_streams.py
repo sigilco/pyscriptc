@@ -54,9 +54,7 @@ _NONE = _t_leaf("none")
 _READ_OP = "stream_read"
 
 
-def _endpoint_host(
-    lo: Any, value: ast.expr, what: str
-) -> dict[str, Any]:
+def _endpoint_host(lo: Any, value: ast.expr, what: str) -> dict[str, Any]:
     """The host argument: a str. CPython's `None` spelling (the loop
     default) is outside the closed two-arg form."""
     host = lo._expr(value)
@@ -135,7 +133,12 @@ def _stream_read_marker(
     pinned = _nm(slot, stream_t, span)
     # The request first: the park reads it out of the record.
     lo.prelude.append(
-        _expr_stmt(lo._abi_call("asyncio", "StreamReader.want", [pinned, _const_int(mode, span), size], _NONE, "ps_stream_want", span), span)
+        _expr_stmt(
+            lo._abi_call(
+                "asyncio", "StreamReader.want", [pinned, _const_int(mode, span), size], _NONE, "ps_stream_want", span
+            ),
+            span,
+        )
     )
     marker = _call_builtin(PRIM_MARKER, [pinned], _NONE, span)
     marker["prim_op"] = _READ_OP
