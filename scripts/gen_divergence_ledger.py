@@ -221,9 +221,12 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D29",
-        "socket, ssl, http.client and http.server do not compile (PS2001)",
-        "d29_socket.py",
+        "ssl, http.client and http.server do not compile (PS2001); socket lowers its closed TCP subset",
+        "d29_ssl.py",
         docs=f"{DOC}#29",
+        note="the socket module lowers since #1270 (divergence 77); the d29_socket.py probe of the "
+        "all-fenced era moved to the differential lane (probes/differential/socket_tcp.py, byte-identical "
+        "over the subset)",
     ),
     _row(
         "D30",
@@ -552,6 +555,16 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#76",
         note="the host lane is byte-identical (probes/differential/asyncio_subprocess_pipes.py); the "
         "None-versus-empty-bytes seam and the missing stdin pipe are the rest of the entry",
+    ),
+    _row(
+        "D77",
+        "the socket subset is the blocking TCP surface over IPv4 (issue #1270): the loopback echo is "
+        "byte-identical; IPv6, UDP, non-blocking mode, makefile and the rest of the module fence (PS2001) "
+        "and a computed family or endpoint fences (PS1003) where CPython accepts them",
+        None,
+        docs=f"{DOC}#77",
+        note="the host lane is byte-identical (probes/differential/socket_tcp.py); the fences, the "
+        "IPv4-literal-only address and the native-only targets are the rest of the entry",
     ),
     _row(
         "AUDIT-D1",

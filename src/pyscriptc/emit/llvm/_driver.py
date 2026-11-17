@@ -488,6 +488,16 @@ def link_binary(
                 f"target {target or ''} refuses {what}: WASI has no subprocess, dynamic-loading "
                 "or island story (see docs/divergences.md)"
             )
+        # socket.socket lowers onto the ps_sock_* helpers; WASI has no socket
+        # story, so a socket call is refused here like the subprocess one.
+        sock_refused = [
+            symbol for symbol in ("ps_sock_new", "ps_sock_bind", "ps_sock_connect") if f"@{symbol}(" in text
+        ]
+        if sock_refused:
+            raise IRError(
+                f"target {target or ''} refuses {', '.join(sock_refused)}: WASI has no "
+                "socket story the runtime lowers (see docs/divergences.md)"
+            )
         # os.symlink/os.readlink lower onto ps_os_symlink/ps_os_readlink; the
         # wasi stubs in ps_compat.c exist only so ps_path.c compiles, and a
         # program that calls them is refused here, before the sysroot runs.
@@ -520,7 +530,9 @@ def link_binary(
                 f"target {target or ''} refuses {', '.join(system_refused)}: WASI has no "
                 "subprocess story the runtime lowers (see docs/divergences.md)"
             )
-        sources = [source for source in sources if not source.endswith(("ps_sub.c", "ps_mix.c", "ps_aproc.c"))]
+        sources = [
+            source for source in sources if not source.endswith(("ps_sub.c", "ps_mix.c", "ps_aproc.c", "ps_sock.c"))
+        ]
         sources.append(str(runtime / "wasm" / "rt_wasm.c"))
     # The `--ffi` manifest units join the same per-unit compile loop as the
     # runtime: a `.c` unit compiles like a runtime file, an archive goes

@@ -486,21 +486,22 @@
     },
     {
       "id": "D29",
-      "seam": "socket, ssl, http.client and http.server do not compile (PS2001)",
+      "seam": "ssl, http.client and http.server do not compile (PS2001); socket lowers its closed TCP subset",
       "listed": true,
       "docs": "docs/reference/divergences.md#29",
-      "probe": "probes/divergences/d29_socket.py",
+      "probe": "probes/divergences/d29_ssl.py",
+      "note": "the socket module lowers since #1270 (divergence 77); the d29_socket.py probe of the all-fenced era moved to the differential lane (probes/differential/socket_tcp.py, byte-identical over the subset)",
       "cpython": {
         "stage": "run",
         "exit": 0,
-        "stdout": "<socket.socket fd=3, family=2, type=1, proto=0, laddr=('0.0.0.0', 0)>\n",
+        "stdout": "True\n",
         "stderr": ""
       },
       "pyscriptc": {
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d29_socket.py:3:7: PS2001: socket.socket is not in the lowered subset of socket\n  print(socket.socket(socket.AF_INET, socket.SOCK_STREAM))\n        ^\n"
+        "stderr": "probes/divergences/d29_ssl.py:5:11: PS2001: ssl.create_default_context is not in the lowered subset of ssl\n      ctx = ssl.create_default_context()\n            ^\n(and 1 more fence that follows from it)\n"
       },
       "status": "fenced"
     },
@@ -1307,6 +1308,17 @@
       "docs": "docs/reference/divergences.md#76",
       "probe": null,
       "note": "the host lane is byte-identical (probes/differential/asyncio_subprocess_pipes.py); the None-versus-empty-bytes seam and the missing stdin pipe are the rest of the entry",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D77",
+      "seam": "the socket subset is the blocking TCP surface over IPv4 (issue #1270): the loopback echo is byte-identical; IPv6, UDP, non-blocking mode, makefile and the rest of the module fence (PS2001) and a computed family or endpoint fences (PS1003) where CPython accepts them",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#77",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/socket_tcp.py); the fences, the IPv4-literal-only address and the native-only targets are the rest of the entry",
       "cpython": null,
       "pyscriptc": null,
       "status": "unprobed"

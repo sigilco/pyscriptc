@@ -37,8 +37,10 @@ ANDROID_API_DEFAULT = 24
 # The runtime files a mobile build does not carry. `ps_sub.c` forks and execs,
 # `ps_osfd.c` opens raw file descriptors: neither has a meaning inside an app
 # sandbox, and both pull in headers a phone SDK does not ship. `ps_aproc.c`
-# is the async subprocess (issue #1224): it forks and execs too.
-MOBILE_EXCLUDED_SOURCES: list[str] = ["ps_osfd.c", "ps_sub.c", "ps_aproc.c"]
+# is the async subprocess (issue #1224): it forks and execs too. `ps_sock.c`
+# is the TCP socket surface (issue #1270): an app sandbox does not open
+# listening sockets either.
+MOBILE_EXCLUDED_SOURCES: list[str] = ["ps_osfd.c", "ps_sub.c", "ps_aproc.c", "ps_sock.c"]
 
 # The 16 KB page-alignment link flags Google Play requires of any shared
 # object built for Android 15+ (the 2025-11-01 rule). A static archive has no
@@ -160,6 +162,7 @@ MOBILE_FENCE_HINTS: dict[str, str] = {
         "subprocess spawns processes, and a mobile sandbox has no fork/exec: the mobile archive leaves ps_sub.c out"
     ),
     "osfd": ("raw file descriptors have no meaning inside an app sandbox: the mobile archive leaves ps_osfd.c out"),
+    "sock": ("a socket server has no meaning inside an app sandbox: the mobile archive leaves ps_sock.c out"),
 }
 
 
@@ -177,6 +180,19 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     # os.system shells out, so its helper lives in the same excluded file
     # (issue #503): an app sandbox has no fork/exec either.
     "ps_os_system": "subprocess",
+    # The socket surface (issue #1270): every helper lives in the excluded
+    # ps_sock.c, and an app sandbox has no listening socket either.
+    "ps_sock_new": "sock",
+    "ps_sock_setsockopt_reuseaddr": "sock",
+    "ps_sock_bind": "sock",
+    "ps_sock_listen": "sock",
+    "ps_sock_accept": "sock",
+    "ps_sock_connect": "sock",
+    "ps_sock_recv": "sock",
+    "ps_sock_send": "sock",
+    "ps_sock_sendall": "sock",
+    "ps_sock_close": "sock",
+    "ps_sock_fileno": "sock",
     "ps_os_open": "osfd",
     "ps_os_close": "osfd",
     "ps_os_read": "osfd",
@@ -200,4 +216,6 @@ def mobile_fence_hint(text: str) -> str | None:
         return MOBILE_FENCE_HINTS["subprocess"]
     if "osfd" in text.lower():
         return MOBILE_FENCE_HINTS["osfd"]
+    if "sock" in text.lower():
+        return MOBILE_FENCE_HINTS["sock"]
     return None

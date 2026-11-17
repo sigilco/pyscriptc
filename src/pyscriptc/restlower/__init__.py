@@ -83,6 +83,7 @@ from pyscriptc.restlower._secrets import _secrets_call
 from pyscriptc.restlower._selectors import _selector_method, _selectors_call
 from pyscriptc.restlower._shlex import _shlex_call
 from pyscriptc.restlower._signal import _signal_call
+from pyscriptc.restlower._socket import _socket_call, _socket_method
 from pyscriptc.restlower._statistics import _statistics_call
 from pyscriptc.restlower._subprocess import _call as _sub_call
 from pyscriptc.restlower._subprocess import _check_call as _sub_check_call
@@ -124,6 +125,7 @@ __all__ = [
     "_mk_iter",
     "_queue_method",
     "_selector_method",
+    "_socket_method",
     "_thread_method",
     "_static_builtin_fold",
     "alias_name",
@@ -205,6 +207,9 @@ _MODULES_BEFORE_SPEC: dict[str, Handler] = {
 
 # Whole-module handlers, consulted after `fixed_spec`.
 _MODULES_AFTER_SPEC: dict[str, Handler] = {
+    # The socket subset (#1270): the module's fixed row (gethostname) answers
+    # first, and the TCP surface answers the rest.
+    "socket": lambda lo, node, span, expect, attr: _socket_call(lo, node, span, expect, attr),
     "random": lambda lo, node, span, expect, attr: _random_call(lo, node, span, attr),
     "csv": lambda lo, node, span, expect, attr: _csv_call(lo, node, span, attr),
     "statistics": lambda lo, node, span, expect, attr: _statistics_call(lo, node, span, attr),

@@ -763,6 +763,9 @@ class AbiMixin(EmitterBase):
                     # selector and its keys, so the value is the record pointer.
                     "DefaultSelector",
                     "SelectorKey",
+                    # The socket handle (#1270): the runtime owns the fd, the
+                    # value is the record pointer.
+                    "Socket",
                     # The archive handles (#1241): the runtime record is the
                     # member list, the handle is the pointer.
                     "TarFile",
@@ -875,6 +878,9 @@ class AbiMixin(EmitterBase):
                 # The streaming hash context (issue #1248): the runtime owns
                 # the record and the value is its pointer.
                 "ps_hash_new",
+                # The socket handle (issue #1270): the runtime owns the fd,
+                # the value is the record pointer.
+                "ps_sock_new",
             }:
                 # The runtime owns the record: the value is the record pointer.
                 self._abi_decl(symbol, "ptr", types)

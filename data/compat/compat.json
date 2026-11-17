@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-16",
-  "commit": "c5850150c225a7f4601aadcee9edcd4a0d33d44d",
+  "commit": "c95e5ee4c11ca4187554c3ac8953a223a3449d24",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-16",
-    "commit": "c5850150c225a7f4601aadcee9edcd4a0d33d44d",
+    "commit": "c95e5ee4c11ca4187554c3ac8953a223a3449d24",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -1067,7 +1067,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "socket(), gethostbyname"
+        "gethostbyname, AF_INET6, SOCK_DGRAM, socketpair, UDP and non-blocking mode, makefile, getpeername, shutdown"
       ],
       "fences": [
         "PS2001"
@@ -2723,7 +2723,7 @@
     },
     {
       "date": "2026-11-16",
-      "commit": "c5850150c225a7f4601aadcee9edcd4a0d33d44d",
+      "commit": "c95e5ee4c11ca4187554c3ac8953a223a3449d24",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

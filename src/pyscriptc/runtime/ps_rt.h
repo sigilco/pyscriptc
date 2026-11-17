@@ -682,4 +682,25 @@ int64_t ps_select_key_events(void *key);
 PsSeq *ps_select_select(void *sel, double timeout);
 void ps_select_close(void *sel);
 
+/* ps_sock.c: the blocking TCP socket surface (#1270). One record per
+   socket.socket(AF_INET, SOCK_STREAM); the descriptor number lives in the
+   record, so the value the program holds is the pointer. `accept` answers
+   the accepted descriptor; the peer address lands in the record, and the
+   lowering reads it back with ps_sock_peer_host and ps_sock_peer_port
+   (CPython's (conn, (host, port)) pair). */
+void *ps_sock_new(void);
+void ps_sock_setsockopt_reuseaddr(void *sock);
+void ps_sock_bind(void *sock, int64_t n, const char *host, int64_t port);
+void ps_sock_listen(void *sock, int64_t backlog);
+void *ps_sock_accept(void *sock);
+void ps_sock_getsockname(void *sock);
+void ps_sock_peer_host(void *sock, PsBuf *out);
+int64_t ps_sock_peer_port(void *sock);
+void ps_sock_connect(void *sock, int64_t n, const char *host, int64_t port);
+void ps_sock_recv(void *sock, int64_t size, PsBuf *out);
+int64_t ps_sock_send(void *sock, int64_t n, const char *s);
+void ps_sock_sendall(void *sock, int64_t n, const char *s);
+void ps_sock_close(void *sock);
+int64_t ps_sock_fileno(void *sock);
+
 #endif

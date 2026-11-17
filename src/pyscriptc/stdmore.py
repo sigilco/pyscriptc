@@ -1250,6 +1250,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "queue": ("Queue", "Empty", "Full"),
     "asyncio": ("CancelledError", "AsyncProcess"),
     "selectors": ("DefaultSelector", "SelectorKey"),
+    "socket": ("Socket",),
     "tarfile": ("TarFile",),
     "zipfile": ("ZipFile",),
     "email": ("EmailMessage",),
@@ -1324,6 +1325,10 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # socket handle is #229, so those two stay fenced (divergence 29).
     "DefaultSelector": [],
     "SelectorKey": [("fd", _I), ("events", _I)],
+    # The socket handle (issue #1270) is an opaque runtime pointer: the
+    # descriptor number lives in the runtime record, so the class carries
+    # no field.
+    "Socket": [],
     "Namespace": [],
     # The logger carries the name getLogger recorded.
     "Logger": [("_name", _S)],
@@ -1424,7 +1429,7 @@ PTR_CLASSES: frozenset[str] = (
     | QUEUE_CLASSES
     | ASYNC_CLASSES
     | APROC_CLASSES
-    | {"ArgParser", "DefaultSelector", "Hash", "TarFile", "ZipFile", "EmailMessage"}
+    | {"ArgParser", "DefaultSelector", "Hash", "TarFile", "ZipFile", "EmailMessage", "Socket"}
 )
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
@@ -1452,6 +1457,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("hashlib", "sha384"): "Hash",
     ("hashlib", "sha512"): "Hash",
     ("hashlib", "md5"): "Hash",
+    ("socket", "socket"): "Socket",
     ("threading", "Lock"): "Lock",
     ("threading", "RLock"): "Lock",
     ("os", "terminal_size"): "TerminalSize",
@@ -2226,6 +2232,8 @@ def member_callable(module: str, member: str) -> bool:
     if module == "urllib.request" and member in {"urlopen", "Request"}:
         return True
     if module == "selectors" and member in {"DefaultSelector", "SelectorKey"}:
+        return True
+    if module == "socket" and member == "socket":
         return True
     if module == "tarfile" and member in {"open", "TarFile"}:
         return True

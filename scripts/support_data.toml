@@ -536,8 +536,8 @@ no = [["Popen, getoutput", 'y: int = subprocess.Popen(ss)', "PS2001"]]
 
 [[stdlib]]
 names = ["socket"]
-ok = ['y: str = socket.gethostname()', 'y: int = socket.AF_INET']
-no = [["socket(), gethostbyname", 'y: int = socket.socket()', "PS2001"]]
+ok = ['y: str = socket.gethostname()', 'y: int = socket.AF_INET', 'y: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)', 'y: int = socket.socket(socket.AF_INET, socket.SOCK_STREAM).fileno()']
+no = [["gethostbyname", 'y: int = socket.gethostbyname("localhost")', "PS2001"], ["AF_INET6, SOCK_DGRAM, socketpair, UDP and non-blocking mode", 'y: socket.socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)', "PS2001"], ["makefile, getpeername, shutdown", 'y: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM).makefile("rb")', "PS2001"]]
 
 [[stdlib]]
 names = ["ssl"]

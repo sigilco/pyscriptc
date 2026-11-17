@@ -50,6 +50,7 @@ from pyscriptc.restlower import (
     _mk_iter,
     _queue_method,
     _selector_method,
+    _socket_method,
     _thread_method,
 )
 from pyscriptc.restlower import method_spec as synth_method
@@ -422,6 +423,8 @@ class CallAttrMixin:
             )
         if kind == "class" and receiver["type"]["name"] == "DefaultSelector":
             return _selector_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "Socket":
+            return _socket_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] in {"TarFile", "ZipFile"}:
             return _archive_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "EmailMessage":
