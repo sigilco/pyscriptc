@@ -574,6 +574,16 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#78",
     ),
     _row(
+        "D79",
+        "asyncio.gather answers the list of the results in argument order (issue #1278), the way CPython "
+        "does, so the result annotation is list[T]; return_exceptions=True fences (PS2003) where CPython "
+        "lands the exceptions in the list",
+        None,
+        docs=f"{DOC}#79",
+        note="the host lane is byte-identical (probes/differential/asyncio_gather_list.py); the "
+        "return_exceptions fence and the one-result-type rule (PS2002) are the rest of the entry",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

@@ -125,7 +125,7 @@ There is no `typing` module object in the binary.
 | a base-annotated slot holding a field-less nominal subclass (`b: Base = Sub()`, `def make() -> Base: return Sub()`) | compiles; the slot keeps the subclass, so the overridden method answers the subclass's body (divergence 70). A subclass that adds a field, a factory over two subclasses, or a base-annotated parameter receiving a subclass fences `PS1003` |
 | `NamedTuple`, `TypedDict`, `NewType`, `Literal[...]`, `Self` | unsupported; use a `@dataclass`, a plain `dict[K, V]`, an alias, a plain `str`, or the class name |
 | `Any` as a container element (`dict[K, Any]`, `list[Any]`) | compiles in the builtin and the `typing` spelling; reads need a proven type at the read site (annotation or checker fact), an unproven read fences `PS1107`; bare `Any` or `object` as an annotation is unsupported (`PS1104`) |
-| `async def` and `await` | compiles |
+| `async def` and `await` | compiles; `await asyncio.gather(...)` answers `list[T]` in argument order (the coroutines must share one result type, `PS2002`), so the result annotation is a list |
 | `dataclasses.dataclass` with no options | compiles as a native record; `frozen=True` and other decorators are unsupported (`PS1201`) |
 | `cast(t, v)`, `get_type_hints`, `__annotations__` reads | unsupported (`PS2002`); write the type on an annotated local instead |
 | `isinstance(v, list[int])` | unsupported (`PS2001`); runtime checks take scalar and class names only |

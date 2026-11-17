@@ -1344,6 +1344,17 @@
       "status": "divergent"
     },
     {
+      "id": "D79",
+      "seam": "asyncio.gather answers the list of the results in argument order (issue #1278), the way CPython does, so the result annotation is list[T]; return_exceptions=True fences (PS2003) where CPython lands the exceptions in the list",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#79",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/asyncio_gather_list.py); the return_exceptions fence and the one-result-type rule (PS2002) are the rest of the entry",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
