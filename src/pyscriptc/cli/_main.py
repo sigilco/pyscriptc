@@ -536,6 +536,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
     verify_parser.add_argument(
+        "--oracle-version",
+        metavar="X.Y",
+        default=None,
+        help=(
+            "use an oracle of that CPython minor instead of the pinned 3.14 (3.11 through 3.13; "
+            "parity is then meaningful only for the subset both share)"
+        ),
+    )
+    verify_parser.add_argument(
         "--ffi",
         action="append",
         metavar="MANIFEST",
@@ -1235,7 +1244,7 @@ def verify_cmd(args: argparse.Namespace) -> int:
     if args.input is not None and not Path(args.input).exists():
         raise IRError(f"--input file not found: {args.input}")
     stdin: bytes = Path(args.input).read_bytes() if args.input is not None else b""
-    oracle = verify.find_oracle()
+    oracle = verify.find_oracle(oracle_version=getattr(args, "oracle_version", None))
     call_args: list[Any] = _parse_args(args.args) if args.call else []
     name: str = source.stem or "app"
     key = _run_key(args)
