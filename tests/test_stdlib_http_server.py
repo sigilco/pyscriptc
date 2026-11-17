@@ -134,6 +134,25 @@ def run() -> int:
 """
 
 
+# CPython's HTTPServer.server_bind calls socket.getfqdn(host): a reverse-DNS
+# lookup for the bind address. On a macOS CI runner whose resolver does not
+# answer the loopback PTR query, that call blocks for the resolver's own
+# timeout (tens of seconds), and the oracle subprocess then outlives a
+# 30-second budget while the program itself is fine. The subset's own
+# runtime binds the literal and never asks the resolver, so only the
+# CPython side pays.
+#
+# The oracle runner stubs the lookup: `server_name` (the answer getfqdn
+# gives) is outside the compared surface, no program under probes/differential
+# or in this file reads it, and the stub makes the oracle's bind as
+# resolver-free as the subset's own. The budget is generous on purpose too:
+# the programs answer in well under a second where the resolver answers, and
+# a slow resolver must not read as a failure.
+ORACLE_TIMEOUT = 180
+
+_ORACLE_STUB = "import socket\nsocket.getfqdn = lambda name='': name or 'localhost'\n"
+
+
 def _oracle_bytes(tmp_path: Path, name: str, source: str) -> str:
     """The compiled output must equal the CPython oracle's output.
 
@@ -143,14 +162,19 @@ def _oracle_bytes(tmp_path: Path, name: str, source: str) -> str:
     """
     path = write_case(tmp_path, name, source)
     runner = (
-        "import importlib.util\n"
+        _ORACLE_STUB + "import importlib.util\n"
         f"spec = importlib.util.spec_from_file_location('mod', r'{path}')\n"
         "mod = importlib.util.module_from_spec(spec)\n"
         "spec.loader.exec_module(mod)\n"
         "print(mod.run())\n"
     )
     expected = subprocess.run(
-        [sys.executable, "-c", runner], capture_output=True, text=True, encoding="latin-1", check=True, timeout=30
+        [sys.executable, "-c", runner],
+        capture_output=True,
+        text=True,
+        encoding="latin-1",
+        check=True,
+        timeout=ORACLE_TIMEOUT,
     ).stdout
     got = compile_run(tmp_path, path, "run", extra=[])
     assert got.returncode == 0, got.stderr
@@ -205,10 +229,10 @@ def test_the_committed_probe_matches_cpython(tmp_path: Path) -> None:
     )
     assert built.returncode == 0, built.stderr
     oracle = subprocess.run(
-        [sys.executable, str(probe)],
+        [sys.executable, "-c", _ORACLE_STUB + f"exec(open({str(probe)!r}).read())"],
         capture_output=True,
         text=True,
-        timeout=30,
+        timeout=ORACLE_TIMEOUT,
     )
     assert oracle.returncode == built.returncode
     assert oracle.stdout == built.stdout, (oracle.stdout, built.stdout)
