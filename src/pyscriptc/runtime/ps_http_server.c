@@ -372,17 +372,9 @@ void *ps_httpresp_wfile(void *box) {
 
 /* ----- the server ----- */
 
-/* The bound address of the server: the host text and the port, the two
-   halves of CPython's (host, port) pair. The lowering reads the pair back
-   the way the socket subset reads its own. */
 /* The bound address of the server: the lowering reads the host text and
    the port with the two helpers below, the way the socket subset reads
-   its own pair. This one only fills the record, so it takes no output
-   argument the way `ps_sock_getsockname` does. */
-void ps_httpsrv_getsockname(void *box) {
-    PsHttpServer *srv = ps_srv_of(box);
-    (void)srv;
-}
+   its own pair. */
 
 /* The bound host, read on its own: the lowering reads the two halves of
    the pair in separate calls, the way the socket subset reads its own. */
@@ -788,11 +780,6 @@ void *ps_httpsrv_new(int64_t n, const char *host, int64_t port) {
 }
 
 void ps_httpsrv_shutdown(void *box) {
-    (void)box;
-    ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
-}
-
-void ps_httpsrv_getsockname(void *box) {
     (void)box;
     ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
 }

@@ -733,7 +733,6 @@ int64_t ps_sock_fileno(void *sock);
    class-method lowering. */
 void *ps_httpsrv_new(int64_t n, const char *host, int64_t port);
 void ps_httpsrv_shutdown(void *box);
-void ps_httpsrv_getsockname(void *box);
 void ps_httpsrv_host(void *box, PsBuf *out);
 int64_t ps_httpsrv_port(void *box);
 void *ps_httpsrv_serve_one(void *box);

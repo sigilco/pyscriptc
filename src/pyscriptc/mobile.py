@@ -227,7 +227,6 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     # socket for the server to sit on either.
     "ps_httpsrv_new": "httpsrv",
     "ps_httpsrv_shutdown": "httpsrv",
-    "ps_httpsrv_getsockname": "httpsrv",
     "ps_httpsrv_host": "httpsrv",
     "ps_httpsrv_port": "httpsrv",
     "ps_httpsrv_serve_one": "httpsrv",

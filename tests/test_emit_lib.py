@@ -362,7 +362,6 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_stream_wait_closed",
         "ps_httpsrv_new",
         "ps_httpsrv_shutdown",
-        "ps_httpsrv_getsockname",
         "ps_httpsrv_host",
         "ps_httpsrv_port",
         "ps_httpsrv_serve_one",
