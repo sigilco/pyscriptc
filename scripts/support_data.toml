@@ -540,6 +540,11 @@ ok = ['y: str = socket.gethostname()', 'y: int = socket.AF_INET', 'y: socket.soc
 no = [["gethostbyname", 'y: int = socket.gethostbyname("localhost")', "PS2001"], ["AF_INET6, SOCK_DGRAM, socketpair, UDP and non-blocking mode", 'y: socket.socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)', "PS2001"], ["makefile, getpeername, shutdown", 'y: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM).makefile("rb")', "PS2001"]]
 
 [[stdlib]]
+names = ["http.server"]
+ok = ['from http.server import BaseHTTPRequestHandler, HTTPServer', 'y: int = 1']
+no = [["ThreadingHTTPServer, SimpleHTTPRequestHandler and the socketserver mixins", "from http.server import ThreadingHTTPServer\ny: int = 1", "PS2001"]]
+
+[[stdlib]]
 names = ["ssl"]
 ok = ['y: str = ssl.OPENSSL_VERSION', 'y: bool = ssl.HAS_SNI']
 no = [["contexts (create_default_context)", 'y: int = ssl.create_default_context()', "PS2001"]]

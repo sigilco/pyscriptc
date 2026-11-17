@@ -584,12 +584,24 @@ ROWS: list[dict[str, Any]] = [
         "return_exceptions fence and the one-result-type rule (PS2002) are the rest of the entry",
     ),
     _row(
-        "D82",
+        "D80",
+        "the http.server handler subset (issue #1270): the loopback request is byte-identical; headers.get "
+        "answers the empty string where CPython answers None, the handler instance persists across the "
+        "requests of one serve call where CPython builds one per request, and the runtime answers no "
+        "log_message",
+        None,
+        docs=f"{DOC}#80",
+        note="the host lane is byte-identical (probes/differential/http_server_loopback.py); the "
+        "headers.get seam, the per-serve handler instance, the missing log_message and the fences are "
+        "the rest of the entry",
+    ),
+    _row(
+        "D81",
         "the asyncio stream surface (issue #1281): open_connection and the StreamReader / StreamWriter pair "
         "over the TCP socket runtime; readexactly raises RuntimeError where CPython raises IncompleteReadError, "
         "read(n) answers the bytes the buffer holds when the socket answered, and the surface is native-only",
         None,
-        docs=f"{DOC}#82",
+        docs=f"{DOC}#81",
         note="the host lane is byte-identical (probes/differential/asyncio_streams.py); the "
         "readexactly exception class, the read(n) short read and the target fences are the rest of the entry",
     ),
