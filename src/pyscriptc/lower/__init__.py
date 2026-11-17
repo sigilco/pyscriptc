@@ -203,6 +203,11 @@ class Lowerer(
         self.declared: set[str] = set()
         self.known_classes: set[str] = set()
         self.synthetics: set[str] = set()
+        # The handler class of each http.server value (issue #1270): the
+        # construction call records the class name under the local the
+        # server was bound to, and serve_forever reads it back to build
+        # the dispatch the loop runs.
+        self.httpsrv_handlers: dict[str, str] = {}
         self.temp_n = 0
         self.caught: list[Fence] = []
         self.prelude: list[dict[str, Any]] = []

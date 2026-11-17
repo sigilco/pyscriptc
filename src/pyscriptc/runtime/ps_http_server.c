@@ -241,10 +241,20 @@ static const char *ps_http_reason(int64_t status) {
         return "OK";
     case 201:
         return "Created";
+    case 202:
+        return "Accepted";
     case 204:
         return "No Content";
+    case 301:
+        return "Moved Permanently";
+    case 302:
+        return "Found";
+    case 304:
+        return "Not Modified";
     case 400:
         return "Bad Request";
+    case 401:
+        return "Unauthorized";
     case 403:
         return "Forbidden";
     case 404:
@@ -253,6 +263,8 @@ static const char *ps_http_reason(int64_t status) {
         return "Method Not Allowed";
     case 500:
         return "Internal Server Error";
+    case 501:
+        return "Unsupported method";
     default:
         return "Unknown";
     }
@@ -332,15 +344,66 @@ int64_t ps_httpresp_status(void *box) {
     return resp->status;
 }
 
+/* The header block of the request, the handle the handler's `headers`
+   attribute carries. The record is opaque and the handle is the record
+   itself: the block's reads go through ps_httpreq_header, which takes
+   the same pointer. */
+void *ps_httpreq_headers(void *box) {
+    PsHttpReq *req;
+    ps_req_of(box, &req);
+    return req;
+}
+
+/* The request's body reader, the handle the handler's `rfile` attribute
+   carries. The body is already read; `read(n)` clamps against it. */
+void *ps_httpreq_rfile(void *box) {
+    PsHttpReq *req;
+    ps_req_of(box, &req);
+    return req;
+}
+
+/* The response's body writer, the handle the handler's `wfile` attribute
+   carries. The handle is the response record itself. */
+void *ps_httpresp_wfile(void *box) {
+    PsHttpResp *resp;
+    ps_resp_of(box, &resp);
+    return resp;
+}
+
 /* ----- the server ----- */
 
 /* The bound address of the server: the host text and the port, the two
    halves of CPython's (host, port) pair. The lowering reads the pair back
    the way the socket subset reads its own. */
-void ps_httpsrv_getsockname(void *box, PsBuf *host_out, int64_t *port_out) {
+/* The bound address of the server: the lowering reads the host text and
+   the port with the two helpers below, the way the socket subset reads
+   its own pair. This one only fills the record, so it takes no output
+   argument the way `ps_sock_getsockname` does. */
+void ps_httpsrv_getsockname(void *box) {
     PsHttpServer *srv = ps_srv_of(box);
-    ps_buf_view(host_out, srv->host, (int64_t)strlen(srv->host));
-    *port_out = srv->port;
+    (void)srv;
+}
+
+/* The bound host, read on its own: the lowering reads the two halves of
+   the pair in separate calls, the way the socket subset reads its own. */
+void ps_httpsrv_host(void *box, PsBuf *out) {
+    PsHttpServer *srv = ps_srv_of(box);
+    ps_buf_view(out, srv->host, (int64_t)strlen(srv->host));
+}
+
+/* The bound port, read on its own. */
+int64_t ps_httpsrv_port(void *box) {
+    PsHttpServer *srv = ps_srv_of(box);
+    return srv->port;
+}
+
+/* The loop's stop test: 1 once shutdown() ran, 0 before it. The lowering
+   reads it after each serve_one and ends its loop on it, so a shutdown
+   from another thread lands without a connection (CPython's
+   serve_forever/shutdown pair). */
+int64_t ps_httpsrv_stopped(void *box) {
+    PsHttpServer *srv = ps_srv_of(box);
+    return srv->stopped;
 }
 
 /* The server record: the listening socket, the bound address and the
@@ -418,6 +481,9 @@ void ps_httpsrv_shutdown(void *box) {
 /* Read one line off the connection, the CRLF or the LF ending it. The
    answer is the line without its ending and its length. */
 static void ps_http_read_line(int fd, char **buf, int64_t *len, int64_t *cap) {
+    /* Each call reads one line: the length starts at zero so the blank
+       line that ends the header block reads as the empty line it is. */
+    *len = 0;
     for (;;) {
         if (*len > 0 && (*buf)[*len - 1] == '\n') {
             /* Strip the ending: the CRLF or the bare LF. */
@@ -612,15 +678,23 @@ void *ps_httpsrv_serve_one(void *box) {
     return req;
 }
 
-/* Finish one request: write the response onto the connection and close
-   it, the way CPython's Connection: close serves each request. */
+/* Finish one request: write the response record the handler built onto the
+   connection and close both records, the way CPython's Connection: close
+   serves each request. The record's lifetime is the request's: the
+   lowering builds a fresh one before every dispatch (ps_httpresp_new) and
+   this call frees it. */
 void ps_httpsrv_finish(void *box, void *resp_box) {
     PsHttpReq *req;
     ps_req_of(box, &req);
     PsHttpResp *resp;
     ps_resp_of(resp_box, &resp);
     int fd = req->fd;
-    /* The status line. */
+    /* The status line. CPython's default when the handler never sent one
+       is the 501 for an unsupported method; the dispatch keeps the status
+       at 0 for exactly that shape and the reason phrase lands as such. */
+    if (resp->status <= 0) {
+        resp->status = 501;
+    }
     char head[128];
     int wrote = snprintf(head, sizeof head, "HTTP/1.0 %ld %s\r\n", (long)resp->status,
                          ps_http_reason(resp->status));
@@ -646,13 +720,14 @@ void ps_httpsrv_finish(void *box, void *resp_box) {
         ssize_t put = write(fd, server, strlen(server));
         (void)put;
     }
-    /* The header block the handler wrote. */
+    /* The header block the handler wrote. CPython's end_headers is what
+       closes the block, so an absent block means end_headers never ran and
+       the blank line closes it here, the way a missing end_headers still
+       yields a parseable response. */
     if (resp->headers_len > 0) {
         ssize_t put = write(fd, resp->headers, (size_t)resp->headers_len);
         (void)put;
     } else {
-        /* No send_header and no end_headers: the blank line closes the
-           block, the way CPython's end_headers does when it runs. */
         ssize_t put = write(fd, "\r\n", 2);
         (void)put;
     }
@@ -699,11 +774,21 @@ void ps_httpsrv_shutdown(void *box) {
     ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
 }
 
-void ps_httpsrv_getsockname(void *box, PsBuf *host_out, int64_t *port_out) {
+void ps_httpsrv_getsockname(void *box) {
     (void)box;
-    (void)host_out;
-    (void)port_out;
     ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
+}
+
+void ps_httpsrv_host(void *box, PsBuf *out) {
+    (void)box;
+    (void)out;
+    ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
+}
+
+int64_t ps_httpsrv_port(void *box) {
+    (void)box;
+    ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
+    return 0;
 }
 
 void *ps_httpsrv_serve_one(void *box) {
@@ -720,6 +805,12 @@ void ps_httpsrv_finish(void *box, void *resp_box) {
 
 void ps_httpsrv_close(void *box) {
     (void)box;
+}
+
+int64_t ps_httpsrv_stopped(void *box) {
+    (void)box;
+    ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
+    return 0;
 }
 
 void *ps_httpresp_new(void) {
@@ -784,6 +875,24 @@ void ps_httpreq_header(void *box, int64_t n, const char *name, PsBuf *out) {
     (void)name;
     (void)out;
     ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
+}
+
+void *ps_httpreq_headers(void *box) {
+    (void)box;
+    ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
+    return NULL;
+}
+
+void *ps_httpreq_rfile(void *box) {
+    (void)box;
+    ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
+    return NULL;
+}
+
+void *ps_httpresp_wfile(void *box) {
+    (void)box;
+    ps_raise_cstr(PS_RUNTIME, "http.server needs the BSD socket API, which this target has no story for");
+    return NULL;
 }
 
 void ps_httpreq_rfile_read(void *box, int64_t n, PsBuf *out) {

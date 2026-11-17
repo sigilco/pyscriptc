@@ -50,6 +50,7 @@ from pyscriptc.restlower import (
     _mk_iter,
     _queue_method,
     _selector_method,
+    _httpserver_method,
     _socket_method,
     _thread_method,
 )
@@ -59,6 +60,12 @@ from pyscriptc.restlower._asyncio import _task_method
 from pyscriptc.restlower._asyncio_proc import _proc_method
 from pyscriptc.restlower._asyncio_streams import _reader_method, _writer_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
+from pyscriptc.restlower._httpserver import (
+    handler_method as _http_handler_method,
+    headers_method as _http_headers_method,
+    reader_method as _http_reader_method,
+    writer_method as _http_writer_method,
+)
 from pyscriptc.restlower._ndarray import _ndarray_method
 from pyscriptc.tirserde import dict_to_node, node_to_dict
 
@@ -426,6 +433,30 @@ class CallAttrMixin:
             return _selector_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Socket":
             return _socket_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "HTTPServer":
+            return _httpserver_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "HttpServerHeaders":
+            # `self.headers.get(name)`: the header's value (issue #1270).
+            called = _http_headers_method(self, node, span, receiver)
+            if called is not None:
+                return called
+        if kind == "class" and receiver["type"]["name"] == "HttpServerReader":
+            # `self.rfile.read(n)`: the request's body bytes.
+            called = _http_reader_method(self, node, span, receiver)
+            if called is not None:
+                return called
+        if kind == "class" and receiver["type"]["name"] == "HttpServerWriter":
+            # `self.wfile.write(data)`: the response's body bytes.
+            called = _http_writer_method(self, node, span, receiver)
+            if called is not None:
+                return called
+        if kind == "class" and self.is_http_handler_instance(receiver["type"]["name"]):
+            # The http.server handler's own methods (issue #1270, slice 2):
+            # `send_response`, `send_header` and `end_headers` write into
+            # the response record the accept loop parked on the instance.
+            called = _http_handler_method(self, node, span, receiver)
+            if called is not None:
+                return called
         if kind == "class" and receiver["type"]["name"] == "StreamReader":
             return _reader_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "StreamWriter":

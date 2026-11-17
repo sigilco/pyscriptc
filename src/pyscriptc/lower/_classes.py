@@ -1706,6 +1706,28 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         )
         raise AssertionError("unreachable")
 
+    def _http_handler_attr(
+        self, node: ast.AST, obj: dict[str, Any], name: str, span: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """The handler instance's request-backed attribute, or None.
+
+        `self.path` reads the request's target, `self.headers` the parsed
+        header block, `self.rfile` the request's body reader and
+        `self.wfile` the response's body writer (issue #1270, slice 2).
+        Each one is a runtime call over the `_request` or `_response`
+        record the accept loop parked on the instance, so a read lowers
+        here and never lands in the field table.
+
+        The handler's `self` is an ordinary class instance, so a plain
+        name never reaches this: only the four request-backed attributes
+        route through.
+        """
+        from pyscriptc.restlower._httpserver import handler_attr
+
+        if not self.is_http_handler_instance(obj["type"].get("name")):
+            return None
+        return handler_attr(self, node, span, obj)
+
     def _lookup_attr(
         self,
         obj: dict[str, Any],
@@ -1766,6 +1788,16 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         info = self.classes.get(class_name)
         if info is None:
             self.fail(node, "PS2001", f"{class_name} has no fields")
+        # The http.server handler's request-backed attributes (issue #1270,
+        # slice 2): `self.path`, `self.headers`, `self.rfile` and
+        # `self.wfile` read the request and response records the accept
+        # loop parked on the instance, so they are runtime calls and not
+        # plain field reads. The hook runs before the field table: the
+        # base class declares the four names so the checker sees them, but
+        # their values live in the runtime records, not in the instance.
+        handler_attr = self._http_handler_attr(node, obj, name, span)
+        if handler_attr is not None:
+            return handler_attr
         for field in info["fields"]:
             if field["name"] == name:
                 return _attr_node(obj, name, field["type"], span)

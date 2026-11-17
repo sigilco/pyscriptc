@@ -52,13 +52,13 @@ from pyscriptc.restlower._collections import _counter, _defaultdict, _deque, _or
 from pyscriptc.restlower._copy import _copy_call
 from pyscriptc.restlower._csv import _csv_call
 from pyscriptc.restlower._ctypes import _sizeof
-from pyscriptc.restlower._dataclasses import _dataclass_field
 from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
 from pyscriptc.restlower._email import _email_call, _email_method
 from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
 from pyscriptc.restlower._functools import _reduce
 from pyscriptc.restlower._hashlib import _hashlib_call, _hashlib_method
+from pyscriptc.restlower._httpserver import _httpserver_call, _httpserver_method
 from pyscriptc.restlower._heapq import _heapq_call
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
 from pyscriptc.restlower._io import _input, _mkstemp, _named_temp, _open, _print
@@ -125,6 +125,7 @@ __all__ = [
     "_archive_method",
     "_email_method",
     "_hashlib_method",
+    "_httpserver_method",
     "_lock_method",
     "_mk_iter",
     "_queue_method",
@@ -215,6 +216,9 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
     # The socket subset (#1270): the module's fixed row (gethostname) answers
     # first, and the TCP surface answers the rest.
     "socket": lambda lo, node, span, expect, attr: _socket_call(lo, node, span, expect, attr),
+    # The http.server handler subset (issue #1270): the server class and
+    # the handler base bind as classes, the rest of the module is refused.
+    "http.server": lambda lo, node, span, expect, attr: _httpserver_call(lo, node, span, expect, attr),
     "random": lambda lo, node, span, expect, attr: _random_call(lo, node, span, attr),
     "csv": lambda lo, node, span, expect, attr: _csv_call(lo, node, span, attr),
     "statistics": lambda lo, node, span, expect, attr: _statistics_call(lo, node, span, attr),
@@ -241,10 +245,6 @@ _BEFORE_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("collections", "Counter"): lambda lo, node, span, expect, attr: _counter(lo, node, span, expect),
     ("collections", "defaultdict"): lambda lo, node, span, expect, attr: _defaultdict(lo, node, span, expect),
     ("collections", "namedtuple"): _namedtuple_only,
-    # The dataclass field marker (issue #1279): the keyword carries the
-    # per-instance default, so the handler runs before the keyword
-    # rejection.
-    ("dataclasses", "field"): _dataclass_field,
     ("subprocess", "run"): lambda lo, node, span, expect, attr: _sub_run(lo, node, span),
     ("subprocess", "call"): lambda lo, node, span, expect, attr: _sub_call(lo, node, span),
     ("subprocess", "check_call"): lambda lo, node, span, expect, attr: _sub_check_call(lo, node, span),

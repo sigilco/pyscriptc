@@ -29,6 +29,7 @@ from pyscriptc.lower._annotations import _const_int_index
 from pyscriptc.lower._core import Fence, _any_accepts, _mk_type
 from pyscriptc.lower._stmt import _is_docstring
 from pyscriptc.restlower import alias_name
+from pyscriptc.restlower._httpserver import HANDLER_BASE
 from pyscriptc.tirserde import dict_to_type, node_to_dict
 
 
@@ -482,8 +483,48 @@ class ClassesMoreMixin:
             if info.get("enum"):
                 self.fail(node, "PS2002", "an enum is not a base")
             return _class_type(node.id)
+        # The http.server handler base (issue #1270): the spelling is the
+        # module attribute (`http.server.BaseHTTPRequestHandler`) or the
+        # imported name; both resolve to the class the import installed.
+        base = self._http_handler_base_name(node)
+        if base is not None:
+            self._install_http_handler_base()
+            return _class_type(base)
         self.fail(node, "PS2002", "this class base is not lowered")
         raise AssertionError("unreachable")
+
+    def _http_handler_base_name(self, node: ast.expr) -> str | None:
+        """`BaseHTTPRequestHandler` as a base-class spelling, or None.
+
+        Both spellings resolve: the module attribute
+        (`http.server.BaseHTTPRequestHandler`) and the imported name. None
+        means this base is not the handler base.
+        """
+        if isinstance(node, ast.Attribute):
+            resolved = self._resolve_module(node)
+            if resolved is not None and resolved[1] == "http.server" and resolved[2] == "BaseHTTPRequestHandler":
+                return "BaseHTTPRequestHandler"
+            return None
+        if isinstance(node, ast.Name):
+            binding = self.bindings.get(node.id)
+            if binding is not None and binding.module == "http.server" and binding.attr == "BaseHTTPRequestHandler":
+                return "BaseHTTPRequestHandler"
+        return None
+
+    def is_http_handler_instance(self, class_name: str | None) -> bool:
+        """True when `class_name` is a handler class (it extends the base).
+
+        The handler's request-backed attributes (`self.path`, `self.rfile`,
+        `self.wfile`, `self.headers`) and its three response methods lower
+        through the http.server handler path, so every read on a handler
+        instance asks this first.
+        """
+        if class_name is None:
+            return False
+        info = self.classes.get(class_name)
+        if info is None:
+            return False
+        return info.get("base") == HANDLER_BASE
 
     def _enum_base_name(self, node: ast.expr) -> str | None:
         if isinstance(node, ast.Name):

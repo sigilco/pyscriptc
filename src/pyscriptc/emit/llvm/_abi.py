@@ -766,6 +766,16 @@ class AbiMixin(EmitterBase):
                     # The socket handle (#1270): the runtime owns the fd, the
                     # value is the record pointer.
                     "Socket",
+                    # The http.server records (issue #1270, slice 2): the
+                    # server, the request, the response and the two body
+                    # streams are runtime records, so the value is the
+                    # record pointer.
+                    "HTTPServer",
+                    "HttpServerRequest",
+                    "HttpServerResponse",
+                    "HttpServerHeaders",
+                    "HttpServerReader",
+                    "HttpServerWriter",
                     # The asyncio stream handles (#1281): the reader and the
                     # writer share one runtime record, the value is its pointer.
                     "StreamReader",

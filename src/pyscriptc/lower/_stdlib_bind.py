@@ -419,10 +419,51 @@ class StdlibBindMixin:
             # `except json.JSONDecodeError` names the class the json runtime
             # raises; the runtime looks the code up by name (issue #1246).
             self.synthetics.add("JSONDecodeError")
+        if module == "http.server" and module_status("http.server") == "lowered":
+            # The handler base class (issue #1270): the user's handler
+            # extends it, so it is a lowered class and not a synthetic one
+            # (a synthetic class cannot be a base). It carries the
+            # request-backed fields the handler reads.
+            self._install_http_handler_base()
         for name, classes in MODULE_CLASSES.items():
             if module == name or module.startswith(name + "."):
                 if module_status(name) == "lowered":
                     self.synthetics.update(classes)
+
+    def _install_http_handler_base(self) -> None:
+        """The http.server handler base class (issue #1270).
+
+        `BaseHTTPRequestHandler` is a base class, not a value: the user's
+        handler extends it, so it is a lowered class and not a synthetic
+        one (the lowering fences "subclassing a stdlib type"). It carries
+        the request-backed fields the handler reads (`path`, `headers`,
+        `rfile`, `wfile`) and the request context they read through, plus
+        the three response methods the surface answers (`send_response`,
+        `send_header`, `end_headers`). The methods' bodies are emitted by
+        the class lowering itself: each one is a runtime call over the
+        instance's `_request` / `_response` records, so `install_http_
+        handler_methods` spells them after the base and the subclass both
+        exist.
+        """
+        if self.classes.get("BaseHTTPRequestHandler") is not None:
+            return
+        fields = [
+            {"name": "path", "type": {"kind": "str"}},
+            {"name": "headers", "type": {"kind": "class", "name": "HttpServerHeaders"}},
+            {"name": "rfile", "type": {"kind": "class", "name": "HttpServerReader"}},
+            {"name": "wfile", "type": {"kind": "class", "name": "HttpServerWriter"}},
+            {"name": "_request", "type": {"kind": "class", "name": "HttpServerRequest"}},
+            {"name": "_response", "type": {"kind": "class", "name": "HttpServerResponse"}},
+        ]
+        self.classes["BaseHTTPRequestHandler"] = {
+            "fields": fields,
+            "own_fields": list(fields),
+            "methods": {},
+            "method_kind": {},
+            "method_owner": {},
+            "base": None,
+        }
+        self.declared.add("BaseHTTPRequestHandler")
 
 
 def _dep_lane_hint(module: str, message: str) -> str:

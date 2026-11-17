@@ -1251,6 +1251,11 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "asyncio": ("CancelledError", "AsyncProcess", "StreamReader", "StreamWriter"),
     "selectors": ("DefaultSelector", "SelectorKey"),
     "socket": ("Socket",),
+    # The http.server classes (issue #1270). `BaseHTTPRequestHandler` is not
+    # in this table: it is a base class, and a synthetic class cannot be a
+    # base (the lowering fences "subclassing a stdlib type"). The handler
+    # base installs itself as a lowered class when the module is imported.
+    "http.server": ("HTTPServer", "HttpServerHeaders", "HttpServerReader", "HttpServerWriter", "HttpServerRequest", "HttpServerResponse"),
     "tarfile": ("TarFile",),
     "zipfile": ("ZipFile",),
     "email": ("EmailMessage",),
@@ -1334,6 +1339,15 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # descriptor number lives in the runtime record, so the class carries
     # no field.
     "Socket": [],
+    # The http.server records (issue #1270, slice 2): the server, the
+    # request, the response, the header block and the two body streams are
+    # opaque runtime pointers, so every one of them carries no field.
+    "HTTPServer": [],
+    "HttpServerRequest": [],
+    "HttpServerResponse": [],
+    "HttpServerHeaders": [],
+    "HttpServerReader": [],
+    "HttpServerWriter": [],
     "Namespace": [],
     # The logger carries the name getLogger recorded.
     "Logger": [("_name", _S)],
@@ -1440,7 +1454,21 @@ PTR_CLASSES: frozenset[str] = (
     | ASYNC_CLASSES
     | APROC_CLASSES
     | STREAM_CLASSES
-    | {"ArgParser", "DefaultSelector", "Hash", "TarFile", "ZipFile", "EmailMessage", "Socket"}
+    | {
+        "ArgParser",
+        "DefaultSelector",
+        "Hash",
+        "TarFile",
+        "ZipFile",
+        "EmailMessage",
+        "Socket",
+        "HTTPServer",
+        "HttpServerRequest",
+        "HttpServerResponse",
+        "HttpServerHeaders",
+        "HttpServerReader",
+        "HttpServerWriter",
+    }
 )
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
@@ -1469,7 +1497,8 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("hashlib", "sha512"): "Hash",
     ("hashlib", "md5"): "Hash",
     ("socket", "socket"): "Socket",
-    ("threading", "Lock"): "Lock",
+    ("http.server", "HTTPServer"): "HTTPServer",
+    ("http.server", "BaseHTTPRequestHandler"): "BaseHTTPRequestHandler",    ("threading", "Lock"): "Lock",
     ("threading", "RLock"): "Lock",
     ("os", "terminal_size"): "TerminalSize",
     ("subprocess", "CompletedProcess"): "CompletedProcess",
@@ -1596,6 +1625,16 @@ CLASS_METHODS: dict[str, dict[str, Sig]] = {
         "read": sig([], _BY, "ps_http_read"),
     },
     "HttpRequest": {},
+    # The http.server handler surface (issue #1270, slice 2). The methods
+    # live on the handler base the user's class extends; a call reads
+    # through the instance's `_request` / `_response` records, so the
+    # lowering spells the reads itself and these rows only type the two
+    # body streams' own methods. CPython's rfile is a BufferedReader and
+    # wfile a BufferedWriter; the closed surface takes read(n) and write.
+    "HttpServerReader": {"read": sig([_I], _BY, "ps_httpreq_rfile_read")},
+    "HttpServerWriter": {"write": sig([_BY], _I, "ps_httpresp_wfile_write")},
+    "HttpServerHeaders": {"get": sig([_S], _S, "ps_httpreq_header")},
+    "HttpServerResponse": {},
     # The archive handles: the member names, one member's bytes, the
     # extraction and the close. `TarFile.extractfile` is not here: it
     # returns CPython's `IO[bytes] | None`, so it lowers through the
@@ -1878,6 +1917,7 @@ REST_MODULES = frozenset(
         "selectors",
         "signal",
         "email",
+        "http.server",
         # The dataclass field marker (issue #1279): `dataclasses.field`
         # is the one lowered member of the module.
         "dataclasses",

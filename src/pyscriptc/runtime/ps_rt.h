@@ -724,4 +724,34 @@ void ps_sock_sendall(void *sock, int64_t n, const char *s);
 void ps_sock_close(void *sock);
 int64_t ps_sock_fileno(void *sock);
 
+/* ps_http_server.c: the http.server substrate (issue #1270, slice 2). One
+   server record per HTTPServer((host, port), Handler); one request record
+   per accepted request; one response record per handler run. The records
+   are opaque pointers at the ABI: the emitted IR never sees the layout.
+   The runtime answers the request's method name and the lowering turns it
+   into the user's do_GET/do_POST call, so the dispatch stays the ordinary
+   class-method lowering. */
+void *ps_httpsrv_new(int64_t n, const char *host, int64_t port);
+void ps_httpsrv_shutdown(void *box);
+void ps_httpsrv_getsockname(void *box);
+void ps_httpsrv_host(void *box, PsBuf *out);
+int64_t ps_httpsrv_port(void *box);
+void *ps_httpsrv_serve_one(void *box);
+void ps_httpsrv_finish(void *box, void *resp_box);
+void ps_httpsrv_close(void *box);
+int64_t ps_httpsrv_stopped(void *box);
+void *ps_httpresp_new(void);
+void ps_httpresp_send_response(void *box, int64_t status);
+void ps_httpresp_send_header(void *box, int64_t n, const char *name, int64_t vlen, const char *value);
+void ps_httpresp_end_headers(void *box);
+void ps_httpresp_wfile_write(void *box, int64_t n, const char *data);
+void *ps_httpresp_wfile(void *box);
+void ps_httpreq_method(void *box, PsBuf *out);
+void ps_httpreq_path(void *box, PsBuf *out);
+void ps_httpreq_body(void *box, PsBuf *out);
+void ps_httpreq_header(void *box, int64_t n, const char *name, PsBuf *out);
+void *ps_httpreq_headers(void *box);
+void *ps_httpreq_rfile(void *box);
+void ps_httpreq_rfile_read(void *box, int64_t n, PsBuf *out);
+
 #endif
