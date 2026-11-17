@@ -1248,7 +1248,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "urllib.request": ("HttpRequest", "HttpResponse"),
     "urllib.error": ("HTTPError", "URLError"),
     "queue": ("Queue", "Empty", "Full"),
-    "asyncio": ("CancelledError", "AsyncProcess", "StreamReader", "StreamWriter"),
+    "asyncio": ("CancelledError", "AsyncProcess", "StreamReader", "StreamWriter", "Server"),
     "selectors": ("DefaultSelector", "SelectorKey"),
     "socket": ("Socket",),
     # The http.server classes (issue #1270). `BaseHTTPRequestHandler` is not
@@ -1320,6 +1320,10 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # the record, so the class carries no field.
     "StreamReader": [],
     "StreamWriter": [],
+    # The asyncio server handle (issue #1281, slice 2) is an opaque runtime
+    # pointer: the listening socket, the callback pair and the closed flag
+    # live in the record, so the class carries no field.
+    "Server": [],
     # The timeout exception (issue #1223): CPython's TimeoutExpired carries
     # the command and the bound, but the runtime's exception record holds
     # the code and the message only, so the class has no field here.
@@ -1453,6 +1457,11 @@ APROC_CLASSES: frozenset[str] = frozenset({"AsyncProcess"})
 # each carries is the record pointer.
 STREAM_CLASSES: frozenset[str] = frozenset({"StreamReader", "StreamWriter"})
 
+# The asyncio server handle (issue #1281, slice 2): the listening socket,
+# the callback pair and the closed flag live in the runtime record, the
+# value is its pointer.
+SERVER_CLASSES: frozenset[str] = frozenset({"Server"})
+
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
 PTR_CLASSES: frozenset[str] = (
@@ -1461,20 +1470,21 @@ PTR_CLASSES: frozenset[str] = (
     | ASYNC_CLASSES
     | APROC_CLASSES
     | STREAM_CLASSES
+    | SERVER_CLASSES
     | {
-        "ArgParser",
-        "DefaultSelector",
-        "Hash",
-        "TarFile",
-        "ZipFile",
-        "EmailMessage",
-        "Socket",
-        "HTTPServer",
-        "HttpServerRequest",
-        "HttpServerResponse",
-        "HttpServerHeaders",
-        "HttpServerReader",
-        "HttpServerWriter",
+         "ArgParser",
+         "DefaultSelector",
+         "Hash",
+         "TarFile",
+         "ZipFile",
+         "EmailMessage",
+         "Socket",
+         "HTTPServer",
+         "HttpServerRequest",
+         "HttpServerResponse",
+         "HttpServerHeaders",
+         "HttpServerReader",
+         "HttpServerWriter",
     }
 )
 
@@ -1538,6 +1548,7 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     # CPython answers are two handles over one runtime record.
     ("asyncio", "StreamReader"): "StreamReader",
     ("asyncio", "StreamWriter"): "StreamWriter",
+    ("asyncio", "Server"): "Server",
     ("asyncio.subprocess", "Process"): "AsyncProcess",
     ("selectors", "DefaultSelector"): "DefaultSelector",
     ("selectors", "SelectorKey"): "SelectorKey",
@@ -2148,6 +2159,7 @@ def member_callable(module: str, member: str) -> bool:
         "to_thread",
         "create_subprocess_exec",
         "open_connection",
+        "start_server",
         "Lock",
         "Event",
         "Semaphore",

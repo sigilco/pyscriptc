@@ -29,6 +29,15 @@
    so a full socket buffer parks the whole loop for the send, the same
    seam `socket.sendall` has.
 
+   The server half (`asyncio.start_server`, the issue's second slice) is
+   a listen record: bind + listen at `start_server`, a non-blocking
+   accept the serve loop parks on (`ps_loop_wait_fd` again), and the
+   connected peer served through the same PsStream record the client
+   pair uses, so the callback's (reader, writer) handle the exact
+   surface slice 1 lowers. The accept itself never blocks the loop:
+   the socket is non-blocking (O_NONBLOCK on the listen fd) and the
+   serve loop parks the task on the listen descriptor between peers.
+
    Host-only: a WASI target has no socket story, so the stub half raises
    the runtime error a WASI program would hit at the first call, the
    same shape ps_sock.c's stubs use; the wasm link refuses the socket
@@ -43,6 +52,7 @@
 #if !defined(__wasi__) && !defined(_WIN32)
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/socket.h>
@@ -55,6 +65,9 @@ extern int64_t ps_sock_fd(void *box);
 extern void *ps_sock_new(void);
 extern void ps_sock_connect(void *box, int64_t n, const char *host, int64_t port);
 extern void ps_sock_close(void *box);
+extern void ps_sock_bind(void *box, int64_t n, const char *host, int64_t port);
+extern void ps_sock_listen(void *box, int64_t backlog);
+extern void *ps_sock_accept(void *box);
 
 typedef struct PsStream {
     /* The connected socket: the reader and the writer share it. */
@@ -388,6 +401,151 @@ void ps_stream_wait_closed(void *box) {
     ps_stream_flush(ps_stream_of(box));
 }
 
+/* --- the server (issue #1281, slice 2) ---------------------------------- */
+
+/* One listen record per `asyncio.start_server(cb, host, port)` call. The
+   callback is compiled code, so the record holds its callable pair as an
+   opaque pointer: the serve loop reads the pair back and calls it
+   env-first (emit_value_call's convention), and the runtime never
+   dereferences it. */
+typedef struct PsServer {
+    void *sock;      /* the listening socket (ps_sock.c's record) */
+    void *callback;  /* the callable pair {impl, env} the serve loop calls */
+    int32_t closed;
+    /* The peer the last accept produced: the stream record the callback's
+       (reader, writer) pair points at. */
+    void *accepted;
+} PsServer;
+
+static PsServer *ps_server_of(void *box) {
+    if (box == NULL) {
+        ps_raise_cstr(PS_RUNTIME, "server is not initialized");
+    }
+    return (PsServer *)box;
+}
+
+/* `asyncio.start_server(cb, host, port)`: bind and listen. */
+void *ps_server_open(int64_t n, const char *host, int64_t port) {
+    void *sock = ps_sock_new();
+    ps_sock_setsockopt_reuseaddr(sock);
+    ps_sock_bind(sock, n, host, port);
+    ps_sock_listen(sock, 128);
+    /* The accept is cooperative: the listen fd goes non-blocking, the
+       park asks it for a peer, and the serve loop parks on the
+       descriptor between peers. The peers themselves keep the blocking
+       shape the stream surface rides (the reads poll with MSG_DONTWAIT,
+       the sends block the loop the same seam sendall has). */
+    int fd = (int)ps_sock_fd(sock);
+    int flags = fcntl(fd, F_GETFL, 0);
+    if (flags >= 0) {
+        fcntl(fd, F_SETFL, flags | O_NONBLOCK);
+    }
+    PsServer *srv = malloc(sizeof(PsServer));
+    if (srv == NULL) {
+        abort();
+    }
+    srv->sock = sock;
+    srv->callback = NULL;
+    srv->closed = 0;
+    srv->accepted = NULL;
+    return srv;
+}
+
+/* Store the callback's callable pair: the compiled code built it, the
+   runtime only holds the pointer. */
+void ps_server_set_callback(void *box, void *pair) {
+    PsServer *srv = ps_server_of(box);
+    srv->callback = pair;
+}
+
+/* The callback's callable pair, the value the serve loop calls. */
+void *ps_server_callback(void *box) {
+    PsServer *srv = ps_server_of(box);
+    return srv->callback;
+}
+
+/* The accept park (the PRIM marker's server_accept op): 1 when a peer
+   is connected and the record is built, 0 when the task parked on the
+   listen descriptor and the frame has to suspend. The resume parks
+   again at the same point, so the serve loop's re-entry finds the peer
+   waiting. The connected peer builds a fresh PsStream record, the same
+   shape `open_connection` builds, so the callback's (reader, writer)
+   handle the exact slice-1 surface. The peer's stream rides out of the
+   record's `accepted` slot, the way the queue's taken element does. */
+int64_t ps_server_park(void *box) {
+    PsServer *srv = ps_server_of(box);
+    if (srv->closed) {
+        ps_raise_cstr(PS_RUNTIME, "serve_forever on a closed server");
+    }
+    for (;;) {
+        int fd = (int)ps_sock_fd(srv->sock);
+        struct sockaddr_storage peer;
+        socklen_t peer_len = sizeof peer;
+        int conn = accept(fd, (struct sockaddr *)&peer, &peer_len);
+        if (conn >= 0) {
+            PsStream *st = malloc(sizeof(PsStream));
+            if (st == NULL) {
+                abort();
+            }
+            /* The accepted connection rides a socket record of its own:
+               the stream surface drives reads and writes through
+               ps_sock.c's fd accessor, so the conn fd is wrapped the
+               same way a connected client is. */
+            st->sock = ps_sock_wrap(conn);
+            st->buf = NULL;
+            st->len = 0;
+            st->cap = 0;
+            st->pos = 0;
+            st->want_mode = 0;
+            st->want_n = 0;
+            st->out = NULL;
+            st->out_len = 0;
+            st->out_cap = 0;
+            st->out_pos = 0;
+            st->eof = 0;
+            st->closed = 0;
+            srv->accepted = st;
+            return 1;
+        }
+        if (errno == EINTR) {
+            continue;
+        }
+        if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            ps_loop_wait_fd(fd);
+            return 0;
+        }
+        ps_stream_fail("accept failed");
+    }
+}
+
+/* The accepted peer's stream, the (reader, writer) pair's record. Read
+   right after a park that answered 1, the same order the queue's taken
+   element rides. */
+void *ps_server_accepted(void *box) {
+    PsServer *srv = ps_server_of(box);
+    void *st = srv->accepted;
+    srv->accepted = NULL;
+    return st;
+}
+
+/* `server.close()`: stop listening and drop the socket. A second close
+   is a no-op, the way CPython's Server.close is. */
+void ps_server_close(void *box) {
+    PsServer *srv = ps_server_of(box);
+    if (srv->closed) {
+        return;
+    }
+    srv->closed = 1;
+    ps_sock_close(srv->sock);
+}
+
+/* `server.is_serving()`: CPython answers True while the server takes
+   peers; the closed flag is that answer here. */
+int64_t ps_server_is_serving(void *box) {
+    PsServer *srv = ps_server_of(box);
+    return srv->closed ? 0 : 1;
+}
+
 #else /* __wasi__ || _WIN32 */
 
 /* No sockets on a target without them: the records exist so the link
@@ -454,6 +612,46 @@ void ps_stream_want(void *box, int64_t mode, int64_t n) {
     (void)box;
     (void)mode;
     (void)n;
+}
+
+void *ps_server_open(int64_t n, const char *host, int64_t port) {
+    (void)n;
+    (void)host;
+    (void)port;
+    ps_raise_cstr(PS_RUNTIME, "servers need the BSD socket API, which this target has no story for");
+    return NULL;
+}
+
+void ps_server_set_callback(void *box, void *pair) {
+    (void)box;
+    (void)pair;
+}
+
+void *ps_server_callback(void *box) {
+    (void)box;
+    ps_raise_cstr(PS_RUNTIME, "servers need the BSD socket API, which this target has no story for");
+    return NULL;
+}
+
+int64_t ps_server_park(void *box) {
+    (void)box;
+    ps_raise_cstr(PS_RUNTIME, "servers need the BSD socket API, which this target has no story for");
+    return 0;
+}
+
+void *ps_server_accepted(void *box) {
+    (void)box;
+    ps_raise_cstr(PS_RUNTIME, "servers need the BSD socket API, which this target has no story for");
+    return NULL;
+}
+
+void ps_server_close(void *box) {
+    (void)box;
+}
+
+int64_t ps_server_is_serving(void *box) {
+    (void)box;
+    return 0;
 }
 
 #endif /* __wasi__ || _WIN32 */

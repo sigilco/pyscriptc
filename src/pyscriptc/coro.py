@@ -144,6 +144,11 @@ _PRIM_SYMBOLS: dict[str, str] = {
     # parks on the descriptor. The bytes themselves come out of the
     # record on the reader call the lowerer emits after the marker.
     "stream_read": "ps_stream_park",
+    # The server accept (issue #1281, slice 2): the listen socket has a
+    # peer or the task parks on the listen descriptor. The peer comes out
+    # of the record on the accepted call the lowerer emits after the
+    # marker, and the callback call is the compiled code after that.
+    "server_accept": "ps_server_park",
 }
 # The resume shim's outward type: every coroutine's callable cell carries it.
 _RESUME_FUNC = {"kind": "func", "params": [{"kind": "class", "name": "@frame"}], "return": {"kind": "int"}}
@@ -2296,7 +2301,7 @@ class _Frame:
             ),
         ]
         arrive = [_assign(RESUME, _const(0, _INT, span), span)]
-        if op in {"queue_get", "stream_read"}:
+        if op in {"queue_get", "stream_read", "server_accept"}:
             # A put wakes the parked getter, but the element stays in the
             # queue: the getter takes it on the resume. A take that finds
             # the queue empty again (another getter was faster) parks the

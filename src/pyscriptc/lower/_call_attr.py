@@ -58,6 +58,7 @@ from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower._argparse import _add_argument, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
 from pyscriptc.restlower._asyncio_proc import _proc_method
+from pyscriptc.restlower._asyncio_server import _server_method
 from pyscriptc.restlower._asyncio_streams import _reader_method, _writer_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
 from pyscriptc.restlower._httpserver import (
@@ -467,6 +468,8 @@ class CallAttrMixin:
             return _reader_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "StreamWriter":
             return _writer_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "Server":
+            return _server_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] in {"TarFile", "ZipFile"}:
             return _archive_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "EmailMessage":

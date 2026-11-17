@@ -144,14 +144,22 @@ void *ps_sock_accept(void *box) {
     }
     memcpy(sock->peer_host, ip, wrote + 1);
     sock->peer_port = (int64_t)ntohs(peer.sin_port);
-    PsSock *conn_sock = malloc(sizeof(PsSock));
-    if (conn_sock == NULL) {
+    return ps_sock_wrap(conn);
+}
+
+/* Wrap an accepted descriptor in a socket record: the accepted peer is
+   an ordinary connected socket from here on, the same shape
+   `ps_sock_connect` builds. The server surface (ps_stream.c) calls it
+   with the descriptor `accept` handed back. */
+void *ps_sock_wrap(int64_t fd) {
+    PsSock *sock = malloc(sizeof(PsSock));
+    if (sock == NULL) {
         abort();
     }
-    conn_sock->fd = conn;
-    conn_sock->peer_host[0] = '\0';
-    conn_sock->peer_port = 0;
-    return conn_sock;
+    sock->fd = (int)fd;
+    sock->peer_host[0] = '\0';
+    sock->peer_port = 0;
+    return sock;
 }
 
 
@@ -359,6 +367,12 @@ int64_t ps_sock_fileno(void *box) {
 int64_t ps_sock_fd(void *box) {
     (void)box;
     return -1;
+}
+
+void *ps_sock_wrap(int64_t fd) {
+    (void)fd;
+    ps_raise_cstr(PS_RUNTIME, "sockets need the BSD socket API, which this target has no story for");
+    return NULL;
 }
 
 #endif /* __wasi__ || _WIN32 */

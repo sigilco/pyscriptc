@@ -562,7 +562,20 @@ void ps_stream_close(void *stream);
 void ps_stream_wait_closed(void *stream);
 int64_t ps_stream_park(void *stream);
 void ps_stream_want(void *stream, int64_t mode, int64_t n);
+
+/* ps_stream.c: the asyncio server surface (issue #1281, slice 2). One
+   listen record per `asyncio.start_server(cb, host, port)` call; the
+   accept is cooperative, so the serve loop parks on the listen
+   descriptor between peers. */
+void *ps_server_open(int64_t n, const char *host, int64_t port);
+void ps_server_set_callback(void *server, void *pair);
+void *ps_server_callback(void *server);
+int64_t ps_server_park(void *server);
+void *ps_server_accepted(void *server);
+void ps_server_close(void *server);
+int64_t ps_server_is_serving(void *server);
 int64_t ps_sock_fd(void *sock);
+void *ps_sock_wrap(int64_t fd);
 void ps_map_del(PsMap *m, void *key);
 void ps_map_clear(PsMap *m);
 void ps_map_update(PsMap *dst, PsMap *src);
