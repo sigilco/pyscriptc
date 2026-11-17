@@ -567,6 +567,13 @@ ROWS: list[dict[str, Any]] = [
         "IPv4-literal-only address and the native-only targets are the rest of the entry",
     ),
     _row(
+        "D78",
+        "the email read subset: get_payload() on a multipart part raises ValueError (CPython answers the list of "
+        "the child parts) and an encoded word in an undecoded charset keeps the raw word",
+        "d78_email.py",
+        docs=f"{DOC}#78",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

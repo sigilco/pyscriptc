@@ -9,7 +9,7 @@
 # walk in pre-order, the attachment's decoded filename, its base64 payload
 # and the quoted-printable decode of a text part.
 #
-# The seams that are recorded in divergence 73 (D73) instead of probed
+# The seams that are recorded in divergence 78 (D78) instead of probed
 # here: the folded header value keeps the fold's newline where CPython's
 # raw form does too, an encoded word in an unlisted charset keeps the raw
 # word, and as_string() re-emits the parsed record, not the wire form.

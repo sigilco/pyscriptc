@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Divergence 73 (issue #1228): the email read subset carries two seams
+# Divergence 78 (issue #1228): the email read subset carries two seams
 # against CPython's compat32 reader.
 #
 # - `get_payload()` on a multipart part answers the list of the child

@@ -1324,6 +1324,26 @@
       "status": "unprobed"
     },
     {
+      "id": "D78",
+      "seam": "the email read subset: get_payload() on a multipart part raises ValueError (CPython answers the list of the child parts) and an encoded word in an undecoded charset keeps the raw word",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#78",
+      "probe": "probes/divergences/d78_email.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1\n=?koi8-r?Q?test?=\nbody\n\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "ValueError\n=?koi8-r?Q?test?=\nbody\n\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
