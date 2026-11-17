@@ -39,6 +39,52 @@ def test_patch_applies_to_vendored_builtins(tmp_path: Path) -> None:
     assert "-> list[int]:" in text[start : text.index("\nclass ", start)]
 
 
+def test_patch_applies_to_vendored_asyncio_gather(tmp_path: Path) -> None:
+    """The `gather` rows read as the list the lowered call answers (issue #1278)."""
+    text = (_patched_typeshed(tmp_path / "ts") / "stdlib" / "asyncio" / "tasks.pyi").read_text(encoding="utf-8")
+    assert "-> Future[tuple[" not in text
+    assert text.count("-> Future[list[") == 13
+
+
+@needs_pyrefly
+def test_gather_result_is_a_list_end_to_end(tmp_path: Path) -> None:
+    source = """\
+import asyncio
+
+
+async def work(n: int) -> int:
+    return n
+
+
+async def root() -> int:
+    r: list[int] = await asyncio.gather(work(1), work(2))
+    return r[0] + r[1]
+"""
+    path = tmp_path / "gather_list.py"
+    path.write_text(source, encoding="utf-8")
+    run_checker(path, "pyrefly")
+
+
+@needs_pyrefly
+def test_gather_tuple_result_is_rejected(tmp_path: Path) -> None:
+    source = """\
+import asyncio
+
+
+async def work(n: int) -> int:
+    return n
+
+
+async def root() -> int:
+    r: tuple[int, int] = await asyncio.gather(work(1), work(2))
+    return r[0] + r[1]
+"""
+    path = tmp_path / "gather_tuple.py"
+    path.write_text(source, encoding="utf-8")
+    with pytest.raises(CheckFailed):
+        run_checker(path, "pyrefly")
+
+
 @needs_pyrefly
 def test_patches_hold_end_to_end(tmp_path: Path) -> None:
     source = tmp_path / "ok.py"

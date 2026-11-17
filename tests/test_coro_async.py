@@ -190,7 +190,8 @@ async def mid(n: int) -> int:
 
 
 async def root() -> int:
-    parts: tuple[int, ...] = await asyncio.gather(mid(1), mid(3), leaf(9, 0.02))
+    # `gather` answers a list (issue #1278), so the annotation is a list.
+    parts: list[int] = await asyncio.gather(mid(1), mid(3), leaf(9, 0.02))
     print("gather [", ",".join(str(p) for p in parts), "]")
     await asyncio.sleep(0.01)
     print("done")
