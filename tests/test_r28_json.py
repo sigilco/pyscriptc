@@ -219,5 +219,10 @@ def test_json_dumps_unknown_keyword_fences() -> None:
     mod = lower_source("import json\njson.dumps({'a': 1}, separators=(',', ':'))\n")
     assert [f["code"] for f in mod["fences"]] == ["PS2003"]
     assert "json.dumps keyword separators is not lowered" in mod["fences"][0]["message"]
+    # ensure_ascii=False lowers (issue #495): the raw UTF-8 form is no
+    # longer a fence, so the non-ASCII keyword set is indent, sort_keys
+    # and either ensure_ascii spelling.
     mod = lower_source("import json\njson.dumps({'a': 1}, ensure_ascii=False)\n")
-    assert [f["code"] for f in mod["fences"]] == ["PS2003"]
+    assert [f["code"] for f in mod["fences"]] == []
+    mod = lower_source("import json\njson.dumps({'a': 1}, ensure_ascii=True)\n")
+    assert [f["code"] for f in mod["fences"]] == []
