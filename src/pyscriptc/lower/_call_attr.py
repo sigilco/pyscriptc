@@ -46,11 +46,11 @@ from pyscriptc.restlower import (
     _archive_method,
     _email_method,
     _hashlib_method,
+    _httpserver_method,
     _lock_method,
     _mk_iter,
     _queue_method,
     _selector_method,
-    _httpserver_method,
     _socket_method,
     _thread_method,
 )
@@ -62,8 +62,14 @@ from pyscriptc.restlower._asyncio_streams import _reader_method, _writer_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
 from pyscriptc.restlower._httpserver import (
     handler_method as _http_handler_method,
+)
+from pyscriptc.restlower._httpserver import (
     headers_method as _http_headers_method,
+)
+from pyscriptc.restlower._httpserver import (
     reader_method as _http_reader_method,
+)
+from pyscriptc.restlower._httpserver import (
     writer_method as _http_writer_method,
 )
 from pyscriptc.restlower._ndarray import _ndarray_method

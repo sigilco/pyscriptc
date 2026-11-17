@@ -18,7 +18,6 @@ computed endpoint all refuse with PS2001/PS1003/PS2002.
 
 from __future__ import annotations
 
-import shutil
 import subprocess
 import sys
 from pathlib import Path
@@ -187,7 +186,18 @@ def test_the_committed_probe_matches_cpython(tmp_path: Path) -> None:
     probe = Path(__file__).resolve().parent.parent / "probes" / "differential" / "http_server_loopback.py"
     assert probe.is_file()
     built = subprocess.run(
-        [sys.executable, "-m", "pyscriptc", "compile", str(probe), "--emit", "bin", "-o", str(tmp_path / "probe"), "--run"],
+        [
+            sys.executable,
+            "-m",
+            "pyscriptc",
+            "compile",
+            str(probe),
+            "--emit",
+            "bin",
+            "-o",
+            str(tmp_path / "probe"),
+            "--run",
+        ],
         capture_output=True,
         text=True,
         timeout=120,

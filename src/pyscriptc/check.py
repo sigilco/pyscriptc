@@ -271,7 +271,6 @@ _HTTPSERVER_HEADERS_ANCHOR = "    headers: email.message.Message\n"
 _HTTPSERVER_HEADERS_ROW = "    headers: _HttpHeaders\n"
 
 
-
 def _patched_typeshed(dest: Path) -> Path:
     """Copy the vendored typeshed stdlib and realign it with the lowered contract.
 
@@ -316,13 +315,7 @@ def _patch_httpserver(server: Path) -> None:
     if _HTTPSERVER_HEADERS_ANCHOR not in text:
         raise CheckFailed("vendored typeshed http/server.pyi no longer matches the subset patch anchors")
     text = text.replace(_HTTPSERVER_HEADERS_ANCHOR, _HTTPSERVER_HEADERS_ROW, 1)
-    protocol = (
-        "@type_check_only\n"
-        "class _HttpHeaders(Protocol):\n"
-        "    def get(self, keyword: str) -> str: ...\n"
-        "\n"
-        "\n"
-    )
+    protocol = "@type_check_only\nclass _HttpHeaders(Protocol):\n    def get(self, keyword: str) -> str: ...\n\n\n"
     anchor = "class HTTPServer(socketserver.TCPServer):"
     text = text.replace(anchor, protocol + anchor, 1)
     server.write_text(text, encoding="utf-8")

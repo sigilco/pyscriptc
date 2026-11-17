@@ -294,10 +294,13 @@ def _serve_forever(
     )
     # The stop test: the runtime answers 1 when the server was shut down.
     stopped = lo._abi_call("http.server", "stopped", [receiver], _INT, "ps_httpsrv_stopped", span)
-    body.append(_if_stmt(_cmp("!=", stopped, _const_int(0, span), span), [_asg(stop_t, _const_bool(True, span), span)], [], span))
+    stop_check = _cmp("!=", stopped, _const_int(0, span), span)
+    body.append(_if_stmt(stop_check, [_asg(stop_t, _const_bool(True, span), span)], [], span))
     # The handler reads the request through the instance's `_request` field
     # and writes through the instance's `_response` field.
-    body.append(_if_stmt(_cmp("==", stopped, _const_int(0, span), span), [_set_field(instance, "_request", request, span), _set_field(instance, "_response", response, span)], [], span))
+    fill_check = _cmp("==", stopped, _const_int(0, span), span)
+    fill = [_set_field(instance, "_request", request, span), _set_field(instance, "_response", response, span)]
+    body.append(_if_stmt(fill_check, fill, [], span))
     # The dispatch: the request's method name picks the handler method.
     dispatch: list[dict[str, Any]] = []
     for method in HANDLER_METHODS:
@@ -331,9 +334,7 @@ def _serve_forever(
         )
     # The response bytes go back on the wire and the connection closes.
     dispatch.append(
-        _expr_stmt(
-            lo._abi_call("http.server", "finish", [request, response], _NONE, "ps_httpsrv_finish", span), span
-        )
+        _expr_stmt(lo._abi_call("http.server", "finish", [request, response], _NONE, "ps_httpsrv_finish", span), span)
     )
     body.extend(dispatch)
     lo.prelude.append(_asg(instance_t, _instance_of(handler, span), span))
@@ -439,7 +440,9 @@ def handler_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
             lo.fail(node.args[0], "PS1003", "BaseHTTPRequestHandler.send_response status is int")
         lo.prelude.append(
             _expr_stmt(
-                lo._abi_call("http.server", "send_response", [response, status], _NONE, "ps_httpresp_send_response", span),
+                lo._abi_call(
+                    "http.server", "send_response", [response, status], _NONE, "ps_httpresp_send_response", span
+                ),
                 span,
             )
         )

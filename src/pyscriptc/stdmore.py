@@ -1255,7 +1255,14 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     # in this table: it is a base class, and a synthetic class cannot be a
     # base (the lowering fences "subclassing a stdlib type"). The handler
     # base installs itself as a lowered class when the module is imported.
-    "http.server": ("HTTPServer", "HttpServerHeaders", "HttpServerReader", "HttpServerWriter", "HttpServerRequest", "HttpServerResponse"),
+    "http.server": (
+        "HTTPServer",
+        "HttpServerHeaders",
+        "HttpServerReader",
+        "HttpServerWriter",
+        "HttpServerRequest",
+        "HttpServerResponse",
+    ),
     "tarfile": ("TarFile",),
     "zipfile": ("ZipFile",),
     "email": ("EmailMessage",),
