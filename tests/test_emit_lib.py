@@ -333,7 +333,41 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_os_pipe",
         "ps_os_dup",
         "ps_os_dup2",
+        "ps_sock_new",
+        "ps_sock_setsockopt_reuseaddr",
+        "ps_sock_bind",
+        "ps_sock_listen",
+        "ps_sock_accept",
+        "ps_sock_getsockname",
+        "ps_sock_peer_host",
+        "ps_sock_peer_port",
+        "ps_sock_connect",
+        "ps_sock_recv",
+        "ps_sock_send",
+        "ps_sock_sendall",
+        "ps_sock_close",
+        "ps_sock_fileno",
     }
+
+
+def test_the_socket_symbols_cover_the_socket_file() -> None:
+    """The symbol table is the whole truth the guard checks against: every
+    `ps_*` symbol the excluded ps_sock.c defines must be in
+    MOBILE_EXCLUDED_SYMBOLS, or a mobile call naming it would skip the
+    fence and die as an undefined symbol at link (issue #1270's
+    ps_sock_getsockname/peer_host/peer_port were exactly that hole).
+    """
+    import re
+
+    from pyscriptc.mobile import MOBILE_EXCLUDED_SYMBOLS
+
+    text = (runtime_dir() / "ps_sock.c").read_text(encoding="utf-8")
+    defined = {
+        match.group(1) for match in re.finditer(r"^(?:void \*?|int64_t )\**\s*(ps_\w+)\(", text, flags=re.MULTILINE)
+    }
+    assert defined, "ps_sock.c: no ps_* definitions found"
+    missing = sorted(defined - set(MOBILE_EXCLUDED_SYMBOLS))
+    assert not missing, f"ps_sock.c defines symbols the mobile guard does not fence: {missing}"
 
 
 # --- the emitted IR shape (in-process emitter, no cross toolchain) ---
