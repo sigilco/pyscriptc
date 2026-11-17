@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-17",
-  "commit": "bb923e63f3359281922062709fedf65b48e6dffe",
+  "commit": "88e6c980a5a25ddc80fae0b8282ebc03ae1ecd39",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-17",
-    "commit": "bb923e63f3359281922062709fedf65b48e6dffe",
+    "commit": "88e6c980a5a25ddc80fae0b8282ebc03ae1ecd39",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -26,7 +26,7 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 0,
-    "stdlib_partial": 71,
+    "stdlib_partial": 72,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 8,
@@ -1068,6 +1068,23 @@
       "count": 1,
       "unsupported": [
         "gethostbyname, AF_INET6, SOCK_DGRAM, socketpair, UDP and non-blocking mode, makefile, getpeername, shutdown"
+      ],
+      "fences": [
+        "PS2001"
+      ],
+      "note": ""
+    },
+    {
+      "id": "stdlib.http-server",
+      "kind": "stdlib",
+      "label": "`http.server`",
+      "names": [
+        "http.server"
+      ],
+      "status": "partial",
+      "count": 1,
+      "unsupported": [
+        "ThreadingHTTPServer, SimpleHTTPRequestHandler and the socketserver mixins"
       ],
       "fences": [
         "PS2001"
@@ -2732,7 +2749,7 @@
     },
     {
       "date": "2026-11-17",
-      "commit": "bb923e63f3359281922062709fedf65b48e6dffe",
+      "commit": "88e6c980a5a25ddc80fae0b8282ebc03ae1ecd39",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 8,

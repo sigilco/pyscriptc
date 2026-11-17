@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-17",
-  "commit": "bb923e63f3359281922062709fedf65b48e6dffe",
+  "commit": "88e6c980a5a25ddc80fae0b8282ebc03ae1ecd39",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 74,
+      "yellow": 75,
       "red": 0
     },
     "packages": {
@@ -556,6 +556,15 @@
       "status": "\ud83d\udfe1",
       "count": 1,
       "missing": "gethostbyname, AF_INET6, SOCK_DGRAM, socketpair, UDP and non-blocking mode, makefile, getpeername, shutdown",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`http.server`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "ThreadingHTTPServer, SimpleHTTPRequestHandler and the socketserver mixins",
       "codes": [
         "PS2001"
       ]
