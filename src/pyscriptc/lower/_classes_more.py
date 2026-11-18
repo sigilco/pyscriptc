@@ -89,6 +89,9 @@ def _bare_leaf(kind: str) -> dict[str, Any]:
 
 _ERASED_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 _ERASED_DECORATORS = frozenset({"abstractmethod", "overload"})
+# The `pyscriptc._annotations` shadow module's decorators (issue #1306):
+# both are the identity, so the compiler erases them with no PS3099 note.
+_SHADOW_DECORATORS = frozenset({"island", "specialize"})
 
 
 # The stdlib decorators that synthesize class behavior: they never take the
@@ -145,6 +148,12 @@ class ClassesMoreMixin:
         methods and constructor and the wrap is skipped (issue #732). The
         divergence is the documented PS3099 seam (issue #745).
         """
+        if not node.decorator_list:
+            return None
+        # The shadow module's decorators are the identity (issue #1306), so
+        # the class lowers undecorated with no PS3099 note: nothing is lost
+        # where CPython applies the wrap.
+        node.decorator_list = [d for d in node.decorator_list if self._shadow_deco_name(d) is None]
         if not node.decorator_list:
             return None
         if len(node.decorator_list) == 1:
@@ -285,8 +294,13 @@ class ClassesMoreMixin:
         # or unknown decorator that does not synthesize behavior takes the
         # advisory erase (divergence 54, issue #732); a synthesizing one
         # keeps the fence.
-        decos = [d for d in fn.decorator_list if self._erased_deco_name(d) is None]
+        decos = [
+            d for d in fn.decorator_list if self._erased_deco_name(d) is None and self._shadow_deco_name(d) is None
+        ]
         if not decos:
+            # Only shadow decorators (or none): the method lowers plain and
+            # the identity wrap has nothing to erase (issue #1306).
+            fn.decorator_list = []
             return "method"
         if self._is_contextmanager_deco(fn) and enabled():
             # `@contextmanager`: the coro pass owns it; the method still
@@ -390,6 +404,22 @@ class ClassesMoreMixin:
             if resolved is not None and resolved[3] == "erased":
                 member = resolved[2]
         return member if member in _ERASED_DECORATORS else None
+
+    def _shadow_deco_name(self, dec: ast.expr) -> str | None:
+        """`island`/`specialize` through the erased shadow-module import, or None.
+
+        The shadow module's decorators are the identity function, so the
+        wrap erases with no observable difference and the PS3099 note stays
+        silent (unlike a user decorator, where the divergence is real).
+        """
+        member: str | None = None
+        if isinstance(dec, ast.Name):
+            member = self.type_aliases.get(dec.id)
+        elif isinstance(dec, ast.Attribute):
+            resolved = self._resolve_module(dec)
+            if resolved is not None and resolved[3] == "erased" and resolved[1] == "pyscriptc._annotations":
+                member = resolved[2]
+        return member if member in _SHADOW_DECORATORS else None
 
     def _declaration_only(self, fn: ast.FunctionDef) -> bool:
         """The body is only a docstring, `pass`, or `...` — a declaration, not an implementation."""

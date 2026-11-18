@@ -179,7 +179,9 @@ class StdlibDispatchMixin(StdlibBindMixin):
         """
         if any(self._erased_deco_name(d) == "overload" for d in fn.decorator_list):
             return False
-        fn.decorator_list = [d for d in fn.decorator_list if self._erased_deco_name(d) is None]
+        fn.decorator_list = [
+            d for d in fn.decorator_list if self._erased_deco_name(d) is None and self._shadow_deco_name(d) is None
+        ]
         if isinstance(fn, ast.AsyncFunctionDef) and not fn.decorator_list and enabled():
             # A module-level coroutine: the coro pass owns it (PS2002 fences
             # from its shape check already carry the precise message).

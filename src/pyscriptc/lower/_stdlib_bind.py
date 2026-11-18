@@ -56,6 +56,13 @@ class StdlibBindMixin:
                 if root in self.bindings:
                     continue
                 alias = ast.alias(name=root)
+            if alias.name in _ERASED_MODULES:
+                # A dotted annotation-only module (`pyscriptc._annotations`,
+                # issue #1306): the whole name is the erased module, so both
+                # the plain and the aliased spelling bind it under the name
+                # the source spells, and member reads resolve as erased.
+                self.bindings[alias.asname or root] = Binding("erased", alias.name, "", False)
+                continue
             if root in _ERASED_MODULES:
                 self.bindings[alias.asname or root] = Binding("erased", root, "", False)
                 continue

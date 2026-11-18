@@ -87,6 +87,10 @@ KIND_PURE = "pure-python"
 # package itself is a lowered module.
 _ERASED = frozenset({"typing", "typing_extensions", "collections.abc"})
 
+# The compiler's own shadow annotation module (issue #1306): its two
+# decorators are the identity, so the import is erased like `typing`'s.
+SHADOW_ANNOTATIONS = "pyscriptc._annotations"
+
 _DATA_FILE = Path(__file__).parent / "native_packages.json"
 
 # Extension suffixes CPython uses for a compiled extension module.
@@ -609,6 +613,18 @@ def _classify_base(name: str, distribution: str = "") -> Verdict:
             LANE_NATIVE,
             "empty import name",
             source=SOURCE_HEURISTIC,
+        )
+
+    if name == SHADOW_ANNOTATIONS:
+        # The shadow annotation module of the compiler itself (issue #1306):
+        # it is annotation-only like `typing`, so the import is erased and
+        # never reaches the binary, but it is not a standard-library module.
+        return _verdict(
+            name,
+            KIND_PURE,
+            LANE_NATIVE,
+            "annotation-only module; its decorators steer the lowering and the import is erased",
+            source=SOURCE_TABLE,
         )
 
     stdlib = _stdlib_verdict(name)

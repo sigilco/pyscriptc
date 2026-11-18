@@ -10,7 +10,14 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-_ERASED_MODULES = frozenset({"typing", "typing_extensions", "abc", "collections.abc"})
+# The compiler's own shadow annotation module (issue #1306): the two
+# decorators it ships are the identity, so the import is erased like
+# `typing`'s and never reaches the binary.
+SHADOW_ANNOTATIONS = "pyscriptc._annotations"
+
+_ERASED_MODULES = frozenset(
+    {"typing", "typing_extensions", "abc", "collections.abc", SHADOW_ANNOTATIONS}
+)
 
 
 def _release_erased_import(stmt: ast.Import | ast.ImportFrom, rebound: set[str]) -> None:
