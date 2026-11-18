@@ -209,6 +209,7 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     "ps_sock_close": "sock",
     "ps_sock_fileno": "sock",
     "ps_sock_fd": "sock",
+    "ps_sock_wrap": "sock",
     # The asyncio stream surface (issue #1281) rides the same excluded
     # file's socket: every helper lives in ps_stream.c, and the open
     # connection is a socket story an app sandbox does not carry either.

@@ -348,6 +348,7 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_sock_close",
         "ps_sock_fileno",
         "ps_sock_fd",
+        "ps_sock_wrap",
         # The asyncio stream surface (issue #1281) lives in ps_stream.c and
         # rides the same socket, so the sandbox fences it the same way.
         "ps_stream_open",
@@ -360,6 +361,17 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_stream_drain",
         "ps_stream_close",
         "ps_stream_wait_closed",
+        # The asyncio server surface (issue #1281, slice 2), same file, same fence.
+        "ps_server_accepted",
+        "ps_server_callback",
+        "ps_server_close",
+        "ps_server_closed",
+        "ps_server_is_serving",
+        "ps_server_open",
+        "ps_server_park",
+        "ps_server_port",
+        "ps_server_set_callback",
+        "ps_server_socket",
         "ps_httpsrv_new",
         "ps_httpsrv_shutdown",
         "ps_httpsrv_host",
