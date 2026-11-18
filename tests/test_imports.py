@@ -21,7 +21,6 @@ from pyscriptc.imports import (
     KIND_STDLIB,
     LADDER_ISLAND,
     LADDER_NATIVE,
-    LANE_EXTERN,
     LANE_ISLAND,
     LANE_NATIVE,
     LANE_PACK,
