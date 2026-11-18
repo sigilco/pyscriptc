@@ -469,19 +469,20 @@ class ClassesMoreMixin:
         # single-module refusal does.
         if isinstance(node, ast.Name) and node.id in self.island_floor_classes:
             module, name = self.island_floor_classes[node.id]
-            self.fail(
+            self.fail_base(
                 node,
                 "PS2002",
                 f"class {node.id} runs on the island floor of {module} and cannot be a native base class: "
                 "the subclass joins the island",
+                node,
             )
         # boxed:end
         if isinstance(node, ast.Name) and node.id in self.classes:
             info = self.classes[node.id]
             if info.get("synthetic"):
-                self.fail(node, "PS2002", "subclassing a stdlib type is not lowered")
+                self.fail_base(node, "PS2002", "subclassing a stdlib type is not lowered", node)
             if info.get("enum"):
-                self.fail(node, "PS2002", "an enum is not a base")
+                self.fail_base(node, "PS2002", "an enum is not a base", node)
             return _class_type(node.id)
         # The http.server handler base (issue #1270): the spelling is the
         # module attribute (`http.server.BaseHTTPRequestHandler`) or the
@@ -490,7 +491,7 @@ class ClassesMoreMixin:
         if base is not None:
             self._install_http_handler_base()
             return _class_type(base)
-        self.fail(node, "PS2002", "this class base is not lowered")
+        self.fail_base(node, "PS2002", "this class base is not lowered", node)
         raise AssertionError("unreachable")
 
     def _http_handler_base_name(self, node: ast.expr) -> str | None:

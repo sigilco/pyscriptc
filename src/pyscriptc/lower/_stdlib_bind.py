@@ -178,6 +178,13 @@ class StdlibBindMixin:
                     self.bindings[local] = Binding("island_member", stmt.module, alias.name, False)
                 return
             # boxed:end
+            for alias in stmt.names:
+                if alias.name == "*":
+                    continue
+                # The refused import still says where the name came from, so
+                # the class-base census can name the library a refused base
+                # belongs to (issue #1313).
+                self.refused_imports[alias.asname or alias.name] = stmt.module
             fences.append(
                 Fence(
                     "PS2002",

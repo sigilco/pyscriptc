@@ -137,12 +137,25 @@ def _const_str_value(node: dict[str, Any]) -> str:
 
 
 class Fence(Exception):
-    def __init__(self, code: str, message: str, span: dict[str, Any], function: str | None) -> None:
+    # The resolved class base, set on the class-base fences (issue #1313).
+    # `expression` is the spelling the user wrote, `module` the module it
+    # resolved to (empty when the base resolves to nothing), `kind` the
+    # census kind `pyscriptc.classbase` names. The canonical TIR hash walks
+    # a fixed set of fence sections, so these keys never move a digest.
+    def __init__(
+        self,
+        code: str,
+        message: str,
+        span: dict[str, Any],
+        function: str | None,
+        base: dict[str, str] | None = None,
+    ) -> None:
         super().__init__(message)
         self.code = code
         self.message = message
         self.span = span
         self.function = function
+        self.base = base
 
     def as_dict(self) -> dict[str, Any]:
         out: dict[str, Any] = {}
@@ -150,6 +163,10 @@ class Fence(Exception):
         out["message"] = self.message
         out["function"] = self.function
         out["span"] = self.span
+        if self.base is not None:
+            out["baseExpression"] = self.base.get("expression", "")
+            out["baseModule"] = self.base.get("module", "")
+            out["baseKind"] = self.base.get("kind", "")
         return out
 
 

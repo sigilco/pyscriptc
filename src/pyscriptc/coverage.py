@@ -16,6 +16,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from pyscriptc.classbase import BASE_KINDS
 from pyscriptc.emit._ir import _items, _opt_int, _opt_str, _span_of
 from pyscriptc.errors import IRError, format_diagnostic
 from pyscriptc.imports import REQUIRES_LIBPYTHON
@@ -24,7 +25,7 @@ from pyscriptc.lower import lower_file
 from pyscriptc.package import _discover, _skip_note, _skip_reason, lower_directory
 from pyscriptc.reflection import mechanism_of, routes_to_island
 
-SCHEMA_VERSION = 2
+SCHEMA_VERSION = 3
 
 # A definition is routed by the fences inside it: island when one traces to
 # runtime reflection, fenced when any other fence sits in it, native otherwise.
@@ -601,6 +602,11 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
                     "statement": statement,
                     "frame": format_diagnostic(fence, text),
                     "hint": hint_for(family, message),
+                    # The class-base census (issue #1313): present only on
+                    # the fences the lowerer raised on a class base.
+                    "baseExpression": _opt_str(fence, "baseExpression"),
+                    "baseModule": _opt_str(fence, "baseModule"),
+                    "baseKind": _opt_str(fence, "baseKind"),
                 },
                 known,
             )
@@ -731,6 +737,38 @@ def _island_imports(target: Path, known: dict[str, dict[str, Any]]) -> list[str]
     return sorted(found)
 
 
+def _class_base_census(entries: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """The per-kind census of the class-base fences (issue #1313).
+
+    A fence the lowerer raised on a class base carries its resolved base
+    expression and its census kind, so the report counts the bases by the
+    kind the design note ranks them in. The row per kind holds the fence
+    count and the distinct base spellings seen, so the ranking reads what
+    to lower next, not just how much of it there is.
+    """
+
+    counts: dict[str, int] = {}
+    spellings: dict[str, set[str]] = {}
+    total = 0
+    for entry in entries:
+        kind = entry.get("baseKind")
+        if not kind:
+            continue
+        total += 1
+        counts[kind] = counts.get(kind, 0) + 1
+        expression = entry.get("baseExpression") or ""
+        bucket = spellings.setdefault(kind, set())
+        if expression:
+            bucket.add(expression)
+    rows: dict[str, dict[str, Any]] = {}
+    for kind in BASE_KINDS:
+        count = counts.get(kind, 0)
+        if not count:
+            continue
+        rows[kind] = {"fences": count, "bases": sorted(spellings.get(kind) or set())}
+    return rows
+
+
 def _summary(
     entries: list[dict[str, Any]],
     definitions: list[dict[str, Any]],
@@ -793,6 +831,9 @@ def _summary(
     result["islandImports"] = island_imports
     result["byCode"] = by_code
     result["byFamily"] = by_family
+    census = _class_base_census(entries)
+    result["classBaseTotal"] = sum(row["fences"] for row in census.values())
+    result["classBases"] = census
     return result
 
 
@@ -886,6 +927,17 @@ def render_text(report: dict[str, Any]) -> str:
         f"capability: {cap_native} native, {cap_fenced} fenced, {cap_island} island "
         f"definitions of {cap_definitions} ({cap_files} files)"
     )
+    class_bases: dict[str, Any] = summary.get("classBases") or {}
+    if class_bases:
+        class_base_total: int = summary.get("classBaseTotal") or 0
+        parts.append(f"class bases by kind: {class_base_total} fenced")
+        for kind, row in class_bases.items():
+            kind_fences: int = row["fences"]
+            bases: list[str] = row["bases"]
+            shown = ""
+            if bases:
+                shown = " (" + ", ".join(bases[:6]) + (f", +{len(bases) - 6} more" if len(bases) > 6 else "") + ")"
+            parts.append(f"  {kind}: {kind_fences}{shown}")
     by_file: list[dict[str, Any]] = report_caps["byFile"]
     for item in by_file:
         item_fences: int = item["fences"]

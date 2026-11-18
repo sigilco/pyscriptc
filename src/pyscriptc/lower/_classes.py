@@ -446,7 +446,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 continue
             resolved = self._resolve_base(base_node)
             if _base_kind(resolved) != "class" and len(node.bases) > 1:
-                self.fail(node, "PS2002", "multiple inheritance needs lowered class bases")
+                self.fail_base(
+                    node,
+                    "PS2002",
+                    "multiple inheritance needs lowered class bases",
+                    base_node,
+                )
             bases.append(resolved)
         base = bases[0] if bases else None
         if deco == "dataclass" and base is not None:

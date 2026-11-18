@@ -19,7 +19,7 @@ from pyscriptc import _irnode as _ir
 
 # boxed:begin
 from pyscriptc.boxed import DEF_HANDLE_SYMBOL  # boxed:end
-from pyscriptc.builtins import USER_EXC_BASE
+from pyscriptc.builtins import EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
 from pyscriptc.ffi_manifest import is_handle_type  # noqa: F401  # moved-verbatim import
@@ -149,6 +149,50 @@ def _record_kind(record: dict[str, Any]) -> str:
     return kind
 
 
+def _base_spelling(node: ast.expr) -> str:
+    """The source spelling of a class base, for the census (issue #1313).
+
+    The spelling is what the user wrote: the dotted name, the name with its
+    subscript (`Generic[T]`), or the call the base names. It is the fallback
+    label of a base that resolves to nothing, so the census can still name
+    the expression it refused.
+    """
+
+    try:
+        return ast.unparse(node)
+    except Exception:  # pragma: no cover - ast.unparse handles every node
+        return ""
+
+
+def _census_row(node: ast.expr, module: str, kind: str) -> dict[str, str]:
+    """One class-base census record: the spelling, the module, the kind."""
+
+    return {
+        "expression": _base_spelling(node),
+        "module": module,
+        "kind": kind,
+    }
+
+
+def _dotted_prefix(node: ast.expr) -> str:
+    """The module path an attribute expression names, without the member.
+
+    `sqlalchemy.orm.DeclarativeBase` names the module `sqlalchemy.orm` and
+    the member `DeclarativeBase`. An expression that is not a dotted path
+    names no module.
+    """
+
+    parts: list[str] = []
+    current: ast.AST = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if not parts or not isinstance(current, ast.Name):
+        return ""
+    parts.reverse()
+    return ".".join([current.id, *parts[:-1]])
+
+
 class Lowerer(
     CoroMixin,
     StdlibDispatchMixin,
@@ -199,6 +243,11 @@ class Lowerer(
         # spelled that way still names the stdlib member, so the
         # behavior-synthesizing guard can see it.
         self.stdlib_imports: dict[str, tuple[str, str]] = {}
+        # The `from <module> import <name>` spellings whose module the closed
+        # import table refused (issue #1313): the name still says where it
+        # came from, so a class base spelled with it census-names the library
+        # it belongs to. Module -> name pairs, keyed by the local name.
+        self.refused_imports: dict[str, str] = {}
         self.classes: dict[str, dict[str, Any]] = {}
         self.declared: set[str] = set()
         self.known_classes: set[str] = set()
@@ -499,6 +548,130 @@ class Lowerer(
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
+
+    def fail_base(self, node: ast.AST, code: str, message: str, base: ast.expr) -> NoReturn:
+        """Fence a class base, recording the base it refused (issue #1313).
+
+        The class-base census needs the resolved base expression and its
+        kind on the fence, so the coverage report can count the bases by
+        kind instead of estimating them. The resolution lives here, where
+        the import bindings are known; the naming lives in
+        `pyscriptc.classbase`.
+        """
+        raise Fence(
+            code,
+            message,
+            span_of(node, self.filename),
+            self.function,
+            self._resolve_base_census(base),
+        )
+
+    def _resolve_base_census(self, node: ast.expr) -> dict[str, str]:
+        """The resolved base expression and its census kind (issue #1313).
+
+        The resolution answers three questions: what the base spells, which
+        module it came from, and whether it is an exception or an enum. A
+        base that resolves to nothing (a name the lowering never saw) has
+        no module, and the census kind is then `other`.
+        """
+        from pyscriptc import classbase
+
+        member = ""
+        module = ""
+        is_exception = False
+        is_enum = False
+        target = node
+        if isinstance(target, ast.Subscript):
+            target = target.value
+        if isinstance(target, ast.Name):
+            if target.id in EXCEPTIONS:
+                is_exception = True
+                member = target.id
+            alias = self.type_aliases.get(target.id)
+            if alias is not None:
+                member = alias
+            member_module = self.stdlib_imports.get(target.id)
+            if member_module is not None:
+                # A `from enum import StrEnum` whose member is outside the
+                # lowered subset records where the name came from (issue
+                # #732), so the census reads the module off that record.
+                module = member_module[0]
+                member = member_module[1]
+            refused = self.refused_imports.get(target.id)
+            if refused is not None:
+                # A `from sqlalchemy.orm import DeclarativeBase` whose module
+                # the closed table refused: the name still says which
+                # library it came from.
+                module = refused
+                member = target.id
+            binding = self.bindings.get(target.id)
+            if binding is not None:
+                module = binding.module
+                member = binding.attr or member
+                if binding.kind == "island_floor_class":
+                    module = binding.module
+            known = self.classes.get(target.id)
+            if known is not None and known.get("enum"):
+                is_enum = True
+            if not member and target.id not in self.bindings and target.id not in self.classes:
+                # A name nothing in the tree binds: the base is a builtin
+                # (`class C(list)`) or a name the lowering never saw. The
+                # builtin kinds are named from the name itself; the rest
+                # stays the `other` kind.
+                member = target.id
+        elif isinstance(target, ast.Attribute):
+            resolved = self._resolve_module(target)
+            if resolved is not None:
+                module = resolved[1]
+                member = resolved[2]
+            else:
+                # The base names a module the tree does not bind: the import
+                # itself already fenced (a closed-table import), so the
+                # dotted prefix is the only module the base names.
+                module = _dotted_prefix(target)
+                member = target.attr
+                if not self._is_module_like_root(module):
+                    module = ""
+                    member = ""
+        if member and not is_exception:
+            kind = classbase.typing_base_kind(member)
+            if kind is not None:
+                return _census_row(node, module, kind)
+            kind = classbase.enum_base_kind(member)
+            if kind is not None:
+                return _census_row(node, module, classbase.KIND_ENUM)
+            kind = classbase.builtin_base_kind(member)
+            if kind is not None:
+                return _census_row(node, module, kind)
+        kind = classbase.kind_of(
+            member=member,
+            module=module,
+            is_exception=is_exception,
+            is_enum=is_enum,
+        )
+        return _census_row(node, module, kind)
+
+    def _is_module_like_root(self, dotted: str) -> bool:
+        """True when the root name of a dotted base is a module name.
+
+        A base the import did not bind (`import sqlalchemy.orm` fenced at
+        the import) still names its module in the dotted spelling, but a
+        base on a local value (`value.attr.Base`) does not. The root is a
+        module when nothing local owns the name: no binding, no class, no
+        function, no constant.
+        """
+
+        root = dotted.split(".", 1)[0]
+        if not root:
+            return False
+        return not (
+            root in self.bindings
+            or root in self.classes
+            or root in self.sigs
+            or root in self.constants
+            or root in self.declared
+            or root in self.locals
+        )
 
     def mobile_guard(self, node: ast.AST, surface: str, key: str) -> None:
         """Fence a surface a mobile target cannot carry.
