@@ -276,7 +276,13 @@ class AnnotationMixin:
             return _type(island_class_type(f"{floor[0]}.{floor[1]}"))
         # boxed:end
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
-            return _type({"kind": "class", "name": self.class_aliases.get(node.id, node.id)})
+            name = self.class_aliases.get(node.id, node.id)
+            # An IntEnum class is an int at the type level (issue #1314):
+            # CPython's IntEnum members are ints, so a slot or a parameter
+            # the annotation names takes an int and answers an int.
+            if self.classes.get(name, {}).get("enum") and self.classes.get(name, {}).get("base") == "IntEnum":
+                return _type({"kind": "int"})
+            return _type({"kind": "class", "name": name})
         handle = self._handle_annotation(node)
         if handle is not None:
             return handle
@@ -857,8 +863,8 @@ class AnnotationMixin:
                 self._reject_banned_type(node, typ)
                 return typ
             self.fail(node, "PS1001", "tuple[T, ...] is not in the IR")
-        if len(elts) < 2:
-            self.fail(node, "PS1001", "tuples need at least two fields")
+        if len(elts) < 1:
+            self.fail(node, "PS1001", "tuples need at least one field")
         return self._tuple_type([self._annotation(elt) for elt in elts], node)
 
     def _tuple_type(self, fields: list[dict[str, Any]], node: ast.AST) -> dict[str, Any]:
@@ -916,8 +922,8 @@ class AnnotationMixin:
         return _type({"kind": "class", "name": name, "elem": elem})
 
     def _tuple_expr(self, node: ast.Tuple, span: dict[str, Any]) -> dict[str, Any]:
-        if len(node.elts) < 2:
-            self.fail(node, "PS2002", "tuples need at least two fields")
+        if len(node.elts) < 1:
+            self.fail(node, "PS2002", "tuples need at least one field")
         elems = [self._expr(elt) for elt in node.elts]
         return self._materialize_tuple(elems, span, node)
 

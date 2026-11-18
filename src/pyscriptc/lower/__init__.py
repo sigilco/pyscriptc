@@ -256,6 +256,15 @@ class Lowerer(
         # it belongs to. Module -> name pairs, keyed by the local name.
         self.refused_imports: dict[str, str] = {}
         self.classes: dict[str, dict[str, Any]] = {}
+        # The names the module already spells as an enum subclass (issue
+        # #1314): the second definition fences, the first renames. The
+        # map holds each subclass's base members, so the subclass keeps
+        # the members the base spelled.
+        self.enum_subclasses: set[str] = set()
+        self.enum_base_members: dict[str, dict[str, int]] = {}
+        # The enum class each enum subclass extends, keyed by the subclass
+        # name: the subclass starts from the base's members.
+        self.enum_parent_of: dict[str, str] = {}
         self.declared: set[str] = set()
         self.known_classes: set[str] = set()
         self.synthetics: set[str] = set()

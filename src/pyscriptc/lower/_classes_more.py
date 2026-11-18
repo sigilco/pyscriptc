@@ -69,9 +69,14 @@ _BASE_ENUM = "enum"
 _BASE_EXCEPTION = "exception"
 
 
-def _enum_base(name: str) -> dict[str, str]:
-    """The enum base descriptor one `_resolve_base` spells."""
-    return {"kind": _BASE_ENUM, "name": name}
+def _enum_base(name: str, parent: str = "") -> dict[str, str]:
+    """The enum base descriptor one `_resolve_base` spells.
+
+    The `parent` field names the enum class the base is (the enum subclass
+    case, issue #1314); it is empty for the `Enum`/`IntEnum` bases
+    themselves.
+    """
+    return {"kind": _BASE_ENUM, "name": name, "parent": parent}
 
 
 def _exception_base(name: str) -> dict[str, str]:
@@ -512,7 +517,16 @@ class ClassesMoreMixin:
             if info.get("synthetic"):
                 self.fail_base(node, "PS2002", "subclassing a stdlib type is not lowered", node)
             if info.get("enum"):
-                self.fail_base(node, "PS2002", "an enum is not a base", node)
+                # An enum base lowers only in CPython's own shape: the base
+                # enum carries no member yet, so the subclass is the first
+                # one to fill it (issue #1314). A base with members keeps
+                # the fence: CPython refuses that subclass outright.
+                if info["base"] not in {"IntEnum", "int"} or info["members"]:
+                    self.fail_base(node, "PS2002", "an enum is not a base", node)
+                if node.id in self.enum_subclasses:
+                    self.fail_base(node, "PS2002", f"duplicate enum subclass {node.id}", node)
+                self.enum_subclasses.add(node.id)
+                return _enum_base(str(info["base"]), node.id)
             return _class_type(node.id)
         # The http.server handler base (issue #1270): the spelling is the
         # module attribute (`http.server.BaseHTTPRequestHandler`) or the
@@ -572,7 +586,13 @@ class ClassesMoreMixin:
     def _collect_enum(self, node: ast.ClassDef, which: str) -> None:
         self.declared.add(node.name)
         members: dict[str, int] = {}
-        next_auto = 1
+        # An enum subclass (issue #1314) starts from the base's members and
+        # adds its own: the members of the base stay reachable through the
+        # subclass, the way CPython's enum inheritance keeps them.
+        inherited = self.enum_base_members.get(node.name, {})
+        members.update(inherited)
+        next_value = max(inherited.values(), default=0) + 1
+        next_auto = next_value
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
@@ -595,8 +615,11 @@ class ClassesMoreMixin:
                 self.caught.append(exc)
         if self.caught:
             return
-        if not members:
-            self.fail(node, "PS2002", "an enum needs a member")
+        # An empty enum body is a base another enum extends (issue #1314):
+        # CPython allows exactly that shape, so the record exists with no
+        # members and the subclass fills them. An empty enum with nothing
+        # extending it is the `an enum needs a member` fence, checked at
+        # the end of the collection pass.
         self.classes[node.name] = {
             "fields": [],
             "own_fields": [],
