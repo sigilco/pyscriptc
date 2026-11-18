@@ -1116,10 +1116,10 @@ def render_text(
             plan_list = plan_list[:top_n]
             plan_overflow = len(demotion_plans) - top_n
         for plan_item in plan_list:
-            plan_cls: str = plan_item["class"]
+            plan_cls: str = plan_item.get("class", "")
             plan_kind: str = plan_item.get("baseKind", "")
             plan_kind_str = f" ({plan_kind})" if plan_kind else ""
-            plan_text: str = plan_item["plan"]
+            plan_text: str = plan_item.get("plan", "")
             plan_file: str = plan_item.get("file", "")
             plan_where: str = f"{plan_file}:" if plan_file else ""
             plan_line: int = plan_item.get("line", 0)
