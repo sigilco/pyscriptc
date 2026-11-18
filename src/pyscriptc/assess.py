@@ -475,7 +475,26 @@ def assess(
 
         from pyscriptc import boxed
 
-        file_plane_map = boxed.plane_map(local_fences, local_defs, entry=None, tree=tree)
+        # Issue #1307: the definitions the source marks `@island` plan
+        # island on purpose; the map names the deliberate routing like any
+        # other demotion cause.
+        file_plane_map = boxed.plane_map(
+            local_fences,
+            local_defs,
+            entry=None,
+            tree=tree,
+            island_marked=boxed.island_marked_definitions(tree) if tree is not None else None,
+        )
+        # The file counts follow the plane map for the marked definitions
+        # only (issue #1307): an `@island`-marked definition plans island,
+        # so it is not native. The other definitions keep the coverage
+        # classifier's counts, as before.
+        marked_here = file_plane_map.get("islandMarked", [])
+        if marked_here:
+            file_planes = {**_str_map(file_plane_map, "functions"), **_str_map(file_plane_map, "classes")}
+            marked_island = sum(1 for name in marked_here if file_planes.get(name) == boxed.ISLAND)
+            island_defs += marked_island
+            native_defs = max(native_defs - marked_island, 0)
 
         file_results.append(
             {
@@ -592,15 +611,18 @@ def assess(
             all_defs.append({"name": name})
     unique_all_defs = [{"name": n} for n in dict.fromkeys(d["name"] for d in all_defs)]
     merged_demoted_by: dict[str, str] = {}
+    merged_marked: set[str] = set()
     for f in file_results:
         f_plane = f.get("planeMap", {})
         merged_demoted_by.update(f_plane.get("demotedBy", {}))
+        merged_marked.update(f_plane.get("islandMarked", []))
     overall_plane_map = boxed.plane_map(
         all_fences,
         unique_all_defs,
         entry=None,
         demoted_by=merged_demoted_by,
         tree=tree if target.is_file() else None,
+        island_marked=merged_marked,
     )
 
     policy_lines: list[str] = []

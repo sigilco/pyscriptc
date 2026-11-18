@@ -65,8 +65,64 @@ def _bounded_pow(node: ast.expr) -> bool:
 # boxed:end
 
 
+# boxed:begin
+def _is_marker_spelling(dec: Any, spellings: tuple[frozenset[str], frozenset[str]]) -> bool:
+    """True when the decorator spells the marker under the given spellings.
+
+    The spellings come from the source's own import (the members a
+    `from pyscriptc._annotations import island` binds, and the dotted
+    spellings an `import pyscriptc._annotations` binds), so the island
+    seed strips the marker without depending on the lowerer's binding
+    state, which is gone by the time the seed is assembled (issue #1307).
+    """
+
+    members, modules = spellings
+    target = dec.func if isinstance(dec, ast.Call) else dec
+    if isinstance(target, ast.Name):
+        return target.id in members
+    if isinstance(target, ast.Attribute):
+        parts: list[str] = []
+        current: ast.AST = target
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+            return ".".join(reversed(parts)) in modules
+    return False
+
+
+def _shadow_annotation_import(stmt: Any) -> bool:
+    """True when the import statement imports the shadow annotation module.
+
+    The island seed drops it: the island-side interpreter has no
+    `pyscriptc` module (the import is erased under the compiler), and the
+    marker decorators strip with the definitions, so the import has
+    nothing to bind (issue #1307).
+    """
+
+    if isinstance(stmt, ast.Import):
+        return any(alias.name == "pyscriptc._annotations" for alias in stmt.names)
+    return not stmt.level and stmt.module == "pyscriptc._annotations"
+
+
+# boxed:end
+
+
 class BoxedResolveMixin:
     # boxed:begin
+    def _island_marker_note(self, name: str) -> None:
+        """The advisory note that a definition rides the island on purpose.
+
+        Issue #1307: the marker is the "use no memo" analog, so the compile
+        says which definition was routed and why. The note rides the
+        module's `_notes` and prints on stderr; the compile exits 0.
+        """
+
+        note = f"note: {name}: the definition is marked @island and rides the island on purpose"
+        if note not in self.module_notes:
+            self.module_notes.append(note)
+
     def _boxed_resolve(self, fences: list[Fence]) -> None:
         """The boxed planner, before any body lowers (issue #612).
 
@@ -104,6 +160,18 @@ class BoxedResolveMixin:
             self.caught = saved_caught
         self.island_fns = set(self._boxed_island)
         self._boxed_demoted_by = {}
+
+        # Issue #1307: a definition the source marks `@island` rides the
+        # island on purpose. The marker is per definition: it routes that
+        # one definition and nothing else, and the demotion note names it
+        # so `assess` and the compile summary show the deliberate routing
+        # instead of a fence. The marker never changes what the definition
+        # means, so the island runs the very same body CPython runs.
+        for fn in self._boxed_functions:
+            if fn.name in self._island_marked:
+                self._boxed_island.add(fn.name)
+                self._boxed_demoted_by.setdefault(fn.name, "marked @island")
+                self._island_marker_note(fn.name)
 
         # Issue #677: annotated `int` is i64 (divergence 1), so a definition
         # that accumulates an unbounded int natively aborts on overflow where
@@ -532,6 +600,12 @@ class BoxedResolveMixin:
         for stmt in tree.body:
             if isinstance(stmt, (ast.Import, ast.ImportFrom)):
                 if self._boxed_seed_import_is_island(stmt):
+                    # Issue #1307: the shadow annotation module is erased
+                    # under the compiler, so the island-side interpreter has
+                    # no such module to import; the marker decorators strip
+                    # below, so the import has nothing to bind and drops.
+                    if _shadow_annotation_import(stmt):
+                        continue
                     segments.append(ast.get_source_segment(self.source, stmt) or "")
                 continue
             if isinstance(stmt, (ast.Assign, ast.AnnAssign)) and self._boxed_is_literal_module_value(stmt):
@@ -608,12 +682,20 @@ class BoxedResolveMixin:
         expressions themselves. An island class without its decorator would
         silently lose it (a `@dataclass(frozen=True)` class would lose its
         generated `__init__`, issue #628).
+
+        Issue #1307: the shadow module's markers strip here. The island
+        runs plain CPython, which has no `pyscriptc` module to import, so
+        an `@island` decorator on the seed's definition would be a
+        NameError; the marker carries no runtime meaning anyway (the
+        definition is already island-side), so it drops.
         """
         segment = ast.get_source_segment(self.source, node)
         if not segment:
             return ""
         imprint = []
         for decorator in getattr(node, "decorator_list", []) or []:
+            if _is_marker_spelling(decorator, self._island_marked_spellings):
+                continue
             text = ast.get_source_segment(self.source, decorator)
             if text:
                 imprint.append(f"@{text}")

@@ -306,6 +306,13 @@ class Lowerer(
         self._boxed_functions: list[ast.FunctionDef] = []
         self._boxed_island: set[str] = set()
         self._boxed_demoted_by: dict[str, str] = {}
+        # Issue #1307: the module-level definitions the source marks
+        # `@island`. The marker is per definition: it routes that one
+        # definition to the island lane and nothing else. The spellings
+        # tuple holds the import-bound names the marker decorator may
+        # spell, for the island seed's decorator strip.
+        self._island_marked: set[str] = set()
+        self._island_marked_spellings: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
         # Refs #641: the cross-module island-refusal fences, parked so the
         # module's own island planning never drops them.
         self._boxed_sibling_fences: list[Fence] = []

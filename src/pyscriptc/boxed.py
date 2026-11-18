@@ -64,6 +64,7 @@ def plane_map(
     demoted_by: dict[str, str] | None = None,
     tree: ast.AST | None = None,
     classes: list[dict[str, Any]] | None = None,
+    island_marked: set[str] | frozenset[str] | None = None,
 ) -> dict[str, Any]:
     """The per-definition plane map from the lowered fence list.
 
@@ -75,6 +76,10 @@ def plane_map(
     runs island-side: the embedded interpreter executes the module body as
     `__main__` instead of the native entry lowering it, the entry's own
     fences dropped with the top level, and every definition rides the seed.
+
+    `island_marked` names the definitions the source marks `@island`
+    (issue #1307): they plan island on purpose, per definition, and the
+    plane map names the cause.
 
     Returns the `fallback` summary `debug.py` embeds and the receipt records:
     `{"moduleTopLevel": "native"|"island", "functions": {name: plane, ...},
@@ -133,6 +138,13 @@ def plane_map(
             island_classes.add(name)
 
     demotions: dict[str, str] = dict(demoted_by or {})
+    # Issue #1307: an `@island`-marked definition plans island on purpose.
+    # The marker is per definition, so it routes that one definition and
+    # leaves every sibling on its own plane.
+    for name in island_marked or ():
+        if name in planes:
+            planes[name] = ISLAND
+            demotions.setdefault(name, "marked @island")
     if top_level_island:
         # Issue #678: an island top level demotes every definition that
         # would otherwise lower native (there is no island-to-native call
@@ -214,6 +226,7 @@ def plane_map(
         "classes": class_planes,
         "topLevelFences": 1 if top_level_island else 0,
         "demotedBy": demotions,
+        "islandMarked": sorted(island_marked or ()),
     }
 
 
@@ -238,6 +251,93 @@ def island_names(planes: dict[str, Any]) -> list[str]:
     """The definitions the plane map routes to the island, in map order."""
 
     return [name for name, plane in _str_map(planes, "functions").items() if plane == ISLAND]
+
+
+# boxed:begin
+# The `@island` marker of the shadow annotation module (issue #1307).
+# The rule is one table read by both the compile path and `assess`, so a
+# definition's plane is never computed twice from two rule sets.
+SHADOW_ANNOTATIONS_MODULE = "pyscriptc._annotations"
+ISLAND_MARKER = "island"
+
+
+def island_marker_spellings(tree: Any) -> tuple[frozenset[str], frozenset[str]]:
+    """The marker spellings the source's import binds: (members, modules).
+
+    `members` holds the local names a `from pyscriptc._annotations import
+    island` binds; `modules` holds the dotted spellings an
+    `import pyscriptc._annotations` binds. A decorator named `island` from
+    anywhere else is in neither set, so it is not the marker.
+    """
+
+    members: set[str] = set()
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name != SHADOW_ANNOTATIONS_MODULE:
+                    continue
+                local = alias.asname or alias.name
+                root = local.split(".")[0]
+                modules.add(f"{root}.{ISLAND_MARKER}")
+                modules.add(f"{root}.{SHADOW_ANNOTATIONS_MODULE.split('.', 1)[1]}.{ISLAND_MARKER}")
+        elif isinstance(node, ast.ImportFrom):
+            if node.module != SHADOW_ANNOTATIONS_MODULE or node.level:
+                continue
+            for alias in node.names:
+                if alias.name == ISLAND_MARKER:
+                    members.add(alias.asname or alias.name)
+    return frozenset(members), frozenset(modules)
+
+
+def island_marked_definitions(tree: Any) -> list[str]:
+    """The module-level definition names the source marks `@island`.
+
+    The marker is the shadow module's `island` decorator, so the import
+    decides which spellings count: `from pyscriptc._annotations import
+    island` (with any alias), `import pyscriptc._annotations` (with any
+    alias) and the dotted spelling all mark, and a decorator named `island`
+    from anywhere else does not.
+
+    The unit is the module-level definition: a nested or method decorator
+    marks its enclosing definition, which rides the island whole.
+    """
+
+    members, modules = island_marker_spellings(tree)
+    if not members and not modules:
+        return []
+    marked: list[str] = []
+    for node in getattr(tree, "body", []):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        for dec in node.decorator_list:
+            target = dec.func if isinstance(dec, ast.Call) else dec
+            if isinstance(target, ast.Name) and target.id in members:
+                marked.append(node.name)
+                break
+            if isinstance(target, ast.Attribute):
+                spelling = _dotted_name(target)
+                if spelling in modules:
+                    marked.append(node.name)
+                    break
+    return marked
+
+
+def _dotted_name(node: Any) -> str:
+    """The dotted spelling of an attribute chain (`a.b.c`)."""
+
+    parts: list[str] = []
+    current = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if isinstance(current, ast.Name):
+        parts.append(current.id)
+        return ".".join(reversed(parts))
+    return ""
+
+
+# boxed:end
 
 
 # The fallback tier of the running compile, module-level like the island
