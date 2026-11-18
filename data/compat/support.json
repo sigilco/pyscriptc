@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-18",
-  "commit": "272f04db3ce1129735d55bb21b6fd1ddec4410d4",
+  "commit": "20c2c05dcb75d7b092061703c5a6d6e4586af33a",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -890,9 +890,9 @@
       "name": "charset-normalizer",
       "version": "3.5.2",
       "status": "\ud83d\udfe1",
-      "ratio": "60/148",
-      "blocking": "field-lookup (139), construct-other (50), name-resolution (37)",
-      "codes": "PS2001, PS2002, PS1001"
+      "ratio": "52/148",
+      "blocking": "name-resolution (39), construct-other (27), local-inference (20)",
+      "codes": "PS2002, PS2001, PS1001"
     },
     {
       "name": "colorama",
@@ -915,7 +915,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "249/641",
-      "blocking": "name-resolution (183), construct-other (121), field-lookup (64)",
+      "blocking": "name-resolution (183), construct-other (119), field-lookup (64)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -931,7 +931,7 @@
       "version": "3.20",
       "status": "\ud83d\udd34",
       "ratio": "35/56",
-      "blocking": "keyword-args (47), name-resolution (31), type-mismatch (13)",
+      "blocking": "keyword-args (47), name-resolution (31), type-mismatch (14)",
       "codes": "PS2003, PS2002, PS1003"
     },
     {
@@ -963,7 +963,7 @@
       "version": "0.1.2",
       "status": "\ud83d\udfe1",
       "ratio": "6/12",
-      "blocking": "name-resolution (15), construct-other (7), call-arity (4)",
+      "blocking": "name-resolution (16), construct-other (6), call-arity (4)",
       "codes": "PS2002, PS2003, PS2001"
     },
     {
@@ -971,15 +971,15 @@
       "version": "26.3",
       "status": "\ud83d\udfe1",
       "ratio": "278/558",
-      "blocking": "name-resolution (104), unlowered-type-name (97), field-lookup (83)",
+      "blocking": "name-resolution (104), unlowered-type-name (98), field-lookup (83)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "77/132",
-      "blocking": "name-resolution (30), unlowered-type-name (21), construct-other (21)",
+      "ratio": "75/132",
+      "blocking": "name-resolution (27), unlowered-type-name (21), type-mismatch (19)",
       "codes": "PS2002, PS1106, PS1003"
     },
     {
@@ -1003,7 +1003,7 @@
       "version": "2.34.2",
       "status": "\ud83d\udfe1",
       "ratio": "123/319",
-      "blocking": "name-resolution (45), unlowered-type-name (43), construct-other (25)",
+      "blocking": "name-resolution (45), unlowered-type-name (43), construct-other (23)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
@@ -1035,7 +1035,7 @@
       "version": "2.8.0",
       "status": "\ud83d\udfe1",
       "ratio": "217/617",
-      "blocking": "name-resolution (94), unlowered-type-name (74), construct-other (57)",
+      "blocking": "name-resolution (94), unlowered-type-name (74), construct-other (56)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
