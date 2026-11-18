@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyscriptc.config import entry_points, load_config
 from pyscriptc.log import get_logger, tail
+from pyscriptc.typinglevels import TypingPolicy
 
 if TYPE_CHECKING:
     import argparse
@@ -83,6 +84,25 @@ def _fence_deltas(base: dict[str, int], inferred: dict[str, int]) -> dict[str, d
     return deltas
 
 
+def _typing_policy(source: Path) -> TypingPolicy:
+    """The typing policy of the project above a source (issue #1315).
+
+    The policy is the `[tool.pyscriptc.typing]` table: the project mode
+    and the per-level glob lists. A project without the table gets the
+    default policy, so the report is unchanged for a project that
+    configures nothing.
+    """
+
+    try:
+        config = load_config(source)
+    except Exception:
+        return TypingPolicy()
+    try:
+        return config.typing_policy()
+    except Exception:
+        return TypingPolicy()
+
+
 def infer_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc infer`: what the checker proves for a package, and what lowering gains.
 
@@ -116,7 +136,7 @@ def infer_cmd(args: argparse.Namespace) -> int:
         # instrument, so it stays cheap enough to run on a big tree.
         from pyscriptc.infercoverage import coverage_report, render_coverage_text
 
-        report = coverage_report(source, facts)
+        report = coverage_report(source, facts, policy=_typing_policy(source))
         print(json.dumps(report, indent=2) if args.json else render_coverage_text(report))
         return 0
 

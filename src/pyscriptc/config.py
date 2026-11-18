@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from pyscriptc.errors import SpikeError
+from pyscriptc.typinglevels import DEFAULT_LEVEL, LEVELS, TypingPolicy
 
 CONFIG_CODE = "PS3102"
 
@@ -49,6 +50,7 @@ _KEYS: Dict[str, list[str]] = {
     "stub-path": ["str", "list"],
     "ffi": ["str", "list"],
     "imports": ["dict"],
+    "typing": ["dict"],
     # boxed:begin
     "fallback": ["dict", "str", "bool"],
     "island": ["dict"],
@@ -192,6 +194,7 @@ class Config:
     stub_path: tuple[str, ...]
     ffi: tuple[str, ...]
     imports: Dict[str, str]
+    typing: Dict[str, Any]
     # boxed:begin
     fallback: Dict[str, Any]
     island: Dict[str, Any]
@@ -212,6 +215,7 @@ class Config:
         stub_path: tuple[str, ...] | None = None,
         ffi: tuple[str, ...] | None = None,
         imports: Dict[str, str] | None = None,
+        typing: Dict[str, Any] | None = None,
         # boxed:begin
         fallback: Dict[str, Any] | None = None,
         island: Dict[str, Any] | None = None,
@@ -232,6 +236,8 @@ class Config:
         self.ffi = empty_src if ffi is None else ffi
         empty_imports: Dict[str, str] = {}
         self.imports = empty_imports if imports is None else imports
+        empty_typing: Dict[str, Any] = {}
+        self.typing = empty_typing if typing is None else typing
         # boxed:begin
         empty_fallback: Dict[str, Any] = {}
         self.fallback = empty_fallback if fallback is None else fallback
@@ -312,6 +318,31 @@ class Config:
     def lane_for(self, name: str) -> tuple[str, str]:
         """(lane, matched key) for an imported top-level name."""
         return lane_for(name, self.imports)
+
+    def typing_policy(self) -> TypingPolicy:
+        """The typing policy of the project (issue #1315).
+
+        The `[tool.pyscriptc.typing]` table holds the project default level
+        (`mode`) and the per-level glob lists (`strict = ["src/**"]`). The
+        globs are relative to the config file's directory.
+        """
+
+        table = self.typing if isinstance(self.typing, dict) else {}
+        mode: str = table.get("mode", DEFAULT_LEVEL)
+        if not isinstance(mode, str) or mode not in LEVELS:
+            raise ConfigError(f"[tool.pyscriptc.typing].mode must be one of {'|'.join(LEVELS)}, got {mode!r}")
+        globs: dict[str, list[str]] = {}
+        for level in LEVELS:
+            patterns = table.get(level)
+            if patterns is None:
+                continue
+            if isinstance(patterns, str):
+                patterns = [patterns]
+            if not isinstance(patterns, list) or not all(isinstance(p, str) for p in patterns):
+                raise ConfigError(f"[tool.pyscriptc.typing].{level} must be a list of glob strings")
+            globs[level] = list(patterns)
+        base = self.origin.parent if self.origin is not None else None
+        return TypingPolicy(mode=mode, globs=globs, base=base)
 
     def _resolve(self, paths: tuple[str, ...]) -> tuple[Path, ...]:
         base: Path = self.origin.parent if self.origin is not None else Path.cwd()
@@ -496,6 +527,28 @@ def _validate_island(table: str, island: Dict[str, Any]) -> None:
             raise ConfigError(f"{table}.allow_host_libpython must be bool, got {type(value).__name__}")
 
 
+def _validate_typing(table: str, typing: Dict[str, Any]) -> None:
+    """Key and type check of the `[tool.pyscriptc.typing]` subtable.
+
+    The table holds the project default level (`mode`) and one glob list
+    per level (`off`, `basic`, `standard`, `strict`). A level the compiler
+    does not know is a PS3102, so a typo never silently disables the
+    reports.
+    """
+
+    for key, value in typing.items():
+        if key != "mode" and key not in LEVELS:
+            raise ConfigError(f"{table}: unknown key (known: mode, {'|'.join(LEVELS)})")
+        if key == "mode":
+            if not isinstance(value, str) or value not in LEVELS:
+                raise ConfigError(f"{table}.mode must be one of {'|'.join(LEVELS)}, got {value!r}")
+            continue
+        if isinstance(value, str):
+            continue
+        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
+            raise ConfigError(f"{table}.{key} must be a list of glob strings")
+
+
 def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:
     for key, value in data.items():
         if key not in _KEYS:
@@ -577,6 +630,10 @@ def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
     imports: Dict[str, str] = {}
     if "imports" in table:
         imports = table["imports"]
+    typing: Dict[str, Any] = {}
+    if "typing" in table:
+        typing = table["typing"]
+        _validate_typing("tool.pyscriptc.typing" if source == "pyproject.toml" else "pyscriptc.typing", typing)
     return Config(
         origin=origin,
         source=source,
@@ -589,6 +646,7 @@ def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
         stub_path=_paths(table, "stub-path"),
         ffi=_paths(table, "ffi"),
         imports=imports,
+        typing=typing,
         # boxed:begin
         fallback=fallback,
         island=island,
@@ -695,6 +753,7 @@ def load_config(source: Path) -> Config:
             stub_path=meta_project.stub_path,
             ffi=meta_project.ffi,
             imports=meta_project.imports,
+            typing=meta_project.typing,
             requires_python=requires,
             dependencies=deps,
         )
@@ -720,6 +779,7 @@ def load_config(source: Path) -> Config:
             stub_path=project.stub_path or (meta_project.stub_path if meta_project else empty_paths),
             ffi=project.ffi or (meta_project.ffi if meta_project else empty_paths),
             imports=merged_imports,
+            typing=project.typing,
             requires_python=requires,
             dependencies=deps,
         )
