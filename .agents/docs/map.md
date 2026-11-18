@@ -21,7 +21,7 @@
 | `tests/test_gates.py` | Language gates and the original example corpus |
 | `tests/test_examples.py` | The scripts in `examples/` that a user runs |
 | `tests/test_adoption.py` | Shapes from real libraries that must stay fenced |
-| `benchmarks/baseline/` | Time and RSS gate |
+| `benchmarks/baseline/` | Time and RSS gate, plus the compile-time inference suite (report-only) |
 | `benchmarks/adoption/README.md` | Which external suites stay on CPython |
 | `benchmarks/native/` | C ABI `.so` versus a `PyInit_*` extension on the island |
 | `benchmarks/net/` | The network receipt: loopback HTTP client and `http.server` throughput. Opt-in |

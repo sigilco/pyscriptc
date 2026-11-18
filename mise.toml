@@ -150,6 +150,10 @@ run = "git config core.hooksPath scripts/hooks"
 description = "Perf regression gate against benchmarks/baseline/reference*.json"
 run = "uv run python -m benchmarks.baseline.run --check"
 
+[tasks."bench:inference"]
+description = "Compile-time inference suite (issue #1319), report-only: it records what --infer costs a tree"
+run = "uv run python -m benchmarks.baseline.run --suite inference"
+
 [tasks."compat:json"]
 description = "Rebuild data/compat/compat.json (append --check to compare against the committed file)"
 run = "uv run python scripts/build_compat_json.py"

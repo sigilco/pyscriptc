@@ -90,6 +90,13 @@ jobs:
       - name: Run the baseline suite
         run: uv run python -m benchmarks.baseline.run --runs "$BENCH_RUNS" --json "bench-$BENCH_ID.json"
 
+      # The compile-time inference suite (issue #1319). Report-only like
+      # the runtime suite: the rows are recorded per release, and the
+      # ratio gate arms after two releases of data.
+      - name: Run the inference suite
+        continue-on-error: true
+        run: uv run python -m benchmarks.baseline.run --suite inference --json "infer-$BENCH_ID.json"
+
       - name: Summarize the run
         run: |
           set -euo pipefail
@@ -98,6 +105,19 @@ jobs:
             echo
             echo "Runs per workload: $BENCH_RUNS. Report-only: nothing fails on a regression."
           } >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "infer-$BENCH_ID.json" ]; then
+            {
+              echo "### Inference suite"
+              echo
+              echo "Report-only: nothing fails on a regression."
+              echo
+              uv run python -m benchmarks.baseline.delta --inference "infer-$BENCH_ID.json"
+            } >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "### Inference suite" >> "$GITHUB_STEP_SUMMARY"
+            echo >> "$GITHUB_STEP_SUMMARY"
+            echo "No inference run (report-only; the rows return with the next release)." >> "$GITHUB_STEP_SUMMARY"
+          fi
 
       # The delta against the previous tag. The previous bench JSON rides along
       # in the previous release's assets, so the comparison needs no rerun.
@@ -121,12 +141,37 @@ jobs:
           fi
           uv run python -m benchmarks.baseline.delta "/tmp/prev-bench/bench-$prev.json" "bench-$BENCH_ID.json" --summary "$GITHUB_STEP_SUMMARY"
 
+      # The inference delta against the previous tag's infer JSON, when
+      # that asset exists. Report-only: a missing previous file is a
+      # note, not a failure.
+      - name: Inference delta against the previous tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          prev="$(git describe --tags --abbrev=0 --match 'v[0-9]*.[0-9]*.[0-9]*' "HEAD^" 2>/dev/null || true)"
+          if [ -z "$prev" ]; then
+            exit 0
+          fi
+          if ! gh release download "$prev" --pattern "infer-$prev.json" --dir /tmp/prev-infer --clobber 2>/dev/null; then
+            echo "::notice::$prev has no infer-$prev.json asset; no inference delta"
+            exit 0
+          fi
+          uv run python -m benchmarks.baseline.delta --inference "/tmp/prev-infer/infer-$prev.json" "infer-$BENCH_ID.json" --summary "$GITHUB_STEP_SUMMARY"
+
       - name: Upload the bench JSON
         uses: actions/upload-artifact@v6
         with:
           name: bench-${{ env.BENCH_ID }}
           path: bench-${{ env.BENCH_ID }}.json
           if-no-files-found: error
+
+      - name: Upload the inference JSON
+        uses: actions/upload-artifact@v6
+        with:
+          name: infer-${{ env.BENCH_ID }}
+          path: infer-${{ env.BENCH_ID }}.json
+          if-no-files-found: ignore
 
       # A tag run attaches the JSON to the release, so the release assets hold
       # the perf receipt next to the binaries. The release is a draft until
@@ -139,3 +184,5 @@ jobs:
           set -euo pipefail
           gh release upload "$BENCH_ID" "bench-$BENCH_ID.json" --clobber || \
             echo "::warning::could not attach bench-$BENCH_ID.json to the release (it may not exist yet)"
+          gh release upload "$BENCH_ID" "infer-$BENCH_ID.json" --clobber || \
+            echo "::warning::could not attach infer-$BENCH_ID.json to the release (it may not exist yet)"

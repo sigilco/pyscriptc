@@ -76,6 +76,13 @@ def refuses_macos_record(path: str, system: str | None = None, machine: str | No
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Baseline time and RSS for pyscriptc.")
+    parser.add_argument(
+        "--suite",
+        choices=["runtime", "inference"],
+        default="runtime",
+        help="runtime: the lowered-binary suite (default). inference: the compile-time "
+        "inference suite (issue #1319), report-only, no reference or ratio gate",
+    )
     parser.add_argument("--runs", type=int)
     parser.add_argument("--workloads", help="comma-separated workload names")
     parser.add_argument("--json", dest="json_path", help="write this run to a path")
@@ -101,6 +108,13 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     from pyscriptc.target import TARGET_CPYTHON, TARGET_VERSION_INFO
+
+    # The inference suite is report-only: it has no reference file and the
+    # ratio gate never reads its rows (issue #1319). Reference and check
+    # belong to the runtime suite.
+    if args.suite == "inference" and (args.record or args.check):
+        print("--suite inference is report-only: --record and --check apply to the runtime suite", file=sys.stderr)
+        return 2
 
     if sys.version_info[:2] != TARGET_VERSION_INFO[:2]:
         running = sys.version.split()[0]
@@ -148,6 +162,9 @@ def main(argv: list[str] | None = None) -> int:
             )
             return 2
 
+    if args.suite == "inference":
+        return _run_inference(args)
+
     suite = json.loads((HERE / "suite.json").read_text(encoding="utf-8"))
     runs = args.runs if args.runs is not None else int(suite["runs"])
     if runs < 1:
@@ -192,6 +209,35 @@ def main(argv: list[str] | None = None) -> int:
             return 1
         print(f"within reference {args.check}")
     return 1 if failed else 0
+
+
+def _run_inference(args: argparse.Namespace) -> int:
+    """Run the compile-time inference suite and write the report.
+
+    Report-only (issue #1319): the rows carry `infer_ms` and the
+    engine's own report (pins, call sites, skipped flag), the exit code
+    reflects only error rows, and no reference file is read or written.
+    The ratio gate arms after two releases of data.
+    """
+
+    from benchmarks.baseline.inference import print_rows, run_inference_suite
+
+    rows = run_inference_suite()
+    print_rows(rows)
+    report: dict[str, Any] = {
+        "schema": 1,
+        "suite": "inference",
+        "recorded_at": datetime.now(UTC).strftime("%Y-%m-%dT%H:%M:%SZ"),
+        "cpython": platform.python_version(),
+        "platform": platform.platform(),
+        "machine": platform.machine(),
+        "cpu_count": os.cpu_count(),
+        "metrics": ["compile_ms", "infer_ms"],
+        "workloads": rows,
+    }
+    if args.json_path:
+        _write(Path(args.json_path), report, role="run")
+    return 1 if any(row["status"] != "ok" for row in rows) else 0
 
 
 def _names(raw: str | None, default: list[str]) -> list[str]:

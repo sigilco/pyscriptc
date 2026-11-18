@@ -30,6 +30,7 @@ Tools already on your PATH that satisfy the `mise.toml` pins are reused, not rei
 | `mise run format-check` | `ruff format --check`, with the same excludes as CI |
 | `mise run check` | `lint` + `format-check` + the `tests/compat2` unit selection |
 | `mise run bench:baseline` | The perf regression gate against `benchmarks/baseline/reference*.json` |
+| `mise run bench:inference` | The compile-time inference suite (`--suite inference`), report-only: it records what `--infer` costs a tree and never fails on a number |
 | `mise run compat:json` | Rebuild `data/compat/compat.json` (append `--check` to compare) |
 | `mise run compat:ladder` | Rebuild `data/compat/ladder.json` |
 | `mise run compat:r0` | Add the R0 real-scripts point to `data/compat/ladder.json` |
