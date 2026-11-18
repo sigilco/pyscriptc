@@ -387,8 +387,8 @@ class MiscEmitMixin:
         return _name(dest, self.locals[dest], span)
 
     def _store_tuple_constant(self, name: str, node: ast.Tuple, stmt: ast.AST) -> None:
-        if len(node.elts) < 2:
-            self.fail(node, "PS2002", "tuples need at least two fields")
+        if len(node.elts) < 1:
+            self.fail(node, "PS2002", "tuples need at least one field")
         elems: list[dict[str, Any]] = []
         for elt in node.elts:
             value = self._module_fold(elt)
