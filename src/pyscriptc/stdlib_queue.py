@@ -360,8 +360,14 @@ def dependency_lanes(lanes: dict[str, dict[str, str]]) -> Iterator[None]:
 # says otherwise. A policy name pinned to `compile` blocks the default for
 # that import; there is no opt-out flag.
 # Module-level like `_DEP_LANES`, set around the same lowering pass.
+#
+# The default routing is installed by the entry points that serve a user
+# (the CLI compile path and the coverage/assess pass), not by the module
+# itself: a caller that lowers a module without asking for the island lane
+# (the TIR probe corpus, the reducer) keeps the closed-table fence, so the
+# typed IR it measures does not move under a routing change.
 _ISLAND_LANES: frozenset[str] = frozenset()
-_ISLAND_DEFAULT = True
+_ISLAND_DEFAULT = False
 _NATIVE_PINNED: frozenset[str] = frozenset()
 
 
@@ -374,12 +380,13 @@ def island_lane(name: str) -> bool:
 
 
 @contextmanager
-def island_policy(names: Iterable[str], default: bool = True, native_pinned: Iterable[str] = ()) -> Iterator[None]:
+def island_policy(names: Iterable[str], default: bool = False, native_pinned: Iterable[str] = ()) -> Iterator[None]:
     """Install the island lane for the duration of one lowering pass.
 
-    `native_pinned` names the imports an explicit `[imports]` policy pins
-    off the island lane (issue #1308): the default routing never overrides
-    a named lane the user chose.
+    `default=True` turns on the default routing (issue #1308): every
+    import outside the closed table routes to the island. `native_pinned`
+    names the imports an explicit `[imports]` policy pins off the island
+    lane: the default routing never overrides a named lane the user chose.
     """
 
     global _ISLAND_LANES, _ISLAND_DEFAULT, _NATIVE_PINNED

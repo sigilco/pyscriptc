@@ -17,11 +17,26 @@ from pathlib import Path
 
 from pyscriptc import coverage
 from pyscriptc.lower import lower_file
+from pyscriptc.stdlib_queue import island_policy
 
 ROOT = Path(__file__).resolve().parents[1]
 
 UNKNOWN_IMPORT = "import sqlite3\n"
 THIRD_PARTY_IMPORT = "import requests\n"
+
+
+def _lower_with_default(path: Path) -> tuple[dict, str]:
+    """Lower the way the CLI compile path does.
+
+    The default routing is installed by the entry points that serve a
+    user (the CLI compile path and the coverage pass), not by the module
+    global: a bare `lower_file` (the TIR probe corpus, the reducer)
+    keeps the closed-table fence, so the typed IR a frozen gate measures
+    does not move under a routing change.
+    """
+
+    with island_policy([], default=True):
+        return lower_file(str(path))
 
 
 def _run_cli(*args: str, cwd: Path | None = None) -> subprocess.CompletedProcess[str]:
@@ -44,7 +59,7 @@ def test_an_unknown_import_lowers_without_a_fence(tmp_path: Path) -> None:
     """The import outside the closed table is a note, not a fence."""
 
     script = _write(tmp_path, "app.py", UNKNOWN_IMPORT)
-    module, _ = lower_file(str(script))
+    module, _ = _lower_with_default(script)
     assert module["fences"] == []
     notes = module.get("_notes") or []
     assert any("sqlite3 is not in the closed import table" in note for note in notes)
@@ -52,22 +67,36 @@ def test_an_unknown_import_lowers_without_a_fence(tmp_path: Path) -> None:
 
 def test_a_third_party_import_lowers_without_a_fence(tmp_path: Path) -> None:
     script = _write(tmp_path, "app.py", THIRD_PARTY_IMPORT)
-    module, _ = lower_file(str(script))
+    module, _ = _lower_with_default(script)
     assert module["fences"] == []
     assert any("requests is not in the closed import table" in note for note in (module.get("_notes") or []))
 
 
 def test_a_from_import_outside_the_table_lowers_without_a_fence(tmp_path: Path) -> None:
     script = _write(tmp_path, "app.py", "from sqlite3 import connect\n")
-    module, _ = lower_file(str(script))
+    module, _ = _lower_with_default(script)
     assert module["fences"] == []
 
 
 def test_the_note_names_the_island_route(tmp_path: Path) -> None:
     script = _write(tmp_path, "app.py", UNKNOWN_IMPORT)
-    module, _ = lower_file(str(script))
+    module, _ = _lower_with_default(script)
     notes = module.get("_notes") or []
     assert any("island lane" in note and "requires libpython" in note for note in notes)
+
+
+def test_a_bare_lower_file_keeps_the_closed_table_fence(tmp_path: Path) -> None:
+    """A caller that never asks for the island lane keeps the fence.
+
+    The TIR probe corpus and the reducer lower bare, so the typed IR a
+    frozen gate measures does not move under a routing change.
+    """
+
+    script = _write(tmp_path, "app.py", UNKNOWN_IMPORT)
+    module, _ = lower_file(str(script))
+    assert len(module["fences"]) == 1
+    assert module["fences"][0]["code"] == "PS2002"
+    assert "closed import table" in module["fences"][0]["message"]
 
 
 def test_the_refuse_lane_still_fences(tmp_path: Path) -> None:
@@ -75,7 +104,7 @@ def test_the_refuse_lane_still_fences(tmp_path: Path) -> None:
 
     (tmp_path / "pyproject.toml").write_text("[tool.pyscriptc.imports]\nrich = 'refuse'\n", encoding="utf-8")
     script = _write(tmp_path, "app.py", "import rich\n")
-    module, _ = lower_file(str(script))
+    module, _ = _lower_with_default(script)
     assert len(module["fences"]) == 1
     assert module["fences"][0]["code"] == "PS2002"
     assert "refused by" in module["fences"][0]["message"]
@@ -86,7 +115,7 @@ def test_a_named_compile_policy_keeps_the_closed_table_fence(tmp_path: Path) -> 
 
     (tmp_path / "pyproject.toml").write_text("[tool.pyscriptc.imports]\nrich = 'compile'\n", encoding="utf-8")
     script = _write(tmp_path, "app.py", "import rich\n")
-    module, _ = lower_file(str(script))
+    module, _ = _lower_with_default(script)
     assert len(module["fences"]) == 1
     assert "closed import table" in module["fences"][0]["message"]
 

@@ -288,11 +288,15 @@ def test_other_lanes_unchanged_at_lower(tmp_path: Path) -> None:
 def test_no_policy_routes_to_the_island_instead_of_fencing(tmp_path: Path) -> None:
     # N2 (issue #1308): without a policy an import outside the closed table
     # is a note, not a fence: the build does not stop on a library fact.
+    # The default routing is installed by the serving entry points (the CLI
+    # compile path, the coverage pass), so the test installs it explicitly.
     from pyscriptc.lower import lower_file
+    from pyscriptc.stdlib_queue import island_policy
 
     plain = tmp_path / "plain.py"
     plain.write_text("import rich\n", encoding="utf-8")
-    mod, _ = lower_file(str(plain))
+    with island_policy([], default=True):
+        mod, _ = lower_file(str(plain))
     assert mod["fences"] == []
     notes = mod.get("_notes") or []
     assert any("rich is not in the closed import table" in note for note in notes)
