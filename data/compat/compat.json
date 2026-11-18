@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-17",
-  "commit": "8a676ad026ab46ea7ce1a8004afc168b157afc9a",
+  "commit": "1651909675bdfac8c1bcd9abcec754d6f48e75d0",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-17",
-    "commit": "8a676ad026ab46ea7ce1a8004afc168b157afc9a",
+    "commit": "1651909675bdfac8c1bcd9abcec754d6f48e75d0",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -29,10 +29,10 @@
     "stdlib_partial": 72,
     "stdlib_none": 0,
     "packages_full": 2,
-    "packages_partial": 8,
+    "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 2855
+    "fences": 4238
   },
   "builtins": [
     {
@@ -1678,6 +1678,52 @@
       "pypi": "https://pypi.org/project/certifi/"
     },
     {
+      "name": "charset-normalizer",
+      "import_name": "charset_normalizer",
+      "version": "3.5.2",
+      "status": "partial",
+      "island": "unmeasured",
+      "plane": {
+        "definitions": 148,
+        "native": 85,
+        "island": 1,
+        "blocked": 62
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
+      "fences": 364,
+      "definitions": 148,
+      "fenced_definitions": 60,
+      "top_families": [
+        {
+          "family": "field-lookup",
+          "count": 139
+        },
+        {
+          "family": "construct-other",
+          "count": 49
+        },
+        {
+          "family": "name-resolution",
+          "count": 39
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2001",
+          "count": 157
+        },
+        {
+          "code": "PS2002",
+          "count": 129
+        },
+        {
+          "code": "PS1001",
+          "count": 22
+        }
+      ],
+      "pypi": "https://pypi.org/project/charset-normalizer/"
+    },
+    {
       "name": "colorama",
       "import_name": "colorama",
       "version": "0.4.6",
@@ -2276,6 +2322,52 @@
       "pypi": "https://pypi.org/project/pytz/"
     },
     {
+      "name": "requests",
+      "import_name": "requests",
+      "version": "2.34.2",
+      "status": "partial",
+      "island": "unmeasured",
+      "plane": {
+        "definitions": 319,
+        "native": 191,
+        "island": 0,
+        "blocked": 128
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
+      "fences": 388,
+      "definitions": 319,
+      "fenced_definitions": 123,
+      "top_families": [
+        {
+          "family": "name-resolution",
+          "count": 49
+        },
+        {
+          "family": "unlowered-type-name",
+          "count": 43
+        },
+        {
+          "family": "import-table",
+          "count": 26
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 246
+        },
+        {
+          "code": "PS1106",
+          "count": 43
+        },
+        {
+          "code": "PS2001",
+          "count": 27
+        }
+      ],
+      "pypi": "https://pypi.org/project/requests/"
+    },
+    {
       "name": "shellingham",
       "import_name": "shellingham",
       "version": "1.5.4",
@@ -2372,6 +2464,52 @@
       "pypi": "https://pypi.org/project/tzdata/"
     },
     {
+      "name": "urllib3",
+      "import_name": "urllib3",
+      "version": "2.8.0",
+      "status": "partial",
+      "island": "unmeasured",
+      "plane": {
+        "definitions": 617,
+        "native": 382,
+        "island": 2,
+        "blocked": 233
+      },
+      "evidence": "benchmarks/compat/top100/island_probe.py",
+      "fences": 631,
+      "definitions": 617,
+      "fenced_definitions": 217,
+      "top_families": [
+        {
+          "family": "name-resolution",
+          "count": 125
+        },
+        {
+          "family": "unlowered-type-name",
+          "count": 74
+        },
+        {
+          "family": "construct-other",
+          "count": 56
+        }
+      ],
+      "codes": [
+        {
+          "code": "PS2002",
+          "count": 411
+        },
+        {
+          "code": "PS1106",
+          "count": 74
+        },
+        {
+          "code": "PS2001",
+          "count": 46
+        }
+      ],
+      "pypi": "https://pypi.org/project/urllib3/"
+    },
+    {
       "name": "zipp",
       "import_name": "zipp",
       "version": "4.1.1",
@@ -2427,8 +2565,8 @@
         "label": "Single-file script",
         "corpus": "benchmarks/scripts_corpus/scripts",
         "total": 45,
-        "compiled": 22,
-        "passed": 19,
+        "compiled": 23,
+        "passed": 20,
         "measured": true
       },
       {
@@ -2444,18 +2582,18 @@
     "lanes": [
       {
         "lane": "native",
-        "imports": 280,
-        "share": 0.8485
+        "imports": 411,
+        "share": 0.8562
       },
       {
         "lane": "pack",
-        "imports": 1,
-        "share": 0.003
+        "imports": 4,
+        "share": 0.0083
       },
       {
         "lane": "extern",
-        "imports": 49,
-        "share": 0.1485
+        "imports": 65,
+        "share": 0.1354
       },
       {
         "lane": "island",
@@ -2468,8 +2606,8 @@
         "share": 0.0
       }
     ],
-    "selfContainedShare": 0.2222,
-    "trees": 18,
+    "selfContainedShare": 0.1905,
+    "trees": 21,
     "r0": {
       "rung": "R0",
       "label": "Vendored real script",
@@ -2585,62 +2723,68 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1416,
-      "packages": 16
-    },
-    {
-      "code": "PS1001",
-      "title": "annotation missing or not supported",
-      "count": 355,
-      "packages": 15
+      "count": 2202,
+      "packages": 19
     },
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 323,
-      "packages": 14
+      "count": 553,
+      "packages": 17
+    },
+    {
+      "code": "PS1001",
+      "title": "annotation missing or not supported",
+      "count": 424,
+      "packages": 18
     },
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 228,
-      "packages": 9
+      "count": 356,
+      "packages": 12
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 147,
-      "packages": 9
+      "count": 177,
+      "packages": 12
     },
     {
       "code": "PS2003",
       "title": "call arguments not supported",
-      "count": 137,
-      "packages": 10
+      "count": 162,
+      "packages": 13
     },
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 78,
-      "packages": 9
+      "count": 105,
+      "packages": 12
     },
     {
       "code": "PS1102",
       "title": "Optional annotation",
-      "count": 44,
-      "packages": 6
+      "count": 58,
+      "packages": 8
     },
     {
-      "code": "PS1201",
-      "title": "decorator",
-      "count": 33,
-      "packages": 4
+      "code": "PS1104",
+      "title": "dynamic or structural annotation",
+      "count": 56,
+      "packages": 8
     },
     {
       "code": "PS2004",
       "title": "operator or operand not supported",
-      "count": 26,
-      "packages": 7
+      "count": 42,
+      "packages": 10
+    },
+    {
+      "code": "PS1201",
+      "title": "decorator",
+      "count": 38,
+      "packages": 5
     },
     {
       "code": "PS1203",
@@ -2649,28 +2793,22 @@
       "packages": 5
     },
     {
-      "code": "PS1104",
-      "title": "dynamic or structural annotation",
-      "count": 20,
-      "packages": 5
+      "code": "PS1204",
+      "title": "class body statement",
+      "count": 16,
+      "packages": 3
+    },
+    {
+      "code": "PS2006",
+      "title": "decorator expression is not a typed callable",
+      "count": 12,
+      "packages": 3
     },
     {
       "code": "PS1105",
       "title": "forward reference annotation",
       "count": 7,
       "packages": 3
-    },
-    {
-      "code": "PS2006",
-      "title": "decorator expression is not a typed callable",
-      "count": 6,
-      "packages": 2
-    },
-    {
-      "code": "PS1204",
-      "title": "class body statement",
-      "count": 5,
-      "packages": 2
     },
     {
       "code": "PS1206",
@@ -2748,12 +2886,12 @@
     },
     {
       "date": "2026-11-17",
-      "commit": "8a676ad026ab46ea7ce1a8004afc168b157afc9a",
+      "commit": "1651909675bdfac8c1bcd9abcec754d6f48e75d0",
       "weighted_pass": 0.0,
       "packages_full": 2,
-      "packages_partial": 8,
+      "packages_partial": 11,
       "packages_none": 8,
-      "fences": 2855
+      "fences": 4238
     }
   ]
 }

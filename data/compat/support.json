@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-17",
-  "commit": "8a676ad026ab46ea7ce1a8004afc168b157afc9a",
+  "commit": "1651909675bdfac8c1bcd9abcec754d6f48e75d0",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -20,7 +20,7 @@
     },
     "packages": {
       "green": 2,
-      "yellow": 8,
+      "yellow": 11,
       "red": 8
     }
   },
@@ -887,6 +887,14 @@
       "codes": ""
     },
     {
+      "name": "charset-normalizer",
+      "version": "3.5.2",
+      "status": "\ud83d\udfe1",
+      "ratio": "60/148",
+      "blocking": "field-lookup (139), construct-other (49), name-resolution (39)",
+      "codes": "PS2001, PS2002, PS1001"
+    },
+    {
       "name": "colorama",
       "version": "0.4.6",
       "status": "\ud83d\udd34",
@@ -991,6 +999,14 @@
       "codes": "PS2002, PS1001, PS2001"
     },
     {
+      "name": "requests",
+      "version": "2.34.2",
+      "status": "\ud83d\udfe1",
+      "ratio": "123/319",
+      "blocking": "name-resolution (49), unlowered-type-name (43), import-table (26)",
+      "codes": "PS2002, PS1106, PS2001"
+    },
+    {
       "name": "shellingham",
       "version": "1.5.4",
       "status": "\ud83d\udd34",
@@ -1013,6 +1029,14 @@
       "ratio": "0/0",
       "blocking": "",
       "codes": ""
+    },
+    {
+      "name": "urllib3",
+      "version": "2.8.0",
+      "status": "\ud83d\udfe1",
+      "ratio": "217/617",
+      "blocking": "name-resolution (125), unlowered-type-name (74), construct-other (56)",
+      "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "zipp",
