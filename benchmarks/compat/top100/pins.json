@@ -15,6 +15,19 @@
       "license_file": "certifi-LICENSE",
       "tests": "omitted; the snapshot is the importable package"
     },
+    "charset-normalizer": {
+      "project": "charset-normalizer",
+      "import_name": "charset_normalizer",
+      "version": "3.5.2",
+      "fetched": "2026-11-17",
+      "filename": "charset_normalizer-3.5.2.tar.gz",
+      "sha256": "39de2a259fc954455c57274dc94c79d5842774e1247a016aff30bc0efed0f4ef",
+      "url": "https://files.pythonhosted.org/packages/33/1c/f41d4e74c28ab327ff3acd36053f7ea506c55872d7a90b0fa71aa3ab0c89/charset_normalizer-3.5.2.tar.gz",
+      "size": 172659,
+      "tree": "src/charset_normalizer",
+      "license_file": "charset-normalizer-LICENSE",
+      "tests": "omitted; the snapshot is the importable package"
+    },
     "colorama": {
       "project": "colorama",
       "import_name": "colorama",
@@ -171,6 +184,19 @@
       "license_file": "pytz-LICENSE.txt",
       "tests": "omitted; the snapshot is the importable package"
     },
+    "requests": {
+      "project": "requests",
+      "import_name": "requests",
+      "version": "2.34.2",
+      "fetched": "2026-11-17",
+      "filename": "requests-2.34.2.tar.gz",
+      "sha256": "f288924cae4e29463698d6d60bc6a4da69c89185ad1e0bcc4104f584e960b9ed",
+      "url": "https://files.pythonhosted.org/packages/ac/c3/e2a2b89f2d3e2179abd6d00ebd70bff6273f37fb3e0cc209f48b39d00cbf/requests-2.34.2.tar.gz",
+      "size": 142856,
+      "tree": "src/requests",
+      "license_file": "requests-LICENSE",
+      "tests": "omitted; the snapshot is the importable package"
+    },
     "trove-classifiers": {
       "project": "trove-classifiers",
       "import_name": "trove_classifiers",
@@ -193,6 +219,19 @@
       "size": 200404,
       "tree": "src/tzdata",
       "license_file": "tzdata-LICENSE",
+      "tests": "omitted; the snapshot is the importable package"
+    },
+    "urllib3": {
+      "project": "urllib3",
+      "import_name": "urllib3",
+      "version": "2.8.0",
+      "fetched": "2026-11-17",
+      "filename": "urllib3-2.8.0.tar.gz",
+      "sha256": "63bf2ead4c879426ebf22ef2a781eeb4aa3b4ae798a0435506f8687fd5bb9b63",
+      "url": "https://files.pythonhosted.org/packages/e3/05/b17359e1cefb4f909b5e40b1b90a496d987258916dbbf88e842c729f510e/urllib3-2.8.0.tar.gz",
+      "size": 458972,
+      "tree": "src/urllib3",
+      "license_file": "urllib3-LICENSE.txt",
       "tests": "omitted; the snapshot is the importable package"
     },
     "zipp": {
