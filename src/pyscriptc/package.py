@@ -309,6 +309,7 @@ def _lower_units(
     functions: list[dict[str, Any]] = []
     classes: list[dict[str, Any]] = []
     fences: list[dict[str, Any]] = []
+    notes: list[str] = []  # boxed:begin N2: the advisory notes of every unit.
     class_names: dict[str, dict[str, Any]] = {}
     exc_n = USER_EXC_BASE
     needs_island = False  # boxed
@@ -397,6 +398,13 @@ def _lower_units(
                     class_names[_node_name(cls)] = cls
                     classes.append(cls)
                 fences.extend(_items(module, "fences"))
+                # boxed:begin
+                # The advisory notes the unit's lowering recorded (N2,
+                # issue #1308): an import routed to the island is a note,
+                # not a fence, and the note rides the merged module so the
+                # CLI prints it.
+                notes.extend(_items(module, "_notes"))
+                # boxed:end
             except Exception as exc:
                 if not _note_unit_failure(unit_failures, path, exc):
                     raise
@@ -490,7 +498,7 @@ def _lower_units(
         inits = [name for name in _module_init_order(owners, exports, functions) if name != f"{entry_mod}.__init__"]
         if inits:
             merged["moduleInits"] = inits
-    return merged, []
+    return merged, notes
 
 
 def _qualified_plane_name(module: str, name: str) -> str:

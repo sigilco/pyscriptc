@@ -110,10 +110,10 @@ def test_pysc_debug_env_enables(tmp_path: Path) -> None:
 
 
 def test_debug_fences_listed(tmp_path: Path) -> None:
-    proc = run_cli("compile", str(EXAMPLES / "fence_pickle.py"), "--emit", "ir", "--debug=fences", "--skip-check")
+    proc = run_cli("compile", str(EXAMPLES / "fence_method.py"), "--emit", "ir", "--debug=fences", "--skip-check")
     assert proc.returncode == 3
-    assert "[debug] fences: 2" in proc.stderr
-    assert "PS2002" in proc.stderr
+    assert "[debug] fences: 1" in proc.stderr
+    assert "PS2003" in proc.stderr
 
 
 def test_debug_rejects_unknown_topic() -> None:

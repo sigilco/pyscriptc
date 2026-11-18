@@ -9,7 +9,9 @@ from tests.test_gates import run_cli, write_case
 
 def test_scripting_stacks_stay_fenced(tmp_path: Path) -> None:
     cases = [
-        ("click.py", "import click\n\ndef main() -> int:\n    return 0\n", "PS2002", "click"),
+        # N2 (issue #1308): `import click` is outside the closed table, so
+        # it routes to the island instead of fencing; the import case
+        # moved to test_a_scripting_stack_routes_to_the_island below.
         (
             "kw.py",
             "import math\n\ndef main() -> float:\n    return math.sqrt(x=4.0)\n",
@@ -44,6 +46,24 @@ def test_scripting_stacks_stay_fenced(tmp_path: Path) -> None:
         assert got.returncode == 3, f"{name}\n{got.stderr}"
         assert code in got.stderr
         assert text in got.stderr
+
+
+def test_a_scripting_stack_routes_to_the_island(tmp_path: Path) -> None:
+    # N2 (issue #1308): a scripting stack an early user already has routes
+    # to the island; the compile records the routing as an advisory note.
+    path = write_case(tmp_path, "click.py", "import click\n\ndef main() -> int:\n    return 0\n")
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / "click.ll"),
+    )
+    assert got.returncode == 0, got.stderr
+    assert "PS2002 (click)" in got.stderr
+    assert "island lane" in got.stderr
 
 
 def test_a_user_decorator_takes_the_advisory_erase(tmp_path: Path) -> None:

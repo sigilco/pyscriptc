@@ -52,7 +52,6 @@ def test_benchmarks_do_not_link_the_island(tmp_path: Path) -> None:
 
 def test_rest_fences_stay_closed(tmp_path: Path) -> None:
     cases = [
-        ("pickle.py", "import pickle\n\ndef f() -> int:\n    return 1\n", "PS2002", "pickle"),
         (
             "run.py",
             "\n".join(

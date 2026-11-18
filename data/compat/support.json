@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-17",
-  "commit": "1651909675bdfac8c1bcd9abcec754d6f48e75d0",
+  "generated": "2026-11-18",
+  "commit": "272f04db3ce1129735d55bb21b6fd1ddec4410d4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -891,7 +891,7 @@
       "version": "3.5.2",
       "status": "\ud83d\udfe1",
       "ratio": "60/148",
-      "blocking": "field-lookup (139), construct-other (49), name-resolution (39)",
+      "blocking": "field-lookup (139), construct-other (50), name-resolution (37)",
       "codes": "PS2001, PS2002, PS1001"
     },
     {
@@ -970,8 +970,8 @@
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "279/558",
-      "blocking": "name-resolution (111), unlowered-type-name (97), field-lookup (83)",
+      "ratio": "278/558",
+      "blocking": "name-resolution (104), unlowered-type-name (97), field-lookup (83)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
@@ -987,7 +987,7 @@
       "version": "4.13.0",
       "status": "\ud83d\udfe1",
       "ratio": "135/388",
-      "blocking": "name-resolution (65), construct-other (63), optional-types (33)",
+      "blocking": "construct-other (64), name-resolution (64), optional-types (33)",
       "codes": "PS2002, PS1102, PS2001"
     },
     {
@@ -1003,7 +1003,7 @@
       "version": "2.34.2",
       "status": "\ud83d\udfe1",
       "ratio": "123/319",
-      "blocking": "name-resolution (49), unlowered-type-name (43), import-table (26)",
+      "blocking": "name-resolution (45), unlowered-type-name (43), construct-other (25)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
@@ -1035,7 +1035,7 @@
       "version": "2.8.0",
       "status": "\ud83d\udfe1",
       "ratio": "217/617",
-      "blocking": "name-resolution (125), unlowered-type-name (74), construct-other (56)",
+      "blocking": "name-resolution (94), unlowered-type-name (74), construct-other (57)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {

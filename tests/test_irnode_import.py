@@ -77,7 +77,9 @@ def test_a_sibling_dataclass_module_imports_and_annotates(tmp_path: Path) -> Non
     assert "PS1105" not in codes, report["fences"]
 
 
-def test_an_unknown_module_still_refuses_ps2002(tmp_path: Path) -> None:
+def test_an_unknown_module_routes_to_the_island_as_a_note(tmp_path: Path) -> None:
+    # N2 (issue #1308): an unknown module is a library fact, not a language
+    # wall, so the report carries an advisory note and no PS2002 fence.
     (tmp_path / "__main__.py").write_text(
         """
 import nosuch
@@ -86,9 +88,11 @@ print(nosuch.f())
 """
     )
     report = build_report(tmp_path)
-    fenced = [fence for fence in report["fences"] if fence["code"] == "PS2002"]
-    assert fenced, report["fences"]
-    assert "nosuch is not in the closed import table" in fenced[0]["message"]
+    assert not [fence for fence in report["fences"] if fence["code"] == "PS2002"], report["fences"]
+    notes = [note for note in report["notes"] if note["name"] == "nosuch"]
+    assert notes, report["notes"]
+    assert "nosuch is not in the closed import table" in notes[0]["message"]
+    assert "island lane" in notes[0]["message"]
 
 
 def test_the_compiler_ir_module_itself_compiles_clean(tmp_path: Path) -> None:

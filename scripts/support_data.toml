@@ -17,7 +17,7 @@ Tiers [T0 to T3](../spec/refused-features.md): T0 refuse forever, T1 island only
 
 The census in `tests/test_census_self.py` counts something else: it compiles pyscriptc's own source (61 compiler modules, 2052 fences) to track self-hosting, not stdlib support.
 
-The unsupported column lists probed gaps. Any other name of a 🟡 module also fences with `PS2001`. A module that is not in the closed import table fences with `PS2002` on the import.
+The unsupported column lists probed gaps. Any other name of a 🟡 module also fences with `PS2001`. A module that is not in the closed import table routes to the island lane (embedded CPython) by default and the compile records the routing as a note.
 
 Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../../../docs/reference/divergences.md). Library results: [compat-top100.md](compat-top100.md).
 """

@@ -34,11 +34,13 @@ def test_a_package_counts_only_when_its_function_matches(tmp_path: Path) -> None
 
     broken = tmp_path / "broken"
     broken.mkdir()
+    # N2 (issue #1308): `import sqlite3` is outside the closed table, so it
+    # routes to the island and the package compiles; the tree has no
+    # callable function, so it counts as partial.
     (broken / "__init__.py").write_text("import sqlite3\n", encoding="utf-8")
     refused = classify_tree("broken", broken)
-    assert refused["status"] == "fenced"
-    assert refused["detail"].startswith("PS")
-    assert "sqlite3" in refused["detail"]
+    assert refused["status"] == "partial"
+    assert "no function was called" in refused["detail"]
 
     script = tmp_path / "scripted"
     script.mkdir()

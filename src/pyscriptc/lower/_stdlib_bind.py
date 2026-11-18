@@ -50,6 +50,11 @@ class StdlibBindMixin:
         there, `refuse` fences naming the policy, and a pinned `compile`,
         `replace` or `extern` keeps the old closed-table fence. The answer
         is one of `island`, `refuse` or `fence`.
+
+        A `refuse` policy keyed by the distribution name (`dateutil_ish`)
+        reaches the import name (`dateutil`) through the dependency lane
+        report, which is the map from an import name to its distribution
+        (issue #408).
         """
 
         head = name.split(".", 1)[0]
@@ -57,6 +62,9 @@ class StdlibBindMixin:
             lane, key = self.config.lane_for(head)
             if key != "default":
                 return "island" if lane == "island" else ("refuse" if lane == "refuse" else "fence")
+        entry = dep_lanes().get(head)
+        if entry is not None and entry.get("lane") == "refuse":
+            return "refuse"
         return "island" if island_lane(name) else "fence"
 
     def _note_island_import(self, name: str) -> None:
@@ -68,10 +76,11 @@ class StdlibBindMixin:
         compile.
         """
 
-        note = (
-            f"note: PS2002 ({name}): {name} is not in the closed import table; "
-            "it routes to the island lane (requires libpython)"
+        body = _dep_lane_hint(
+            name,
+            f"{name} is not in the closed import table; it routes to the island lane (requires libpython)",
         )
+        note = f"note: PS2002 ({name}): {body}"
         if note not in self.module_notes:
             self.module_notes.append(note)
 
@@ -126,7 +135,10 @@ class StdlibBindMixin:
                     fences.append(
                         Fence(
                             "PS2002",
-                            f"import `{alias.name.split(".", 1)[0]}` is refused by the `imports` policy",
+                            _dep_lane_hint(
+                                alias.name,
+                                f"import `{alias.name.split(".", 1)[0]}` is refused by the `imports` policy",
+                            ),
                             span_of(stmt, self.filename),
                             None,
                         )
@@ -218,7 +230,10 @@ class StdlibBindMixin:
                 fences.append(
                     Fence(
                         "PS2002",
-                        f"import `{stmt.module.split(".", 1)[0]}` is refused by the `imports` policy",
+                        _dep_lane_hint(
+                            stmt.module,
+                            f"import `{stmt.module.split(".", 1)[0]}` is refused by the `imports` policy",
+                        ),
                         span_of(stmt, self.filename),
                         None,
                     )

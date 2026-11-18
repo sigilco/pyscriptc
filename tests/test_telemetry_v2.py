@@ -15,7 +15,10 @@ from pyscriptc import telemetry
 
 needs_clang = pytest.mark.skipif(shutil.which("clang") is None, reason="clang required")
 
-_FENCED_SRC = "import zz_private_mod\n\n\ndef f(x: int) -> int:\n    return zz_private_mod.go(x)\n"
+# A construct that still fences under the default island routing (N2,
+# issue #1308): an unknown import routes to the island, so the fence
+# fixture uses a keyword-argument call instead.
+_FENCED_SRC = "def f(x: int) -> int:\n    return int(x, base=10)\n"
 _OK_SRC = "def f(x: int) -> int:\n    return x + 1\n"
 
 

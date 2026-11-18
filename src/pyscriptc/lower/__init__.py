@@ -79,6 +79,13 @@ from pyscriptc.tirserde import dict_to_span as dict_to_span_local
 WHOLE_TABLE = "*"
 
 
+def _null_lanes() -> Any:
+    """A no-op dependency lane report (the outer one stands)."""
+    from contextlib import nullcontext
+
+    return nullcontext()
+
+
 def _mk_span(span: dict[str, Any]) -> Any:
     """The Span record the dict-IR span spells."""
 
@@ -1979,7 +1986,13 @@ def lower_source(
     tree = ast.parse(source, filename=filename)
     if timings is not None:
         timings["parse"] = round((time.perf_counter() - started) * 1000.0, 3)
-    with dependency_lanes(dep_lane_report or {}), staged_resources(resource_root):
+    # boxed:begin
+    # The dependency lane report: the caller's own report wins; without
+    # one the report already installed around this call stands, so an
+    # outer caller (the coverage pass) keeps the lane hints it set up.
+    lanes_ctx = dependency_lanes(dep_lane_report) if dep_lane_report is not None else _null_lanes()
+    # boxed:end
+    with lanes_ctx, staged_resources(resource_root):
         if ffi:
             # The FFI table is a module-level registry the caller may have
             # installed already; only replace it when this call brings its
@@ -2053,7 +2066,7 @@ def lower_file(
     kept, catalogued, pruned = _prune_unreached(
         [("__main__", script, False)], dep_units, program=True, entry="__main__"
     )
-    merged, _notes = _lower_units(
+    merged, unit_notes = _lower_units(
         [("__main__", script, False), *kept],
         script,
         program=True,
@@ -2069,6 +2082,7 @@ def lower_file(
     )
     merged["sourceFile"] = str(script)
     notes = [
+        *unit_notes,
         *[_pruned_note(name, dep_path) for name, dep_path, _is_package in pruned],
         *[_catalogued_note(name, dep_path) for name, dep_path, _is_package in catalogued],
     ]

@@ -357,7 +357,6 @@ def test_uncaught_exceptions(tmp_path: Path) -> None:
 
 def test_fences_stay_closed(tmp_path: Path) -> None:
     cases = [
-        ("pickle.py", "import pickle\n\ndef f() -> int:\n    return 1\n", "PS2002", "pickle"),
         ("gcd.py", "from math import gcd\n\ndef f() -> int:\n    return gcd(6, 9)\n", "PS2001", "math.gcd"),
         (
             "dictbools.py",
@@ -385,13 +384,6 @@ def test_fences_stay_closed(tmp_path: Path) -> None:
             "PS1003",
             "os.environ.get",
         ),
-        # A bad import inside a function still fences, scoped to that body.
-        (
-            "localpickle.py",
-            "def f() -> int:\n    import pickle\n    return 1\n",
-            "PS2002",
-            "pickle",
-        ),
     ]
     for name, source, code, text in cases:
         path = write_case(tmp_path, name, source)
@@ -399,6 +391,18 @@ def test_fences_stay_closed(tmp_path: Path) -> None:
         assert got.returncode == 3, f"{name}\n{got.stderr}"
         assert code in got.stderr
         assert text in got.stderr
+
+
+def test_an_import_outside_the_closed_table_routes_to_the_island(tmp_path: Path) -> None:
+    # N2 (issue #1308): an import outside the closed table is a library
+    # fact, not a language wall, so it routes to the island and the
+    # compile records the routing as an advisory note.
+    source = "import pickle\n\ndef f() -> int:\n    return 1\n"
+    path = write_case(tmp_path, "pickle.py", source)
+    got = run_cli("compile", str(path), "--skip-check", "--emit", "llvm", "-o", str(tmp_path / "pickle.ll"))
+    assert got.returncode == 0, got.stderr
+    assert "PS2002 (pickle)" in got.stderr
+    assert "island lane" in got.stderr
 
 
 def test_bool_is_not_promoted_to_float(tmp_path: Path) -> None:
