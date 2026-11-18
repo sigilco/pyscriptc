@@ -137,7 +137,7 @@ class StdlibBindMixin:
                             "PS2002",
                             _dep_lane_hint(
                                 alias.name,
-                                f"import `{alias.name.split(".", 1)[0]}` is refused by the `imports` policy",
+                                f"import `{alias.name.split('.', 1)[0]}` is refused by the `imports` policy",
                             ),
                             span_of(stmt, self.filename),
                             None,
@@ -232,7 +232,7 @@ class StdlibBindMixin:
                         "PS2002",
                         _dep_lane_hint(
                             stmt.module,
-                            f"import `{stmt.module.split(".", 1)[0]}` is refused by the `imports` policy",
+                            f"import `{stmt.module.split('.', 1)[0]}` is refused by the `imports` policy",
                         ),
                         span_of(stmt, self.filename),
                         None,

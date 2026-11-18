@@ -196,9 +196,7 @@ def _pure_root(fake: dict[str, Any], tmp_path: Path) -> Path:
 
 
 @needs_clang
-def test_a_native_dependency_routes_to_the_island_with_the_lane_note(
-    fake: dict[str, Any], tmp_path: Path
-) -> None:
+def test_a_native_dependency_routes_to_the_island_with_the_lane_note(fake: dict[str, Any], tmp_path: Path) -> None:
     """N2 (issue #1308): the default routing sends `fastdep` to the island.
 
     The compile records the routing as an advisory note; the use site

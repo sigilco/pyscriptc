@@ -73,9 +73,7 @@ def test_the_note_names_the_island_route(tmp_path: Path) -> None:
 def test_the_refuse_lane_still_fences(tmp_path: Path) -> None:
     """A `refuse` policy is the user's own deny; it still stops the build."""
 
-    (tmp_path / "pyproject.toml").write_text(
-        "[tool.pyscriptc.imports]\nrich = 'refuse'\n", encoding="utf-8"
-    )
+    (tmp_path / "pyproject.toml").write_text("[tool.pyscriptc.imports]\nrich = 'refuse'\n", encoding="utf-8")
     script = _write(tmp_path, "app.py", "import rich\n")
     module, _ = lower_file(str(script))
     assert len(module["fences"]) == 1
@@ -86,9 +84,7 @@ def test_the_refuse_lane_still_fences(tmp_path: Path) -> None:
 def test_a_named_compile_policy_keeps_the_closed_table_fence(tmp_path: Path) -> None:
     """An explicit lane wins over the default routing."""
 
-    (tmp_path / "pyproject.toml").write_text(
-        "[tool.pyscriptc.imports]\nrich = 'compile'\n", encoding="utf-8"
-    )
+    (tmp_path / "pyproject.toml").write_text("[tool.pyscriptc.imports]\nrich = 'compile'\n", encoding="utf-8")
     script = _write(tmp_path, "app.py", "import rich\n")
     module, _ = lower_file(str(script))
     assert len(module["fences"]) == 1

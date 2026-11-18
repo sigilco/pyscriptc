@@ -374,9 +374,7 @@ def island_lane(name: str) -> bool:
 
 
 @contextmanager
-def island_policy(
-    names: Iterable[str], default: bool = True, native_pinned: Iterable[str] = ()
-) -> Iterator[None]:
+def island_policy(names: Iterable[str], default: bool = True, native_pinned: Iterable[str] = ()) -> Iterator[None]:
     """Install the island lane for the duration of one lowering pass.
 
     `native_pinned` names the imports an explicit `[imports]` policy pins

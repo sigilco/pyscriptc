@@ -252,6 +252,7 @@ def test_method_and_outside_table_are_fences(tmp_path: Path) -> None:
     assert "encode" in method.stderr
     assert not method_ll.exists()
 
+
 def test_outside_table_routes_to_the_island(tmp_path: Path) -> None:
     outside_ll = tmp_path / "pickle.ll"
     loaded = run_cli("compile", str(EXAMPLES / "island_pickle.py"), "--emit", "llvm", "-o", str(outside_ll))

@@ -415,6 +415,8 @@ def test_a_file_that_is_no_module_name_is_skipped_with_a_note(tmp_path: Path) ->
     )
     got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "lib.ir.json"))
     assert got.returncode == 0, got.stderr
+
+
 def test_a_missing_program_module_routes_to_the_island(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
