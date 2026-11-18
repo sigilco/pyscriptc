@@ -328,8 +328,9 @@ def test_self_census_ballpark() -> None:
     # ceiling moves to 88k.
     # The asyncio server surface (#1281 slice 2): the server lowering, the
     # serve loop's stop handling and the runtime helpers add about 300
-    # lines, taking the census to 88,362, so the ceiling moves to 90k.
-    assert 11_000 <= census["lines"] <= 90_000
+    # lines, taking the census to 88,362, so the ceiling moves to 90k; the
+    # default island routing (#1308) takes it to 90,123, so it moves to 92k.
+    assert 11_000 <= census["lines"] <= 92_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
