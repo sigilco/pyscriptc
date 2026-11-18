@@ -45,7 +45,6 @@ pyscriptc compile SOURCE [options]
 | `--skip-check` |  | skip the type-checker preflight |
 | `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight; mypy and pyright are deprecated (default `pyrefly`) |
 | `--bridge BRIDGE` | `mypy\|pyrefly` | feed the checker's inferred-type map to the compiler so unannotated code compiles; needs mypy installed, or pyrefly for --bridge pyrefly |
-| `--infer` |  | apply the package-wide pins `pyscriptc infer` proves: every call site of a parameter that agrees on its type pins the parameter, so an unannotated parameter lowers without the source being annotated |
 | `--debug[=WHAT]` | `WHAT` | print a compact stage table to stderr; WHAT is a comma list of stages,fences,cc,paths,all (also via PYSC_DEBUG) |
 | `--debug-dir DIR` | `DIR` | write debug artifacts (ir.json, out.ll, cc.sh, summary.json) to DIR |
 | `--timings` |  | print per-stage wall times (parse, check, lower, emit, cc/link) to stderr |
@@ -261,7 +260,11 @@ Use `pyscriptc coverage FILE` to see every individual code.
 
 ## Notes on `infer`
 
+Inference is on by default: every compile runs the pin engine, so an unannotated parameter whose call sites all agree on one type lowers without the source being annotated (issue #1305). A fully annotated tree pays nothing: the skip fast path proves there is nothing to infer with one AST walk and never starts a checker server. The pins never override a written annotation; a parameter no pin reaches keeps its PS1001 fence.
+
 The per-module call-site facts are cached under `~/.cache/pyscriptc/infer/` (the cache root moves with `PYSC_CACHE_DIR`), keyed on the module's own content hash, the compiler digest, the checker identity and the content hashes of the in-tree modules it imports from. A module whose key still matches contributes its stored call sites without a checker round trip, so a repeat compile of an unchanged tree pays the checker once, not once per compile. The pins are still reduced tree-wide from the merged per-module lists, so a cached fact can only contribute to the same all-or-nothing agreement the checker proved; it never widens what compiles. `PYSC_NO_INFER_CACHE=1` turns the cache off.
+
+There is no `--infer` option any more and no `--no-infer`: the references do not offer an inference switch. The only disable path is the debug topic `PYSC_DEBUG=noinfer`, a developer bisect tool (not in `--help`); it records `infer.skipped = "disabled"` in `summary.json` so a run with the topic set is never silent.
 
 ## Notes on `verify`
 

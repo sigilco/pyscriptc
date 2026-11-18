@@ -220,7 +220,6 @@ def _compile(root: Path, out_dir: Path) -> subprocess.CompletedProcess[str]:
             "compile",
             str(root),
             "--program",
-            "--infer",
             "--emit",
             "ir",
             "--out-dir",
