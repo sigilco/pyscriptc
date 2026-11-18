@@ -340,6 +340,175 @@ def _dotted_name(node: Any) -> str:
 # boxed:end
 
 
+
+
+# boxed:begin
+# The class-base wall (issue #1312, design note N1 step 1): the class-base
+# refusals the lowerer raises, and the per-class demotion plan assess
+# surfaces for them. The plan is analysis: the fences stay fences, and the
+# plan names what the boxed-class ABI (N1 step 2) will route to the island.
+BASE_REFUSAL_MESSAGE = "this class base is not lowered"
+
+# The base kinds of the demotion plan, per the library-blocks design note's
+# ranked table: `island-defined` (the base lives in a module the island
+# owns, the row-one mass), `typing` (a Protocol/ABC/Generic/NamedTuple
+# shape whose runtime structure only the island supplies), `enum` (an enum
+# used as a base), `stdlib` (a synthetic stdlib type as a base) and
+# `cascade` (a base that is a local class which itself refuses).
+BASE_KIND_ISLAND = "island-defined"
+BASE_KIND_TYPING = "typing"
+BASE_KIND_ENUM = "enum"
+BASE_KIND_STDLIB = "stdlib"
+BASE_KIND_CASCADE = "cascade"
+BASE_KIND_UNKNOWN = "unknown"
+
+# The refusal messages of the class-base wall, one constant each: the lowerer
+# folds a string constant, and the island-floor refusal names the base class
+# itself, so it is matched on its prefix.
+STDLIB_BASE_REFUSAL_MESSAGE = "subclassing a stdlib type is not lowered"
+ENUM_BASE_REFUSAL_MESSAGE = "an enum is not a base"
+
+_TYPING_BASE_NAMES = frozenset(
+    {"Protocol", "ABC", "Generic", "NamedTuple", "TypedDict", "ABCVar", "ABCMeta", "Enum", "IntEnum", "StrEnum"}
+)
+
+
+def _base_spelling(node: ast.expr) -> str:
+    """The source spelling of one class base (`Base`, `mod.Base`)."""
+
+    if isinstance(node, ast.Name):
+        return node.id
+    if isinstance(node, ast.Attribute):
+        parts: list[str] = []
+        current: ast.expr = node
+        while isinstance(current, ast.Attribute):
+            parts.append(current.attr)
+            current = current.value
+        if isinstance(current, ast.Name):
+            parts.append(current.id)
+            return ".".join(reversed(parts))
+        return ""
+    if isinstance(node, ast.Subscript):
+        # `Generic[T]` and friends: the spelling is the generic's origin.
+        return _base_spelling(node.value)
+    return ""
+
+
+def _class_base_refusal_kind(message: str) -> str | None:
+    """The base kind of one class-base refusal message, or None.
+
+    None means the message is not a class-base refusal: the plan covers the
+    class-base wall only.
+    """
+
+    if message == BASE_REFUSAL_MESSAGE:
+        return BASE_KIND_UNKNOWN
+    if message == STDLIB_BASE_REFUSAL_MESSAGE:
+        return BASE_KIND_STDLIB
+    if message == ENUM_BASE_REFUSAL_MESSAGE:
+        return BASE_KIND_ENUM
+    if message.startswith("class ") and "runs on the island floor of" in message:
+        # The island-floor refusal (issue #628) already says the subclass
+        # joins the island: that is the demotion this plan records.
+        return BASE_KIND_ISLAND
+    return None
+
+
+def _class_header_lines(node: ast.AST) -> set[int]:
+    """The source lines a class header covers (the class line and its bases)."""
+
+    lines = {node.lineno}
+    for base in node.bases:
+        lines.add(getattr(base, "lineno", node.lineno))
+    for keyword in node.keywords:
+        lines.add(getattr(keyword, "lineno", node.lineno))
+    return lines
+
+
+def class_base_demotions(
+    tree: ast.AST | None,
+    fences: list[dict[str, Any]],
+    file_name: str = "",
+) -> list[dict[str, Any]]:
+    """The per-class demotion plan the class-base refusals imply (issue #1312).
+
+    A class whose base the lowerer refuses (the design note's N1 wall) demotes
+    to the island as one class: the island holds the base and runs the body
+    CPython runs, and the boxed-class ABI work rides this contract. Each plan
+    entry is `{"class": name, "file": the file the class lives in, "line":
+    lineno, "base": the refused base spelling, "baseKind": the demotion kind,
+    "plan": the demotion sentence}`. The fence stays a fence: the plan is
+    assess analysis, not a lowering change.
+    """
+
+    if tree is None:
+        return []
+    refused: list[tuple[int, str, str]] = []
+    for fence in fences:
+        message = str(fence.get("message", ""))
+        kind = _class_base_refusal_kind(message)
+        if kind is None:
+            continue
+        line = int(fence.get("line", 0) or 0)
+        if line:
+            refused.append((line, kind, message))
+    if not refused:
+        return []
+    # The classes the module defines, by name: a base that names one of them
+    # is a local class, so the refusal cascades from that class.
+    class_nodes = [node for node in ast.walk(tree) if isinstance(node, ast.ClassDef)]
+    local_classes = {node.name for node in class_nodes}
+    plans: list[dict[str, Any]] = []
+    for node in class_nodes:
+        header_lines = _class_header_lines(node)
+        hit: tuple[int, str, str] | None = None
+        for entry in refused:
+            if entry[0] in header_lines:
+                hit = entry
+                break
+        if hit is None:
+            continue
+        _line, kind, _message = hit
+        base_node = node.bases[0] if node.bases else None
+        base = _base_spelling(base_node) if base_node is not None else ""
+        if kind == BASE_KIND_UNKNOWN:
+            leaf = base.split(".")[-1]
+            if leaf in _TYPING_BASE_NAMES:
+                kind = BASE_KIND_TYPING
+            elif base in local_classes:
+                kind = BASE_KIND_CASCADE
+            else:
+                kind = BASE_KIND_ISLAND
+        if kind == BASE_KIND_TYPING:
+            plan = (
+                f"demote class {node.name} to the island: the {base} base needs the runtime "
+                "structure only the island supplies"
+            )
+        elif kind == BASE_KIND_CASCADE:
+            plan = f"demote class {node.name} to the island: its base {base} refuses to lower too"
+        elif kind == BASE_KIND_ENUM:
+            plan = f"demote class {node.name} to the island: an enum is not a native base"
+        elif kind == BASE_KIND_STDLIB:
+            plan = f"demote class {node.name} to the island: {base} has no native class record"
+        else:
+            plan = f"demote class {node.name} to the island: its base {base} is island-defined under fallback routing"
+        plans.append(
+            {
+                "class": node.name,
+                "file": file_name,
+                "line": node.lineno,
+                "base": base,
+                "baseKind": kind,
+                "plan": plan,
+            }
+        )
+    plans.sort(key=lambda item: (item["line"], item["class"]))
+    return plans
+
+
+# boxed:end
+
+
 # The fallback tier of the running compile, module-level like the island
 # lane in `stdlib_queue.py`: the lowerer reads it per definition, the CLI
 # installs it around the same lowering pass.

@@ -452,3 +452,90 @@ def _named_ir_reads(path: Path) -> int:
 
 def test_assess_has_no_raw_dict_ir_reads() -> None:
     assert _named_ir_reads(_SRC / "assess.py") == 0
+
+
+BASE_REFUSAL_SCRIPT = """
+class Broken(Missing):
+    def __init__(self) -> None:
+        pass
+
+
+class Sub(Broken):
+    def __init__(self) -> None:
+        pass
+
+
+def use(x: int) -> int:
+    return x + 1
+
+
+if __name__ == "__main__":
+    use(1)
+"""
+
+
+def test_assess_class_base_demotion_plans(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    """Issue #1312: a class-base refusal surfaces a per-class island demotion plan."""
+    script = tmp_path / "bases.py"
+    script.write_text(BASE_REFUSAL_SCRIPT, encoding="utf-8")
+
+    code = cli.main(["assess", str(script), "--json"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+
+    plans = data["demotionPlans"]
+    by_class = {plan["class"]: plan for plan in plans}
+    assert set(by_class) == {"Broken", "Sub"}
+    assert by_class["Broken"]["file"] == "bases.py"
+    blocked = data["islandRouting"]["staysBlocked"]
+    assert any("class base demotes to the island per class" in blk["reason"] for blk in blocked)
+    assert by_class["Broken"]["base"] == "Missing"
+    assert by_class["Broken"]["baseKind"] == "island-defined"
+    assert by_class["Sub"]["base"] == "Broken"
+    assert by_class["Sub"]["baseKind"] == "cascade"
+    assert "demote class Broken to the island" in by_class["Broken"]["plan"]
+    assert all("line" in plan and isinstance(plan["line"], int) for plan in plans)
+
+    code_text = cli.main(["assess", str(script)])
+    assert code_text == 0
+    text_out = capsys.readouterr().out
+    assert "Class demotion plans" in text_out
+    assert "demote class Broken to the island" in text_out
+    assert "bases.py:2: Broken" in text_out
+    # The class-base refusal is a demotion note, not an opaque block.
+    assert "class base demotes to the island per class" in text_out
+
+
+def test_assess_class_base_demotion_plans_kind_split(tmp_path: Path) -> None:
+    """The base kind names the demotion family: typing bases and enum bases."""
+    from pyscriptc import boxed
+
+    typing_src = "from typing import NamedTuple\n\n\nclass P(NamedTuple):\n    x: int\n"
+    tree = ast.parse(typing_src)
+    fences = [
+        {"code": "PS2002", "message": "this class base is not lowered", "line": 4},
+    ]
+    plans = boxed.class_base_demotions(tree, fences)
+    assert len(plans) == 1
+    assert plans[0]["class"] == "P"
+    assert plans[0]["baseKind"] == boxed.BASE_KIND_TYPING
+
+    enum_src = "from enum import Enum\n\n\nclass Color(Enum):\n    RED = 1\n\n\nclass Weird(Color):\n    pass\n"
+    tree2 = ast.parse(enum_src)
+    fences2 = [
+        {"code": "PS2002", "message": "an enum is not a base", "line": 8},
+    ]
+    plans2 = boxed.class_base_demotions(tree2, fences2)
+    assert len(plans2) == 1
+    assert plans2[0]["class"] == "Weird"
+    assert plans2[0]["baseKind"] == boxed.BASE_KIND_ENUM
+
+
+def test_assess_no_demotion_plans_without_base_refusals(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
+    script = tmp_path / "clean.py"
+    script.write_text(TYPED_SCRIPT, encoding="utf-8")
+
+    code = cli.main(["assess", str(script), "--json"])
+    assert code == 0
+    data = json.loads(capsys.readouterr().out)
+    assert data["demotionPlans"] == []

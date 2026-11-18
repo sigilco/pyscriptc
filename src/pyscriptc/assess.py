@@ -332,9 +332,12 @@ def assess(
         str(Path(item["file"]).resolve()): str(item.get("reason", "")) for item in cov_report.get("skippedFiles", [])
     }
 
+    from pyscriptc import boxed
+
     file_results: list[dict[str, Any]] = []
     untyped_imports_needed: dict[str, dict[str, Any]] = {}
     stays_blocked: list[dict[str, Any]] = []
+    demotion_plans: list[dict[str, Any]] = []
     package_roots = _target_package_roots(target, target_files)
 
     for fpath in target_files:
@@ -452,6 +455,11 @@ def assess(
                     if is_partial_stdlib
                     else "unsupported construct outside island routing"
                 )
+                if fence.get("message", "") == boxed.BASE_REFUSAL_MESSAGE:
+                    # Issue #1312: a class-base refusal is not a construct
+                    # the island cannot route: the class demotes as one
+                    # unit, and the demotion plan below names the base.
+                    reason = "class base demotes to the island per class (see the demotion plans)"
                 stays_blocked.append(
                     {
                         "file": rel_path,
@@ -495,6 +503,10 @@ def assess(
             marked_island = sum(1 for name in marked_here if file_planes.get(name) == boxed.ISLAND)
             island_defs += marked_island
             native_defs = max(native_defs - marked_island, 0)
+        # Issue #1312: the per-class demotion plan the class-base refusals
+        # imply. The plan is analysis only: the fences stay fences, the plan
+        # names what the boxed-class ABI (N1 step 2) will route.
+        demotion_plans.extend(boxed.class_base_demotions(tree, local_fences, rel_path))
 
         file_results.append(
             {
@@ -641,6 +653,18 @@ def assess(
         "routes": sorted(untyped_imports_needed.values(), key=lambda r: r["name"]),
         "staysBlocked": stays_blocked,
     }
+
+    # The per-class demotion plans (issue #1312): one entry per class whose
+    # base the lowerer refuses, with the demotion the boxed-class ABI routes.
+    # Deduplicated by (file, class, line): a plan is per class definition.
+    seen_plans: set[tuple[str, str, int]] = set()
+    unique_plans: list[dict[str, Any]] = []
+    for item in demotion_plans:
+        key = (item.get("file", ""), item.get("class", ""), item.get("line", 0))
+        if key in seen_plans:
+            continue
+        seen_plans.add(key)
+        unique_plans.append(item)
 
     total_imports = len(assessed_imports)
     isl_imports = sum(1 for i in assessed_imports if i["routing"] == "island")
@@ -823,10 +847,27 @@ def assess(
         "files": file_results,
         "imports": assessed_imports,
         "islandRouting": island_routing,
+        "demotionPlans": unique_plans,
         "compilableEntries": [str(e) for e in compilable_entries],
         "verify": verify_receipts if verify_diff else None,
         "bench": bench_results if bench else None,
     }
+
+
+def _plan_list(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """The demotion plans the report carries, as a list of records.
+
+    The plans are analysis output, so the report may carry them under any
+    shape a caller hands in: only the well-formed records pass.
+    """
+
+    plans: list[dict[str, Any]] = []
+    if "demotionPlans" in report:
+        plan_items: list[dict[str, Any]] = report["demotionPlans"]
+        for item in plan_items:
+            entry: dict[str, Any] = item
+            plans.append(entry)
+    return plans
 
 
 def render_text(
@@ -1061,6 +1102,30 @@ def render_text(
             lines.append(f"    ... and {blocked_overflow} more blocked construct(s) (use --all for full list)")
     else:
         lines.append("    (none)")
+
+    # The per-class demotion plans (issue #1312): each entry names the class
+    # whose base the lowerer refuses and the demotion the boxed-class ABI
+    # routes. Plans are analysis, not policy lines: the fences stay fences.
+    demotion_plans: list[dict[str, Any]] = _plan_list(report)
+    if demotion_plans:
+        lines.append("")
+        lines.append("Class demotion plans (base refusals route per class to the island):")
+        plan_list: list[dict[str, Any]] = demotion_plans
+        plan_overflow = 0
+        if not show_all and len(plan_list) > top_n:
+            plan_list = plan_list[:top_n]
+            plan_overflow = len(demotion_plans) - top_n
+        for plan_item in plan_list:
+            plan_cls: str = plan_item["class"]
+            plan_kind: str = plan_item.get("baseKind", "")
+            plan_kind_str = f" ({plan_kind})" if plan_kind else ""
+            plan_text: str = plan_item["plan"]
+            plan_file: str = plan_item.get("file", "")
+            plan_where: str = f"{plan_file}:" if plan_file else ""
+            plan_line: int = plan_item.get("line", 0)
+            lines.append(f"  {plan_where}{plan_line}: {plan_cls}{plan_kind_str}: {plan_text}")
+        if plan_overflow > 0:
+            lines.append(f"  ... and {plan_overflow} more class demotion plan(s) (use --all for full list)")
 
     verify_list: list[dict[str, Any]] | None = report["verify"]
     if verify_list is not None:

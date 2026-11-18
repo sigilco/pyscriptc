@@ -284,6 +284,10 @@ On a library directory it inspects every module without needing an entry point.
 On an application directory (one with `__main__.py` or `main.py`) it evaluates the whole package tree and prints the `[tool.pyscriptc.imports]` lines that route the unsupported imports to embedded CPython.
 See [Config](config.md) for what those lines go into.
 
+A class whose base does not lower is reported as a per-class demotion plan: one entry per refusal, naming the class, the base, the base kind (`island-defined`, `typing`, `enum`, `stdlib`, `cascade`) and the demotion the class takes on the island.
+The `--json` report carries them under `demotionPlans`; the text report prints them as "Class demotion plans".
+The plan is analysis: the fence stays a fence and the compile is unchanged.
+
 ## Notes on `coverage`
 
 Needs no C toolchain.
