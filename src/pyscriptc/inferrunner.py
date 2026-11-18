@@ -14,6 +14,12 @@ then reduces.
 One checker process serves the whole tree (the `tsp` server keeps a
 snapshot per open document), so the cost is one server start plus one
 document open per module, not one server per module.
+
+Skip fast path (issue #1317): a tree with no unannotated parameters has
+nothing for the engine to prove, so `build_facts` returns before any
+checker server starts. The census is one AST walk per module
+(`has_unannotated_params`), reusing the same parameter surface the
+coverage report counts; a single-file tree reads its own module only.
 """
 
 from __future__ import annotations
@@ -26,7 +32,7 @@ from pathlib import Path
 from typing import Any
 
 from pyscriptc.check import CheckFailed, _resolve_pyrefly_binary
-from pyscriptc.inferfacts import InferFacts, collect_calls, parse_pin_type, pins_from_calls
+from pyscriptc.inferfacts import InferFacts, collect_calls, has_unannotated_params, parse_pin_type, pins_from_calls
 from pyscriptc.typefacts import PyreflyTspFactsAdapter
 
 # The TSP configuration the runner pins, so an unannotated def reports its
@@ -208,7 +214,7 @@ class _tsp_server:
             self._directory.cleanup()
 
 
-def build_facts(root: Path, provider: str = "pyrefly") -> InferFacts:
+def build_facts(root: Path, provider: str = "pyrefly", skip: bool | None = None) -> InferFacts:
     """The package-wide inference facts for a tree.
 
     The `own` provider runs the local checker-free engine
@@ -216,6 +222,17 @@ def build_facts(root: Path, provider: str = "pyrefly") -> InferFacts:
     server. Raises `CheckFailed` when the provider is not wired; a file
     the engine or the checker cannot read contributes no call sites,
     which simply means its callees keep their fences.
+
+    Skip fast path (issue #1317): a tree with no unannotated parameters
+    has nothing the engine could prove, so it returns empty facts before
+    the checker server starts. The pins would have been empty either way
+    (`pins_from_calls` reduces to nothing when every parameter carries an
+    annotation), so the lowering input is identical; only the checker cost
+    is gone.
+
+    `skip` is the caller's own verdict of that test (`None` asks for it
+    here), so a caller that already counted the unannotated parameters
+    does not pay for a second walk.
     """
 
     root = root.resolve()
@@ -226,6 +243,10 @@ def build_facts(root: Path, provider: str = "pyrefly") -> InferFacts:
     if provider != "pyrefly":
         raise CheckFailed(f"the infer runner supports pyrefly and own, not {provider!r}")
     facts = InferFacts(provider=provider)
+    if skip is None:
+        skip = not has_unannotated_params(root)
+    if skip:
+        return facts
     signatures = _qualified_signatures(root)
     with _tsp_server() as adapter:
         for path in sorted(root.rglob("*.py")):

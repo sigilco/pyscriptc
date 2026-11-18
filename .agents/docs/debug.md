@@ -31,6 +31,12 @@ saw, what it decided, and how long each stage took.
   are never touched. On `--emit bin` (and `run`) the pyrefly `check` stage
   overlaps emit/link: its row closes after `link`, so `total` can read below
   the sum of the rows. `PYSC_NO_CHECK_OVERLAP=1` restores the serial order.
+  With `--infer` an `infer` row shows the engine's wall time plus its
+  outcome: `infer: skipped (no unannotated parameter to prove) N.Nms` when
+  the skip fast path (issue #1317) took the engine out — no checker server
+  started — or `infer: P pinned, C call site(s) N.Nms` when it ran.
+  `summary.json` carries the same dict as `infer` (skipped, pins,
+  callSites, ms).
 - `fences` — the fence table: count, then `file:line:col CODE message` per fence
   (the same dicts that `module["fences"]` carries; no extra computation).
 - `cc` — every clang/zig command line `link_binary` runs (the `.ll`/`.c -> .o`
@@ -66,7 +72,7 @@ Two read-only checks run when the `verify` topic is on (bare `--debug`,
 | `ir.json` | The lowered module, identical to the `<out>.ir.json` next to the output. |
 | `out.ll` | The emitted LLVM text (present for `--emit llvm` and `--emit bin`). |
 | `cc.sh` | The exact cc invocations, one per line (only when linking ran). |
-| `summary.json` | Stage timings (`timings` maps every stage and sub-step to ms; `stageStats` adds per-stage `rssKb`, `nodes` and `functions` for the compile stages), fence dicts, cc commands, output paths, verification verdicts (`verify.ir` list, `verify.llvm` object), final status (`ok` / `fences` / `error`). |
+| `summary.json` | Stage timings (`timings` maps every stage and sub-step to ms; `stageStats` adds per-stage `rssKb`, `nodes` and `functions` for the compile stages), fence dicts, cc commands, output paths, verification verdicts (`verify.ir` list, `verify.llvm` object), final status (`ok` / `fences` / `error`), and with `--infer` the `infer` dict (`skipped`, `pins`, `callSites`, `ms`). |
 
 Artifacts are written in a `finally`, so a fenced or failed compile still
 leaves `ir.json` and `summary.json` for inspection.

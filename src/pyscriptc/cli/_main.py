@@ -1945,12 +1945,31 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 # checker then re-checks a pinned copy of each module, so
                 # the return and local types it derives from a pinned
                 # parameter agree with what the lowerer will apply.
-                from pyscriptc.inferrunner import build_facts, facts_as_pins, pinned_facts
+                from pyscriptc.inferrunner import (
+                    build_facts,
+                    facts_as_pins,
+                    has_unannotated_params,
+                    pinned_facts,
+                )
 
                 dbg.begin("infer")
-                facts = build_facts(source_path)
+                infer_started = time.perf_counter()
+                # The skip fast path (issue #1317): a tree with no
+                # unannotated parameter has nothing for the engine to
+                # prove, so no checker server starts and the pins stay
+                # empty. The bridge still opens (it serves the per-module
+                # facts the lowerer reads), but the mirror re-check would
+                # prove nothing, so it is skipped.
+                infer_skipped = not has_unannotated_params(source_path)
+                facts = build_facts(source_path, skip=infer_skipped)
                 pins = facts_as_pins(facts)
-                pinned = pinned_facts(source_path, facts) if source_path.is_dir() else {}
+                pinned = pinned_facts(source_path, facts) if source_path.is_dir() and not infer_skipped else {}
+                dbg.infer_info = {
+                    "skipped": 1 if infer_skipped else 0,
+                    "pins": len(facts.pins),
+                    "callSites": len(facts.calls),
+                    "ms": int((time.perf_counter() - infer_started) * 1000.0),
+                }
                 dbg.end("infer")
             else:
                 pinned = {}

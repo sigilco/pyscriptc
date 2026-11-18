@@ -78,6 +78,10 @@ class Debug:
     # engine's capability manifest declares, or None when no engine with
     # a manifest was selected (the gate is then open).
     engine_level: str | None
+    # The inference engine's record (issue #1317): whether the skip fast
+    # path took the engine out of the compile, and how many pins and call
+    # sites it produced. None when the compile ran no inference.
+    infer_info: dict[str, int] | None
 
     def __init__(self, topics: set[str], debug_dir: Path | None) -> None:
         self.topics = topics
@@ -103,6 +107,7 @@ class Debug:
         self.mir_plan = None
         self.engine_info = None
         self.engine_level = None
+        self.infer_info = None
 
     def set_binding(self, emitted: list[dict[str, Any]], skipped: list[tuple[str, str]]) -> None:
         self.binding_info = {
@@ -245,6 +250,14 @@ class Debug:
                 f"[debug] binding: {self.binding_info['emittedCount']} exported, "
                 f"{self.binding_info['skippedCount']} skipped"
             )
+        if self.infer_info is not None and self.wants("stages"):
+            infer = self.infer_info
+            if infer["skipped"]:
+                lines.append(f"[debug] infer: skipped (no unannotated parameter to prove) {infer['ms']}ms")
+            else:
+                lines.append(
+                    f"[debug] infer: {infer['pins']} pinned, {infer['callSites']} call site(s) {infer['ms']}ms"
+                )
         if self.engine_info is not None and self.wants("stages"):
             info = self.engine_info
             caps = ",".join(info.capabilities) or "-"
@@ -288,6 +301,8 @@ class Debug:
             res["islandEngine"] = self.engine_info.as_dict()
             if self.engine_level is not None:
                 res["islandEngine"]["languageLevel"] = self.engine_level
+        if self.infer_info is not None:
+            res["infer"] = self.infer_info
         # boxed:begin
         if module is not None and _has(module, "fallback"):
             fallback: dict[str, Any] = module["fallback"]

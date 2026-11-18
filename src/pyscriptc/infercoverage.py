@@ -26,33 +26,8 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from pyscriptc.inferfacts import InferFacts
+from pyscriptc.inferfacts import InferFacts, _unannotated_params
 from pyscriptc.inferrunner import _module_name
-
-_SELF_PARAMS = ("self", "cls")
-
-
-def _unannotated_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
-    """One def's parameters that carry no annotation and no typed default.
-
-    A parameter with a proven default (`def f(x=0)`) is already typed by
-    the lowerer's own proof (`_param`, issue #500), so it is not part of
-    the surface the pins would lift. `self` and `cls` are excluded the
-    same way.
-    """
-
-    args = node.args
-    plain = args.posonlyargs + args.args
-    defaults: list = [None] * (len(plain) - len(args.defaults))
-    defaults.extend(args.defaults)
-    out: list[str] = []
-    for arg, default in zip(plain, defaults, strict=False):
-        if arg.annotation is None and default is None and arg.arg not in _SELF_PARAMS:
-            out.append(arg.arg)
-    for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=False):
-        if arg.annotation is None and default is None and arg.arg not in _SELF_PARAMS:
-            out.append(arg.arg)
-    return out
 
 
 def _defs_of(tree: ast.Module) -> list[tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]]:
