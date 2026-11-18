@@ -5,7 +5,8 @@ description: "What pyscriptc compiles, how to write code inside the subset, and 
 
 pyscriptc compiles the typed subset of Python 3.14.
 Code inside the subset becomes a native binary with no interpreter inside.
-Code outside it either stops the build with a `PSxxxx` code that names the exact line, or runs through embedded CPython (fallback mode) when you enable it.
+Code outside it either stops the build with a `PSxxxx` code that names the exact line, or runs through embedded CPython (fallback mode).
+An import outside the closed import table routes to the island lane by default, with no flag; a definition the subset cannot express needs fallback mode enabled.
 The compiler never guesses.
 
 Check whether your script is inside the subset before compiling:
@@ -37,13 +38,14 @@ pyscriptc run --fallback=cpython --report=report.json script.py  # the executed 
 ```
 
 `assess` prints a "Path to the island" section: the exact `[tool.pyscriptc.imports]` lines that route each unsupported import to embedded CPython, each with the import site that forced it.
+An import outside the closed import table needs no line there: it routes to the island lane by default, and `assess` reports it as a note.
 The `--json` plane map reports, per function, `native` or `island`, plus the `demotedBy` function that pulled each island demotion.
 Read the plane map, not the per-definition share: the per-definition share answers "how much of this tree is inside the subset", the plane map answers "what actually runs native", and on a framework-heavy app those differ by the whole framework boundary.
 
 ## When pyscriptc fits and when it does not
 
 pyscriptc fits typed application code: CLIs, data pipelines, file and protocol processing, parsers, simulation and math cores, background jobs.
-The pattern that works is a typed core with all annotations, closed data shapes (`dataclass`, `dict[str, int]`, `list[T]`), imports from the closed stdlib table, and third-party interaction pushed to explicit boundaries.
+The pattern that works is a typed core with all annotations, closed data shapes (`dataclass`, `dict[str, int]`, `list[T]`), imports from the closed stdlib table where they exist, and third-party interaction pushed to explicit boundaries (it routes to the island by default, see [Libraries and fallback mode](libraries.md)).
 
 pyscriptc does not fit, as native code, applications whose structure is runtime reflection:
 
@@ -175,8 +177,8 @@ Common failure modes on real scripts:
 
 - An assignment without an annotation (`files = os.listdir(d)`) stops with `PS1001`, and every later read of the name stops with `PS2002`; the first one is the cause and the rest follow from it.
 - A keyword argument to a stdlib call (`shutil.copy(src, dst, follow_symlinks=False)`) stops with `PS2003`.
-- A module outside the closed import table (`sqlite3`, `pickle`) stops with `PS2002` on the import.
-Run the module through embedded CPython (fallback mode) instead, see [Libraries and fallback mode](libraries.md).
+- An import outside the closed import table (`sqlite3`, `pickle`, third-party) no longer stops the compile: it routes to the island lane (embedded CPython) by default, and `pyscriptc assess` reports it as a note.
+Run the definitions that fence instead through fallback mode, see [Libraries and fallback mode](libraries.md).
 
 Related commands:
 

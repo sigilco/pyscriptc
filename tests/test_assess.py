@@ -157,21 +157,17 @@ def test_assess_untyped_dependency_island_route(tmp_path: Path, capsys: pytest.C
     captured = capsys.readouterr()
     data = json.loads(captured.out)
 
-    assert data["summary"]["files"]["partly"] == 1
+    # N2 (issue #1308): the import outside the closed table is a note, not a
+    # fence, and it needs no policy line: it routes to the island by default.
     f_res = data["files"][0]
-    assert f_res["status"] == "partly"
-    assert len(f_res["groupedFences"]["untyped-import"]) == 1
-    untyped = f_res["groupedFences"]["untyped-import"][0]
-    assert untyped["importName"] == "requests"
-
-    assert 'requests = "island"' in data["islandRouting"]["policyLines"]
-    assert any(r["name"] == "requests" for r in data["islandRouting"]["routes"])
+    assert f_res["groupedFences"]["untyped-import"] == []
+    assert any(n["name"] == "requests" for n in data["notes"])
+    assert "requests" not in " ".join(data["islandRouting"]["policyLines"])
 
     # Human text output
     cli.main(["assess", str(script)])
     text_out = capsys.readouterr().out
-    assert 'requests = "island"' in text_out
-    assert 'island route: requests = "island"' in text_out
+    assert "requests" in text_out
 
 
 def test_assess_reflection_culprits(tmp_path: Path, capsys: pytest.CaptureFixture[str]) -> None:
@@ -255,7 +251,9 @@ def test_assess_pure_python_library_directory(tmp_path: Path, capsys: pytest.Cap
 
     mod_b = next(f for f in data["files"] if f["file"] == "mod_b.py")
     assert mod_b["status"] in ("partly", "refused")
-    assert len(mod_b["groupedFences"]["untyped-import"]) >= 1
+    # The third-party import is a note (N2), the language-wise construct
+    # stays a fence.
+    assert len(mod_b["groupedFences"]["untyped-import"]) == 0
     assert len(mod_b["groupedFences"]["unsupported-construct"]) >= 1
 
     # Stays blocked should contain the generic-alias fence

@@ -637,6 +637,16 @@ ROWS: list[dict[str, Any]] = [
         "fallback is the rest of the entry",
     ),
     _row(
+        "D85",
+        "an import outside the closed import table routes to the island lane by default (issue #1308): "
+        "the compile records an advisory note instead of a PS2002 fence, and the module runs in the "
+        "embedded interpreter",
+        None,
+        docs=f"{DOC}#85",
+        note="the host lane is byte-identical (probes/differential/island_import_routing.py); the "
+        "routing itself is a compile-time fact the ledger cannot record as program bytes",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

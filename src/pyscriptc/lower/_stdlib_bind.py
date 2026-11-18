@@ -41,6 +41,42 @@ class StdlibBindMixin:
                 return f"import `{head}` is refused by the `imports` policy"
         return _dep_lane_hint(name, f"{name} is not in the closed import table")
 
+    # boxed:begin
+    def _island_route(self, name: str) -> str:
+        """The route of one import root outside the closed table.
+
+        N2 (issue #1308): the island lane is the default. An explicit
+        `[imports]` policy entry wins over the default: `island` routes
+        there, `refuse` fences naming the policy, and a pinned `compile`,
+        `replace` or `extern` keeps the old closed-table fence. The answer
+        is one of `island`, `refuse` or `fence`.
+        """
+
+        head = name.split(".", 1)[0]
+        if self.config is not None:
+            lane, key = self.config.lane_for(head)
+            if key != "default":
+                return "island" if lane == "island" else ("refuse" if lane == "refuse" else "fence")
+        return "island" if island_lane(name) else "fence"
+
+    def _note_island_import(self, name: str) -> None:
+        """The advisory note for an import routed to the island lane.
+
+        N2 (issue #1308): an import outside the closed table is a fact about
+        a library, not a language wall, so it routes to the island instead of
+        failing the build. The note records that routing; it never gates the
+        compile.
+        """
+
+        note = (
+            f"note: PS2002 ({name}): {name} is not in the closed import table; "
+            "it routes to the island lane (requires libpython)"
+        )
+        if note not in self.module_notes:
+            self.module_notes.append(note)
+
+    # boxed:end
+
     def _bind_import(self, stmt: ast.Import, fences: list[Fence]) -> None:
         for alias in stmt.names:
             root = alias.name.split(".", 1)[0]
@@ -84,19 +120,19 @@ class StdlibBindMixin:
                 continue
             status = module_status(alias.name)
             if status is None:
-                head = alias.name.split(".", 1)[0]
-                if self.config is not None and self.config.lane_for(head)[0] == "refuse":
+                # boxed:begin
+                route = self._island_route(alias.name)
+                if route == "refuse":
                     fences.append(
                         Fence(
                             "PS2002",
-                            f"import `{head}` is refused by the `imports` policy",
+                            f"import `{alias.name.split(".", 1)[0]}` is refused by the `imports` policy",
                             span_of(stmt, self.filename),
                             None,
                         )
                     )
                     continue
-                # boxed:begin
-                if island_lane(alias.name):
+                if route == "island":
                     parts = alias.name.split(".")
                     if alias.asname or len(parts) == 1:
                         bound = alias.asname or parts[0]
@@ -107,6 +143,7 @@ class StdlibBindMixin:
                         module = parts[0]
                         rooted = True
                     self.bindings[bound] = Binding("island", module, "", False, rooted=rooted)
+                    self._note_island_import(alias.name)
                     continue
                 # boxed:end
                 fences.append(
@@ -176,13 +213,25 @@ class StdlibBindMixin:
         status = module_status(stmt.module)
         if status is None:
             # boxed:begin
-            if island_lane(stmt.module):
+            route = self._island_route(stmt.module)
+            if route == "refuse":
+                fences.append(
+                    Fence(
+                        "PS2002",
+                        f"import `{stmt.module.split(".", 1)[0]}` is refused by the `imports` policy",
+                        span_of(stmt, self.filename),
+                        None,
+                    )
+                )
+                return
+            if route == "island":
                 for alias in stmt.names:
                     if alias.name == "*":
                         fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
                         continue
                     local = alias.asname or alias.name
                     self.bindings[local] = Binding("island_member", stmt.module, alias.name, False)
+                self._note_island_import(stmt.module)
                 return
             # boxed:end
             for alias in stmt.names:

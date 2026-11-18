@@ -1995,7 +1995,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             or config.fallback_definitions()
         )
         island_default: bool = fallback or config.wildcard_island()
-        island_ctx = island_policy(island_names, island_default)
+        # N2 (issue #1308): the default island routing is on, so an import
+        # outside the closed table routes to the island with no flag. A
+        # named policy lane (`compile`, `replace`, `extern`) pins that
+        # import off the island; there is no opt-out flag.
+        island_ctx = island_policy(island_names, True, config.native_pinned_imports())
         # boxed:end
         dep_roots, checker_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
         binary: Path = Path(args.output) if args.output else _artifact_base(args, source_path)

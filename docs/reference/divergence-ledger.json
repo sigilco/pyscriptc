@@ -1410,6 +1410,17 @@
       "status": "unprobed"
     },
     {
+      "id": "D85",
+      "seam": "an import outside the closed import table routes to the island lane by default (issue #1308): the compile records an advisory note instead of a PS2002 fence, and the module runs in the embedded interpreter",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#85",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/island_import_routing.py); the routing itself is a compile-time fact the ledger cannot record as program bytes",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

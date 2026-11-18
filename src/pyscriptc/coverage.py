@@ -548,7 +548,14 @@ def _wheel_map(report: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 
 def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
-    module, files, failed_files, skipped_files = _lower(target, bridge)
+    # N2 (issue #1308): the coverage pass lowers under the default island
+    # routing so a closed-table import is reported as a routing fact, not as
+    # a fence the tree is punished for. The advisory note rides the same
+    # fence record with a `note` flag; `assess` reads it.
+    from pyscriptc.stdlib_queue import island_policy as _island_policy
+
+    with _island_policy([], default=True):
+        module, files, failed_files, skipped_files = _lower(target, bridge)
     known = _dependency_map(target)
     sources: dict[str, str | None] = {}
     trees: dict[str, list[_Def]] = {}
@@ -648,7 +655,26 @@ def build_report(target: Path, bridge: Any = None) -> dict[str, Any]:
         "chain": _chain(entries, definitions),
         "failedFiles": failed_files,
         "skippedFiles": skipped_files,
+        "notes": _island_notes(module),
     }
+
+
+def _island_notes(module: dict[str, Any]) -> list[dict[str, Any]]:
+    """The advisory notes the lowering recorded, as structured records.
+
+    N2 (issue #1308): a closed-table refusal that is a fact about a library
+    is a note, not a fence. The note names the import and the routing, so
+    `assess` can report it without the build stopping.
+    """
+
+    notes: list[dict[str, Any]] = []
+    for text in module.get("_notes", []) or []:
+        raw: str = str(text)
+        match = re.search(r"note: PS2002 \(([^)]+)\):", raw)
+        if match is None:
+            continue
+        notes.append({"code": "PS2002", "name": match.group(1), "message": raw})
+    return notes
 
 
 def _annotate(entry: dict[str, Any], known: dict[str, dict[str, str]]) -> dict[str, Any]:

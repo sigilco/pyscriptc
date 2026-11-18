@@ -340,12 +340,11 @@ def test_coverage_marks_island_imports_from_the_policy_table(tmp_path: Path) -> 
     report = coverage.build_report(script)
     assert report["summary"]["requiresLibpython"] is True
     assert report["summary"]["islandImports"] == ["requests"]
-    fenced = [e for e in report["fences"] if e["code"] == "PS2002" and "requests" in e["message"]]
-    assert fenced
-    assert "island lane" in fenced[0]["message"]
-    assert "requires libpython" in fenced[0]["message"]
-    assert fenced[0]["dependency"]["lane"] == "island"
-    assert fenced[0]["dependency"]["policy"] == "requests"
+    # N2 (issue #1308): the island routing is a note, not a fence.
+    assert not [e for e in report["fences"] if "requests" in e["message"]]
+    notes = [n for n in report["notes"] if "requests" in n["name"]]
+    assert notes
+    assert "island lane" in notes[0]["message"]
 
 
 def test_coverage_pulls_island_policy_from_a_pyproject(tmp_path: Path) -> None:
@@ -359,7 +358,8 @@ def test_coverage_pulls_island_policy_from_a_pyproject(tmp_path: Path) -> None:
     script.write_text("import requests\n\nx = 1\n", encoding="utf-8")
     report = coverage.build_report(script)
     assert report["summary"]["islandImports"] == ["requests"]
-    assert any("island lane" in e["message"] for e in report["fences"] if "requests" in e["message"])
+    assert not [e for e in report["fences"] if "requests" in e["message"]]
+    assert any("requests" in n["name"] for n in report["notes"])
 
 
 def test_coverage_names_a_wildcard_island_policy(tmp_path: Path) -> None:
@@ -381,7 +381,8 @@ def test_coverage_names_a_wildcard_island_policy(tmp_path: Path) -> None:
     report = coverage.build_report(script)
     assert report["summary"]["requiresLibpython"] is True
     assert report["summary"]["islandImports"] == ["scipy"]
-    assert any("island lane" in e["message"] for e in report["fences"] if "scipy" in e["message"])
+    assert not [e for e in report["fences"] if "scipy" in e["message"]]
+    assert any("scipy" in n["name"] for n in report["notes"])
 
 
 def test_bare_isinstance_target_is_a_report_not_a_traceback(tmp_path: Path) -> None:

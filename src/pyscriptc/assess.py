@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import coverage, imports, verify
+from pyscriptc import coverage, imports, stdlib_queue, verify
 from pyscriptc.emit._ir import _str_map
 from pyscriptc.errors import IRError
 from pyscriptc.reflection import mechanism_of, routes_to_island
@@ -409,7 +409,6 @@ def assess(
             import_name = _extract_import_name(fence) if root_cause == ROOT_UNTYPED_IMPORT else ""
 
             # Filter out imports whose root is in the assessed package itself or in stdlib
-            from pyscriptc import stdlib_queue
 
             is_own_pkg = bool(import_name and import_name.split(".")[0] in package_roots)
             is_stdlib = bool(
@@ -571,6 +570,12 @@ def assess(
             share_nat, share_isl, share_blk = 0.0, 0.0, 0.0
 
     # 5. Imports classification
+    # N2 (issue #1308): closed-table refusals that are library facts are
+    # notes, not fences. The coverage pass lowers under the default island
+    # routing, so the fence list no longer carries them; what remains here
+    # is the note list the lowerer recorded.
+    island_notes: list[dict[str, Any]] = list(cov_report.get("notes", []))
+
     assessed_imports = []
     for item in imp_report.get("imports", []):
         imp_name = item["name"]
@@ -647,6 +652,12 @@ def assess(
     if island_fn_names:
         policy_lines.append("[tool.pyscriptc.fallback]")
         policy_lines.append("definitions = true")
+
+    # N2 (issue #1308): an import outside the closed table routes to the
+    # island by default, so no `[imports]` policy line is needed for it; the
+    # notes name the imports that took that route.
+    if island_notes:
+        policy_lines = []
 
     island_routing = {
         "policyLines": policy_lines,
@@ -848,6 +859,7 @@ def assess(
         "imports": assessed_imports,
         "islandRouting": island_routing,
         "demotionPlans": unique_plans,
+        "notes": island_notes,
         "compilableEntries": [str(e) for e in compilable_entries],
         "verify": verify_receipts if verify_diff else None,
         "bench": bench_results if bench else None,
@@ -1070,6 +1082,13 @@ def render_text(
                 lines.append(f"    # forced by: {route_construct} ({route_file}:{route_line})")
     else:
         lines.append("  (no island routes needed)")
+
+    notes: list[dict[str, Any]] = report.get("notes", [])
+    if notes:
+        lines.append("")
+        lines.append("  Imports routed to the island by default:")
+        for note in notes:
+            lines.append(f"    {note['name']}: not in the closed import table (island lane)")
 
     lines.append("")
     lines.append("  Stays blocked (cannot route to island):")

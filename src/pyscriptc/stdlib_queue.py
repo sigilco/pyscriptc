@@ -354,32 +354,45 @@ def dependency_lanes(lanes: dict[str, dict[str, str]]) -> Iterator[None]:
 
 # boxed:begin
 # The island lane of the running compile (issue #553): import roots the
-# `[imports]` table pins to `island`, plus an opt-in CLI default that routes
-# every import outside the closed table there so a demo needs no config.
-# Module-level like `_DEP_LANES`, set around the same lowering pass. The
-# per-import policy owner (#157) replaces this table; the trampoline only
-# needs the yes/no answer.
+# `[imports]` table pins to `island`, plus the default island routing
+# (issue #1308): every import outside the closed table routes there unless
+# an explicit `[imports]` lane (`compile`, `refuse`, `replace`, `extern`)
+# says otherwise. A policy name pinned to `compile` blocks the default for
+# that import; there is no opt-out flag.
+# Module-level like `_DEP_LANES`, set around the same lowering pass.
 _ISLAND_LANES: frozenset[str] = frozenset()
-_ISLAND_DEFAULT = False
+_ISLAND_DEFAULT = True
+_NATIVE_PINNED: frozenset[str] = frozenset()
 
 
 def island_lane(name: str) -> bool:
     """True when `name` resolves to the island lane for this compile."""
     root = name.split(".", 1)[0]
+    if name in _NATIVE_PINNED or root in _NATIVE_PINNED:
+        return False
     return _ISLAND_DEFAULT or name in _ISLAND_LANES or root in _ISLAND_LANES
 
 
 @contextmanager
-def island_policy(names: Iterable[str], default: bool = False) -> Iterator[None]:
-    """Install the island lane for the duration of one lowering pass."""
-    global _ISLAND_LANES, _ISLAND_DEFAULT
-    saved = (_ISLAND_LANES, _ISLAND_DEFAULT)
+def island_policy(
+    names: Iterable[str], default: bool = True, native_pinned: Iterable[str] = ()
+) -> Iterator[None]:
+    """Install the island lane for the duration of one lowering pass.
+
+    `native_pinned` names the imports an explicit `[imports]` policy pins
+    off the island lane (issue #1308): the default routing never overrides
+    a named lane the user chose.
+    """
+
+    global _ISLAND_LANES, _ISLAND_DEFAULT, _NATIVE_PINNED
+    saved = (_ISLAND_LANES, _ISLAND_DEFAULT, _NATIVE_PINNED)
     _ISLAND_LANES = frozenset(names)
     _ISLAND_DEFAULT = default
+    _NATIVE_PINNED = frozenset(native_pinned)
     try:
         yield
     finally:
-        _ISLAND_LANES, _ISLAND_DEFAULT = saved
+        _ISLAND_LANES, _ISLAND_DEFAULT, _NATIVE_PINNED = saved
 
 
 # boxed:end
