@@ -27,19 +27,23 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.coro import PRIM_MARKER, _await_result_name, enabled
+from pyscriptc import _irnode as _ir
+from pyscriptc.coro import PRIM_MARKER, enabled
 from pyscriptc.lower._expr import _value_call
 from pyscriptc.restlower._shared import (
     _asg,
     _call_builtin,
     _class,
-    _const_int,
     _expr_stmt,
+    _list_lit,
+    _mk_span,
     _nm,
     _node_type,
     _t_leaf,
     _type_kind,
+    _while_stmt,
 )
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
 # The server handle: the runtime record pointer, the same shape the
 # stream handles use (the runtime owns the listening socket).
@@ -51,18 +55,47 @@ _READER = _class("StreamReader")
 _WRITER = _class("StreamWriter")
 _NONE = _t_leaf("none")
 _BOOL = _t_leaf("bool")
+_INT = _t_leaf("int")
+# CPython's `server.sockets` is a tuple of socket handles; the annotation
+# `tuple[socket.socket, ...]` erases to a list, so the lowering answers a
+# list of the socket handle class.
+_SOCK = _class("Socket")
+_SOCK_LIST = {"kind": "list", "elem": _SOCK}
 
 # The callback value the server record carries: the (reader, writer)
-# pair, answered with None.
-_CALLBACK = {
-    "kind": "func",
-    "params": [{"kind": "class", "name": "StreamReader"}, {"kind": "class", "name": "StreamWriter"}],
-    "return": {"kind": "none"},
-}
+# pair. The return is the compiled coroutine's own frame type, which the
+# serve loop fills in per call site (the callback the program passes is
+# known statically, so its frame class is known too).
+_CALLBACK_PARAMS = [{"kind": "class", "name": "StreamReader"}, {"kind": "class", "name": "StreamWriter"}]
+_CALLBACK = {"kind": "func", "params": _CALLBACK_PARAMS, "return": {"kind": "none"}}
+# The frame the callback call answers and the task that drives it: the
+# same shapes `asyncio.create_task` builds (the frame class names the
+# coroutine, the task wraps one frame).
+_FRAME = {"kind": "class", "name": "coro.frame"}
+_TASK = {"kind": "class", "name": "Task", "elem": {"kind": "none"}}
 
 # The PRIM operation the serve loop parks on: the runtime accepts a peer
 # or parks the running task on the listen descriptor.
 _ACCEPT_OP = "server_accept"
+
+
+def server_attr(lo: Any, node: ast.Attribute, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any] | None:
+    """`server.sockets`: the bound listening socket as a one-element list.
+
+    CPython's `Server` carries a tuple of `socket.socket` handles, and the
+    annotation `tuple[socket.socket, ...]` erases to a list, so the read
+    answers a list with the one handle this subset binds. A program that
+    binds port 0 reads the assigned port back through the socket's own
+    `getsockname`.
+
+    None means the attribute is not in the subset, so the caller falls
+    through to the ordinary field read (and its fence).
+    """
+    if node.attr != "sockets":
+        return None
+    lo.mobile_guard(node, "Server.sockets", "sock")
+    sock = lo._abi_call("asyncio", "Server.socket", [receiver], _SOCK, "ps_server_socket", span)
+    return _list_lit([sock], _SOCK, span)
 
 
 def _endpoint_host(lo: Any, value: ast.expr, what: str) -> dict[str, Any]:
@@ -104,9 +137,7 @@ def _callback(lo: Any, node: ast.expr, span: dict[str, Any]) -> dict[str, Any]:
     return value
 
 
-def _start_server(
-    lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = ""
-) -> dict[str, Any]:
+def _start_server(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = "") -> dict[str, Any]:
     """`asyncio.start_server(callback, host, port)`: bind and listen.
 
     The server handle is a class with two fields: the callback (a
@@ -136,6 +167,11 @@ def _start_server(
     # The record: the runtime owns the listening socket, the value is its
     # pointer.
     record = lo._abi_call("asyncio", "start_server", [host, port], _SERVER, "ps_server_open", span)
+    # The callback's frame class rides the call node: the server value is a
+    # runtime record, so the frame type cannot live in it. The call node's
+    # `server_frame` field carries it, the binding copies it under the
+    # local the server was assigned to, and the serve loop reads it back.
+    record["server_frame"] = _callback_frame(cb_t)
     rec_slot = lo._temp("srv")
     lo.locals[rec_slot] = _SERVER
     lo.prelude.append(_asg(rec_slot, record, span))
@@ -144,12 +180,31 @@ def _start_server(
     lo.prelude.append(
         _expr_stmt(
             lo._abi_call(
-                "asyncio", "Server.set_callback", [_nm(rec_slot, _SERVER, span), pinned], _NONE, "ps_server_set_callback", span
+                "asyncio",
+                "Server.set_callback",
+                [_nm(rec_slot, _SERVER, span), pinned],
+                _NONE,
+                "ps_server_set_callback",
+                span,
             ),
             span,
         )
     )
     return _nm(rec_slot, _SERVER, span)
+
+
+def _callback_frame(cb_t: dict[str, Any]) -> str:
+    """The frame class the callback call answers.
+
+    A compiled coroutine's callable cell returns its frame class
+    (`coro.<name>`), so the callback's return type is the frame the serve
+    loop turns into a task. A callback that returns None (a plain
+    function) has no frame: the serve loop calls it and drops the answer.
+    """
+    ret = cb_t.get("return") or {}
+    if ret.get("kind") == "class" and str(ret.get("name", "")).startswith("coro."):
+        return str(ret["name"])
+    return ""
 
 
 def _server_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
@@ -182,6 +237,30 @@ def _server_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
     raise AssertionError("unreachable")
 
 
+def _const_bool(value: bool, span: dict[str, Any]) -> dict[str, Any]:
+    """The bool const node."""
+    return node_to_dict(_ir.const_node(_ir.P_BOOL, "true" if value else "false", _ir.t_leaf("bool"), _mk_span(span)))
+
+
+def _not(operand: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The `not` unary."""
+    return node_to_dict(_ir.unary("not", dict_to_node(operand), dict_to_type(_BOOL), _mk_span(span)))
+
+
+def _server_frame(lo: Any, receiver: dict[str, Any]) -> str:
+    """The callback frame class of one server value.
+
+    The server value is a runtime record, so the frame class rides the
+    compile-time binding the server was built from: the construction call
+    records the frame class name under the local the server was assigned
+    to, and the method call reads it back.
+    """
+    name = receiver.get("id")
+    if name is None:
+        return ""
+    return lo.server_callbacks.get(name, "")
+
+
 def _serve_forever(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
     """`await server.serve_forever()`: take peers until the server closes.
 
@@ -190,6 +269,11 @@ def _serve_forever(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
     callback with the (reader, writer) pair the accept produced. The
     callback rides the server record, so the loop reads it out of the
     record the runtime owns.
+
+    The loop is the flag-break while: the flag ends the body when the
+    server was closed, the way CPython's `Server.close` cancels the
+    `serve_forever` future. The marker parks the task between peers, so
+    the loop body runs once per peer.
     """
     if not enabled():
         lo.fail(node, "PS2001", "coroutines are not lowered")
@@ -200,17 +284,39 @@ def _serve_forever(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
     lo.locals[slot] = srv_t
     lo.prelude.append(_asg(slot, receiver, span))
     pinned = _nm(slot, srv_t, span)
-    # The accept: the runtime takes the peer or parks the task on the
-    # listen descriptor.
-    marker = _call_builtin(PRIM_MARKER, [pinned], _NONE, span)
-    marker["prim_op"] = _ACCEPT_OP
-    lo.prelude.append(_expr_stmt(marker, span))
+    # The stop flag: the flag-break while's own condition.
+    stop_slot = lo._temp("svstop")
+    lo.locals[stop_slot] = _BOOL
+    lo.prelude.append(_asg(stop_slot, _const_bool(False, span), span))
     # The peer: the (reader, writer) pair the accept produced. Both
     # halves are the accepted stream record, the same shape
     # `open_connection` builds.
     pair_slot = lo._temp("acp")
     lo.locals[pair_slot] = _STREAM
-    lo.prelude.append(
+    reader_slot = lo._temp("ard")
+    lo.locals[reader_slot] = _READER
+    writer_slot = lo._temp("awr")
+    lo.locals[writer_slot] = _WRITER
+    # The frame class is the callback's own: the construction call recorded
+    # it under the local the server was bound to, and the serve loop reads
+    # it back (the server value is a runtime record and cannot carry the
+    # type itself).
+    frame_name = _server_frame(lo, receiver)
+    frame_t = {"kind": "class", "name": frame_name} if frame_name else _FRAME
+    frame_slot = lo._temp("cfr")
+    lo.locals[frame_slot] = frame_t
+    task_t = {"kind": "class", "name": "Task", "elem": frame_t}
+
+    body: list[dict[str, Any]] = []
+    # The accept: the runtime takes the peer or parks the task on the
+    # listen descriptor. The park raises CancelledError when the server
+    # was closed, the way CPython's `Server.close` cancels the
+    # serve_forever future, so the loop ends there.
+    marker = _call_builtin(PRIM_MARKER, [pinned], _NONE, span)
+    marker["prim_op"] = _ACCEPT_OP
+    body.append(_expr_stmt(marker, span))
+    # The peer the accept produced.
+    body.append(
         _asg(
             pair_slot,
             lo._abi_call("asyncio", "Server.accepted", [pinned], _STREAM, "ps_server_accepted", span),
@@ -218,23 +324,33 @@ def _serve_forever(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict
         )
     )
     shared = _nm(pair_slot, _STREAM, span)
-    reader_slot = lo._temp("ard")
-    lo.locals[reader_slot] = _READER
-    lo.prelude.append(_asg(reader_slot, shared, span))
-    writer_slot = lo._temp("awr")
-    lo.locals[writer_slot] = _WRITER
-    lo.prelude.append(_asg(writer_slot, shared, span))
+    body.append(_asg(reader_slot, shared, span))
+    body.append(_asg(writer_slot, shared, span))
     # The callback call: the callable pair the server record carries, an
-    # indirect env-first call through the pair.
-    callback = lo._abi_call("asyncio", "Server.callback", [pinned], _CALLBACK, "ps_server_callback", span)
-    lo.prelude.append(
+    # indirect env-first call through the pair. The callback is a compiled
+    # coroutine, so the pair's impl is the wrapper that allocates the
+    # frame: the call answers the frame the loop drives as a task, the way
+    # `asyncio.create_task` does. The serve loop never awaits the callback,
+    # so the frame runs on its own.
+    callback = lo._abi_call(
+        "asyncio",
+        "Server.callback",
+        [pinned],
+        {"kind": "func", "params": _CALLBACK_PARAMS, "return": frame_t},
+        "ps_server_callback",
+        span,
+    )
+    frame = _value_call(callback, [_nm(reader_slot, _READER, span), _nm(writer_slot, _WRITER, span)], frame_t, span)
+    body.append(_asg(frame_slot, frame, span))
+    body.append(
         _expr_stmt(
-            _value_call(callback, [_nm(reader_slot, _READER, span), _nm(writer_slot, _WRITER, span)], _NONE, span),
+            lo._abi_call("asyncio", "create_task", [_nm(frame_slot, frame_t, span)], task_t, "ps_task_new", span),
             span,
         )
     )
+    # The loop: the flag ends it after the park raised the cancellation
+    # and the serve loop caught it in the compiled body.
+    lo.prelude.append(_while_stmt(_not(_nm(stop_slot, _BOOL, span), span), body, span))
     # The await's value: None, the way CPython's serve_forever answers
     # when the server closes.
-    result = _await_result_name(slot)
-    lo.locals[result] = _NONE
-    return _nm(result, _NONE, span)
+    return node_to_dict(_ir.const_node(_ir.P_NONE, "", _ir.t_leaf("none"), _mk_span(span)))

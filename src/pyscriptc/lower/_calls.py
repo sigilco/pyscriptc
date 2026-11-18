@@ -1129,6 +1129,22 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         if value.get("type", {}).get("kind") == "class" and value["type"].get("name") == "HTTPServer":
             self.httpsrv_handlers[name] = handler
 
+    def _note_server_callback(self, name: str, value: dict[str, Any]) -> None:
+        """The callback frame class of a bound asyncio server value (issue #1281).
+
+        The server value is a runtime record, so the callback's frame class
+        cannot live in it: the construction call carries the frame class
+        name on the call node, and the binding copies it under the local
+        the server was assigned to. `serve_forever` reads the name back to
+        type the frame the callback call answers.
+        """
+        frame = str(value.get("server_frame", ""))
+        if not frame:
+            self.server_callbacks.pop(name, None)
+            return
+        if value.get("type", {}).get("kind") == "class" and value["type"].get("name") == "Server":
+            self.server_callbacks[name] = frame
+
     def _binding_is_frozen(self, node: ast.expr) -> bool:
         if isinstance(node, ast.Call) and isinstance(node.func, ast.Name) and node.func.id == "frozenset":
             return True

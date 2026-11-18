@@ -237,6 +237,21 @@ void ps_loop_wait_fd(int fd) {
     ps_poller_watch(fd, 1 /* POLLIN */);
 }
 
+/* Drop the task parked on a descriptor (the server close): the row goes
+   away, so a loop with no other wait is free to finish. The poller's
+   interest is dropped with it. */
+void ps_loop_drop_fd_wait(int fd) {
+    int64_t out = 0;
+    for (int64_t i = 0; i < ps_fd_wait_len; i++) {
+        if (ps_fd_waits[i].fd == fd) {
+            ps_poller_unwatch(ps_fd_waits[i].fd, 1 /* POLLIN */);
+            continue;
+        }
+        ps_fd_waits[out++] = ps_fd_waits[i];
+    }
+    ps_fd_wait_len = out;
+}
+
 /* True while a task is parked on an fd: the poller is part of the wait. */
 static int32_t ps_fd_waits_pending(void) {
     return ps_fd_wait_len > 0 ? 1 : 0;

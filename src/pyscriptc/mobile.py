@@ -222,6 +222,19 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     "ps_stream_drain": "sock",
     "ps_stream_close": "sock",
     "ps_stream_wait_closed": "sock",
+    # The asyncio server surface (issue #1281, slice 2) rides the same
+    # excluded file's socket: every helper lives in ps_stream.c, and a
+    # listening socket has no meaning inside an app sandbox either.
+    "ps_server_open": "sock",
+    "ps_server_set_callback": "sock",
+    "ps_server_callback": "sock",
+    "ps_server_park": "sock",
+    "ps_server_accepted": "sock",
+    "ps_server_close": "sock",
+    "ps_server_is_serving": "sock",
+    "ps_server_closed": "sock",
+    "ps_server_socket": "sock",
+    "ps_server_port": "sock",
     # The http.server surface (issue #1270, slice 2): every helper lives in
     # the excluded ps_http_server.c, and an app sandbox has no listening
     # socket for the server to sit on either.

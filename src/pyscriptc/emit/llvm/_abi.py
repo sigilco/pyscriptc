@@ -780,6 +780,10 @@ class AbiMixin(EmitterBase):
                     # writer share one runtime record, the value is its pointer.
                     "StreamReader",
                     "StreamWriter",
+                    # The asyncio server handle (#1281, slice 2): the
+                    # listening socket and the callback pair live in the
+                    # runtime record, the value is its pointer.
+                    "Server",
                     # The archive handles (#1241): the runtime record is the
                     # member list, the handle is the pointer.
                     "TarFile",

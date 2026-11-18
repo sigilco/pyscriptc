@@ -617,6 +617,16 @@ ROWS: list[dict[str, Any]] = [
         "recorded bytes, so the entry names the contract instead",
     ),
     _row(
+        "D83",
+        "the asyncio server surface (issue #1281, slice 2): start_server and the Server handle over the TCP "
+        "socket runtime; sockets answers the one listening socket the subset binds, and close() while "
+        "serve_forever() is parked raises CancelledError at the await",
+        None,
+        docs=f"{DOC}#83",
+        note="the host lane is byte-identical (probes/differential/asyncio_server_loopback.py); the "
+        "sockets shape, the close cancellation and the target fences are the rest of the entry",
+    ),
+    _row(
         "D84",
         "time.process_time (issue #503) reads the host's process CPU clock (CLOCK_PROCESS_CPUTIME_ID), the "
         "CPython semantics; on wasm32 it reads the wall clock instead, because wasi-libc declares no process "

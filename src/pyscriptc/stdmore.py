@@ -1472,19 +1472,19 @@ PTR_CLASSES: frozenset[str] = (
     | STREAM_CLASSES
     | SERVER_CLASSES
     | {
-         "ArgParser",
-         "DefaultSelector",
-         "Hash",
-         "TarFile",
-         "ZipFile",
-         "EmailMessage",
-         "Socket",
-         "HTTPServer",
-         "HttpServerRequest",
-         "HttpServerResponse",
-         "HttpServerHeaders",
-         "HttpServerReader",
-         "HttpServerWriter",
+        "ArgParser",
+        "DefaultSelector",
+        "Hash",
+        "TarFile",
+        "ZipFile",
+        "EmailMessage",
+        "Socket",
+        "HTTPServer",
+        "HttpServerRequest",
+        "HttpServerResponse",
+        "HttpServerHeaders",
+        "HttpServerReader",
+        "HttpServerWriter",
     }
 )
 

@@ -326,7 +326,10 @@ def test_self_census_ballpark() -> None:
     # per-instance replay at the construction site and the generated
     # `__eq__` add about 130 lines, taking the census to 86,123, so the
     # ceiling moves to 88k.
-    assert 11_000 <= census["lines"] <= 88_000
+    # The asyncio server surface (#1281 slice 2): the server lowering, the
+    # serve loop's stop handling and the runtime helpers add about 300
+    # lines, taking the census to 88,362, so the ceiling moves to 90k.
+    assert 11_000 <= census["lines"] <= 90_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.

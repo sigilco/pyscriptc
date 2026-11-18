@@ -287,6 +287,7 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             dropped = self._rebind_handle(stmt.target.id, typ, stmt.value, span)
             self._note_frozen(stmt.target.id, stmt.value)
             self._note_httpsrv_handler(stmt.target.id, value)
+            self._note_server_callback(stmt.target.id, value)
             return [*dropped, _assign(stmt.target.id, value, span)]
         if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Attribute):
             # `self.f: T = v` declares the field and stores like an
@@ -424,6 +425,7 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                     dropped = self._rebind_handle(target, inferred, stmt.value, span)
                     self._note_frozen(target, stmt.value)
                     self._note_httpsrv_handler(target, value)
+                    self._note_server_callback(target, value)
                     return [*dropped, _assign(target, value, span)]
                 self._infer_fence(stmt, target)
             value = self._expr(stmt.value, self.locals[target])
@@ -433,6 +435,7 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             dropped = self._rebind_handle(target, value["type"], stmt.value, span)
             self._note_frozen(target, stmt.value)
             self._note_httpsrv_handler(target, value)
+            self._note_server_callback(target, value)
             return [*dropped, _assign(target, value, span)]
         if isinstance(stmt, ast.AugAssign):
             return self._aug_assign(stmt, span)

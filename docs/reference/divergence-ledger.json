@@ -1388,6 +1388,17 @@
       "status": "unprobed"
     },
     {
+      "id": "D83",
+      "seam": "the asyncio server surface (issue #1281, slice 2): start_server and the Server handle over the TCP socket runtime; sockets answers the one listening socket the subset binds, and close() while serve_forever() is parked raises CancelledError at the await",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#83",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/asyncio_server_loopback.py); the sockets shape, the close cancellation and the target fences are the rest of the entry",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "D84",
       "seam": "time.process_time (issue #503) reads the host's process CPU clock (CLOCK_PROCESS_CPUTIME_ID), the CPython semantics; on wasm32 it reads the wall clock instead, because wasi-libc declares no process CPU clock",
       "listed": true,

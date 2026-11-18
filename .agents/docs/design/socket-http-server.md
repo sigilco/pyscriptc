@@ -1,6 +1,6 @@
 # socket and http.server (issue #1270, email-ai probes g10 and g10b)
 
-Status: slice 1 (`socket`) and slice 2 (`http.server`) have landed; the fences of slice 3 stand (`ssl`, UDP, non-blocking mode, `select` on sockets, the `socketserver` mixins and `ThreadingHTTPServer`). Source probes: `.agents/probes/email-ai/g10_http_server.py` and `g10b_socket.py`; the slice-1 runtime is `src/pyscriptc/runtime/ps_sock.c` with `src/pyscriptc/restlower/_socket.py`, the slice-2 runtime is `src/pyscriptc/runtime/ps_http_server.c` with `src/pyscriptc/restlower/_httpserver.py` and the differential probe `probes/differential/http_server_loopback.py`.
+Status: slice 1 (`socket`) and slice 2 (`http.server`) have landed; the fences of slice 3 stand (`ssl`, UDP, non-blocking mode, `select` on sockets, the `socketserver` mixins and `ThreadingHTTPServer`). Source probes: `.agents/probes/email-ai/g10_http_server.py` and `g10b_socket.py`; the slice-1 runtime is `src/pyscriptc/runtime/ps_sock.c` with `src/pyscriptc/restlower/_socket.py`, the slice-2 runtime is `src/pyscriptc/runtime/ps_http_server.c` with `src/pyscriptc/restlower/_httpserver.py` and the differential probe `probes/differential/http_server_loopback.py`. The asyncio `start_server` slice of issue #1281 rides the same socket runtime (`ps_stream.c`'s server section, `restlower/_asyncio_server.py`, the differential probe `probes/differential/asyncio_server_loopback.py`) and carries its own entry (divergence 83).
 
 ## Slices
 

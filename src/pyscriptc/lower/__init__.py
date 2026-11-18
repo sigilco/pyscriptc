@@ -208,6 +208,11 @@ class Lowerer(
         # server was bound to, and serve_forever reads it back to build
         # the dispatch the loop runs.
         self.httpsrv_handlers: dict[str, str] = {}
+        # The callback frame class of each asyncio server value (issue
+        # #1281, slice 2): the construction call records the frame class
+        # under the local the server was bound to, and serve_forever reads
+        # it back to type the frame the callback call answers.
+        self.server_callbacks: dict[str, str] = {}
         self.temp_n = 0
         self.caught: list[Fence] = []
         self.prelude: list[dict[str, Any]] = []

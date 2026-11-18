@@ -27,7 +27,6 @@ from pyscriptc.restlower._asyncio_proc import (
     _create_subprocess_exec,
 )
 from pyscriptc.restlower._asyncio_server import (
-    _server_method,
     _start_server,
 )
 from pyscriptc.restlower._asyncio_streams import (

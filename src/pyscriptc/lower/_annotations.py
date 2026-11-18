@@ -700,6 +700,11 @@ class AnnotationMixin:
                 # the writer share one runtime record, the class value is
                 # the record pointer.
                 return resolved[2]
+            if resolved[1] == "asyncio" and resolved[2] == "Server":
+                # The asyncio server handle (issue #1281, slice 2): the
+                # listening socket and the callback pair live in the
+                # runtime record, the class value is its pointer.
+                return resolved[2]
             if resolved[1] == "asyncio.subprocess" and resolved[2] == "Process":
                 # The async subprocess handle (issue #1224): the runtime
                 # owns the child, the class value is the record pointer.

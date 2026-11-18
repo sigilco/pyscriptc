@@ -412,6 +412,9 @@ typedef struct PsServer {
     void *sock;      /* the listening socket (ps_sock.c's record) */
     void *callback;  /* the callable pair {impl, env} the serve loop calls */
     int32_t closed;
+    /* The task parked in serve_forever, so `close` wakes it the way
+       CPython's Server.close cancels the serve_forever future. */
+    void *waiter;
     /* The peer the last accept produced: the stream record the callback's
        (reader, writer) pair points at. */
     void *accepted;
@@ -447,6 +450,7 @@ void *ps_server_open(int64_t n, const char *host, int64_t port) {
     srv->sock = sock;
     srv->callback = NULL;
     srv->closed = 0;
+    srv->waiter = NULL;
     srv->accepted = NULL;
     return srv;
 }
@@ -473,9 +477,12 @@ void *ps_server_callback(void *box) {
    handle the exact slice-1 surface. The peer's stream rides out of the
    record's `accepted` slot, the way the queue's taken element does. */
 int64_t ps_server_park(void *box) {
+    extern void *ps_loop_current_task(void);
     PsServer *srv = ps_server_of(box);
     if (srv->closed) {
-        ps_raise_cstr(PS_RUNTIME, "serve_forever on a closed server");
+        /* The server was closed: CPython's `Server.close` cancels the
+           serve_forever future, so the await raises CancelledError. */
+        ps_raise_code(PS_CANCELLED);
     }
     for (;;) {
         int fd = (int)ps_sock_fd(srv->sock);
@@ -511,11 +518,25 @@ int64_t ps_server_park(void *box) {
             continue;
         }
         if (errno == EAGAIN || errno == EWOULDBLOCK) {
+            srv->waiter = ps_loop_current_task();
             ps_loop_wait_fd(fd);
             return 0;
         }
         ps_stream_fail("accept failed");
     }
+}
+
+/* The parked serve_forever's waiter row, dropped so a later close is a
+   plain no-op: the park cleared it, the loop's fire dropped the row, and
+   the re-entry cleared `waiter` before the next park. */
+static void ps_server_wake_waiter(PsServer *srv) {
+    extern void ps_loop_wake_task(void *task);
+    void *waiter = srv->waiter;
+    srv->waiter = NULL;
+    if (waiter == NULL) {
+        return;
+    }
+    ps_loop_wake_task(waiter);
 }
 
 /* The accepted peer's stream, the (reader, writer) pair's record. Read
@@ -528,15 +549,21 @@ void *ps_server_accepted(void *box) {
     return st;
 }
 
-/* `server.close()`: stop listening and drop the socket. A second close
-   is a no-op, the way CPython's Server.close is. */
+/* `server.close()`: stop listening and drop the socket, and cancel the
+   serve_forever the way CPython's Server.close cancels the future: the
+   parked task is woken, its fd row is dropped and its next park raises
+   CancelledError. A second close is a no-op, the way CPython's is. */
 void ps_server_close(void *box) {
+    extern void ps_loop_drop_fd_wait(int fd);
     PsServer *srv = ps_server_of(box);
     if (srv->closed) {
         return;
     }
+    int fd = (int)ps_sock_fd(srv->sock);
     srv->closed = 1;
+    ps_loop_drop_fd_wait(fd);
     ps_sock_close(srv->sock);
+    ps_server_wake_waiter(srv);
 }
 
 /* `server.is_serving()`: CPython answers True while the server takes
@@ -544,6 +571,31 @@ void ps_server_close(void *box) {
 int64_t ps_server_is_serving(void *box) {
     PsServer *srv = ps_server_of(box);
     return srv->closed ? 0 : 1;
+}
+
+/* The closed flag on its own: the serve loop's stop test reads it after
+   every peer, the way CPython's serve_forever future is cancelled by
+   `Server.close`. */
+int64_t ps_server_closed(void *box) {
+    PsServer *srv = ps_server_of(box);
+    return srv->closed ? 1 : 0;
+}
+
+/* The listening socket handle (CPython's `server.sockets[0]`): the record
+   the server owns is the socket record, so the handle is that pointer. */
+void *ps_server_socket(void *box) {
+    PsServer *srv = ps_server_of(box);
+    return srv->sock;
+}
+
+/* The bound port (CPython's `server.sockets[0].getsockname()[1]`): the
+   lowering reads the port the kernel assigned when the program bound 0.
+   The read goes through the listen socket's own getsockname, so the
+   record's pair is filled here, not at accept time. */
+int64_t ps_server_port(void *box) {
+    PsServer *srv = ps_server_of(box);
+    ps_sock_getsockname(srv->sock);
+    return ps_sock_peer_port(srv->sock);
 }
 
 #else /* __wasi__ || _WIN32 */
@@ -650,6 +702,21 @@ void ps_server_close(void *box) {
 }
 
 int64_t ps_server_is_serving(void *box) {
+    (void)box;
+    return 0;
+}
+
+int64_t ps_server_closed(void *box) {
+    (void)box;
+    return 0;
+}
+
+void *ps_server_socket(void *box) {
+    (void)box;
+    return NULL;
+}
+
+int64_t ps_server_port(void *box) {
     (void)box;
     return 0;
 }

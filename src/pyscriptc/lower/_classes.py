@@ -1807,6 +1807,15 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             server_hook = server_attr(self, node, span, obj)
             if server_hook is not None:
                 return server_hook
+        # The asyncio server's bound socket (issue #1281, slice 2):
+        # `server.sockets` is a runtime read over the server record, not an
+        # instance field.
+        if class_name == "Server":
+            from pyscriptc.restlower._asyncio_server import server_attr as asyncio_server_attr
+
+            asyncio_hook = asyncio_server_attr(self, node, span, obj)
+            if asyncio_hook is not None:
+                return asyncio_hook
         for field in info["fields"]:
             if field["name"] == name:
                 return _attr_node(obj, name, field["type"], span)
