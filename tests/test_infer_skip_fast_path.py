@@ -2,7 +2,7 @@
 """The inference skip fast path and its timing surface (issue #1317).
 
 A tree with no unannotated parameters has nothing for the pin engine to
-prove, so `compile --infer` must not start a checker server at all: the
+prove, so a compile must not start a checker server at all: the
 wordcount measurement (a two-definition package paying 12.7x its compile
 time for a pin set of zero) is the regression the skip path removes. The
 test asserts the property directly, by counting the server starts the
@@ -78,14 +78,13 @@ def _annotated_tree(tmp_path: Path) -> Path:
 
 
 def test_fully_annotated_tree_starts_no_checker_server(tmp_path: Path, _no_server_starts: list[str]) -> None:
-    """`compile --infer` on a fully annotated tree starts zero servers."""
+    """A fully annotated tree starts zero checker servers (default inference)."""
 
     root = _annotated_tree(tmp_path)
     proc = run_cli(
         "compile",
         str(root),
         "--program",
-        "--infer",
         "--emit",
         "ir",
         "--out-dir",
@@ -108,7 +107,6 @@ def test_skip_leaves_the_lowering_input_unchanged(tmp_path: Path, _no_server_sta
         "compile",
         str(root),
         "--program",
-        "--infer",
         "--emit",
         "ir",
         "--out-dir",
@@ -157,7 +155,6 @@ def test_infer_timing_in_debug_stages(tmp_path: Path) -> None:
         "compile",
         str(root),
         "--program",
-        "--infer",
         "--emit",
         "ir",
         "--out-dir",
@@ -185,7 +182,6 @@ def test_infer_timing_ran_shows_pins_in_debug(tmp_path: Path) -> None:
         "compile",
         str(root),
         "--program",
-        "--infer",
         "--emit",
         "ir",
         "--out-dir",
@@ -200,7 +196,7 @@ def test_infer_timing_ran_shows_pins_in_debug(tmp_path: Path) -> None:
 
 
 def test_plain_compile_has_no_infer_record(tmp_path: Path) -> None:
-    """Without `--infer` the summary carries no infer dict at all."""
+    """A skipped compile's summary carries the skip flag, not an engine run."""
 
     root = _annotated_tree(tmp_path)
     dbg = tmp_path / "dbg"
@@ -217,7 +213,8 @@ def test_plain_compile_has_no_infer_record(tmp_path: Path) -> None:
     )
     assert proc.returncode == 0, proc.stderr
     summary = json.loads((dbg / "summary.json").read_text(encoding="utf-8"))
-    assert "infer" not in summary
+    assert summary["infer"]["skipped"] == 1
+    assert summary["infer"]["pins"] == 0
 
 
 def test_single_file_skip_path(tmp_path: Path) -> None:
@@ -232,14 +229,13 @@ def test_single_file_skip_path(tmp_path: Path) -> None:
 
 
 def test_run_binary_output_still_matches_cpython(tmp_path: Path) -> None:
-    """The skipped `--infer` compile produces a binary that agrees with CPython."""
+    """The skipped compile produces a binary that agrees with CPython."""
 
     root = _annotated_tree(tmp_path)
     proc = run_cli(
         "compile",
         str(root),
         "--program",
-        "--infer",
         "--emit",
         "bin",
         "--out-dir",

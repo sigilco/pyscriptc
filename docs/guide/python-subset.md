@@ -60,6 +60,8 @@ If it routes your hot code native, the binary has no interpreter inside and the 
 
 Annotate every variable and function parameter.
 The annotations are the input the compiler works from: a type-checker preflight ([pyrefly](https://pyrefly.org/)) checks them first, then the compiler uses them to build the binary.
+A parameter with no annotation is not a dead end: the compiler proves the type every call site agrees on and uses that proof, so an unannotated parameter whose callers all pass the same type still lowers.
+A parameter no call site agrees on keeps its `PS1001` fence, and a written annotation always wins over a proof.
 
 ```python
 def sum_squares(xs: list[int]) -> int:

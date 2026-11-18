@@ -405,13 +405,6 @@ def build_parser() -> argparse.ArgumentParser:
         "code compiles; needs mypy installed, or pyrefly for --bridge pyrefly",
     )
     compile_parser.add_argument(
-        "--infer",
-        action="store_true",
-        help="apply the package-wide pins `pyscriptc infer` proves: every call "
-        "site of a parameter that agrees on its type pins the parameter, so an "
-        "unannotated parameter lowers without the source being annotated",
-    )
-    compile_parser.add_argument(
         "--debug",
         nargs="?",
         const="",
@@ -1932,58 +1925,67 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         dbg.end("check", module)
 
     try:
-        if getattr(args, "bridge", None) or getattr(args, "infer", False):
+        # Default inference (issue #1305): the pins run on every compile.
+        # The skip fast path (#1317) keeps a fully annotated tree free and
+        # the `noinfer` debug topic (`PYSC_DEBUG=noinfer`, issue #1305,
+        # developer bisect tool only) takes the engine out without a CLI
+        # flag; the topic is never silent (the stages row and the summary
+        # record it). Without a bridge the pins-only provider carries the
+        # proof, so the compile is never slower than the `--infer` lane
+        # was except for the one AST walk `has_unannotated_params` costs.
+        infer_disabled = "noinfer" in dbg.topics
+        if infer_disabled:
+            dbg.infer_info = {
+                "skipped": "disabled",
+                "pins": 0,
+                "callSites": 0,
+                "ms": 0,
+            }
+        else:
             from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
 
             dbg.begin("bridge")
-            provider_name: str = getattr(args, "bridge", None) or "pyrefly"
-            pins = None
-            if getattr(args, "infer", False):
-                # The pins are a package-wide fact (`pyscriptc infer`): the
-                # checker proves the type of every argument at every call
-                # site, and the sites that agree pin the parameter. The
-                # checker then re-checks a pinned copy of each module, so
-                # the return and local types it derives from a pinned
-                # parameter agree with what the lowerer will apply.
-                from pyscriptc.inferrunner import (
-                    build_facts,
-                    facts_as_pins,
-                    has_unannotated_params,
-                    pinned_facts,
-                )
+            # The pins are a package-wide fact (`pyscriptc infer`): the
+            # checker proves the type of every argument at every call
+            # site, and the sites that agree pin the parameter. The
+            # checker then re-checks a pinned copy of each module, so
+            # the return and local types it derives from a pinned
+            # parameter agree with what the lowerer will apply.
+            from pyscriptc.inferrunner import (
+                build_facts,
+                facts_as_pins,
+                has_unannotated_params,
+                pinned_facts,
+            )
 
-                dbg.begin("infer")
-                infer_started = time.perf_counter()
-                # The skip fast path (issue #1317): a tree with no
-                # unannotated parameter has nothing for the engine to
-                # prove, so no checker server starts and the pins stay
-                # empty. The bridge still opens (it serves the per-module
-                # facts the lowerer reads), but the mirror re-check would
-                # prove nothing, so it is skipped.
-                infer_skipped = not has_unannotated_params(source_path)
-                facts = build_facts(source_path, skip=infer_skipped)
-                pins = facts_as_pins(facts)
-                pinned = pinned_facts(source_path, facts) if source_path.is_dir() and not infer_skipped else {}
-                dbg.infer_info = {
-                    "skipped": 1 if infer_skipped else 0,
-                    "pins": len(facts.pins),
-                    "callSites": len(facts.calls),
-                    "ms": int((time.perf_counter() - infer_started) * 1000.0),
-                }
-                dbg.end("infer")
-            else:
-                pinned = {}
+            dbg.begin("infer")
+            infer_started = time.perf_counter()
+            # The skip fast path (issue #1317): a tree with no
+            # unannotated parameter has nothing for the engine to
+            # prove, so no checker server starts and the pins stay
+            # empty. The mirror re-check would prove nothing, so it is
+            # skipped too.
+            infer_skipped = not has_unannotated_params(source_path)
+            facts = build_facts(source_path, skip=infer_skipped)
+            pins = facts_as_pins(facts)
+            pinned = pinned_facts(source_path, facts) if source_path.is_dir() and not infer_skipped else {}
+            dbg.infer_info = {
+                "skipped": 1 if infer_skipped else 0,
+                "pins": len(facts.pins),
+                "callSites": len(facts.calls),
+                "ms": int((time.perf_counter() - infer_started) * 1000.0),
+            }
+            dbg.end("infer")
             if source_path.is_dir():
                 # A directory compile lowers one unit at a time, so the
-                # bridge is a provider: one bridge per unit, from one
-                # checker server. The pins ride every bridge, the way
-                # `pyscriptc infer` wires them.
-                provider = BridgeProvider(provider_name, strict=False, pins=pins)
+                # bridge is a provider: one bridge per unit. The pins ride
+                # every bridge, the way `pyscriptc infer` wires them.
+                provider = BridgeProvider("pyrefly", strict=False, pins=pins)
                 provider.pinned = pinned
                 provider.open()
                 bridge = provider
             else:
-                bridge = CheckerBridge.for_path(source_path, provider_name)
+                bridge = CheckerBridge.for_path(source_path, "pyrefly", strict=False)
                 bridge.call_site_facts = pins
             dbg.end("bridge")
         dbg.begin("lower")
@@ -1996,6 +1998,7 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         )
         island_default: bool = fallback or config.wildcard_island()
         island_ctx = island_policy(island_names, island_default)
+        # boxed:end
         # boxed:end
         dep_roots, checker_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
         binary: Path = Path(args.output) if args.output else _artifact_base(args, source_path)

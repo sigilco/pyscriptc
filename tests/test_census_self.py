@@ -287,7 +287,7 @@ def test_self_census_ballpark() -> None:
     # yield inside try (#164): the re-entrant try in the coro guard transform
     # adds about 150 lines in coro.py. The asyncio primitives (#180 D3) add
     # about 400 in ps_async.c and restlower/_asyncio_sync.py.
-    # The --infer lane (#792) adds about 2.3k lines of package-wide pinning.
+    # The inference lane (#792) adds about 2.3k lines of package-wide pinning.
     # The island group (#817, the plane split's cycle rule) and the master's
     # seed cache and code-cache work it rebase-merged with take the source
     # past 72k.

@@ -31,10 +31,18 @@ saw, what it decided, and how long each stage took.
   are never touched. On `--emit bin` (and `run`) the pyrefly `check` stage
   overlaps emit/link: its row closes after `link`, so `total` can read below
   the sum of the rows. `PYSC_NO_CHECK_OVERLAP=1` restores the serial order.
-  With `--infer` an `infer` row shows the engine's wall time plus its
-  outcome: `infer: skipped (no unannotated parameter to prove) N.Nms` when
-  the skip fast path (issue #1317) took the engine out — no checker server
-  started — or `infer: P pinned, C call site(s) N.Nms` when it ran.
+  Inference is on by default (issue #1305), so an `infer` row shows the
+  engine's wall time plus its outcome: `infer: skipped (no unannotated
+  parameter to prove) N.Nms` when the skip fast path (issue #1317) took
+  the engine out — no checker server started — or
+  `infer: P pinned, C call site(s) N.Nms` when it ran. With the
+  `noinfer` topic (`PYSC_DEBUG=noinfer`, `--debug=noinfer`) the engine is
+  out of the compile entirely: the row reads
+  `infer: disabled (noinfer) 0ms` and `summary.json` records
+  `infer.skipped = "disabled"`, so a bisect run with the topic set is
+  never silent. `noinfer` is a developer bisect tool, not a user switch:
+  there is no `--no-infer` option, the topic is absent from `--help`, and
+  it is documented only here.
   `summary.json` carries the same dict as `infer` (skipped, pins,
   callSites, ms).
 - `fences` — the fence table: count, then `file:line:col CODE message` per fence
