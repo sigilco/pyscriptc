@@ -340,8 +340,6 @@ def _dotted_name(node: Any) -> str:
 # boxed:end
 
 
-
-
 # boxed:begin
 # The class-base wall (issue #1312, design note N1 step 1): the class-base
 # refusals the lowerer raises, and the per-class demotion plan assess
