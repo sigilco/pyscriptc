@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-17",
-  "commit": "de78dcb49fb3f54be62cacb23fbb0f446b3687dc",
+  "generated": "2026-11-18",
+  "commit": "b46f4aa7c49182d860f4b69451fe2df1b6e6d428",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -208,10 +208,9 @@
       "label": "`json`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "ensure_ascii=False, JSONDecodeError() construction",
+      "missing": "JSONDecodeError() construction",
       "codes": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ]
     },
     {
@@ -334,7 +333,7 @@
       "label": "`time`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "time_ns, ctime, process_time",
+      "missing": "time_ns, ctime",
       "codes": [
         "PS2001"
       ]

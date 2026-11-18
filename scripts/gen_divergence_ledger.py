@@ -82,7 +82,8 @@ ROWS: list[dict[str, Any]] = [
     _row("D4", "re subset: L/T/DEBUG and unknown flag bits raise ValueError", "d04_re_flags.py", docs=f"{DOC}#4"),
     _row(
         "D5",
-        "json has no non-ASCII text: non-ASCII emits raw where CPython escapes",
+        "json.dumps escapes the non-ASCII text like CPython's default and ensure_ascii=False writes it raw; "
+        "the reader accepts both forms and a lone surrogate in an escape raises the JSONDecodeError family",
         "d05_json_ascii.py",
         docs=f"{DOC}#5",
     ),
@@ -614,6 +615,16 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#82",
         note="the oracle choice is a tool input, not a program behaviour: the ledger cannot record it as "
         "recorded bytes, so the entry names the contract instead",
+    ),
+    _row(
+        "D84",
+        "time.process_time (issue #503) reads the host's process CPU clock (CLOCK_PROCESS_CPUTIME_ID), the "
+        "CPython semantics; on wasm32 it reads the wall clock instead, because wasi-libc declares no process "
+        "CPU clock",
+        None,
+        docs=f"{DOC}#84",
+        note="the host lane is byte-identical (probes/differential/time_process_time.py); the wasm32 wall-clock "
+        "fallback is the rest of the entry",
     ),
     _row(
         "AUDIT-D1",

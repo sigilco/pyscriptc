@@ -252,7 +252,7 @@ class StdlibMixin(EmitterBase):
             packed = count
         return self._buf_out("ps_struct_pack", [f"i64 {fmt_len}", f"ptr {fmt_ptr}", f"ptr {arg_ptr}", f"i64 {packed}"])
 
-    def _emit_json_loads(self, text: str, typ: dict[str, Any]) -> str:
+    def _emit_json_loads(self, text: str, typ: dict[str, Any], symbol_name: str = "ps_json_loads") -> str:
         if _kind(typ) == "dynval":
             # The dynamic annotation (issue #1267): no shape table, the
             # parser assigns the arm as it reads. The result is the cell
@@ -265,7 +265,7 @@ class StdlibMixin(EmitterBase):
         symbol, root = self._json_global(typ)
         length, ptr = self._buf_parts(text)
         slot = self._json_alloca(typ)
-        self.line(f"call void @ps_json_loads(i64 {length}, ptr {ptr}, ptr {symbol}, i32 {root}, ptr {slot})")
+        self.line(f"call void @{symbol_name}(i64 {length}, ptr {ptr}, ptr {symbol}, i32 {root}, ptr {slot})")
         return self._json_read(typ, slot)
 
     def _emit_json_dumps(self, value: str, typ: dict[str, Any], flags: int = 0) -> str:

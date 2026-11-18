@@ -182,6 +182,7 @@ PROBES: list[Probe] = [
     _p("time", "time", "datetime", "print(time.time() > 0.0)"),
     _p("time", "monotonic", "datetime", "print(time.monotonic() > 0.0)"),
     _p("time", "perf_counter", "datetime", "print(time.perf_counter() > 0.0)"),
+    _p("time", "process_time", "datetime", "print(time.process_time() >= 0.0)"),
     _p("time", "strftime", "datetime", "print(time.strftime('%Y-%m-%d', time.gmtime(0)))"),
     _p("time", "mktime", "datetime", "print(time.mktime(time.gmtime(0)) > 0.0)"),
     _p("calendar", "isleap", "datetime", "print(calendar.isleap(2024))"),
@@ -583,8 +584,8 @@ def test_every_table_row_has_a_probe() -> None:
     extra = sorted(probed - inventory)
     assert not missing, f"call-table rows without a differential probe: {missing}"
     assert not extra, f"probes without a call-table row: {extra}"
-    assert len(inventory) == 178
-    assert len(PROBES) == 178
+    assert len(inventory) == 179
+    assert len(PROBES) == 179
 
 
 def _group_source(group: str) -> str:

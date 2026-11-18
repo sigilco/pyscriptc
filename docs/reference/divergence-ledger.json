@@ -84,7 +84,7 @@
     },
     {
       "id": "D5",
-      "seam": "json has no non-ASCII text: non-ASCII emits raw where CPython escapes",
+      "seam": "json.dumps escapes the non-ASCII text like CPython's default and ensure_ascii=False writes it raw; the reader accepts both forms and a lone surrogate in an escape raises the JSONDecodeError family",
       "listed": true,
       "docs": "docs/reference/divergences.md#5",
       "probe": "probes/divergences/d05_json_ascii.py",
@@ -97,10 +97,10 @@
       "pyscriptc": {
         "stage": "run",
         "exit": 0,
-        "stdout": "{\"k\": \"café\"}\n",
+        "stdout": "{\"k\": \"caf\\u00e9\"}\n",
         "stderr": ""
       },
-      "status": "divergent"
+      "status": "identical"
     },
     {
       "id": "D6",
@@ -1388,6 +1388,17 @@
       "status": "unprobed"
     },
     {
+      "id": "D84",
+      "seam": "time.process_time (issue #503) reads the host's process CPU clock (CLOCK_PROCESS_CPUTIME_ID), the CPython semantics; on wasm32 it reads the wall clock instead, because wasi-libc declares no process CPU clock",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#84",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/time_process_time.py); the wasm32 wall-clock fallback is the rest of the entry",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
@@ -1602,10 +1613,10 @@
       "pyscriptc": {
         "stage": "run",
         "exit": 0,
-        "stdout": "{\"k\": \"café\"}\n",
+        "stdout": "{\"k\": \"caf\\u00e9\"}\n",
         "stderr": ""
       },
-      "status": "divergent"
+      "status": "identical"
     },
     {
       "id": "AUDIT-D12",

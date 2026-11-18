@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-17",
+  "generated": "2026-11-18",
   "command": "uv run python -m benchmarks.compat2.census --json data/benchmarks/census-snapshot.json",
   "src": "benchmarks/compat/top100/src",
   "packages": [

@@ -158,8 +158,9 @@ class CallsMoreMixin:
             self.fail(node, "PS1001", "json.loads needs the result annotation")
         self._json_type(node, expect, "json.loads")
         arg = self._expr(node.args[0])
-        if _node_type_kind(arg) != "str":
-            self.fail(node, "PS1003", "json.loads argument is " + _show(arg["type"]) + ", expected str")
+        kind = _node_type_kind(arg)
+        if kind not in {"str", "bytes"}:
+            self.fail(node, "PS1003", "json.loads argument is " + _show(arg["type"]) + ", expected str or bytes")
         return _mod_call("json", "loads", [arg], expect, span)
 
     def _json_load(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
@@ -219,10 +220,13 @@ class CallsMoreMixin:
         return expr
 
     def _json_dumps_flags(self, node: ast.Call) -> int:
-        """The dumps options: bit 0 sorts the keys, bits 8-15 the indent.
+        """The dumps options: bit 0 sorts the keys, bits 8-15 the indent,
+        bit 17 writes the non-ASCII text raw.
 
         The closed set is `indent`, `sort_keys` and `ensure_ascii`; the
-        other CPython options stay fenced.
+        other CPython options stay fenced. `ensure_ascii=False` (issue
+        #495) writes the text raw as UTF-8 where the default escapes it
+        as the `\\uXXXX` sequence CPython writes.
         """
         flags = 0
         for keyword in node.keywords:
@@ -249,7 +253,7 @@ class CallsMoreMixin:
                 if not isinstance(keyword.value, ast.Constant) or not isinstance(keyword.value.value, bool):
                     self.fail(node, "PS2003", "json.dumps ensure_ascii is a bool constant")
                 if not keyword.value.value:
-                    self.fail(node, "PS2003", "json.dumps ensure_ascii=False is not lowered")
+                    flags |= 0x20000
             else:
                 self.fail(node, "PS2003", f"json.dumps keyword {name} is not lowered")
         return flags

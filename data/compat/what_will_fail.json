@@ -1,14 +1,14 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "6098eab55544b8b3adfdcbe7bc2058d9a99b8215",
+  "commit": "8a676ad026ab46ea7ce1a8004afc168b157afc9a",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 46,
+    "total_fences": 45,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -57,12 +57,6 @@
           "construct": "`subprocess.Popen`",
           "code": "PS2001",
           "diagnostic": "subprocess.Popen is not in the lowered subset of subprocess"
-        },
-        {
-          "module": "time",
-          "construct": "`time.process_time`",
-          "code": "PS2001",
-          "diagnostic": "time.process_time is not in the lowered subset of time"
         }
       ]
     },
@@ -327,7 +321,7 @@
           "module": "builtins",
           "construct": "type annotation mismatch",
           "code": "PS1003",
-          "diagnostic": "open path is str"
+          "diagnostic": "t is TimeDelta, annotation says float"
         },
         {
           "module": "os",

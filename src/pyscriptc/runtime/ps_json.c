@@ -105,11 +105,52 @@ static void ps_parse_string(PsJson *j, PsBuf *out) {
                     }
                     cp = (cp << 4) | d;
                 }
-                if (cp > 127) {
+                /* A surrogate pair above the BMP assembles into one code
+                   point (CPython reads both forms); a lone surrogate has
+                   no UTF-8 form and raises. */
+                if (cp >= 0xD800 && cp <= 0xDBFF && j->i + 1 < j->n && j->p[j->i] == '\\' && j->p[j->i + 1] == 'u') {
+                    int64_t save = j->i;
+                    j->i += 2;
+                    int lo = 0;
+                    for (int k = 0; k < 4; k++) {
+                        if (j->i >= j->n) {
+                            free(g.data);
+                            ps_json_fail("bad JSON unicode escape");
+                        }
+                        int d = ps_hex_digit(j->p[j->i++]);
+                        if (d < 0) {
+                            free(g.data);
+                            ps_json_fail("bad JSON unicode escape");
+                        }
+                        lo = (lo << 4) | d;
+                    }
+                    if (lo >= 0xDC00 && lo <= 0xDFFF) {
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                    } else {
+                        free(g.data);
+                        ps_json_fail("lone surrogate in JSON string");
+                    }
+                } else if (cp >= 0xD800 && cp <= 0xDFFF) {
                     free(g.data);
-                    ps_json_fail("non-ASCII JSON string is not lowered");
+                    ps_json_fail("lone surrogate in JSON string");
                 }
-                ps_grow_byte(&g, (unsigned char)cp);
+                /* The code point goes out as the UTF-8 the str model
+                   stores; the ASCII case is the one byte it always was. */
+                if (cp < 0x80) {
+                    ps_grow_byte(&g, (unsigned char)cp);
+                } else if (cp < 0x800) {
+                    ps_grow_byte(&g, (unsigned char)(0xC0 | (cp >> 6)));
+                    ps_grow_byte(&g, (unsigned char)(0x80 | (cp & 0x3F)));
+                } else if (cp < 0x10000) {
+                    ps_grow_byte(&g, (unsigned char)(0xE0 | (cp >> 12)));
+                    ps_grow_byte(&g, (unsigned char)(0x80 | ((cp >> 6) & 0x3F)));
+                    ps_grow_byte(&g, (unsigned char)(0x80 | (cp & 0x3F)));
+                } else {
+                    ps_grow_byte(&g, (unsigned char)(0xF0 | (cp >> 18)));
+                    ps_grow_byte(&g, (unsigned char)(0x80 | ((cp >> 12) & 0x3F)));
+                    ps_grow_byte(&g, (unsigned char)(0x80 | ((cp >> 6) & 0x3F)));
+                    ps_grow_byte(&g, (unsigned char)(0x80 | (cp & 0x3F)));
+                }
             } else {
                 free(g.data);
                 ps_json_fail("bad JSON string escape");
@@ -120,10 +161,11 @@ static void ps_parse_string(PsJson *j, PsBuf *out) {
             free(g.data);
             ps_json_fail("unescaped control character in JSON string");
         }
-        if (c > 127) {
-            free(g.data);
-            ps_json_fail("non-ASCII JSON string is not lowered");
-        }
+        /* Raw UTF-8 reads as the bytes it already is: the str model stores
+           code points as UTF-8 (the lone-surrogate and overlong shapes a
+           document cannot carry are refused by the same scan, because the
+           lead byte and its continuations are checked when the string is
+           re-read). */
         ps_grow_byte(&g, c);
     }
     free(g.data);
@@ -415,9 +457,25 @@ void ps_json_loads(int64_t n, char *p, const PsType *types, int32_t root, void *
     }
 }
 
+void ps_json_loads_bytes(int64_t n, char *p, const PsType *types, int32_t root, void *out) {
+    /* json.loads over a bytes input (issue #495): CPython decodes the
+       buffer as UTF-8 before scanning, so malformed sequences raise the
+       UnicodeDecodeError family instead of a JSON scan error. The valid
+       decode is the bytes themselves, so the check is the whole work; the
+       parse then runs on the original buffer. */
+    PsBuf decoded;
+    ps_utf8_decode(n, p, &decoded);
+    ps_json_loads(n, p, types, root, out);
+}
+
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g);
 
-static void ps_dump_str(PsBuf buf, PsGrow *g) {
+/* The JSON string writer. `raw` is the `ensure_ascii=False` form: every
+   non-ASCII byte stays as the UTF-8 it already is, where the default
+   escapes each code point as the `\uXXXX` sequence CPython writes (a
+   surrogate pair above the BMP). The ASCII case, the two-character
+   escapes and the `\u00XX` control forms are identical on both sides. */
+static void ps_dump_str_raw(PsBuf buf, PsGrow *g, int32_t raw) {
     ps_grow_byte(g, '"');
     for (int64_t i = 0; i < buf.len; i++) {
         unsigned char c = (unsigned char)buf.data[i];
@@ -438,8 +496,49 @@ static void ps_dump_str(PsBuf buf, PsGrow *g) {
             char tmp[7];
             snprintf(tmp, sizeof tmp, "\\u%04x", c);
             ps_grow_add(g, tmp, 6);
-        } else {
+        } else if (raw && c >= 0x80) {
+            /* Raw form: the UTF-8 lead byte and its continuation bytes go
+               out untouched; the loop skips the continuations so no byte
+               is visited twice. */
+            int width = ps_utf8_len(c);
+            int64_t end = i + width <= buf.len ? i + width : buf.len;
+            for (int64_t k = i; k < end; k++) {
+                ps_grow_byte(g, (unsigned char)buf.data[k]);
+            }
+            i = end - 1;
+        } else if (c < 0x7f) {
             ps_grow_byte(g, c);
+        } else {
+            /* Escaped form: decode the code point, write it as `\uXXXX`,
+               or as the surrogate pair when it sits above the BMP. */
+            int width = ps_utf8_len(c);
+            uint32_t cp = 0;
+            switch (width) {
+            case 2:
+                cp = (uint32_t)(c & 0x1F);
+                break;
+            case 3:
+                cp = (uint32_t)(c & 0x0F);
+                break;
+            default:
+                cp = (uint32_t)(c & 0x07);
+                break;
+            }
+            for (int k = 1; k < width && i + k < buf.len; k++) {
+                cp = (cp << 6) | (uint32_t)((unsigned char)buf.data[i + k] & 0x3F);
+            }
+            i += width - 1;
+            char tmp[13];
+            int wrote;
+            if (cp < 0x10000) {
+                wrote = snprintf(tmp, sizeof tmp, "\\u%04x", cp);
+                ps_grow_add(g, tmp, wrote);
+            } else {
+                uint32_t hi = 0xD800 + ((cp - 0x10000) >> 10);
+                uint32_t lo = 0xDC00 + ((cp - 0x10000) & 0x3FF);
+                wrote = snprintf(tmp, sizeof tmp, "\\u%04x\\u%04x", hi, lo);
+                ps_grow_add(g, tmp, wrote);
+            }
         }
     }
     ps_grow_byte(g, '"');
@@ -527,20 +626,22 @@ static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow 
 
 /* The dumps options: bit 0 sorts the dict keys, bits 8-15 hold the
    indent width (0 keeps the compact form), bit 16 drops the space after
-   the separators (the orjson form). */
+   the separators (the orjson form), bit 17 writes non-ASCII text raw
+   (`ensure_ascii=False`) where the default escapes it. */
 #define PS_JSON_SORT_KEYS 1
 #define PS_JSON_COMPACT 0x10000
+#define PS_JSON_RAW_UTF8 0x20000
 
 /* ps_dump_fmt writes one value. `indent` is the pad width per level and
    `level` the current depth; a positive indent puts every item on its
    own line, the way `json.dumps(indent=n)` does. */
-static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact);
+static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact, int32_t raw);
 
 /* The dynamic arm's writer (issue #1267): the tagged tree walks itself. */
-static void ps_dump_dyn_cell(const PsDyn *v, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact);
+static void ps_dump_dyn_cell(const PsDyn *v, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact, int32_t raw);
 
 static void ps_dump(const PsType *types, int32_t idx, const void *value, PsGrow *g) {
-    ps_dump_fmt(types, idx, value, g, 0, 0, 0, 0);
+    ps_dump_fmt(types, idx, value, g, 0, 0, 0, 0, 0);
 }
 
 /* The newline and pad an indented item carries. */
@@ -551,7 +652,7 @@ static void ps_dump_pad(PsGrow *g, int32_t indent, int32_t level) {
     }
 }
 
-static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact) {
+static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact, int32_t raw) {
     PsType typ = types[idx];
     if (typ.kind == PS_JSON_INT) {
         int64_t v = 0;
@@ -588,7 +689,7 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             return;
         }
         PsType child = types[typ.child];
-        ps_dump_fmt(types, typ.child, cell + ps_opt_off(child.kind), g, indent, level, sort_keys, compact);
+        ps_dump_fmt(types, typ.child, cell + ps_opt_off(child.kind), g, indent, level, sort_keys, compact, raw);
         return;
     }
     if (typ.kind == PS_JSON_DYN) {
@@ -596,13 +697,13 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
            the slot carries its pointer. */
         PsDyn *v = NULL;
         memcpy(&v, value, sizeof v);
-        ps_dump_dyn_cell(v, g, indent, level, sort_keys, compact);
+        ps_dump_dyn_cell(v, g, indent, level, sort_keys, compact, raw);
         return;
     }
     if (typ.kind == PS_JSON_STR) {
         PsBuf buf;
         memcpy(&buf, value, 16);
-        ps_dump_str(buf, g);
+        ps_dump_str_raw(buf, g, raw);
         return;
     }
     if (typ.kind == PS_JSON_LIST) {
@@ -623,7 +724,7 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             if (indent) {
                 ps_dump_pad(g, indent, level + 1);
             }
-            ps_dump_fmt(types, typ.child, (char *)seq->data + (size_t)i * (size_t)seq->elem, g, indent, level + 1, sort_keys, compact);
+            ps_dump_fmt(types, typ.child, (char *)seq->data + (size_t)i * (size_t)seq->elem, g, indent, level + 1, sort_keys, compact, raw);
         }
         if (indent) {
             ps_dump_pad(g, indent, level);
@@ -684,7 +785,7 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             }
             PsBuf key;
             ps_map_key_at(map, at, &key);
-            ps_dump_str(key, g);
+            ps_dump_str_raw(key, g, raw);
             ps_grow_byte(g, ':');
             /* The indented forms keep the space after the colon, the way
                json.dumps(indent=n) and orjson's OPT_INDENT_2 do. */
@@ -694,7 +795,7 @@ static void ps_dump_fmt(const PsType *types, int32_t idx, const void *value, PsG
             unsigned char slot[16];
             memset(slot, 0, sizeof slot);
             ps_map_val_at(map, at, slot);
-            ps_dump_fmt(types, typ.child, slot, g, indent, level + 1, sort_keys, compact);
+            ps_dump_fmt(types, typ.child, slot, g, indent, level + 1, sort_keys, compact, raw);
         }
         if (indent) {
             ps_dump_pad(g, indent, level);
@@ -718,7 +819,8 @@ void ps_json_dumps_opts(const PsType *types, int32_t root, void *value, int32_t 
     int32_t indent = (flags >> 8) & 0xff;
     int32_t sort_keys = flags & PS_JSON_SORT_KEYS;
     int32_t compact = flags & PS_JSON_COMPACT;
-    ps_dump_fmt(types, root, value, &g, indent, 0, sort_keys, compact);
+    int32_t raw = flags & PS_JSON_RAW_UTF8;
+    ps_dump_fmt(types, root, value, &g, indent, 0, sort_keys, compact, raw);
     ps_grow_finish(&g, out);
 }
 
@@ -887,7 +989,7 @@ void ps_json_loads_dyn(int64_t n, char *p, void *out) {
    is the same insertion sort over the map's dense rows the typed dict arm
    runs. */
 
-static void ps_dump_dyn_cell(const PsDyn *v, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact) {
+static void ps_dump_dyn_cell(const PsDyn *v, PsGrow *g, int32_t indent, int32_t level, int32_t sort_keys, int32_t compact, int32_t raw) {
     if (v == NULL || v->tag == PS_DYN_NONE) {
         ps_grow_add(g, "null", 4);
         return;
@@ -916,7 +1018,7 @@ static void ps_dump_dyn_cell(const PsDyn *v, PsGrow *g, int32_t indent, int32_t 
         return;
     }
     if (v->tag == PS_DYN_STR) {
-        ps_dump_str(v->b, g);
+        ps_dump_str_raw(v->b, g, raw);
         return;
     }
     if (v->tag == PS_DYN_LIST) {
@@ -938,7 +1040,7 @@ static void ps_dump_dyn_cell(const PsDyn *v, PsGrow *g, int32_t indent, int32_t 
             }
             PsDyn *item = NULL;
             memcpy(&item, (char *)seq->data + (size_t)i * (size_t)seq->elem, sizeof item);
-            ps_dump_dyn_cell(item, g, indent, level + 1, sort_keys, compact);
+            ps_dump_dyn_cell(item, g, indent, level + 1, sort_keys, compact, raw);
         }
         if (indent) {
             ps_dump_pad(g, indent, level);
@@ -1001,14 +1103,14 @@ static void ps_dump_dyn_cell(const PsDyn *v, PsGrow *g, int32_t indent, int32_t 
             ps_map_key_at(map, at, key);
             PsBuf kb;
             memcpy(&kb, key, sizeof kb);
-            ps_dump_str(kb, g);
+            ps_dump_str_raw(kb, g, raw);
             ps_grow_byte(g, ':');
             if (!compact || indent) {
                 ps_grow_byte(g, ' ');
             }
             PsDyn *item = NULL;
             ps_map_val_at(map, at, &item);
-            ps_dump_dyn_cell(item, g, indent, level + 1, sort_keys, compact);
+            ps_dump_dyn_cell(item, g, indent, level + 1, sort_keys, compact, raw);
         }
         free(key);
         if (indent) {
@@ -1027,7 +1129,8 @@ void ps_json_dumps_dyn_opts(const PsDyn *v, int32_t flags, PsBuf *out) {
     int32_t indent = (flags >> 8) & 0xff;
     int32_t sort_keys = flags & PS_JSON_SORT_KEYS;
     int32_t compact = flags & PS_JSON_COMPACT;
-    ps_dump_dyn_cell(v, &g, indent, 0, sort_keys, compact);
+    int32_t raw = flags & PS_JSON_RAW_UTF8;
+    ps_dump_dyn_cell(v, &g, indent, 0, sort_keys, compact, raw);
     ps_grow_finish(&g, out);
 }
 
