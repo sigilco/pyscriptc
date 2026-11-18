@@ -66,6 +66,8 @@ Cost: medium. Serialization of call-site facts is a new format (facts are plain 
 
 Verdict: do before default-on, after P0. It is what makes the 309 s tree number irrelevant for repeat compiles, which is the case default-on actually creates (every compile pays inference, so every compile is a warm-cache compile most of the time).
 
+Landed (issue #1318, PR #1326): `src/pyscriptc/infercache.py` holds the per-module entries under the pyscriptc cache root (`infer/`), keyed on the module's content hash, the compiler digest (`runcache.compiler_digest`), the checker identity (resolved argv plus its reported version) and the content hashes of the in-tree modules the module imports from. `inferrunner.build_facts` loads the entries first and starts the checker server only for the modules that missed, so a warm tree pays no server at all; the pin reduction still runs over the merged per-module lists, so the pins are unchanged. The facts are plain JSON, the write is atomic (temp file plus rename), a corrupt entry is a miss rather than a failed compile, and `PYSC_NO_INFER_CACHE=1` turns the cache off.
+
 ### Option P2: interface-hash incremental recheck
 
 What it is: stop re-running the four-pass pyrefly mirror when nothing that feeds it changed. Hash the pinned-signature surface of each module (the annotations the lowerer will apply, i.e. written annotations plus accepted pins) and skip a module's re-check when its own hash and the hashes of its in-tree imports' signature surfaces are unchanged from the cached pass. This is pyrefly's "type it and see" trick applied at the pyscriptc layer: optimistically assume fresh, verify the interface hash, and only invalidate importers when a signature surface actually changed.

@@ -258,6 +258,10 @@ Use `pyscriptc coverage FILE` to see every individual code.
 
 `PYSC_CC`, `PYSC_LINKER` and `PYSC_TARGET` fill `--driver`, `--linker` and `--target` when the flag is absent; an explicit flag always wins.
 
+## Notes on `infer`
+
+The per-module call-site facts are cached under `~/.cache/pyscriptc/infer/` (the cache root moves with `PYSC_CACHE_DIR`), keyed on the module's own content hash, the compiler digest, the checker identity and the content hashes of the in-tree modules it imports from. A module whose key still matches contributes its stored call sites without a checker round trip, so a repeat compile of an unchanged tree pays the checker once, not once per compile. The pins are still reduced tree-wide from the merged per-module lists, so a cached fact can only contribute to the same all-or-nothing agreement the checker proved; it never widens what compiles. `PYSC_NO_INFER_CACHE=1` turns the cache off.
+
 ## Notes on `verify`
 
 Exit codes: 0 when every check matches, 1 on a divergence, 3 when the compiler refuses the program, 4 when no CPython 3.14 oracle is available.

@@ -233,6 +233,13 @@ def build_facts(root: Path, provider: str = "pyrefly", skip: bool | None = None)
     `skip` is the caller's own verdict of that test (`None` asks for it
     here), so a caller that already counted the unannotated parameters
     does not pay for a second walk.
+
+    Fact cache (issue #1318): the per-module call sites are cached under
+    the pyscriptc cache root, keyed on the module's content, the compiler
+    digest, the checker identity and the content hashes of the in-tree
+    modules it imports from. A module whose key still matches contributes
+    its stored call sites without a checker round trip; the pin reduction
+    still runs over the merged list, so the pins are unchanged.
     """
 
     root = root.resolve()
@@ -248,14 +255,47 @@ def build_facts(root: Path, provider: str = "pyrefly", skip: bool | None = None)
     if skip:
         return facts
     signatures = _qualified_signatures(root)
+    facts.calls.extend(_cached_calls(root))
+    facts.pins = pins_from_calls(facts.calls, signatures)
+    return facts
+
+
+def _cached_calls(root: Path) -> list[Any]:
+    """The tree's call sites, from the fact cache where it is still valid.
+
+    The per-module cache (issue #1318) is keyed on the module's own
+    content, the compiler digest, the checker identity and the content
+    hashes of the in-tree modules it imports from. A module whose key
+    still matches contributes its stored call sites without a checker
+    round trip; every other module is asked again. The pin reduction
+    runs over the merged list either way, so the pins are the same
+    facts the checker proved.
+
+    The checker server starts only when a module is actually missing
+    from the cache, so a warm tree pays no server at all.
+    """
+    from pyscriptc.infercache import dependency_hashes, load, store, tree_modules
+
+    calls: list[Any] = []
+    pending: list[tuple[Path, str, bytes, dict[str, str], ast.Module]] = []
+    modules = tree_modules(root)
+    for path in sorted(root.rglob("*.py")):
+        try:
+            source_bytes = path.read_bytes()
+            tree = ast.parse(source_bytes.decode("utf-8"), filename=str(path))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        module = _module_name(path, root)
+        dep_hashes = dependency_hashes(tree, module, modules)
+        cached = load(source_bytes, module, dep_hashes)
+        if cached is not None:
+            calls.extend(cached)
+            continue
+        pending.append((path, module, source_bytes, dep_hashes, tree))
+    if not pending:
+        return calls
     with _tsp_server() as adapter:
-        for path in sorted(root.rglob("*.py")):
-            try:
-                source = path.read_text(encoding="utf-8")
-                tree = ast.parse(source, filename=str(path))
-            except (OSError, SyntaxError, UnicodeDecodeError):
-                continue
-            module = _module_name(path, root)
+        for path, module, source_bytes, dep_hashes, tree in pending:
             stem = path.stem
             try:
                 module_facts = adapter.facts(path)
@@ -263,9 +303,10 @@ def build_facts(root: Path, provider: str = "pyrefly", skip: bool | None = None)
                 continue
             imports = _imported_names(tree, module)
             callees = _callee_names(tree, module, imports)
-            facts.calls.extend(collect_calls(stem, tree, callees, module_facts.expressions))
-    facts.pins = pins_from_calls(facts.calls, signatures)
-    return facts
+            module_calls = collect_calls(stem, tree, callees, module_facts.expressions)
+            calls.extend(module_calls)
+            store(source_bytes, module, dep_hashes, module_calls)
+    return calls
 
 
 def apply_pins(source: bytes, tree: ast.Module, pins: dict[str, Any]) -> bytes:
