@@ -635,6 +635,12 @@ def build_parser() -> argparse.ArgumentParser:
     infer_parser.add_argument("source", help="a package directory (or a file's tree) to infer over")
     infer_parser.add_argument("--json", action="store_true", help="print the report as JSON")
     infer_parser.add_argument(
+        "--report",
+        action="store_true",
+        help="print the inference coverage report: unannotated, pinned and unpinned parameters "
+        "and the pin rate per module plus a tree total (diagnostics only, no behavior change)",
+    )
+    infer_parser.add_argument(
         "--overlay",
         metavar="FILE",
         help="write the inferred annotations to FILE as a sidecar the user can apply",
