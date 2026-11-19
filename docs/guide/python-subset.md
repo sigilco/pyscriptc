@@ -142,36 +142,19 @@ There is no `typing` module object in the binary.
 
 Constructs with runtime meaning beyond their annotation (pydantic models, `attrs` validators, anything that reads annotations at run time) are not typing failures: run them through embedded CPython (fallback mode), see [Libraries and fallback mode](libraries.md).
 
-## Typing levels
+## When you know the codebase better than the compiler
 
-Typing is a quality lane: a level says how much of the typing report a project sees, never what compiles.
-The four levels are `off`, `basic`, `standard` and `strict`; the default is `standard`.
+Some definitions are ones the compiler refuses for a reason that does not apply to your code, and you are certain of that.
+The escape is `@island`: mark the definition, and the binary runs that one definition under embedded CPython, which is the real Python semantics, so the escape is safe by construction rather than a claim the compiler has to trust.
+The compile and `assess` name the routing (`demoted by marked @island` in the plane map), so the choice is recorded rather than hidden.
+There is no compile-time override for an annotation, a pin or a proven type: the compiler never takes an unverified claim about your types, so a definition the compiler misreads is demoted, not asserted.
 
-| Level | What the report shows | PEPs it reports on |
-| ----- | --------------------- | ------------------- |
-| `off` | no typing findings | none |
-| `basic` | missing annotations (`PS1001`) as warnings | PEP 484 function annotations, PEP 526 variable annotations |
-| `standard` | missing annotations as warnings, plus the coverage numbers | PEP 484, PEP 526, and the PEP 561 stub resolution the checker preflight proves |
-| `strict` | missing annotations and the construct forms (`PS1103`, `PS1104`, `PS1105`, `PS1106`) as errors | PEP 484, PEP 526, PEP 561, and the PEP 585, 604, 647, 695 construct forms |
+## The typing report
 
-The levels are reporting emphasis, never new syntax support: a strict level reports the PEP 695 and `ParamSpec` fences more loudly, it does not lower them.
-
-The project default and the per-path lists live in the config:
-
-```toml
-[tool.pyscriptc.typing]
-mode = "standard"
-strict = ["src/core/**"]
-```
-
-A file may raise its own level with a pragma comment, which is inert for CPython and for every other tool:
-
-```python
-# pyscriptc: typed=strict
-```
-
-The pragma may only raise the level over the config, never lower it, so a strict configuration holds: a file that wants less has to be taken out of the strict globs, not downgraded in place.
-The findings surface in `pyscriptc infer --report` and `pyscriptc assess`; see [Config](../reference/config.md) for the table.
+Typing is a quality lane: the typing report says what the typing surface of a project looks like, never what compiles.
+The report names the missing annotations (`PS1001`) and the annotation forms the compiler does not take (`PS1103`, `PS1104`, `PS1105`), and it surfaces in `pyscriptc infer --report` and `pyscriptc assess`.
+One config key switches it: `[tool.pyscriptc.typing] mode = "standard"` (the default) or `mode = "off"`, which silences the typing findings and leaves the rest of the report untouched.
+There is no per-path table and no per-file pragma: a project either sees the typing report or it does not.
 
 For background on the typing system itself, the upstream references are the best source and pyscriptc does not re-explain them:
 

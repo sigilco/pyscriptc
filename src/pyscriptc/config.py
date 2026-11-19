@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from pyscriptc.errors import SpikeError
-from pyscriptc.typinglevels import DEFAULT_LEVEL, LEVELS, TypingPolicy
+from pyscriptc.typinglevels import DEFAULT_MODE, MODES, TypingPolicy
 
 CONFIG_CODE = "PS3102"
 
@@ -322,27 +322,16 @@ class Config:
     def typing_policy(self) -> TypingPolicy:
         """The typing policy of the project (issue #1315).
 
-        The `[tool.pyscriptc.typing]` table holds the project default level
-        (`mode`) and the per-level glob lists (`strict = ["src/**"]`). The
-        globs are relative to the config file's directory.
+        The `[tool.pyscriptc.typing]` table holds one key, `mode`: the
+        project default (`standard`) or `off`, which silences the typing
+        report.
         """
 
         table = self.typing if isinstance(self.typing, dict) else {}
-        mode: str = table.get("mode", DEFAULT_LEVEL)
-        if not isinstance(mode, str) or mode not in LEVELS:
-            raise ConfigError(f"[tool.pyscriptc.typing].mode must be one of {'|'.join(LEVELS)}, got {mode!r}")
-        globs: dict[str, list[str]] = {}
-        for level in LEVELS:
-            patterns = table.get(level)
-            if patterns is None:
-                continue
-            if isinstance(patterns, str):
-                patterns = [patterns]
-            if not isinstance(patterns, list) or not all(isinstance(p, str) for p in patterns):
-                raise ConfigError(f"[tool.pyscriptc.typing].{level} must be a list of glob strings")
-            globs[level] = list(patterns)
-        base = self.origin.parent if self.origin is not None else None
-        return TypingPolicy(mode=mode, globs=globs, base=base)
+        mode: str = table.get("mode", DEFAULT_MODE)
+        if not isinstance(mode, str) or mode not in MODES:
+            raise ConfigError(f"[tool.pyscriptc.typing].mode must be one of {'|'.join(MODES)}, got {mode!r}")
+        return TypingPolicy(mode=mode)
 
     def _resolve(self, paths: tuple[str, ...]) -> tuple[Path, ...]:
         base: Path = self.origin.parent if self.origin is not None else Path.cwd()
@@ -530,23 +519,16 @@ def _validate_island(table: str, island: Dict[str, Any]) -> None:
 def _validate_typing(table: str, typing: Dict[str, Any]) -> None:
     """Key and type check of the `[tool.pyscriptc.typing]` subtable.
 
-    The table holds the project default level (`mode`) and one glob list
-    per level (`off`, `basic`, `standard`, `strict`). A level the compiler
-    does not know is a PS3102, so a typo never silently disables the
-    reports.
+    The table holds one key, `mode`, whose value is `standard` or `off`.
+    A mode the compiler does not know is a PS3102, so a typo never
+    silently disables the report.
     """
 
     for key, value in typing.items():
-        if key != "mode" and key not in LEVELS:
-            raise ConfigError(f"{table}: unknown key (known: mode, {'|'.join(LEVELS)})")
-        if key == "mode":
-            if not isinstance(value, str) or value not in LEVELS:
-                raise ConfigError(f"{table}.mode must be one of {'|'.join(LEVELS)}, got {value!r}")
-            continue
-        if isinstance(value, str):
-            continue
-        if not isinstance(value, list) or not all(isinstance(item, str) for item in value):
-            raise ConfigError(f"{table}.{key} must be a list of glob strings")
+        if key != "mode":
+            raise ConfigError(f"{table}: unknown key (known: mode)")
+        if not isinstance(value, str) or value not in MODES:
+            raise ConfigError(f"{table}.mode must be one of {'|'.join(MODES)}, got {value!r}")
 
 
 def _validate(table: str, data: Dict[str, Any]) -> Dict[str, Any]:

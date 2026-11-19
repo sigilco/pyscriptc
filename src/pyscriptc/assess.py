@@ -250,10 +250,9 @@ def _run_bench(
 def _typing_section(target: Path, target_files: list[str]) -> dict[str, Any]:
     """The typing section of the assessment (issue #1315).
 
-    The section names the level every file ended up at (the project mode,
-    the per-glob lists and the raise-only per-file pragma) and the typing
-    findings that level surfaces. It is a quality report: it never
-    changes what compiles, what lowers or the exit code.
+    The section names the project mode and the typing findings that mode
+    surfaces. It is a quality report: it never changes what compiles, what
+    lowers or the exit code.
     """
 
     from pyscriptc import typinglevels
@@ -1063,20 +1062,16 @@ def render_text(
     typing_section: dict[str, Any] | None = report.get("typing")
     if typing_section is not None:
         typing_summary: dict[str, Any] = typing_section["summary"]
-        lines.append(
-            f"Typing (mode {typing_section['mode']}): {typing_summary['errors']} error(s), "
-            f"{typing_summary['warnings']} warning(s)"
-        )
+        lines.append(f"Typing (mode {typing_section['mode']}): {typing_summary['findings']} finding(s)")
         typing_findings: list[dict[str, Any]] = typing_section["findings"]
         if not typing_findings:
             lines.append("  (no typing findings)")
         for finding in typing_findings:
-            f_severity: str = finding["severity"]
             f_file: str = finding["file"]
             f_line: int = finding["line"]
             f_code: str = finding["code"]
             f_message: str = finding["message"]
-            lines.append(f"  {f_severity}: {f_file}:{f_line}: {f_code} {f_message}")
+            lines.append(f"  warning: {f_file}:{f_line}: {f_code} {f_message}")
         lines.append("")
 
     plane_map: dict[str, Any] = report["planeMap"]

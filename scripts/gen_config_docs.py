@@ -34,7 +34,7 @@ DESCRIPTIONS: dict[str, str] = {
     "stub-path": "extra stub roots, relative to this file",
     "ffi": "extern manifests, relative to this file",
     "imports": "import lane per top-level module name",
-    "typing": "typing strictness levels: `mode`, and the per-level glob lists",
+    "typing": "the typing report: `mode` (`standard` or `off`)",
     "fallback": "fallback mode settings: `definitions`, or the tier `cpython`",
     "island": "embedded CPython settings: `embed`, `stdlib`, `engine`, `allow_host_libpython`",
 }

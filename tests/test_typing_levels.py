@@ -1,18 +1,15 @@
 # SPDX-License-Identifier: Apache-2.0
-"""The typing strictness levels (issue #1315).
+"""The typing report (issue #1315).
 
 The contract these tests hold:
 
-- the four levels are `off`, `basic`, `standard`, `strict`; `standard` is
-  the default, so an unconfigured project is unchanged;
-- a level only configures the report: which typing findings surface and at
-  what severity; compilation, lowering and exit codes are untouched;
-- the per-level glob lists in `[tool.pyscriptc.typing]` set the level of
-  the paths they match;
-- the per-file pragma `# pyscriptc: typed=<level>` may only raise the
-  level over the config, never lower it (the Pyright ratchet rule);
-- `pyscriptc infer --report` carries the typing section and a level per
-  module row;
+- the config has one key, `mode`, with two values: `standard` (the
+  default, so an unconfigured project is unchanged) and `off`;
+- the mode only configures the report: which typing findings surface;
+  compilation, lowering and exit codes are untouched;
+- the scanner's names come from the lowerer's own tables, so the report
+  and the compiler cannot name the same construct two ways;
+- `pyscriptc infer --report` carries the typing section;
 - `pyscriptc assess` carries the typing section in JSON and in text;
 - undecorated/default behaviour is unchanged: a project without the table
   gets the standard mode and the plain report shape stays.
@@ -28,115 +25,33 @@ from tests.test_gates import run_cli, write_case
 
 from pyscriptc.config import ConfigError, load_config
 from pyscriptc.typinglevels import (
-    DEFAULT_LEVEL,
-    LEVELS,
-    TypingLevelError,
+    DEFAULT_MODE,
+    MODES,
+    TypingModeError,
     TypingPolicy,
-    gate,
-    parse_pragma,
+    check_mode,
     scan_file,
-    severity_for,
+    typing_report,
 )
 
 # ---------------------------------------------------------------------------
-# levels and severities
+# the modes
 # ---------------------------------------------------------------------------
 
 
-def test_levels_are_the_four_named_modes() -> None:
-    assert LEVELS == ["off", "basic", "standard", "strict"]
-    assert DEFAULT_LEVEL == "standard"
+def test_modes_are_the_two_named_ones() -> None:
+    assert MODES == ["standard", "off"]
+    assert DEFAULT_MODE == "standard"
 
 
-def test_off_suppresses_every_typing_family() -> None:
-    for family in ("param-inference", "local-inference", "return-inference", "generic-alias", "dynamic-annotation"):
-        assert severity_for("off", family) is None
+def test_unknown_mode_is_an_error() -> None:
+    with pytest.raises(TypingModeError):
+        check_mode("strict")
 
 
-def test_basic_and_standard_report_missing_annotations_as_warnings() -> None:
-    for level in ("basic", "standard"):
-        assert severity_for(level, "param-inference") == "warning"
-        assert severity_for(level, "return-inference") == "warning"
-
-
-def test_basic_and_standard_suppress_the_construct_family() -> None:
-    for level in ("basic", "standard"):
-        for family in ("generic-alias", "dynamic-annotation", "forward-reference", "unlowered-type-name"):
-            assert severity_for(level, family) is None
-
-
-def test_strict_reports_both_families_as_errors() -> None:
-    for family in ("param-inference", "return-inference", "generic-alias", "dynamic-annotation"):
-        assert severity_for("strict", family) == "error"
-
-
-def test_unknown_level_is_an_error() -> None:
-    with pytest.raises(TypingLevelError):
-        severity_for("strong", "param-inference")
-
-
-# ---------------------------------------------------------------------------
-# the pragma
-# ---------------------------------------------------------------------------
-
-
-def test_pragma_parses_the_level(tmp_path: Path) -> None:
-    assert parse_pragma("# pyscriptc: typed=strict\n") == "strict"
-    assert parse_pragma("# pyscriptc: typed=basic\n\nx = 1\n") == "basic"
-    assert parse_pragma("x = 1\n") is None
-    assert parse_pragma("# a normal comment\n") is None
-
-
-def test_pragma_rejects_an_unknown_level() -> None:
-    with pytest.raises(TypingLevelError):
-        parse_pragma("# pyscriptc: typed=stricter\n")
-    # Sorbet's other sigils (`ignore`, `false`, `true`, `strong`) are not
-    # pyscriptc levels: a wrong spelling is refused, never silently
-    # accepted.
-    with pytest.raises(TypingLevelError):
-        parse_pragma("# pyscriptc: typed=false\n")
-
-
-def test_pragma_may_only_raise(tmp_path: Path) -> None:
-    source = Path("lib.py")
-    policy = TypingPolicy(mode="standard")
-    assert policy.level_for(source, "# pyscriptc: typed=strict\n") == ("strict", "pragma")
-    # The pragma never lowers: basic under a standard mode stays standard.
-    assert policy.level_for(source, "# pyscriptc: typed=basic\n") == ("standard", "config")
-    # An equal pragma keeps the config level.
-    assert policy.level_for(source, "# pyscriptc: typed=standard\n") == ("standard", "config")
-
-
-def test_off_mode_pragma_still_raises(tmp_path: Path) -> None:
-    policy = TypingPolicy(mode="off")
-    assert policy.level_for(Path("lib.py"), "# pyscriptc: typed=strict\n") == ("strict", "pragma")
-
-
-# ---------------------------------------------------------------------------
-# globs
-# ---------------------------------------------------------------------------
-
-
-def test_glob_raises_the_level_of_the_matched_paths(tmp_path: Path) -> None:
-    policy = TypingPolicy(mode="basic", globs={"strict": ["src/core/**"]}, base=tmp_path)
-    assert policy.level_for(tmp_path / "src" / "core" / "a.py", "") == ("strict", "glob")
-    assert policy.level_for(tmp_path / "src" / "other.py", "") == ("basic", "mode")
-
-
-def test_glob_can_lower_below_the_project_mode(tmp_path: Path) -> None:
-    policy = TypingPolicy(mode="standard", globs={"off": ["vendor/**"]}, base=tmp_path)
-    assert policy.level_for(tmp_path / "vendor" / "x.py", "") == ("off", "glob")
-
-
-def test_longest_matching_pattern_wins(tmp_path: Path) -> None:
-    policy = TypingPolicy(mode="standard", globs={"basic": ["src/**"], "strict": ["src/core/**"]}, base=tmp_path)
-    assert policy.level_for(tmp_path / "src" / "core" / "a.py", "") == ("strict", "glob")
-    assert policy.level_for(tmp_path / "src" / "b.py", "") == ("basic", "glob")
-
-
-def test_strict_glob_over_an_off_mode(tmp_path: Path) -> None:
-    policy = TypingPolicy(mode="off", globs={"strict": ["pkg/lib.py"]}, base=tmp_path)
-    assert policy.level_for(tmp_path / "pkg" / "lib.py", "") == ("strict", "glob")
+def test_the_policy_reports_whether_it_is_enabled() -> None:
+    assert TypingPolicy(mode="standard").enabled() is True
+    assert TypingPolicy(mode="off").enabled() is False
 
 
 # ---------------------------------------------------------------------------
@@ -161,22 +76,42 @@ def test_scan_finds_the_construct_forms(tmp_path: Path) -> None:
     findings = scan_file(path)
     families = {finding.family for finding in findings}
     assert "dynamic-annotation" in families
-    assert "generic-alias" in families
 
 
-def test_gate_filters_by_level(tmp_path: Path) -> None:
-    findings = scan_file(
-        write_case(tmp_path, "gate_t.py", "from typing import Any\n\n\ndef f(x, y: Any):\n    return x\n")
-    )
-    assert [finding.family for finding in gate(findings, "off")] == []
-    assert {finding.family for finding in gate(findings, "standard")} == {"param-inference", "return-inference"}
-    assert {finding.family for finding in gate(findings, "strict")} == {
-        "param-inference",
-        "return-inference",
-        "dynamic-annotation",
+def test_scan_says_nothing_about_a_taken_alias(tmp_path: Path) -> None:
+    source = "from typing import Sequence\n\n\ndef g(s: Sequence[int]) -> int:\n    return s[0]\n"
+    path = write_case(tmp_path, "lib.py", source)
+    findings = scan_file(path)
+    assert findings == []
+
+
+def test_scan_reads_the_lowering_tables() -> None:
+    """The scanner's name lists are the lowerer's own tables (issue #1315)."""
+
+    from pyscriptc.lower._annotations import _DYNAMIC_ANNOTATIONS, _TAKEN_ALIASES
+    from pyscriptc.typinglevels import _lowerer_tables
+
+    dynamic, taken, bare_taken, _erased = _lowerer_tables()
+    assert dynamic == frozenset(_DYNAMIC_ANNOTATIONS - {"NoReturn", "Never"})
+    assert taken == frozenset(_TAKEN_ALIASES)
+
+
+def test_the_scan_agrees_with_the_compiler(tmp_path: Path) -> None:
+    """Every construct form the scan reports is one the compiler fences."""
+
+    from pyscriptc.lower import lower_source
+
+    cases = {
+        "dynamic.py": "from typing import Any\n\n\ndef f(x: Any) -> None:\n    pass\n",
+        "alias.py": "from typing import Awaitable\n\n\ndef f(x: Awaitable[int]) -> None:\n    pass\n",
+        "bare.py": "from typing import List\n\n\ndef f(x: List) -> None:\n    pass\n",
     }
-    strict = gate(findings, "strict")
-    assert all(finding.severity == "error" for finding in strict)
+    for name, source in cases.items():
+        path = write_case(tmp_path, name, source)
+        scanned = {finding.code for finding in scan_file(path) if finding.code != "PS1001"}
+        lowered = lower_source(source, str(path))
+        fenced = {fence["code"] for fence in lowered.get("fences", [])} - {"PS2002"}
+        assert scanned == fenced, name
 
 
 # ---------------------------------------------------------------------------
@@ -186,33 +121,31 @@ def test_gate_filters_by_level(tmp_path: Path) -> None:
 
 def test_config_parses_the_typing_table(tmp_path: Path) -> None:
     script = write_case(tmp_path, "main.py", "print(1)\n")
-    (tmp_path / "pyproject.toml").write_text(
-        '[tool.pyscriptc.typing]\nmode = "basic"\nstrict = ["src/**"]\n', encoding="utf-8"
-    )
+    (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nmode = "off"\n', encoding="utf-8")
     config = load_config(script)
     policy = config.typing_policy()
-    assert policy.mode == "basic"
-    assert policy.globs == {"strict": ["src/**"]}
-    assert policy.base == tmp_path
+    assert policy.mode == "off"
 
 
 def test_config_rejects_an_unknown_mode(tmp_path: Path) -> None:
     script = write_case(tmp_path, "main.py", "print(1)\n")
-    (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nmode = "strong"\n', encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nmode = "strict"\n', encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(script).typing_policy()
 
 
 def test_config_rejects_an_unknown_typing_key(tmp_path: Path) -> None:
     script = write_case(tmp_path, "main.py", "print(1)\n")
-    (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nmodee = "strict"\n', encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nmodee = "off"\n', encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(script)
 
 
-def test_config_rejects_a_non_string_glob(tmp_path: Path) -> None:
+def test_config_rejects_a_glob_list(tmp_path: Path) -> None:
+    """The per-glob lists are gone: a level list is an unknown key."""
+
     script = write_case(tmp_path, "main.py", "print(1)\n")
-    (tmp_path / "pyproject.toml").write_text("[tool.pyscriptc.typing]\nstrict = [1]\n", encoding="utf-8")
+    (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nstrict = ["src/**"]\n', encoding="utf-8")
     with pytest.raises(ConfigError):
         load_config(script)
 
@@ -220,7 +153,30 @@ def test_config_rejects_a_non_string_glob(tmp_path: Path) -> None:
 def test_config_without_the_table_gives_the_default(tmp_path: Path) -> None:
     script = write_case(tmp_path, "main.py", "print(1)\n")
     config = load_config(script)
-    assert config.typing_policy().mode == DEFAULT_LEVEL
+    assert config.typing_policy().mode == DEFAULT_MODE
+
+
+# ---------------------------------------------------------------------------
+# the report section
+# ---------------------------------------------------------------------------
+
+
+def test_the_report_surfaces_the_findings(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "lib.py", "def shout(text):\n    return text.upper()\n")
+    findings = scan_file(path)
+    section = typing_report(TypingPolicy(mode="standard"), [path], findings)
+    assert section["mode"] == "standard"
+    assert section["summary"]["files"] == 1
+    assert section["summary"]["findings"] == len(findings)
+
+
+def test_the_report_off_surfaces_nothing(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "lib.py", "def shout(text):\n    return text.upper()\n")
+    findings = scan_file(path)
+    section = typing_report(TypingPolicy(mode="off"), [path], findings)
+    assert section["mode"] == "off"
+    assert section["findings"] == []
+    assert section["summary"]["findings"] == 0
 
 
 # ---------------------------------------------------------------------------
@@ -243,45 +199,27 @@ def test_infer_report_carries_the_typing_section(tmp_path: Path) -> None:
     section = report["typing"]
     assert section["mode"] == "standard"
     assert section["summary"]["files"] == 2
-    assert section["summary"]["warnings"] >= 2
+    assert section["summary"]["findings"] >= 2
     families = {finding["family"] for finding in section["findings"]}
     assert families == {"param-inference", "return-inference"}
-    rows = {row["module"]: row for row in report["modules"]}
-    assert rows["lib"]["level"] == "standard"
 
 
-def test_infer_report_respects_the_mode_and_the_pragma(tmp_path: Path) -> None:
-    root = tmp_path / "pkg"
-    root.mkdir()
-    write_case(root, "lib.py", "# pyscriptc: typed=strict\n\ndef shout(text):\n    return text.upper()\n")
-    write_case(root, "__main__.py", "from lib import shout\n\nshout('a')\n")
-    (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nmode = "off"\n', encoding="utf-8")
-    report = _report(root)
-    section = report["typing"]
-    assert section["mode"] == "off"
-    rows = {row["module"]: row for row in report["modules"]}
-    # The pragma raised lib over the off mode, __main__ stays off.
-    assert rows["lib"]["level"] == "strict"
-    assert rows["__main__"]["level"] == "off"
-    codes = {finding["code"] for finding in section["findings"]}
-    assert "PS1001" in codes
-    assert all(finding["severity"] == "error" for finding in section["findings"] if finding["code"] == "PS1001")
-
-
-def test_infer_report_off_suppresses_the_findings(tmp_path: Path) -> None:
+def test_infer_report_respects_the_mode(tmp_path: Path) -> None:
     root = tmp_path / "pkg"
     root.mkdir()
     write_case(root, "lib.py", "def shout(text):\n    return text.upper()\n")
     write_case(root, "__main__.py", "from lib import shout\n\nshout('a')\n")
     (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nmode = "off"\n', encoding="utf-8")
     report = _report(root)
-    assert report["typing"]["findings"] == []
-    # The coverage numbers stay: off silences the typing reports, not the
+    section = report["typing"]
+    assert section["mode"] == "off"
+    assert section["findings"] == []
+    # The coverage numbers stay: off silences the typing findings, not the
     # coverage report.
     assert report["total"]["unannotated_params"] == 1
 
 
-def test_infer_report_text_names_the_level_and_the_findings(tmp_path: Path) -> None:
+def test_infer_report_text_names_the_mode_and_the_findings(tmp_path: Path) -> None:
     root = tmp_path / "pkg"
     root.mkdir()
     write_case(root, "lib.py", "def shout(text):\n    return text.upper()\n")
@@ -321,7 +259,7 @@ def test_assess_json_carries_the_typing_section(tmp_path: Path) -> None:
     report = json.loads(out.stdout)
     section = report["typing"]
     assert section["mode"] == "standard"
-    assert section["summary"]["warnings"] >= 2
+    assert section["summary"]["findings"] >= 2
 
 
 def test_assess_text_names_the_typing_mode(tmp_path: Path) -> None:
@@ -348,18 +286,18 @@ def test_assess_off_mode_prints_no_findings(tmp_path: Path) -> None:
 
 
 # ---------------------------------------------------------------------------
-# the levels never change what compiles
+# the mode never changes what compiles
 # ---------------------------------------------------------------------------
 
 
-def test_levels_do_not_change_the_compile(tmp_path: Path) -> None:
+def test_the_mode_does_not_change_the_compile(tmp_path: Path) -> None:
     source = write_case(tmp_path, "main.py", "def shout(text: str) -> str:\n    return text.upper()\n")
-    (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nmode = "strict"\n', encoding="utf-8")
-    strict_run = run_cli("compile", str(source), "--emit", "ir", "-o", str(tmp_path / "strict"))
+    (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nmode = "standard"\n', encoding="utf-8")
+    standard_run = run_cli("compile", str(source), "--emit", "ir", "-o", str(tmp_path / "standard"))
     (tmp_path / "pyproject.toml").write_text('[tool.pyscriptc.typing]\nmode = "off"\n', encoding="utf-8")
     off_run = run_cli("compile", str(source), "--emit", "ir", "-o", str(tmp_path / "off"))
-    assert strict_run.returncode == 0, strict_run.stderr
+    assert standard_run.returncode == 0, standard_run.stderr
     assert off_run.returncode == 0, off_run.stderr
-    strict_ir = (tmp_path / "strict").read_text(encoding="utf-8")
+    standard_ir = (tmp_path / "standard").read_text(encoding="utf-8")
     off_ir = (tmp_path / "off").read_text(encoding="utf-8")
-    assert strict_ir == off_ir
+    assert standard_ir == off_ir

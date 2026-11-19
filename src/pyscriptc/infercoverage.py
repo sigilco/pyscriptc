@@ -102,7 +102,6 @@ def coverage_report(root: Path, facts: InferFacts, policy: Any = None) -> dict[s
         pins_by_module.setdefault(_module_of_callee(callee), {})[(callee, param)] = pin
     rows: dict[str, ModuleCoverage] = {}
     paths: list[Path] = []
-    module_paths: dict[str, list[Path]] = {}
     for path in sorted(root.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
@@ -110,7 +109,6 @@ def coverage_report(root: Path, facts: InferFacts, policy: Any = None) -> dict[s
             continue
         paths.append(path)
         module = _module_name(path, root)
-        module_paths.setdefault(module, []).append(path)
         row = rows.setdefault(module, ModuleCoverage(module=module))
         module_pins = pins_by_module.get(module, {})
         for name, node in _defs_of(tree):
@@ -150,33 +148,8 @@ def coverage_report(root: Path, facts: InferFacts, policy: Any = None) -> dict[s
         for path in paths:
             findings.extend(typinglevels.scan_file(path))
         section = typinglevels.typing_report(policy, paths, findings)
-        levels = section["levels"]
-        for row in modules:
-            row["level"] = _module_level(row["module"], module_paths, levels, policy.mode)
         report["typing"] = section
     return report
-
-
-def _module_level(
-    module: str,
-    module_paths: dict[str, list[Path]],
-    levels: dict[str, str],
-    mode: str,
-) -> str:
-    """The strictest level of the files of a module."""
-    found: list[str] = []
-    for path in module_paths.get(module, []):
-        found.append(levels.get(path.as_posix(), mode))
-    if not found:
-        return mode
-    best = found[0]
-    for level in found:
-        if LEVEL_RANK[level] > LEVEL_RANK[best]:
-            best = level
-    return best
-
-
-LEVEL_RANK: dict[str, int] = {"off": 0, "basic": 1, "standard": 2, "strict": 3}
 
 
 def render_coverage_text(report: dict[str, Any]) -> str:
@@ -184,15 +157,13 @@ def render_coverage_text(report: dict[str, Any]) -> str:
 
     `pin_rate` is `None` when nothing is unannotated (nothing to prove);
     the text prints `-` there. When the report carries the typing section
-    (issue #1315), the level column and the typing findings join the rows.
+    (issue #1315), the typing findings join the rows.
     """
 
     lines: list[str] = []
     lines.append(f"inference coverage ({report['provider']})")
     typed = "typing" in report
     header = f"{'module':<40} {'unannotated':>11} {'pinned':>8} {'unpinned':>9} {'pin rate':>9}"
-    if typed:
-        header += f" {'level':>8}"
     lines.append(header)
     for row in report["modules"]:
         rate = "-" if row["pin_rate"] is None else f"{row['pin_rate'] * 100:.1f}%"
@@ -200,8 +171,6 @@ def render_coverage_text(report: dict[str, Any]) -> str:
             f"{row['module']:<40} {row['unannotated_params']:>11} {row['pinned_params']:>8} "
             f"{row['unpinned_params']:>9} {rate:>9}"
         )
-        if typed:
-            line += f" {row.get('level', '-'):>8}"
         lines.append(line)
     total = report["total"]
     rate = "-" if total["pin_rate"] is None else f"{total['pin_rate'] * 100:.1f}%"
@@ -212,13 +181,8 @@ def render_coverage_text(report: dict[str, Any]) -> str:
     if typed:
         section = report["typing"]
         lines.append("")
-        lines.append(
-            f"typing mode {section['mode']}: {section['summary']['errors']} error(s), "
-            f"{section['summary']['warnings']} warning(s)"
-        )
+        lines.append(f"typing mode {section['mode']}: {section['summary']['findings']} finding(s)")
         findings = section["findings"]
         for finding in findings:
-            lines.append(
-                f"  {finding['severity']}: {finding['file']}:{finding['line']}: {finding['code']} {finding['message']}"
-            )
+            lines.append(f"  warning: {finding['file']}:{finding['line']}: {finding['code']} {finding['message']}")
     return "\n".join(lines)

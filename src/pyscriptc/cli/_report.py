@@ -87,10 +87,9 @@ def _fence_deltas(base: dict[str, int], inferred: dict[str, int]) -> dict[str, d
 def _typing_policy(source: Path) -> TypingPolicy:
     """The typing policy of the project above a source (issue #1315).
 
-    The policy is the `[tool.pyscriptc.typing]` table: the project mode
-    and the per-level glob lists. A project without the table gets the
-    default policy, so the report is unchanged for a project that
-    configures nothing.
+    The policy is the `[tool.pyscriptc.typing]` table: one key, `mode`.
+    A project without the table gets the default policy, so the report is
+    unchanged for a project that configures nothing.
     """
 
     try:

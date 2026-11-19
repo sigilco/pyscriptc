@@ -50,6 +50,33 @@ _NEVER_ALIASES = frozenset({"NoReturn", "Never"})
 _DYNAMIC_ANNOTATIONS = frozenset({"object", "Any", "Protocol", "TypeVar", "Generic", "Callable", "ABC"})
 _IO_HANDLES = {"BinaryIO": "BytesIO", "TextIO": "TextIO"}
 
+# The alias names the lowerer takes (issue #1315). `_typing_annotation` is
+# the authority on what a subscripted alias lowers to; this table is the
+# same knowledge in one place, so the typing report's scanner reads it
+# instead of keeping a second list of its own (the fence taxonomy has one
+# source and cannot drift from what the compiler does).
+_TAKEN_ALIASES = frozenset(
+    _LIST_FORMS
+    | _DICT_FORMS
+    | _SET_FORMS
+    | _UNWRAP_FORMS
+    | {
+        "Callable",
+        "Tuple",
+        "Iterable",
+        "Sequence",
+        "Iterator",
+        "Generator",
+        "Optional",
+        "Union",
+        "IO",
+    }
+)
+
+# The alias names the lowerer takes unsubscripted: the bottom types and
+# the two IO handles.
+_TAKEN_BARE_ALIASES = frozenset(_NEVER_ALIASES) | frozenset(_IO_HANDLES)
+
 
 class AnnotationMixin:
     def _signature(
