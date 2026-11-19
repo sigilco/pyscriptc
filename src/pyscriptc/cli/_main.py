@@ -2009,17 +2009,26 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 "ms": int((time.perf_counter() - infer_started) * 1000.0),
             }
             dbg.end("infer")
-            if source_path.is_dir():
-                # A directory compile lowers one unit at a time, so the
-                # bridge is a provider: one bridge per unit. The pins ride
-                # every bridge, the way `pyscriptc infer` wires them.
-                provider = BridgeProvider("pyrefly", strict=False, pins=pins)
-                provider.pinned = pinned
-                provider.open()
-                bridge = provider
-            else:
-                bridge = CheckerBridge.for_path(source_path, "pyrefly", strict=False)
-                bridge.call_site_facts = pins
+            # The bridge opens only when the engine had something to
+            # prove: a tree with no unannotated parameter keeps the
+            # lowering it had before the default flip (the bridge would
+            # answer expression facts the compiler already proves, and a
+            # compile that lowers the same program must read the same).
+            # `--bridge` still asks for the checker map explicitly.
+            if not infer_skipped or getattr(args, "bridge", None):
+                provider_name: str = getattr(args, "bridge", None) or "pyrefly"
+                if source_path.is_dir():
+                    # A directory compile lowers one unit at a time, so the
+                    # bridge is a provider: one bridge per unit. The pins
+                    # ride every bridge, the way `pyscriptc infer` wires
+                    # them.
+                    provider = BridgeProvider(provider_name, strict=False, pins=pins)
+                    provider.pinned = pinned
+                    provider.open()
+                    bridge = provider
+                else:
+                    bridge = CheckerBridge.for_path(source_path, provider_name, strict=False)
+                    bridge.call_site_facts = pins
             dbg.end("bridge")
         dbg.begin("lower")
         # boxed:begin
