@@ -348,7 +348,7 @@ no = [["time_ns, ctime", 'y: float = time.perf_counter_ns()', "PS2001"]]
 
 [[stdlib]]
 names = ["collections"]
-ok = ['y: collections.deque[int] = collections.deque()', 'y: collections.OrderedDict[str, int] = collections.OrderedDict()']
+ok = ['y: collections.deque[int] = collections.deque()', 'y: collections.OrderedDict[str, int] = collections.OrderedDict()', 'y: collections.defaultdict[str, int] = collections.defaultdict(int)', 'y: collections.defaultdict[str, list[int]] = collections.defaultdict(list)']
 no = [["ChainMap", 'y: collections.ChainMap = collections.ChainMap()', "PS1106"]]
 
 [[stdlib]]

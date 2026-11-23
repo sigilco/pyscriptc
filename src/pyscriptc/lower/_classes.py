@@ -1346,7 +1346,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             return expr
         if kind == "dict":
             spec = type_spec(typ, self.classes)
-            if spec is None or not spec.startswith("d"):
+            if spec is None:
                 return None
             expr = _call_node(
                 {"kind": "module", "module": "builtins", "name": "map_repr"},

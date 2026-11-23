@@ -24,3 +24,10 @@ Rules for agents:
   events (`compile.start`, `check.fences`, `emit.ir`, `emit.llvm`,
   `link.binary`, `run.start`, `run.exit`, `coverage.report`,
   `explain.lookup`) where the flow actually does the work.
+- Dependency and package paths (issue #402): `deps.resolve` (source, kind,
+  provenance, lock digest, package count), `deps.fetch` (name, sha256,
+  wheel, cached), `deps.materialise` (name, sha256, source root, skipped
+  count and paths, import names), `deps.lane` (name, lane, reason),
+  `package.discover` (root, module count, skipped files), `package.catalog`
+  (root, unit, export and failed-definition counts) and `package.plan`
+  (root, reached module count, init owners; program trees only).
