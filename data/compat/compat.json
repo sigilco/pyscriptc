@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-18",
-  "commit": "272f04db3ce1129735d55bb21b6fd1ddec4410d4",
+  "commit": "8f0eaf452e9f56abb7f92c05ff09be727116118a",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-18",
-    "commit": "272f04db3ce1129735d55bb21b6fd1ddec4410d4",
+    "commit": "8f0eaf452e9f56abb7f92c05ff09be727116118a",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -393,11 +393,10 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma, log with a base"
+        "dist, ulp, nextafter, modf, frexp, ldexp, expm1, log1p, fma, sumprod"
       ],
       "fences": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ],
       "note": ""
     },
@@ -2901,7 +2900,7 @@
     },
     {
       "date": "2026-11-18",
-      "commit": "272f04db3ce1129735d55bb21b6fd1ddec4410d4",
+      "commit": "8f0eaf452e9f56abb7f92c05ff09be727116118a",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
