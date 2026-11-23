@@ -89,6 +89,15 @@ PROBES: list[Probe] = [
     _p("math", "fmod", "math", "print(math.fmod(7.5, 2.0))"),
     _p("math", "factorial", "math", "print(math.factorial(10))"),
     _p("math", "lcm", "math", "print(math.lcm(4, 6))"),
+    _p("math", "comb", "math", "print(math.comb(5, 2))"),
+    _p("math", "perm", "math", "print(math.perm(5, 2))"),
+    _p("math", "isqrt", "math", "print(math.isqrt(17))"),
+    _p("math", "copysign", "math", "print(math.copysign(3.0, -1.0))"),
+    _p("math", "cbrt", "math", "print(math.cbrt(27.0))"),
+    _p("math", "erf", "math", "print(math.erf(0.5))"),
+    _p("math", "erfc", "math", "print(math.erfc(0.5))"),
+    _p("math", "gamma", "math", "print(math.gamma(0.5))"),
+    _p("math", "lgamma", "math", "print(math.lgamma(0.5))"),
     # re: wave rows plus the four special-cased calls
     _p("re", "escape", "re", "print(re.escape('a+b.c'))"),
     _p("re", "findall", "re", "print(len(re.findall('[0-9]+', 'a1b22')))"),
@@ -584,8 +593,8 @@ def test_every_table_row_has_a_probe() -> None:
     extra = sorted(probed - inventory)
     assert not missing, f"call-table rows without a differential probe: {missing}"
     assert not extra, f"probes without a call-table row: {extra}"
-    assert len(inventory) == 179
-    assert len(PROBES) == 179
+    assert len(inventory) == 188
+    assert len(PROBES) == 188
 
 
 def _group_source(group: str) -> str:

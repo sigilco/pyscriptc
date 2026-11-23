@@ -170,3 +170,98 @@ def test_math_factorial_lcm(tmp_path: Path) -> None:
             *_raises("math.lcm(3037000500, 3037000499)"),
         ],
     )
+
+
+def test_math_comb_perm_isqrt(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "combinatorics.py",
+        [
+            "print(math.comb(5, 2), math.comb(5, 0), math.comb(0, 0), math.comb(5, 6))",
+            "print(math.comb(10, 3), math.comb(52, 5))",
+            "print(math.perm(5, 2), math.perm(5, 0), math.perm(5, 6))",
+            "print(math.perm(10, 3), math.perm(52, 2))",
+            "print(math.isqrt(0), math.isqrt(1), math.isqrt(17), math.isqrt(2**62))",
+            *_raises("math.comb(-1, 2)"),
+            *_raises("math.comb(5, -1)"),
+            *_raises("math.perm(-1, 2)"),
+            *_raises("math.perm(5, -1)"),
+            *_raises("math.isqrt(-1)"),
+        ],
+    )
+
+
+def test_math_copysign_cbrt_erf(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "floathelpers.py",
+        [
+            "print(math.copysign(3.0, -1.0), math.copysign(3.0, 1.0), math.copysign(-3.0, 1.0))",
+            "print(math.copysign(0.0, -1.0), math.copysign(float('nan'), 1.0))",
+            "print(math.cbrt(27.0), math.cbrt(-8.0), math.cbrt(0.0), math.cbrt(2.0))",
+            "print(math.erf(0.0), math.erf(0.5), math.erf(-0.5), math.erf(1.0))",
+            "print(math.erfc(0.0), math.erfc(0.5), math.erfc(-0.5), math.erfc(2.0))",
+        ],
+    )
+
+
+def test_math_gamma_and_lgamma(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "gamma.py",
+        [
+            "print(math.gamma(0.5), math.gamma(1.5), math.gamma(2.5), math.gamma(-0.5))",
+            "print(math.gamma(5.0), math.gamma(10.0), math.gamma(100.0))",
+            "print(math.lgamma(0.5), math.lgamma(1.0), math.lgamma(2.0), math.lgamma(10.0))",
+            "print(math.lgamma(-0.5), math.lgamma(-2.5))",
+            *_raises("math.gamma(0.0)"),
+            *_raises("math.gamma(-1.0)"),
+            *_raises("math.lgamma(0.0)"),
+            *_raises("math.lgamma(-2.0)"),
+        ],
+    )
+
+
+def test_math_log_with_a_base(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "logbase.py",
+        [
+            "print(math.log(8.0, 2.0), math.log(100.0, 10.0), math.log(2.0, 0.5))",
+            "print(math.log(10.0, 3.0), math.log(8, 2), math.log(1.0, 2.0))",
+            *_raises("math.log(0.0, 2.0)"),
+            *_raises("math.log(8.0, 0.0)"),
+            *_raises("math.log(-4.0, 2.0)"),
+            "try:",
+            "    print(math.log(8.0, 1.0))",
+            "except ZeroDivisionError:",
+            "    print('ZeroDivisionError')",
+        ],
+    )
+
+
+def test_math_fsum_and_prod(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "fsumprod.py",
+        [
+            "print(math.fsum([0.1, 0.2, 0.3]), math.fsum([1e16, 1.0, -1e16]))",
+            "print(math.fsum([1.5, 2.5]), math.fsum([1, 2, 3]), math.fsum([1e-16, 1.0, 2.0]))",
+            "print(math.prod([1, 2, 3]), math.prod([1.0, 2.0]), math.prod([2, 3, 4]))",
+            "print(math.prod([0.5, 4.0, 2.0]), math.prod([-1, 2, -3]))",
+            *_raises("math.fsum([1e308, 1e308])"),
+        ],
+    )
+
+
+def test_math_rounding_takes_an_int(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "roundingint.py",
+        [
+            "print(math.floor(3), math.trunc(3), math.ceil(3))",
+            "print(math.floor(-3), math.trunc(-3), math.ceil(-3))",
+            "print(math.floor(2**60 + 1), math.trunc(2**60 + 1), math.ceil(2**60 + 1))",
+            "print(math.floor(2.7), math.trunc(-2.9), math.ceil(2.1))",
+        ],
+    )
