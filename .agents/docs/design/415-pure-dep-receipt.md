@@ -69,11 +69,13 @@ mostly because today's resolution is wcwidth 0.9.5, a much larger rewrite
   platform glue; the fences are its semantics, not its surface. Out.
 - **shellingham**: only 5 reachable fences, but they understate the distance.
   `detect_shell` dispatches through `importlib.import_module("." + os.name)`
-  — a dynamic import a native binary cannot perform — into `posix` backends
-  that run `subprocess.check_output(["ps", ...])` and walk `/proc`. The two
-  non-cascade fences (unannotated `pid`, a set-literal module constant) mask
-  a runtime surface that cannot match CPython behaviour even at zero fences.
-  Out on semantics, not count.
+  — probe-verified: `PS2001 import_module returns a module`, a hard fence —
+  into `posix` backends that run `subprocess.check_output(["ps", ...])` and
+  walk `/proc`. `subprocess` does lower, but only onto the island lane (the
+  emitted binary links host libpython, PS4304), which is the weak tier this
+  receipt is succeeding. The two non-cascade fences (unannotated `pid`, a
+  set-literal module constant) mask a runtime surface that cannot match
+  CPython natively even at zero fences. Out on semantics, not count.
 - **tomli**: 44/82, and the visible count is optimistic. ~55 of the reachable
   fences are annotation-erasure (`Final`, `Pos`, `Key`, `ParseFloat`,
   `re.Match[str]`, `IO[bytes]`, `Callable`/`Tuple` as values), which masks
