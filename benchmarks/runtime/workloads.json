@@ -772,6 +772,15 @@
       "module": "re"
     },
     {
+      "name": "pipeline",
+      "entry": "workloads/pipeline.py",
+      "call": "bench",
+      "args": [1],
+      "category": "cpu",
+      "group": "app",
+      "module": "csv+json"
+    },
+    {
       "name": "fenced-strip",
       "entry": "workloads/fenced-strip.py",
       "call": "clean",
