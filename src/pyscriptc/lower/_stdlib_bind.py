@@ -41,6 +41,51 @@ class StdlibBindMixin:
                 return f"import `{head}` is refused by the `imports` policy"
         return _dep_lane_hint(name, f"{name} is not in the closed import table")
 
+    # boxed:begin
+    def _island_route(self, name: str) -> str:
+        """The route of one import root outside the closed table.
+
+        N2 (issue #1308): the island lane is the default. An explicit
+        `[imports]` policy entry wins over the default: `island` routes
+        there, `refuse` fences naming the policy, and a pinned `compile`,
+        `replace` or `extern` keeps the old closed-table fence. The answer
+        is one of `island`, `refuse` or `fence`.
+
+        A `refuse` policy keyed by the distribution name (`dateutil_ish`)
+        reaches the import name (`dateutil`) through the dependency lane
+        report, which is the map from an import name to its distribution
+        (issue #408).
+        """
+
+        head = name.split(".", 1)[0]
+        if self.config is not None:
+            lane, key = self.config.lane_for(head)
+            if key != "default":
+                return "island" if lane == "island" else ("refuse" if lane == "refuse" else "fence")
+        entry = dep_lanes().get(head)
+        if entry is not None and entry.get("lane") == "refuse":
+            return "refuse"
+        return "island" if island_lane(name) else "fence"
+
+    def _note_island_import(self, name: str) -> None:
+        """The advisory note for an import routed to the island lane.
+
+        N2 (issue #1308): an import outside the closed table is a fact about
+        a library, not a language wall, so it routes to the island instead of
+        failing the build. The note records that routing; it never gates the
+        compile.
+        """
+
+        body = _dep_lane_hint(
+            name,
+            f"{name} is not in the closed import table; it routes to the island lane (requires libpython)",
+        )
+        note = f"note: PS2002 ({name}): {body}"
+        if note not in self.module_notes:
+            self.module_notes.append(note)
+
+    # boxed:end
+
     def _bind_import(self, stmt: ast.Import, fences: list[Fence]) -> None:
         for alias in stmt.names:
             root = alias.name.split(".", 1)[0]
@@ -56,6 +101,13 @@ class StdlibBindMixin:
                 if root in self.bindings:
                     continue
                 alias = ast.alias(name=root)
+            if alias.name in _ERASED_MODULES:
+                # A dotted annotation-only module (`pyscriptc._annotations`,
+                # issue #1306): the whole name is the erased module, so both
+                # the plain and the aliased spelling bind it under the name
+                # the source spells, and member reads resolve as erased.
+                self.bindings[alias.asname or root] = Binding("erased", alias.name, "", False)
+                continue
             if root in _ERASED_MODULES:
                 self.bindings[alias.asname or root] = Binding("erased", root, "", False)
                 continue
@@ -77,19 +129,22 @@ class StdlibBindMixin:
                 continue
             status = module_status(alias.name)
             if status is None:
-                head = alias.name.split(".", 1)[0]
-                if self.config is not None and self.config.lane_for(head)[0] == "refuse":
+                # boxed:begin
+                route = self._island_route(alias.name)
+                if route == "refuse":
                     fences.append(
                         Fence(
                             "PS2002",
-                            f"import `{head}` is refused by the `imports` policy",
+                            _dep_lane_hint(
+                                alias.name,
+                                f"import `{alias.name.split('.', 1)[0]}` is refused by the `imports` policy",
+                            ),
                             span_of(stmt, self.filename),
                             None,
                         )
                     )
                     continue
-                # boxed:begin
-                if island_lane(alias.name):
+                if route == "island":
                     parts = alias.name.split(".")
                     if alias.asname or len(parts) == 1:
                         bound = alias.asname or parts[0]
@@ -100,6 +155,7 @@ class StdlibBindMixin:
                         module = parts[0]
                         rooted = True
                     self.bindings[bound] = Binding("island", module, "", False, rooted=rooted)
+                    self._note_island_import(alias.name)
                     continue
                 # boxed:end
                 fences.append(
@@ -169,15 +225,37 @@ class StdlibBindMixin:
         status = module_status(stmt.module)
         if status is None:
             # boxed:begin
-            if island_lane(stmt.module):
+            route = self._island_route(stmt.module)
+            if route == "refuse":
+                fences.append(
+                    Fence(
+                        "PS2002",
+                        _dep_lane_hint(
+                            stmt.module,
+                            f"import `{stmt.module.split('.', 1)[0]}` is refused by the `imports` policy",
+                        ),
+                        span_of(stmt, self.filename),
+                        None,
+                    )
+                )
+                return
+            if route == "island":
                 for alias in stmt.names:
                     if alias.name == "*":
                         fences.append(Fence("PS2002", "star import is not lowered", span_of(stmt, self.filename), None))
                         continue
                     local = alias.asname or alias.name
                     self.bindings[local] = Binding("island_member", stmt.module, alias.name, False)
+                self._note_island_import(stmt.module)
                 return
             # boxed:end
+            for alias in stmt.names:
+                if alias.name == "*":
+                    continue
+                # The refused import still says where the name came from, so
+                # the class-base census can name the library a refused base
+                # belongs to (issue #1313).
+                self.refused_imports[alias.asname or alias.name] = stmt.module
             fences.append(
                 Fence(
                     "PS2002",
@@ -419,10 +497,51 @@ class StdlibBindMixin:
             # `except json.JSONDecodeError` names the class the json runtime
             # raises; the runtime looks the code up by name (issue #1246).
             self.synthetics.add("JSONDecodeError")
+        if module == "http.server" and module_status("http.server") == "lowered":
+            # The handler base class (issue #1270): the user's handler
+            # extends it, so it is a lowered class and not a synthetic one
+            # (a synthetic class cannot be a base). It carries the
+            # request-backed fields the handler reads.
+            self._install_http_handler_base()
         for name, classes in MODULE_CLASSES.items():
             if module == name or module.startswith(name + "."):
                 if module_status(name) == "lowered":
                     self.synthetics.update(classes)
+
+    def _install_http_handler_base(self) -> None:
+        """The http.server handler base class (issue #1270).
+
+        `BaseHTTPRequestHandler` is a base class, not a value: the user's
+        handler extends it, so it is a lowered class and not a synthetic
+        one (the lowering fences "subclassing a stdlib type"). It carries
+        the request-backed fields the handler reads (`path`, `headers`,
+        `rfile`, `wfile`) and the request context they read through, plus
+        the three response methods the surface answers (`send_response`,
+        `send_header`, `end_headers`). The methods' bodies are emitted by
+        the class lowering itself: each one is a runtime call over the
+        instance's `_request` / `_response` records, so `install_http_
+        handler_methods` spells them after the base and the subclass both
+        exist.
+        """
+        if self.classes.get("BaseHTTPRequestHandler") is not None:
+            return
+        fields = [
+            {"name": "path", "type": {"kind": "str"}},
+            {"name": "headers", "type": {"kind": "class", "name": "HttpServerHeaders"}},
+            {"name": "rfile", "type": {"kind": "class", "name": "HttpServerReader"}},
+            {"name": "wfile", "type": {"kind": "class", "name": "HttpServerWriter"}},
+            {"name": "_request", "type": {"kind": "class", "name": "HttpServerRequest"}},
+            {"name": "_response", "type": {"kind": "class", "name": "HttpServerResponse"}},
+        ]
+        self.classes["BaseHTTPRequestHandler"] = {
+            "fields": fields,
+            "own_fields": list(fields),
+            "methods": {},
+            "method_kind": {},
+            "method_owner": {},
+            "base": None,
+        }
+        self.declared.add("BaseHTTPRequestHandler")
 
 
 def _dep_lane_hint(module: str, message: str) -> str:

@@ -10,6 +10,12 @@ string the runtime reprs in `ps_fmt.c` parse:
   spelling)
 - `d` + key char + spec: a dict cell (a `PsMap *`); the key char is `i`
   or `s`, matching the map's stored `key_kind`
+- `o` + dict spec: an `OrderedDict` cell, `OrderedDict({...})` with the
+  `OrderedDict()` empty spelling
+- `D` + factory char + dict spec: a `defaultdict` cell,
+  `defaultdict(<class 'list'>, {...})`; the factory char is `l` list,
+  `t` set, `d` dict, `i` int, `f` float or `s` str, read off the value
+  type the `defaultdict(factory)` lowering already checked against it
 - `u` + count byte + per-field (len byte + spec): a synthetic `tuple_N`
   class cell (a pointer to the `%cls` struct). The field specs ride in
   field order; the runtime derives each field's struct offset from the
@@ -27,7 +33,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from pyscriptc._irnode import F_TSET, T
+from pyscriptc._irnode import F_TMARK_DEFAULTDICT, F_TMARK_ORDERED, F_TSET, T
 from pyscriptc.tirserde import dict_to_type
 
 _SCALAR = {"int": "i", "float": "f", "str": "s", "bool": "b", "bytes": "y"}
@@ -62,6 +68,18 @@ def _tuple_spec(info: dict[str, Any], classes: dict[str, Any] | None) -> str | N
     return out
 
 
+def _factory_char(value: T) -> str | None:
+    """The `D` factory char for a defaultdict value type, or None."""
+
+    if value.kind == "list":
+        return "t" if value.flags & F_TSET else "l"
+    if value.kind == "dict":
+        return "d"
+    if value.kind in ("int", "float", "str"):
+        return value.kind[0]
+    return None
+
+
 def _spec(t: T, classes: dict[str, Any] | None) -> str | None:
     kind = t.kind
     if kind in _SCALAR:
@@ -82,7 +100,13 @@ def _spec(t: T, classes: dict[str, Any] | None) -> str | None:
         inner = _spec(t.value, classes)
         if inner is None:
             return None
-        return "d" + ("i" if key == "int" else "s") + inner
+        spec = "d" + ("i" if key == "int" else "s") + inner
+        if t.flags & F_TMARK_DEFAULTDICT:
+            factory = _factory_char(t.value)
+            return None if factory is None else "D" + factory + spec
+        if t.flags & F_TMARK_ORDERED:
+            return "o" + spec
+        return spec
     if kind == "class" and classes is not None:
         info = classes.get(t.name)
         if info is not None and info.get("tuple"):

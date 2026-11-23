@@ -33,6 +33,91 @@ def load_report(path: str) -> dict[str, Any]:
     return data
 
 
+def inference_table(report: dict[str, Any]) -> str:
+    """Markdown table over the inference suite's rows.
+
+    The compile-time inference suite (issue #1319) records one row per
+    benchmark tree: the plain compile, the compile with `--infer`, and
+    the engine's own report (pins, call sites, skipped flag). The table
+    is report-only, like every other table here.
+    """
+
+    rows = [row for row in report.get("workloads", []) if isinstance(row, dict) and "name" in row]
+    lines = [
+        "### Inference suite: compile-time inference",
+        "",
+        f"recorded `{report.get('recorded_at', '?')}`. Report-only.",
+        "",
+        "| workload | compile ms | infer ms | overhead | engine ms | engine | pins | call sites |",
+        "|---|---|---|---|---|---|---|---|",
+    ]
+    for row in rows:
+        if row.get("status") != "ok":
+            lines.append(f"| {row['name']} | - | - | - | - | {row.get('status', 'error')} | - | - |")
+            continue
+        engine = "skipped" if row.get("infer_skipped") else "ran"
+        lines.append(
+            f"| {row['name']} "
+            f"| {_ms(row.get('compile_ms'))} | {_ms(row.get('infer_ms'))} "
+            f"| {_ratio(row.get('infer_overhead_ratio'))} | {_ms(row.get('infer_engine_ms'))} | {engine} "
+            f"| {row.get('infer_pins', '-')} | {row.get('infer_call_sites', '-')} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def inference_delta_table(base: dict[str, Any], head: dict[str, Any]) -> str:
+    """Markdown table over the inference rows both runs share.
+
+    The per-row change in `infer_ms` is the number the suite exists to
+    track: the design note's budget lines are about inference wall time
+    per tree, not about the compiled binaries.
+    """
+
+    base_rows = {row["name"]: row for row in base.get("workloads", []) if isinstance(row, dict) and "name" in row}
+    head_rows = {row["name"]: row for row in head.get("workloads", []) if isinstance(row, dict) and "name" in row}
+    lines = [
+        "### Inference suite: delta against the previous run",
+        "",
+        f"base `{base.get('recorded_at', '?')}`, head `{head.get('recorded_at', '?')}`. Report-only.",
+        "",
+        "| workload | base infer ms | head infer ms | change | base pins | head pins |",
+        "|---|---|---|---|---|---|",
+    ]
+    for name in sorted(set(base_rows) | set(head_rows)):
+        b = base_rows.get(name)
+        h = head_rows.get(name)
+        if b is None:
+            lines.append(f"| {name} | - | {_ms(h.get('infer_ms'))} | new in head | - | {h.get('infer_pins', '-')} |")
+            continue
+        if h is None:
+            lines.append(
+                f"| {name} | {_ms(b.get('infer_ms'))} | - | dropped in head | {b.get('infer_pins', '-')} | - |"
+            )
+            continue
+        if b.get("status") != "ok" or h.get("status") != "ok":
+            lines.append(f"| {name} | - | - | not ok ({b.get('status')}/{h.get('status')}) | - | - |")
+            continue
+        base_ms = _num(b.get("infer_ms")) or 0.0
+        head_ms = _num(h.get("infer_ms")) or 0.0
+        lines.append(
+            f"| {name} | {base_ms:.1f} | {head_ms:.1f} | {ratio_text(base_ms, head_ms)} "
+            f"| {b.get('infer_pins', '-')} | {h.get('infer_pins', '-')} |"
+        )
+    lines.append("")
+    return "\n".join(lines)
+
+
+def _ms(value: Any) -> str:
+    number = _num(value)
+    return "?" if number is None else f"{number:.1f}"
+
+
+def _ratio(value: Any) -> str:
+    number = _num(value)
+    return "?" if number is None else f"{number:.2f}x"
+
+
 def _num(value: Any) -> float | None:
     return float(value) if isinstance(value, (int, float)) else None
 
@@ -129,12 +214,36 @@ def _geomean_lines(base: dict[str, Any], head: dict[str, Any]) -> list[str]:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("base", help="the reference run, usually the previous tag's bench JSON")
-    parser.add_argument("head", help="the new run to compare against it")
+    parser.add_argument(
+        "base",
+        nargs="?",
+        help="the reference run, usually the previous tag's bench JSON "
+        "(or the previous inference run with --inference)",
+    )
+    parser.add_argument("head", nargs="?", help="the new run to compare against it")
     parser.add_argument("--summary", help="also write the table to this file (GITHUB_STEP_SUMMARY)")
+    parser.add_argument(
+        "--inference",
+        action="store_true",
+        help="read the compile-time inference suite's reports (issue #1319): one file prints "
+        "the rows, two files print the delta against the earlier run",
+    )
     args = parser.parse_args(argv)
+    if not args.base:
+        print("delta: a report file is required", file=sys.stderr)
+        return 2
     try:
-        table = delta_table(load_report(args.base), load_report(args.head))
+        if args.inference:
+            base = load_report(args.base)
+            if args.head is None:
+                table = inference_table(base)
+            else:
+                table = inference_delta_table(base, load_report(args.head))
+        else:
+            if not args.head:
+                print("delta: a head report file is required", file=sys.stderr)
+                return 2
+            table = delta_table(load_report(args.base), load_report(args.head))
     except (OSError, ValueError, json.JSONDecodeError) as exc:
         print(f"delta: {exc}", file=sys.stderr)
         return 2

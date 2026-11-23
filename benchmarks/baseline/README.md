@@ -15,6 +15,19 @@ uv run python -m benchmarks.baseline.run --record
 
 `--check` reads the reference file for this host. `--record` replaces that same file with the run just taken. The report also keeps compile time and the linked binary's size; those are not part of the ratio gate.
 
+## The inference suite
+
+The compile-time inference suite (issue #1319) prices the pin engine: the same trees compiled without inference and with `--infer`, so the run records what inference costs a tree. It is report-only, like the `bench` workflow that runs it: the rows are recorded per release and the ratio gate arms after two releases of data, so `--record` and `--check` refuse this suite and nothing here fails on a number.
+
+```bash
+uv run python -m benchmarks.baseline.run --suite inference --json=infer.json
+uv run python -m benchmarks.baseline.delta --inference infer.json
+```
+
+Three workloads, all in-repo: `examples/wordcount` (fully annotated, so the skip fast path of issue #1317 takes the engine out and the row shows it skipped), `benchmarks/real_scripts/scripts` (39 script modules, a real mixed-annotation tree) and a generated ~150-module chain (`synthetic.py`, written to a temporary directory at run time so the suite stays hermetic). Each row carries the plain compile time, the compile time with `--infer`, the engine's own wall time and its report (pins, call sites, skipped flag).
+
+`delta.py --inference` prints the rows of one run, or the change in `infer_ms` per workload between two runs.
+
 ## Deltas between runs
 
 `delta.py` compares two recorded runs (the JSON files `--json` writes) and prints a markdown table: the median wall time and peak RSS of each run, the ratio between them, and each run's interquartile spread, so a difference that sits inside the noise is visible as such. It is report-only; it never fails on a number.

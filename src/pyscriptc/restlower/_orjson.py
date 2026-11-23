@@ -37,6 +37,7 @@ def _dumps(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "orjson.dumps expects 1 argument(s)")
     flags = 0x10000  # orjson.dumps is compact, the writer's default is not
+    flags |= 0x20000  # orjson writes the non-ASCII text raw, like the library
     for keyword in node.keywords:
         if keyword.arg == "option":
             flags |= _option(lo, node, keyword.value)

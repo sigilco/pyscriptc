@@ -74,8 +74,8 @@ def test_default_probes_cover_the_visible_corpus() -> None:
     assert "scripts.caesar_cipher" in ids
     assert "top100.click" in ids
     assert "top100.click.click.formatting.wrap_text" in ids
-    # Same denominator as the scorer's --corpus selection: 20 + 39 + 47.
-    assert len(probes) == 106
+    # Same denominator as the scorer's --corpus selection: 20 + 42 + 85.
+    assert len(probes) == 147
 
 
 def test_package_program_reports_compile_only() -> None:

@@ -6,8 +6,8 @@
       "label": "Single-file script",
       "corpus": "benchmarks/scripts_corpus/scripts",
       "total": 45,
-      "compiled": 22,
-      "passed": 19,
+      "compiled": 23,
+      "passed": 20,
       "measured": true
     },
     {
@@ -24,25 +24,25 @@
     "rung": "R4",
     "label": "Dependency lanes",
     "corpus": "benchmarks/compat/top100/src",
-    "total": 330,
-    "trees": 18,
-    "treesWithForeignLane": 14,
-    "selfContainedShare": 0.2222,
+    "total": 480,
+    "trees": 21,
+    "treesWithForeignLane": 17,
+    "selfContainedShare": 0.1905,
     "lanes": [
       {
         "lane": "native",
-        "imports": 280,
-        "share": 0.8485
+        "imports": 411,
+        "share": 0.8562
       },
       {
         "lane": "pack",
-        "imports": 1,
-        "share": 0.003
+        "imports": 4,
+        "share": 0.0083
       },
       {
         "lane": "extern",
-        "imports": 49,
-        "share": 0.1485
+        "imports": 65,
+        "share": 0.1354
       },
       {
         "lane": "island",

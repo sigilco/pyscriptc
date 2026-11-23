@@ -17,7 +17,7 @@ Tiers [T0 to T3](../spec/refused-features.md): T0 refuse forever, T1 island only
 
 The census in `tests/test_census_self.py` counts something else: it compiles pyscriptc's own source (61 compiler modules, 2052 fences) to track self-hosting, not stdlib support.
 
-The unsupported column lists probed gaps. Any other name of a 🟡 module also fences with `PS2001`. A module that is not in the closed import table fences with `PS2002` on the import.
+The unsupported column lists probed gaps. Any other name of a 🟡 module also fences with `PS2001`. A module that is not in the closed import table routes to the island lane (embedded CPython) by default and the compile records the routing as a note.
 
 Targets CPython 3.14. Deliberate differences from CPython: [divergences.md](../../../docs/reference/divergences.md). Library results: [compat-top100.md](compat-top100.md).
 """
@@ -170,8 +170,8 @@ probes = [
 
 [[stdlib]]
 names = ["math"]
-ok = ['y: float = math.sqrt(x)', 'y: float = math.atan2(x, x)', 'y: int = math.gcd(n, n)', 'y: int = math.factorial(n)', 'y: int = math.lcm(n, n)', 'y: float = math.asin(x)', 'y: float = math.sinh(x)', 'y: float = math.asinh(x)', 'y: float = math.acosh(x)', 'y: float = math.atanh(x)', 'y: float = math.degrees(x)', 'y: float = math.radians(x)', 'y: float = math.fmod(x, x)', 'y: bool = math.isclose(x, x)', 'y: float = math.pi', 'y: bool = math.isfinite(x)', 'y: int = math.floor(x)', 'y: float = math.ulp(x)', 'y: float = math.nextafter(x, x)', 'y: tuple[float, float] = math.modf(x)', 'y: tuple[float, int] = math.frexp(x)', 'y: float = math.ldexp(x, n)', 'y: float = math.expm1(x)', 'y: float = math.log1p(x)', 'y: float = math.fma(x, x, x)', 'y: float = math.dist(xs, xs)', 'y: int = math.sumprod(xs, xs)']
-no = [["fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma", 'y: float = math.fsum(xs)', "PS2001"], ["log with a base", 'y: float = math.log(x, 2.0)', "PS2003"]]
+ok = ['y: float = math.sqrt(x)', 'y: float = math.atan2(x, x)', 'y: int = math.gcd(n, n)', 'y: int = math.factorial(n)', 'y: int = math.lcm(n, n)', 'y: float = math.asin(x)', 'y: float = math.sinh(x)', 'y: float = math.asinh(x)', 'y: float = math.acosh(x)', 'y: float = math.atanh(x)', 'y: float = math.degrees(x)', 'y: float = math.radians(x)', 'y: float = math.fmod(x, x)', 'y: bool = math.isclose(x, x)', 'y: float = math.pi', 'y: bool = math.isfinite(x)', 'y: int = math.floor(x)', 'y: float = math.ulp(x)', 'y: float = math.nextafter(x, x)', 'y: tuple[float, float] = math.modf(x)', 'y: tuple[float, int] = math.frexp(x)', 'y: float = math.ldexp(x, n)', 'y: float = math.expm1(x)', 'y: float = math.log1p(x)', 'y: float = math.fma(x, x, x)', 'y: float = math.dist(xs, xs)', 'y: int = math.sumprod(xs, xs)', 'y: int = math.floor(n)', 'y: int = math.trunc(n)', 'y: int = math.ceil(n)', 'y: int = math.comb(n, n)', 'y: int = math.perm(n, n)', 'y: int = math.isqrt(n)', 'y: float = math.copysign(x, x)', 'y: float = math.cbrt(x)', 'y: float = math.erf(x)', 'y: float = math.erfc(x)', 'y: float = math.gamma(x)', 'y: float = math.lgamma(x)', 'y: float = math.log(x, x)', 'y: float = math.fsum(xs)', 'y: int = math.prod(xs)']
+no = [['fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma', 'y: float = math.fsum(xs)', 'PS2001'], ['log with a base', 'y: float = math.log(x, 2.0)', 'PS2003'], ['dist, ulp, nextafter, modf, frexp, ldexp, expm1, log1p, fma, sumprod', 'y: float = math.dist(xs, xs)', 'PS2001']]
 
 [[stdlib]]
 names = ["re"]
@@ -180,13 +180,13 @@ no = [["finditer", 'for m in re.finditer("a", s): pass', "PS2001"], ["5+ groups"
 
 [[stdlib]]
 names = ["json"]
-ok = ['y: list[int] = json.loads(s)', 'y: str = json.dumps(xs, indent=2)', 'y: str = json.dumps(d, sort_keys=True)', '''with open(s) as p:
+ok = ['y: list[int] = json.loads(s)', 'y: str = json.dumps(xs, indent=2)', 'y: str = json.dumps(d, sort_keys=True)', 'y: str = json.dumps(xs, ensure_ascii=False)', 'y: dict[str, int] = json.loads(b"{")', '''with open(s) as p:
     y: dict[str, int] = json.load(p)''', '''with open(s, "w") as p:
     json.dump(d, p)''', '''try:
     y: dict[str, int] = json.loads("{")
 except json.JSONDecodeError:
     y: int = 0''']
-no = [["ensure_ascii=False", 'y: str = json.dumps(xs, ensure_ascii=False)', "PS2003"], ["JSONDecodeError() construction", 'y: json.JSONDecodeError = json.JSONDecodeError("{")', "PS2001"]]
+no = [["JSONDecodeError() construction", 'y: json.JSONDecodeError = json.JSONDecodeError("{")', "PS2001"]]
 
 [[stdlib]]
 names = ["tomllib"]
@@ -283,6 +283,8 @@ ok = [
   "nd_f = pyscriptc_ndarray.array(\"float64\", [1.0, 2.0, 3.0, 4.0])\nx: float = nd_f.mean()",
   "nd_f = pyscriptc_ndarray.array(\"float64\", [1.0, 2.0, 3.0, 4.0])\nx: float = nd_f.std()",
   "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nn: int = nd_a.argmax()",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.argmax(axis=0)",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.argmin(axis=1)",
   "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.reshape([3, 2])",
   "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.ravel()",
   "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.transpose()",
@@ -304,6 +306,7 @@ no = [
   ["other methods (argsort, clip, cumsum, fill)", "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = nd_a.argsort()", "PS2001"],
   ["dtype outside the four", 'nd = pyscriptc_ndarray.zeros([2], dtype="int16")', "PS2003"],
   ["negative slice step", "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd: pyscriptc_ndarray.ndarray = nd_a[::-1]", "PS2001"],
+  ["an axis on a one-dimensional array", "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = nd_a.argmax(axis=0)", "PS2003"],
 ]
 
 [[stdlib]]
@@ -343,12 +346,12 @@ no = [["timezone and tzinfo", 'y: str = datetime.timezone.utc', "PS2001"], ["utc
 
 [[stdlib]]
 names = ["time"]
-ok = ['y: float = time.time()', 'time.sleep(x)', 'y: str = time.strftime("%Y", time.localtime())', 'y: float = time.mktime(time.localtime())', 'y: float = time.perf_counter()', 'y: float = time.monotonic()']
-no = [["time_ns, ctime, process_time", 'y: float = time.perf_counter_ns()', "PS2001"]]
+ok = ['y: float = time.time()', 'time.sleep(x)', 'y: str = time.strftime("%Y", time.localtime())', 'y: float = time.mktime(time.localtime())', 'y: float = time.perf_counter()', 'y: float = time.monotonic()', 'y: float = time.process_time()']
+no = [["time_ns, ctime", 'y: float = time.perf_counter_ns()', "PS2001"]]
 
 [[stdlib]]
 names = ["collections"]
-ok = ['y: collections.deque[int] = collections.deque()', 'y: collections.OrderedDict[str, int] = collections.OrderedDict()']
+ok = ['y: collections.deque[int] = collections.deque()', 'y: collections.OrderedDict[str, int] = collections.OrderedDict()', 'y: collections.defaultdict[str, int] = collections.defaultdict(int)', 'y: collections.defaultdict[str, list[int]] = collections.defaultdict(list)']
 no = [["ChainMap", 'y: collections.ChainMap = collections.ChainMap()', "PS1106"]]
 
 [[stdlib]]
@@ -538,6 +541,11 @@ no = [["Popen, getoutput", 'y: int = subprocess.Popen(ss)', "PS2001"]]
 names = ["socket"]
 ok = ['y: str = socket.gethostname()', 'y: int = socket.AF_INET', 'y: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)', 'y: int = socket.socket(socket.AF_INET, socket.SOCK_STREAM).fileno()']
 no = [["gethostbyname", 'y: int = socket.gethostbyname("localhost")', "PS2001"], ["AF_INET6, SOCK_DGRAM, socketpair, UDP and non-blocking mode", 'y: socket.socket = socket.socket(socket.AF_INET6, socket.SOCK_STREAM)', "PS2001"], ["makefile, getpeername, shutdown", 'y: socket.socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM).makefile("rb")', "PS2001"]]
+
+[[stdlib]]
+names = ["http.server"]
+ok = ['from http.server import BaseHTTPRequestHandler, HTTPServer', 'y: int = 1']
+no = [["ThreadingHTTPServer, SimpleHTTPRequestHandler and the socketserver mixins", "from http.server import ThreadingHTTPServer\ny: int = 1", "PS2001"]]
 
 [[stdlib]]
 names = ["ssl"]

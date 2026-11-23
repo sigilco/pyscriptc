@@ -94,6 +94,14 @@ class AbiMixin(EmitterBase):
             value_type: dict[str, Any] = _value_of(typ)
             value_kind: str = _kind(value_type)
             vkind: int = {"int": 1, "float": 2, "str": 3, "bytes": 6}[value_kind]
+            # The `ordered` and `defaultdict` marks ride the two bits above
+            # the value kind so `repr_map_into` spells `OrderedDict({...})`
+            # and `defaultdict(<class 'int'>, {...})` (ps_fmt.c masks them
+            # back off for the `%(key)s` value reads).
+            if _flag_of(typ, "ordered"):
+                vkind |= 0x100
+            if _flag_of(typ, "defaultdict"):
+                vkind |= 0x200
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
             self.line(f"store i64 {vkind}, ptr {slot}")
@@ -766,6 +774,24 @@ class AbiMixin(EmitterBase):
                     # The socket handle (#1270): the runtime owns the fd, the
                     # value is the record pointer.
                     "Socket",
+                    # The http.server records (issue #1270, slice 2): the
+                    # server, the request, the response and the two body
+                    # streams are runtime records, so the value is the
+                    # record pointer.
+                    "HTTPServer",
+                    "HttpServerRequest",
+                    "HttpServerResponse",
+                    "HttpServerHeaders",
+                    "HttpServerReader",
+                    "HttpServerWriter",
+                    # The asyncio stream handles (#1281): the reader and the
+                    # writer share one runtime record, the value is its pointer.
+                    "StreamReader",
+                    "StreamWriter",
+                    # The asyncio server handle (#1281, slice 2): the
+                    # listening socket and the callback pair live in the
+                    # runtime record, the value is its pointer.
+                    "Server",
                     # The archive handles (#1241): the runtime record is the
                     # member list, the handle is the pointer.
                     "TarFile",
@@ -881,6 +907,9 @@ class AbiMixin(EmitterBase):
                 # The socket handle (issue #1270): the runtime owns the fd,
                 # the value is the record pointer.
                 "ps_sock_new",
+                # The asyncio stream record (issue #1281): the runtime owns
+                # the socket and both buffers, the value is its pointer.
+                "ps_stream_open",
             }:
                 # The runtime owns the record: the value is the record pointer.
                 self._abi_decl(symbol, "ptr", types)

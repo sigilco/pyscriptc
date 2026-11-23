@@ -94,6 +94,7 @@ QUEUE: tuple[str, ...] = (
     "selectors",
     "signal",
     "email",
+    "http.server",
 )
 
 LOWERED: frozenset[str] = frozenset(QUEUE)
@@ -158,6 +159,15 @@ MATH_FUNCTIONS: dict[str, Sig] = {
     "fmod": _fixed_sig([_F, _F], _F, "ps_math_fmod"),
     "factorial": _fixed_sig([_I], _I, "ps_math_factorial"),
     "lcm": _fixed_sig([_I, _I], _I, "ps_math_lcm"),
+    "comb": _fixed_sig([_I, _I], _I, "ps_math_comb"),
+    "perm": _fixed_sig([_I, _I], _I, "ps_math_perm"),
+    "isqrt": _fixed_sig([_I], _I, "ps_math_isqrt"),
+    "copysign": _fixed_sig([_F, _F], _F, "ps_math_copysign"),
+    "cbrt": _fixed_sig([_F], _F, "ps_math_cbrt"),
+    "erf": _fixed_sig([_F], _F, "ps_math_erf"),
+    "erfc": _fixed_sig([_F], _F, "ps_math_erfc"),
+    "gamma": _fixed_sig([_F], _F, "ps_math_gamma"),
+    "lgamma": _fixed_sig([_F], _F, "ps_math_lgamma"),
     "isnan": _fixed_sig([_F], _B),
     "isinf": _fixed_sig([_F], _B),
     "isfinite": _fixed_sig([_F], _B),
@@ -353,32 +363,50 @@ def dependency_lanes(lanes: dict[str, dict[str, str]]) -> Iterator[None]:
 
 # boxed:begin
 # The island lane of the running compile (issue #553): import roots the
-# `[imports]` table pins to `island`, plus an opt-in CLI default that routes
-# every import outside the closed table there so a demo needs no config.
-# Module-level like `_DEP_LANES`, set around the same lowering pass. The
-# per-import policy owner (#157) replaces this table; the trampoline only
-# needs the yes/no answer.
+# `[imports]` table pins to `island`, plus the default island routing
+# (issue #1308): every import outside the closed table routes there unless
+# an explicit `[imports]` lane (`compile`, `refuse`, `replace`, `extern`)
+# says otherwise. A policy name pinned to `compile` blocks the default for
+# that import; there is no opt-out flag.
+# Module-level like `_DEP_LANES`, set around the same lowering pass.
+#
+# The default routing is installed by the entry points that serve a user
+# (the CLI compile path and the coverage/assess pass), not by the module
+# itself: a caller that lowers a module without asking for the island lane
+# (the TIR probe corpus, the reducer) keeps the closed-table fence, so the
+# typed IR it measures does not move under a routing change.
 _ISLAND_LANES: frozenset[str] = frozenset()
 _ISLAND_DEFAULT = False
+_NATIVE_PINNED: frozenset[str] = frozenset()
 
 
 def island_lane(name: str) -> bool:
     """True when `name` resolves to the island lane for this compile."""
     root = name.split(".", 1)[0]
+    if name in _NATIVE_PINNED or root in _NATIVE_PINNED:
+        return False
     return _ISLAND_DEFAULT or name in _ISLAND_LANES or root in _ISLAND_LANES
 
 
 @contextmanager
-def island_policy(names: Iterable[str], default: bool = False) -> Iterator[None]:
-    """Install the island lane for the duration of one lowering pass."""
-    global _ISLAND_LANES, _ISLAND_DEFAULT
-    saved = (_ISLAND_LANES, _ISLAND_DEFAULT)
+def island_policy(names: Iterable[str], default: bool = False, native_pinned: Iterable[str] = ()) -> Iterator[None]:
+    """Install the island lane for the duration of one lowering pass.
+
+    `default=True` turns on the default routing (issue #1308): every
+    import outside the closed table routes to the island. `native_pinned`
+    names the imports an explicit `[imports]` policy pins off the island
+    lane: the default routing never overrides a named lane the user chose.
+    """
+
+    global _ISLAND_LANES, _ISLAND_DEFAULT, _NATIVE_PINNED
+    saved = (_ISLAND_LANES, _ISLAND_DEFAULT, _NATIVE_PINNED)
     _ISLAND_LANES = frozenset(names)
     _ISLAND_DEFAULT = default
+    _NATIVE_PINNED = frozenset(native_pinned)
     try:
         yield
     finally:
-        _ISLAND_LANES, _ISLAND_DEFAULT = saved
+        _ISLAND_LANES, _ISLAND_DEFAULT, _NATIVE_PINNED = saved
 
 
 # boxed:end

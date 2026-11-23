@@ -122,9 +122,11 @@ def probe() -> int:
 """
     path = write_case(tmp_path, "missing_import.py", source)
     got = run_cli("compile", str(path), "--emit", "llvm", "-o", str(tmp_path / "missing.ll"))
-    assert got.returncode == 3, got.stderr
-    assert "PS2002" in got.stderr
+    # N2 (issue #1308): the unknown import routes to the island, so the
+    # lowerer records the routing as a note and the compile succeeds.
+    assert got.returncode == 0, got.stderr
     assert "closed import table" in got.stderr
+    assert "island lane" in got.stderr
 
 
 def test_unknown_name_defers_to_lowerer(tmp_path: Path) -> None:

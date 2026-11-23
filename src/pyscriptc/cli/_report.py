@@ -110,6 +110,16 @@ def infer_cmd(args: argparse.Namespace) -> int:
         facts = build_facts(source)
     fact_seconds = time.perf_counter() - started
 
+    if args.report:
+        # The coverage report reads the pin facts only: no baseline pass,
+        # no lowering pass, no bridge. The report is the measurement
+        # instrument, so it stays cheap enough to run on a big tree.
+        from pyscriptc.infercoverage import coverage_report, render_coverage_text
+
+        report = coverage_report(source, facts)
+        print(json.dumps(report, indent=2) if args.json else render_coverage_text(report))
+        return 0
+
     # Baseline: the package as it lowers today, no inference.
     started = time.perf_counter()
     base_report = build_report(source)

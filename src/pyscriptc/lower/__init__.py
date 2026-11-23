@@ -19,7 +19,7 @@ from pyscriptc import _irnode as _ir
 
 # boxed:begin
 from pyscriptc.boxed import DEF_HANDLE_SYMBOL  # boxed:end
-from pyscriptc.builtins import USER_EXC_BASE
+from pyscriptc.builtins import EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
 from pyscriptc.ffi_manifest import is_handle_type  # noqa: F401  # moved-verbatim import
@@ -64,6 +64,7 @@ from pyscriptc.lower._stmt import (
     _stmt_continues_this_loop,
 )
 from pyscriptc.mobile import MOBILE_EXCLUDED_SYMBOLS, is_mobile_target, mobile_fence_hint
+from pyscriptc.roots import RootSet
 from pyscriptc.stdlib_queue import (
     PACK_MODULES,
     canonical_module,
@@ -77,6 +78,13 @@ from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 from pyscriptc.tirserde import dict_to_span as dict_to_span_local
 
 WHOLE_TABLE = "*"
+
+
+def _null_lanes() -> Any:
+    """A no-op dependency lane report (the outer one stands)."""
+    from contextlib import nullcontext
+
+    return nullcontext()
 
 
 def _mk_span(span: dict[str, Any]) -> Any:
@@ -149,6 +157,50 @@ def _record_kind(record: dict[str, Any]) -> str:
     return kind
 
 
+def _base_spelling(node: ast.expr) -> str:
+    """The source spelling of a class base, for the census (issue #1313).
+
+    The spelling is what the user wrote: the dotted name, the name with its
+    subscript (`Generic[T]`), or the call the base names. It is the fallback
+    label of a base that resolves to nothing, so the census can still name
+    the expression it refused.
+    """
+
+    try:
+        return ast.unparse(node)
+    except Exception:  # pragma: no cover - ast.unparse handles every node
+        return ""
+
+
+def _census_row(node: ast.expr, module: str, kind: str) -> dict[str, str]:
+    """One class-base census record: the spelling, the module, the kind."""
+
+    return {
+        "expression": _base_spelling(node),
+        "module": module,
+        "kind": kind,
+    }
+
+
+def _dotted_prefix(node: ast.expr) -> str:
+    """The module path an attribute expression names, without the member.
+
+    `sqlalchemy.orm.DeclarativeBase` names the module `sqlalchemy.orm` and
+    the member `DeclarativeBase`. An expression that is not a dotted path
+    names no module.
+    """
+
+    parts: list[str] = []
+    current: ast.AST = node
+    while isinstance(current, ast.Attribute):
+        parts.append(current.attr)
+        current = current.value
+    if not parts or not isinstance(current, ast.Name):
+        return ""
+    parts.reverse()
+    return ".".join([current.id, *parts[:-1]])
+
+
 class Lowerer(
     CoroMixin,
     StdlibDispatchMixin,
@@ -199,10 +251,34 @@ class Lowerer(
         # spelled that way still names the stdlib member, so the
         # behavior-synthesizing guard can see it.
         self.stdlib_imports: dict[str, tuple[str, str]] = {}
+        # The `from <module> import <name>` spellings whose module the closed
+        # import table refused (issue #1313): the name still says where it
+        # came from, so a class base spelled with it census-names the library
+        # it belongs to. Module -> name pairs, keyed by the local name.
+        self.refused_imports: dict[str, str] = {}
         self.classes: dict[str, dict[str, Any]] = {}
+        # The names the module already spells as an enum subclass (issue
+        # #1314): the second definition fences, the first renames. The
+        # map holds each subclass's base members, so the subclass keeps
+        # the members the base spelled.
+        self.enum_subclasses: set[str] = set()
+        self.enum_base_members: dict[str, dict[str, int]] = {}
+        # The enum class each enum subclass extends, keyed by the subclass
+        # name: the subclass starts from the base's members.
+        self.enum_parent_of: dict[str, str] = {}
         self.declared: set[str] = set()
         self.known_classes: set[str] = set()
         self.synthetics: set[str] = set()
+        # The handler class of each http.server value (issue #1270): the
+        # construction call records the class name under the local the
+        # server was bound to, and serve_forever reads it back to build
+        # the dispatch the loop runs.
+        self.httpsrv_handlers: dict[str, str] = {}
+        # The callback frame class of each asyncio server value (issue
+        # #1281, slice 2): the construction call records the frame class
+        # under the local the server was bound to, and serve_forever reads
+        # it back to type the frame the callback call answers.
+        self.server_callbacks: dict[str, str] = {}
         self.temp_n = 0
         self.caught: list[Fence] = []
         self.prelude: list[dict[str, Any]] = []
@@ -296,6 +372,13 @@ class Lowerer(
         self._boxed_functions: list[ast.FunctionDef] = []
         self._boxed_island: set[str] = set()
         self._boxed_demoted_by: dict[str, str] = {}
+        # Issue #1307: the module-level definitions the source marks
+        # `@island`. The marker is per definition: it routes that one
+        # definition to the island lane and nothing else. The spellings
+        # tuple holds the import-bound names the marker decorator may
+        # spell, for the island seed's decorator strip.
+        self._island_marked: set[str] = set()
+        self._island_marked_spellings: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
         # Refs #641: the cross-module island-refusal fences, parked so the
         # module's own island planning never drops them.
         self._boxed_sibling_fences: list[Fence] = []
@@ -349,6 +432,10 @@ class Lowerer(
         # a program module may import them by their plain names, the way
         # `sys.path` resolves an unpacked wheel's packages.
         self.program_roots: set[str] = set()
+        # The module-root seam (issue #403): the roots this compile resolves
+        # import names against. `package.lower_directory` fills it; nothing
+        # reads it yet.
+        self.roots: RootSet = RootSet()
         self.package: dict[str, dict[str, dict[str, Any]]] | None = None
         self.pkg_funcs: dict[str, dict[str, Any]] = {}
         self.class_aliases: dict[str, str] = {}
@@ -411,6 +498,10 @@ class Lowerer(
         # `if x is not None:` narrowing on a tagged optional: inside the taken
         # branch a read of the name lowers to its `_val` field. name -> opt typ.
         self.opt_unwrap: dict[str, dict[str, Any]] = {}
+        # `if isinstance(x, T):` narrowing on a tagged dynamic value (issue
+        # #1280): inside the taken branch a read of the name lowers to the
+        # arm's projection off the same cell. name -> arm type.
+        self.dyn_narrow: dict[str, dict[str, Any]] = {}
         # Proven element types of Any-container reads (issue #781), keyed by
         # the read node's (line, col): the emitter loads the proven LLVM
         # shape out of the unresolved cell.
@@ -485,6 +576,130 @@ class Lowerer(
 
     def fail(self, node: ast.AST, code: str, message: str) -> NoReturn:
         raise Fence(code, message, span_of(node, self.filename), self.function)
+
+    def fail_base(self, node: ast.AST, code: str, message: str, base: ast.expr) -> NoReturn:
+        """Fence a class base, recording the base it refused (issue #1313).
+
+        The class-base census needs the resolved base expression and its
+        kind on the fence, so the coverage report can count the bases by
+        kind instead of estimating them. The resolution lives here, where
+        the import bindings are known; the naming lives in
+        `pyscriptc.classbase`.
+        """
+        raise Fence(
+            code,
+            message,
+            span_of(node, self.filename),
+            self.function,
+            self._resolve_base_census(base),
+        )
+
+    def _resolve_base_census(self, node: ast.expr) -> dict[str, str]:
+        """The resolved base expression and its census kind (issue #1313).
+
+        The resolution answers three questions: what the base spells, which
+        module it came from, and whether it is an exception or an enum. A
+        base that resolves to nothing (a name the lowering never saw) has
+        no module, and the census kind is then `other`.
+        """
+        from pyscriptc import classbase
+
+        member = ""
+        module = ""
+        is_exception = False
+        is_enum = False
+        target = node
+        if isinstance(target, ast.Subscript):
+            target = target.value
+        if isinstance(target, ast.Name):
+            if target.id in EXCEPTIONS:
+                is_exception = True
+                member = target.id
+            alias = self.type_aliases.get(target.id)
+            if alias is not None:
+                member = alias
+            member_module = self.stdlib_imports.get(target.id)
+            if member_module is not None:
+                # A `from enum import StrEnum` whose member is outside the
+                # lowered subset records where the name came from (issue
+                # #732), so the census reads the module off that record.
+                module = member_module[0]
+                member = member_module[1]
+            refused = self.refused_imports.get(target.id)
+            if refused is not None:
+                # A `from sqlalchemy.orm import DeclarativeBase` whose module
+                # the closed table refused: the name still says which
+                # library it came from.
+                module = refused
+                member = target.id
+            binding = self.bindings.get(target.id)
+            if binding is not None:
+                module = binding.module
+                member = binding.attr or member
+                if binding.kind == "island_floor_class":
+                    module = binding.module
+            known = self.classes.get(target.id)
+            if known is not None and known.get("enum"):
+                is_enum = True
+            if not member and target.id not in self.bindings and target.id not in self.classes:
+                # A name nothing in the tree binds: the base is a builtin
+                # (`class C(list)`) or a name the lowering never saw. The
+                # builtin kinds are named from the name itself; the rest
+                # stays the `other` kind.
+                member = target.id
+        elif isinstance(target, ast.Attribute):
+            resolved = self._resolve_module(target)
+            if resolved is not None:
+                module = resolved[1]
+                member = resolved[2]
+            else:
+                # The base names a module the tree does not bind: the import
+                # itself already fenced (a closed-table import), so the
+                # dotted prefix is the only module the base names.
+                module = _dotted_prefix(target)
+                member = target.attr
+                if not self._is_module_like_root(module):
+                    module = ""
+                    member = ""
+        if member and not is_exception:
+            kind = classbase.typing_base_kind(member)
+            if kind is not None:
+                return _census_row(node, module, kind)
+            kind = classbase.enum_base_kind(member)
+            if kind is not None:
+                return _census_row(node, module, classbase.KIND_ENUM)
+            kind = classbase.builtin_base_kind(member)
+            if kind is not None:
+                return _census_row(node, module, kind)
+        kind = classbase.kind_of(
+            member=member,
+            module=module,
+            is_exception=is_exception,
+            is_enum=is_enum,
+        )
+        return _census_row(node, module, kind)
+
+    def _is_module_like_root(self, dotted: str) -> bool:
+        """True when the root name of a dotted base is a module name.
+
+        A base the import did not bind (`import sqlalchemy.orm` fenced at
+        the import) still names its module in the dotted spelling, but a
+        base on a local value (`value.attr.Base`) does not. The root is a
+        module when nothing local owns the name: no binding, no class, no
+        function, no constant.
+        """
+
+        root = dotted.split(".", 1)[0]
+        if not root:
+            return False
+        return not (
+            root in self.bindings
+            or root in self.classes
+            or root in self.sigs
+            or root in self.constants
+            or root in self.declared
+            or root in self.locals
+        )
 
     def mobile_guard(self, node: ast.AST, surface: str, key: str) -> None:
         """Fence a surface a mobile target cannot carry.
@@ -897,6 +1112,7 @@ class Lowerer(
     def _body(self, statements: list[ast.stmt]) -> list[dict[str, Any]]:
         body: list[dict[str, Any]] = []
         saved_unwrap = dict(self.opt_unwrap)
+        saved_dyn = dict(self.dyn_narrow)
         try:
             for index, stmt in enumerate(statements):
                 if _is_docstring(stmt):
@@ -907,6 +1123,15 @@ class Lowerer(
                     self.caught.append(exc)
                     continue
                 body.extend(lowered)
+                # A rebinding drops the dynamic-value proof from here on
+                # (issue #1280): the name holds a fresh value, so the
+                # narrowed projection would read the wrong cell. The rule is
+                # per statement, not per scope: a rebinding after the read
+                # keeps the proof for the statements before it, the ones
+                # this loop already lowered.
+                for name in list(self.dyn_narrow):
+                    if self._stmt_rebinds(stmt, name):
+                        self.dyn_narrow.pop(name)
                 # `if x is None: <arm always exits>` (or any test that proves
                 # x set when the other arm is the only one left) narrows x to
                 # its tagged value for the rest of this body, unless a later
@@ -923,6 +1148,14 @@ class Lowerer(
                         opt = self._narrow_opt_type(name)
                         if opt is not None and not self._key_rebinds(name, rest):
                             self.opt_unwrap[name] = opt
+                    # The same rule for the dynamic-value narrowing (issue
+                    # #1280): `if not isinstance(x, T): <arm always exits>`
+                    # leaves x a T for the rest of this body.
+                    dyn_true, dyn_false = self._narrow_dyn_names(stmt.test)
+                    dyn_proven = dyn_false if then_exits and not else_exits else dyn_true if else_exits else {}
+                    for name, arm in dyn_proven.items():
+                        if not self._key_rebinds(name, rest):
+                            self.dyn_narrow[name] = arm
                 elif isinstance(stmt, ast.Assert):
                     # `assert x is not None` proves x set for the rest of
                     # this body, the same rule the if-exit arm applies.
@@ -932,6 +1165,12 @@ class Lowerer(
                         opt = self._narrow_opt_type(name)
                         if opt is not None and not self._key_rebinds(name, rest):
                             self.opt_unwrap[name] = opt
+                    # `assert isinstance(x, T)` proves x a T for the rest of
+                    # this body (issue #1280).
+                    dyn_true, _ = self._narrow_dyn_names(stmt.test)
+                    for name, arm in dyn_true.items():
+                        if not self._key_rebinds(name, rest):
+                            self.dyn_narrow[name] = arm
                 skips = (self.break_flag is not None and _stmt_breaks_this_loop(stmt)) or (
                     self.continue_flag is not None and _stmt_continues_this_loop(stmt)
                 )
@@ -943,6 +1182,7 @@ class Lowerer(
             return body
         finally:
             self.opt_unwrap = saved_unwrap
+            self.dyn_narrow = saved_dyn
 
     def _bool_cond(self, node: ast.expr) -> dict[str, Any]:
         if isinstance(node, ast.BoolOp):
@@ -1760,7 +2000,13 @@ def lower_source(
     tree = ast.parse(source, filename=filename)
     if timings is not None:
         timings["parse"] = round((time.perf_counter() - started) * 1000.0, 3)
-    with dependency_lanes(dep_lane_report or {}), staged_resources(resource_root):
+    # boxed:begin
+    # The dependency lane report: the caller's own report wins; without
+    # one the report already installed around this call stands, so an
+    # outer caller (the coverage pass) keeps the lane hints it set up.
+    lanes_ctx = dependency_lanes(dep_lane_report) if dep_lane_report is not None else _null_lanes()
+    # boxed:end
+    with lanes_ctx, staged_resources(resource_root):
         if ffi:
             # The FFI table is a module-level registry the caller may have
             # installed already; only replace it when this call brings its
@@ -1834,7 +2080,7 @@ def lower_file(
     kept, catalogued, pruned = _prune_unreached(
         [("__main__", script, False)], dep_units, program=True, entry="__main__"
     )
-    merged, _notes = _lower_units(
+    merged, unit_notes = _lower_units(
         [("__main__", script, False), *kept],
         script,
         program=True,
@@ -1850,6 +2096,7 @@ def lower_file(
     )
     merged["sourceFile"] = str(script)
     notes = [
+        *unit_notes,
         *[_pruned_note(name, dep_path) for name, dep_path, _is_package in pruned],
         *[_catalogued_note(name, dep_path) for name, dep_path, _is_package in catalogued],
     ]

@@ -41,7 +41,8 @@ pyscriptc run --fallback=cpython script.py
 ```
 
 `--island` is an alias for `--fallback=cpython`.
-You can also set it in `pyproject.toml` so no flag is needed:
+Imports outside the closed import table are already routed to the island lane without any flag; these flags route the definitions (functions and classes) that the compiler refuses, per definition.
+You can also set fallback mode in `pyproject.toml` so no flag is needed:
 
 ```toml
 [tool.pyscriptc.fallback]
@@ -93,8 +94,10 @@ A module whose top level imports an untyped dependency has its whole top level r
 
 ## The imports table
 
-The `[tool.pyscriptc.imports]` table in `pyproject.toml` routes each top-level module name to a lane: `compile` (default), `refuse` (always a compile error naming the policy site), or opt-in fallback entries.
-Set it when you want the decision recorded in the project instead of on the command line.
+The `[tool.pyscriptc.imports]` table in `pyproject.toml` still selects a lane per top-level module name: `compile`, `refuse` (always a compile error naming the policy site), or opt-in fallback entries.
+The `refuse` lane still stops the compile and names the policy site.
+An import the table does not name and that is outside the closed import table routes to the island lane by default, so no table entry is needed for it.
+Set a table entry when you want the decision recorded in the project instead of on the command line.
 The full key reference is [Config](../reference/config.md).
 
 ## How values cross

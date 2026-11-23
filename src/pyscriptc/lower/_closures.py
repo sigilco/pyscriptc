@@ -107,6 +107,10 @@ class ClosuresMixin:
             return []
         stmts: list[dict[str, Any]] = []
         for dec in reversed(fn.decorator_list):
+            if self._shadow_deco_name(dec) is not None:
+                # The shadow module's decorators are the identity (issue
+                # #1306): the nested def keeps its own type and no wrap runs.
+                continue
             value = self._apply_decorator(dec, _name(fn.name, self.locals[fn.name], span), span)
             self.locals[fn.name] = value["type"]
             stmts.append(_assign(fn.name, value, span))

@@ -14,6 +14,7 @@ from pyscriptc.emit._ir import (
     _callee_tuple,
     _elem_of,
     _elem_size,
+    _kind,
     _mark_fmt,
     _memory_type,
     _node_args,
@@ -183,9 +184,10 @@ class CallsMixin(EmitterBase):
             return self._emit_atexit(expr)
         if _has(expr, "symbol"):
             symbol: str = _node_symbol(expr)
-            if symbol == "ps_math_factorial" or symbol == "ps_math_lcm":
-                # The int helpers (factorial, lcm) ride the `_abi_call` shape:
-                # the `_math_*` declares carry i64 params, not doubles.
+            if symbol in {"ps_math_factorial", "ps_math_lcm", "ps_math_comb", "ps_math_perm", "ps_math_isqrt"}:
+                # The int helpers (factorial, lcm, comb, perm, isqrt) ride
+                # the `_abi_call` shape: the `_math_*` declares carry i64
+                # params, not doubles.
                 return self._emit_math_int(symbol, values)
             if symbol == "ps_math_fma":
                 self._abi_decl(symbol, "double", ["double"] * len(values))
@@ -262,6 +264,56 @@ class CallsMixin(EmitterBase):
                 self._abi_decl("ps_dyn_is", "i32", ["ptr", "i32"])
                 raw = self._call_ret("i32", "ps_dyn_is", [f"ptr {values[0]}", f"i32 {arm}"])
                 return self._flag(raw)
+            if symbol == "ps_dyn_get_str":
+                # The narrowed read of the str arm (issue #1280): the cell
+                # carries the 16-byte prefix, the compiler's `str` value is
+                # the four-field header, so the projection fills the count
+                # and the flag out pointers and the emitter assembles the
+                # %ps.str aggregate from the five values.
+                needed = self.needed
+                needed.add("dyn")
+                nbytes = self._alloca("i64")
+                data = self._alloca("ptr")
+                nchars = self._alloca("i64")
+                flags = self._alloca("i32")
+                self._abi_decl("ps_dyn_get_str", "void", ["ptr", "ptr", "ptr", "ptr", "ptr"])
+                self._call_void(
+                    "ps_dyn_get_str",
+                    [f"ptr {values[0]}", f"ptr {nbytes}", f"ptr {data}", f"ptr {nchars}", f"ptr {flags}"],
+                )
+                length = self.tmp()
+                raw_ptr = self.tmp()
+                count = self.tmp()
+                flag = self.tmp()
+                self.line(f"{length} = load i64, ptr {nbytes}")
+                self.line(f"{raw_ptr} = load ptr, ptr {data}")
+                self.line(f"{count} = load i64, ptr {nchars}")
+                self.line(f"{flag} = load i32, ptr {flags}")
+                agg = self.tmp()
+                p1 = self.tmp()
+                p2 = self.tmp()
+                p3 = self.tmp()
+                self.line(f"{agg} = insertvalue %ps.str poison, i64 {length}, 0")
+                self.line(f"{p1} = insertvalue %ps.str {agg}, ptr {raw_ptr}, 1")
+                self.line(f"{p2} = insertvalue %ps.str {p1}, i64 {count}, 2")
+                self.line(f"{p3} = insertvalue %ps.str {p2}, i32 {flag}, 3")
+                return p3
+            if symbol in {"ps_dyn_int", "ps_dyn_float", "ps_dyn_bool", "ps_dyn_list", "ps_dyn_dict"}:
+                # The narrowed read of a scalar or heap arm (issue #1280):
+                # the tag test already proved the arm, so the projection is
+                # the payload load off the cell. The bool payload rides i64
+                # (the cell's word) and the compiler's bool is an i1.
+                needed = self.needed
+                needed.add("dyn")
+                if symbol == "ps_dyn_bool":
+                    self._abi_decl(symbol, "i64", ["ptr"])
+                    wide = self._call_ret("i64", symbol, [f"ptr {values[0]}"])
+                    flag = self.tmp()
+                    self.line(f"{flag} = icmp ne i64 {wide}, 0")
+                    return flag
+                ret = "i64" if symbol == "ps_dyn_int" else "double" if symbol == "ps_dyn_float" else "ptr"
+                self._abi_decl(symbol, ret, ["ptr"])
+                return self._call_ret(ret, symbol, [f"ptr {values[0]}"])
             if symbol == "ps_map_del":
                 needed = self.needed
                 needed.add("map")
@@ -402,7 +454,11 @@ class CallsMixin(EmitterBase):
             needed = self.needed
             needed.add("json")
             if name == "loads":
-                return self._emit_json_loads(values[0], typ)
+                # A bytes input decodes through ps_json_loads_bytes: the
+                # buffer is validated as UTF-8 the way CPython's decode does
+                # before the parse; a str is already a UTF-8 buffer.
+                loads_symbol = "ps_json_loads_bytes" if _kind(_arg_type(args[0])) == "bytes" else "ps_json_loads"
+                return self._emit_json_loads(values[0], typ, loads_symbol)
             json_arg: dict[str, Any] = args[0]
             json_typ: dict[str, Any] = _arg_type(json_arg)
             flags: int = _opt_int(expr, "json_flags", 0)

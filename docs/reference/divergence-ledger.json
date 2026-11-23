@@ -84,7 +84,7 @@
     },
     {
       "id": "D5",
-      "seam": "json has no non-ASCII text: non-ASCII emits raw where CPython escapes",
+      "seam": "json.dumps escapes the non-ASCII text like CPython's default and ensure_ascii=False writes it raw; the reader accepts both forms and a lone surrogate in an escape raises the JSONDecodeError family",
       "listed": true,
       "docs": "docs/reference/divergences.md#5",
       "probe": "probes/divergences/d05_json_ascii.py",
@@ -97,10 +97,10 @@
       "pyscriptc": {
         "stage": "run",
         "exit": 0,
-        "stdout": "{\"k\": \"café\"}\n",
+        "stdout": "{\"k\": \"caf\\u00e9\"}\n",
         "stderr": ""
       },
-      "status": "divergent"
+      "status": "identical"
     },
     {
       "id": "D6",
@@ -947,17 +947,6 @@
       "status": "fenced"
     },
     {
-      "id": "D64",
-      "seam": "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view",
-      "listed": true,
-      "docs": "docs/reference/divergences.md#55",
-      "probe": null,
-      "note": "the CPython side is real numpy, which the pinned oracle interpreter does not carry; the byte comparison runs in the differential lane instead (probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
-      "cpython": null,
-      "pyscriptc": null,
-      "status": "unprobed"
-    },
-    {
       "id": "D56",
       "seam": "the binascii subset covers unhexlify and hexlify; every other name is refused",
       "listed": true,
@@ -1355,11 +1344,11 @@
       "status": "unprobed"
     },
     {
-      "id": "D88",
+      "id": "D91",
       "seam": "math.sumprod over int sequences is i64 (divergence 1): a result past the i64 range raises OverflowError where CPython grows a big int",
       "listed": true,
-      "docs": "docs/reference/divergences.md#88",
-      "probe": "probes/divergences/d88_math_sumprod_int_overflow.py",
+      "docs": "docs/reference/divergences.md#91",
+      "probe": "probes/divergences/d91_math_sumprod_int_overflow.py",
       "cpython": {
         "stage": "run",
         "exit": 0,
@@ -1370,6 +1359,123 @@
         "stage": "run",
         "exit": 0,
         "stdout": "11\nOverflowError\nValueError\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D80",
+      "seam": "the http.server handler subset (issue #1270): the loopback request is byte-identical; headers.get answers the empty string where CPython answers None, the handler instance persists across the requests of one serve call where CPython builds one per request, and the runtime answers no log_message",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#80",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/http_server_loopback.py); the headers.get seam, the per-serve handler instance, the missing log_message and the fences are the rest of the entry",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D81",
+      "seam": "the asyncio stream surface (issue #1281): open_connection and the StreamReader / StreamWriter pair over the TCP socket runtime; readexactly raises RuntimeError where CPython raises IncompleteReadError, read(n) answers the bytes the buffer holds when the socket answered, and the surface is native-only",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#81",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/asyncio_streams.py); the readexactly exception class, the read(n) short read and the target fences are the rest of the entry",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D82",
+      "seam": "the verify oracle is the target's minor, not its exact patch: any 3.14.x is accepted silently, and an older oracle (3.11 through 3.13) is opt-in through --oracle-version or PYSC_ORACLE_ANY=1 (issue #1290)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#82",
+      "probe": null,
+      "note": "the oracle choice is a tool input, not a program behaviour: the ledger cannot record it as recorded bytes, so the entry names the contract instead",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D83",
+      "seam": "the asyncio server surface (issue #1281, slice 2): start_server and the Server handle over the TCP socket runtime; sockets answers the one listening socket the subset binds, and close() while serve_forever() is parked raises CancelledError at the await",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#83",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/asyncio_server_loopback.py); the sockets shape, the close cancellation and the target fences are the rest of the entry",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D84",
+      "seam": "time.process_time (issue #503) reads the host's process CPU clock (CLOCK_PROCESS_CPUTIME_ID), the CPython semantics; on wasm32 it reads the wall clock instead, because wasi-libc declares no process CPU clock",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#84",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/time_process_time.py); the wasm32 wall-clock fallback is the rest of the entry",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D85",
+      "seam": "an import outside the closed import table routes to the island lane by default (issue #1308): the compile records an advisory note instead of a PS2002 fence, and the module runs in the embedded interpreter",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#85",
+      "probe": null,
+      "note": "the host lane is byte-identical (probes/differential/island_import_routing.py); the routing itself is a compile-time fact the ledger cannot record as program bytes",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D86",
+      "seam": "the counter/ordered/defaultdict marks ride the dict annotation, not the value: under a plain dict[K, V] boundary the value reprs as a plain dict and a d[k] miss raises KeyError (issue #491)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#86",
+      "probe": "probes/divergences/d86_collections_marks.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "OrderedDict({'b': 2})\ndefaultdict(<class 'int'>, {'x': 1})\n0\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "{'b': 2}\n{'x': 1}\n",
+        "stderr": "KeyError: 'zz'\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D88",
+      "seam": "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view; the whole-array reduction answers a scalar, the shape a list and the axis reductions drop the axis",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#88",
+      "probe": null,
+      "note": "the CPython side is real numpy, which the pinned oracle interpreter does not carry; the byte comparison runs in the differential lane instead (probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D87",
+      "seam": "math.comb, math.perm and math.prod are i64 (divergence 1): a result past the i64 range raises OverflowError where CPython grows a big int",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#87",
+      "probe": "probes/divergences/d87_math_int_overflow.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2598960\n100891344545564193334812497256\n25545471085854720000\n1208925819614629174706176\nValueError\nValueError\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2598960\nOverflowError\nOverflowError\nOverflowError\nValueError\nValueError\n",
         "stderr": ""
       },
       "status": "divergent"
@@ -1589,10 +1695,10 @@
       "pyscriptc": {
         "stage": "run",
         "exit": 0,
-        "stdout": "{\"k\": \"café\"}\n",
+        "stdout": "{\"k\": \"caf\\u00e9\"}\n",
         "stderr": ""
       },
-      "status": "divergent"
+      "status": "identical"
     },
     {
       "id": "AUDIT-D12",

@@ -46,7 +46,9 @@ from pyscriptc.emit._ir import (
 )
 from pyscriptc.errors import IRError
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
+from pyscriptc.log import emit_event
 from pyscriptc.lower import Lowerer
+from pyscriptc.roots import RootSet, roots_for_directory
 from pyscriptc.stdlib_queue import dependency_lanes, ffi_modules, staged_resources
 from pyscriptc.stdmore import PTR_CLASSES
 
@@ -114,11 +116,13 @@ def lower_directory(
             config = None
 
     units, skipped = _discover(root, program_mode, entry=entry, prefix=prefix, exclude=exclude)
+    _discover_event(root, units, skipped)
     program = program_mode or _is_program_dir(root)
     dep_units, dep_fences = _discover_dep_roots(dep_roots or [])
     if dep_fences:
         return _fenced_module(root, dep_fences), ""
     kept, catalogued, pruned = _prune_unreached(units, dep_units, program=program, entry=entry)
+    root_set = roots_for_directory(root)
     merged, notes = _lower_units(
         [*units, *kept],
         root,
@@ -139,6 +143,7 @@ def lower_directory(
         else root.resolve(),
         staged_data=staged_data or [],
         unit_failures=unit_failures,
+        roots=root_set,
     )
     if skipped:
         notes = [*notes, *[_skip_note(root, rel) for rel in skipped]]
@@ -233,6 +238,7 @@ def _lower_units(
     staged_data: list[tuple[Path, bytes]] | None = None,
     package_mode: bool = False,
     unit_failures: list[dict[str, Any]] | None = None,
+    roots: RootSet | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Lower a set of module units into one IR module.
 
@@ -251,6 +257,8 @@ def _lower_units(
     binds, but they lower no code and their fences do not refuse: the
     entry never imports them, so CPython never runs their bodies.
     """
+
+    root_set = roots if roots is not None else RootSet()
 
     # A bridge is built per file: mypy's TypeMap covers one module, so a
     # package tree runs the checker once per unit and lowering consults the
@@ -290,10 +298,12 @@ def _lower_units(
         bridge=bridge_for,
         island_group=island_group,
         unit_failures=unit_failures,
+        roots=root_set,
     )
+    _catalog_event(root, units, catalog_units or [], exports, failed)
 
     if program:
-        fences, owners, _cycles = _program_plan(units, exports, entry=entry, island_group=island_group)
+        fences, owners, _cycles = _program_plan(units, exports, entry=entry, island_group=island_group, root=root)
         if fences:
             # boxed:begin
             island = _program_island(
@@ -309,6 +319,7 @@ def _lower_units(
     functions: list[dict[str, Any]] = []
     classes: list[dict[str, Any]] = []
     fences: list[dict[str, Any]] = []
+    notes: list[str] = []  # boxed:begin N2: the advisory notes of every unit.
     class_names: dict[str, dict[str, Any]] = {}
     exc_n = USER_EXC_BASE
     needs_island = False  # boxed
@@ -331,6 +342,7 @@ def _lower_units(
                 lowerer.exc_n = exc_n
                 lowerer.program = program
                 lowerer.program_roots = dep_names
+                lowerer.roots = root_set
                 lowerer.module_init = program and name != "__main__" and name != entry
                 lowerer.entry_module = entry is not None and name == entry
                 # The per-module plane split: a program compile keeps the native
@@ -397,6 +409,13 @@ def _lower_units(
                     class_names[_node_name(cls)] = cls
                     classes.append(cls)
                 fences.extend(_items(module, "fences"))
+                # boxed:begin
+                # The advisory notes the unit's lowering recorded (N2,
+                # issue #1308): an import routed to the island is a note,
+                # not a fence, and the note rides the merged module so the
+                # CLI prints it.
+                notes.extend(_items(module, "_notes"))
+                # boxed:end
             except Exception as exc:
                 if not _note_unit_failure(unit_failures, path, exc):
                     raise
@@ -490,7 +509,7 @@ def _lower_units(
         inits = [name for name in _module_init_order(owners, exports, functions) if name != f"{entry_mod}.__init__"]
         if inits:
             merged["moduleInits"] = inits
-    return merged, []
+    return merged, notes
 
 
 def _qualified_plane_name(module: str, name: str) -> str:
@@ -907,6 +926,7 @@ def _program_plan(
     exports: dict[str, dict[str, dict[str, Any]]],
     entry: str | None = None,
     island_group: set[str] | None = None,
+    root: Path | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, list[str]], set[str]]:
     """The program's import graph: cycles found, init owners assigned.
 
@@ -1006,6 +1026,8 @@ def _program_plan(
     for name in _program_roots(trees, entry):
         if state.get(name) is None:
             visit(name)
+    if root is not None:
+        _plan_event(root, len(state), owners)
     if fences:
         empty_owners: dict[str, list[str]] = {}
         return fences, empty_owners, cycles
@@ -1498,6 +1520,7 @@ def _catalog(
     bridge: Any = None,
     island_group: set[str] | None = None,
     unit_failures: list[dict[str, Any]] | None = None,
+    roots: RootSet | None = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     """Repeat until a subclass can see a base exported by an earlier pass.
 
@@ -1527,6 +1550,7 @@ def _catalog(
             memo=memo,
             island_group=island_group or set(),
             unit_failures=unit_failures,
+            roots=roots if roots is not None else RootSet(),
         )
         if nxt == exports:
             return nxt, nxt_failed
@@ -1563,6 +1587,7 @@ def _catalog_once(
     memo: dict[str, _CatalogMemo] | None = None,
     island_group: set[str] | None = None,
     unit_failures: list[dict[str, Any]] | None = None,
+    roots: RootSet | None = None,
 ) -> tuple[
     dict[str, dict[str, dict[str, Any]]],
     dict[str, dict[str, dict[str, Any]]],
@@ -1595,6 +1620,8 @@ def _catalog_once(
             lowerer.program = program
             lowerer.module_init = program and name != "__main__" and name != entry
             lowerer.entry_module = entry is not None and name == entry
+            if roots is not None:
+                lowerer.roots = roots
             # The per-module plane split: the catalog pass resolves the same
             # cross-module island bindings the real pass does, so the export
             # table agrees on which definitions ride the island.
@@ -2194,6 +2221,56 @@ def _discover(
     if not found and exclude is None:
         raise IRError(f"no Python files in {root}")
     return found, skipped
+
+
+def _discover_event(root: Path, units: list[tuple[str, Path, bool]], skipped: list[str]) -> None:
+    """Emit the ``package.discover`` record: the root, the modules found, the files skipped."""
+    fields: dict[str, Any] = {}
+    fields["root"] = str(root.resolve())
+    fields["module_count"] = len(units)
+    skipped_fields: dict[str, Any] = {}
+    skipped_fields["count"] = len(skipped)
+    skipped_fields["paths"] = skipped
+    fields["skipped"] = skipped_fields
+    emit_event("info", "package.discover", fields)
+
+
+def _catalog_event(
+    root: Path,
+    units: list[tuple[str, Path, bool]],
+    catalog_units: list[tuple[str, Path, bool]],
+    exports: dict[str, dict[str, dict[str, Any]]],
+    failed: dict[str, dict[str, dict[str, Any]]],
+) -> None:
+    """Emit the ``package.catalog`` record: the export table size and the failed definitions."""
+    export_count = 0
+    for bucket in exports.values():
+        export_count += len(bucket)
+    failed_count = 0
+    for names in failed.values():
+        failed_count += len(names)
+    fields: dict[str, Any] = {}
+    fields["root"] = str(root.resolve())
+    fields["unit_count"] = len(units) + len(catalog_units)
+    fields["export_count"] = export_count
+    fields["failed_count"] = failed_count
+    emit_event("info", "package.catalog", fields)
+
+
+def _plan_event(root: Path, reached: int, owners: dict[str, list[str]]) -> None:
+    """Emit the ``package.plan`` record: the modules the import walk reached and the init owners."""
+    owner_names: list[str] = []
+    for name in owners:
+        if owners[name]:
+            owner_names.append(name)
+    owner_fields: dict[str, Any] = {}
+    owner_fields["count"] = len(owner_names)
+    owner_fields["names"] = owner_names
+    fields: dict[str, Any] = {}
+    fields["root"] = str(root.resolve())
+    fields["reached_count"] = reached
+    fields["init_owners"] = owner_fields
+    emit_event("info", "package.plan", fields)
 
 
 def _skip_reason(relative: str) -> str:

@@ -222,6 +222,336 @@
    "version": "2026.7.22",
    "closed_functions": []
   },
+  "charset-normalizer": {
+   "import_name": "charset_normalizer",
+   "version": "3.5.2",
+   "closed_functions": [
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_accentuated",
+     "qual": "charset_normalizer.utils.is_accentuated",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "remove_accent",
+     "qual": "charset_normalizer.utils.remove_accent",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_latin",
+     "qual": "charset_normalizer.utils.is_latin",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_punctuation",
+     "qual": "charset_normalizer.utils.is_punctuation",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_symbol",
+     "qual": "charset_normalizer.utils.is_symbol",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_emoticon",
+     "qual": "charset_normalizer.utils.is_emoticon",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_separator",
+     "qual": "charset_normalizer.utils.is_separator",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_case_variable",
+     "qual": "charset_normalizer.utils.is_case_variable",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_cjk",
+     "qual": "charset_normalizer.utils.is_cjk",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_hiragana",
+     "qual": "charset_normalizer.utils.is_hiragana",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_katakana",
+     "qual": "charset_normalizer.utils.is_katakana",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_hangul",
+     "qual": "charset_normalizer.utils.is_hangul",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_thai",
+     "qual": "charset_normalizer.utils.is_thai",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_arabic",
+     "qual": "charset_normalizer.utils.is_arabic",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_arabic_isolated_form",
+     "qual": "charset_normalizer.utils.is_arabic_isolated_form",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_cjk_uncommon",
+     "qual": "charset_normalizer.utils.is_cjk_uncommon",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_unicode_range_secondary",
+     "qual": "charset_normalizer.utils.is_unicode_range_secondary",
+     "params": [
+      {
+       "name": "range_name",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_unprintable",
+     "qual": "charset_normalizer.utils.is_unprintable",
+     "params": [
+      {
+       "name": "character",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "should_strip_sig_or_bom",
+     "qual": "charset_normalizer.utils.should_strip_sig_or_bom",
+     "params": [
+      {
+       "name": "iana_encoding",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "iana_name",
+     "qual": "charset_normalizer.utils.iana_name",
+     "params": [
+      {
+       "name": "cp_name",
+       "kind": "str"
+      },
+      {
+       "name": "strict",
+       "kind": "bool"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "charset_normalizer.utils",
+     "name": "is_cp_similar",
+     "qual": "charset_normalizer.utils.is_cp_similar",
+     "params": [
+      {
+       "name": "iana_name_a",
+       "kind": "str"
+      },
+      {
+       "name": "iana_name_b",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a",
+      "a"
+     ]
+    }
+   ]
+  },
   "click": {
    "import_name": "click",
    "version": "8.5.0",
@@ -512,10 +842,6 @@
      }
     ],
     "functions_called_by_tests": {
-     "getchar": [
-      "test_termui.py",
-      "test_testing.py"
-     ],
      "unstyle": [
       "test_style.py"
      ],
@@ -730,14 +1056,7 @@
       "tests": 10
      }
     ],
-    "functions_called_by_tests": {
-     "version": [
-      "test_api.py",
-      "test_integration.py",
-      "test_main.py",
-      "test_zip.py"
-     ]
-    }
+    "functions_called_by_tests": {}
    }
   },
   "iniconfig": {
@@ -1676,6 +1995,189 @@
     "functions_called_by_tests": {}
    }
   },
+  "requests": {
+   "import_name": "requests",
+   "version": "2.34.2",
+   "closed_functions": [
+    {
+     "module": "requests.utils",
+     "name": "extract_zipped_paths",
+     "qual": "requests.utils.extract_zipped_paths",
+     "params": [
+      {
+       "name": "path",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "requests.utils",
+     "name": "unquote_header_value",
+     "qual": "requests.utils.unquote_header_value",
+     "params": [
+      {
+       "name": "value",
+       "kind": "str"
+      },
+      {
+       "name": "is_filename",
+       "kind": "bool"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "requests.utils",
+     "name": "unquote_unreserved",
+     "qual": "requests.utils.unquote_unreserved",
+     "params": [
+      {
+       "name": "uri",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "requests.utils",
+     "name": "requote_uri",
+     "qual": "requests.utils.requote_uri",
+     "params": [
+      {
+       "name": "uri",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "requests.utils",
+     "name": "address_in_network",
+     "qual": "requests.utils.address_in_network",
+     "params": [
+      {
+       "name": "ip",
+       "kind": "str"
+      },
+      {
+       "name": "net",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a",
+      "a"
+     ]
+    },
+    {
+     "module": "requests.utils",
+     "name": "dotted_netmask",
+     "qual": "requests.utils.dotted_netmask",
+     "params": [
+      {
+       "name": "mask",
+       "kind": "int"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      1
+     ]
+    },
+    {
+     "module": "requests.utils",
+     "name": "is_ipv4_address",
+     "qual": "requests.utils.is_ipv4_address",
+     "params": [
+      {
+       "name": "string_ip",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "requests.utils",
+     "name": "is_valid_cidr",
+     "qual": "requests.utils.is_valid_cidr",
+     "params": [
+      {
+       "name": "string_network",
+       "kind": "str"
+      }
+     ],
+     "returns": "bool",
+     "call_args": [
+      "a"
+     ]
+    },
+    {
+     "module": "requests.utils",
+     "name": "default_user_agent",
+     "qual": "requests.utils.default_user_agent",
+     "params": [
+      {
+       "name": "name",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": []
+    },
+    {
+     "module": "requests.utils",
+     "name": "prepend_scheme_if_needed",
+     "qual": "requests.utils.prepend_scheme_if_needed",
+     "params": [
+      {
+       "name": "url",
+       "kind": "str"
+      },
+      {
+       "name": "new_scheme",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a",
+      "a"
+     ]
+    },
+    {
+     "module": "requests.utils",
+     "name": "urldefragauth",
+     "qual": "requests.utils.urldefragauth",
+     "params": [
+      {
+       "name": "url",
+       "kind": "str"
+      }
+     ],
+     "returns": "str",
+     "call_args": [
+      "a"
+     ]
+    }
+   ]
+  },
   "shellingham": {
    "import_name": "shellingham",
    "version": "1.5.4",
@@ -2354,6 +2856,60 @@
    "version": "2026.5",
    "closed_functions": []
   },
+  "urllib3": {
+   "import_name": "urllib3",
+   "version": "2.8.0",
+   "closed_functions": [
+    {
+     "module": "urllib3.contrib.emscripten.fetch",
+     "name": "is_in_browser_main_thread",
+     "qual": "urllib3.contrib.emscripten.fetch.is_in_browser_main_thread",
+     "params": [],
+     "returns": "bool",
+     "call_args": []
+    },
+    {
+     "module": "urllib3.contrib.emscripten.fetch",
+     "name": "is_cross_origin_isolated",
+     "qual": "urllib3.contrib.emscripten.fetch.is_cross_origin_isolated",
+     "params": [],
+     "returns": "bool",
+     "call_args": []
+    },
+    {
+     "module": "urllib3.contrib.emscripten.fetch",
+     "name": "is_in_node",
+     "qual": "urllib3.contrib.emscripten.fetch.is_in_node",
+     "params": [],
+     "returns": "bool",
+     "call_args": []
+    },
+    {
+     "module": "urllib3.contrib.emscripten.fetch",
+     "name": "is_worker_available",
+     "qual": "urllib3.contrib.emscripten.fetch.is_worker_available",
+     "params": [],
+     "returns": "bool",
+     "call_args": []
+    },
+    {
+     "module": "urllib3.contrib.emscripten.fetch",
+     "name": "has_jspi",
+     "qual": "urllib3.contrib.emscripten.fetch.has_jspi",
+     "params": [],
+     "returns": "bool",
+     "call_args": []
+    },
+    {
+     "module": "urllib3.filepost",
+     "name": "choose_boundary",
+     "qual": "urllib3.filepost.choose_boundary",
+     "params": [],
+     "returns": "str",
+     "call_args": []
+    }
+   ]
+  },
   "wheel": {
    "import_name": "wheel",
    "version": "0.48.0",
@@ -2433,12 +2989,7 @@
       "tests": 12
      }
     ],
-    "functions_called_by_tests": {
-     "main": [
-      "test_pack.py",
-      "util.py"
-     ]
-    }
+    "functions_called_by_tests": {}
    }
   },
   "zipp": {

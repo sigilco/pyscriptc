@@ -30,3 +30,9 @@ print(np.linspace(0.0, 1.0, 3).tolist())
 print(np.full([2, 2], 3.5).tolist())
 print(np.concatenate([a, np.array([5.0])]).tolist())
 print(np.stack([a, a]).tolist())
+# The axis form of the reductions and of argmax: the index along the
+# axis, and a negative axis counted from the end.
+m = np.arange(0, 6).reshape([2, 3])
+print(m.argmax(axis=0).tolist())
+print(m.argmin(axis=1).tolist())
+print(m.sum(axis=-1).tolist())

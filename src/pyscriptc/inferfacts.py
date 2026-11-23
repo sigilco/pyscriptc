@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import ast
 from dataclasses import dataclass, field
+from pathlib import Path
 
 from pyscriptc.typefacts import TypeFacts
 
@@ -82,6 +83,75 @@ class InferFacts:
     def pin_summary(self) -> dict[str, int]:
         """Counts for the report: how many parameters the package pinned."""
         return {"call_sites": len(self.calls), "pinned_params": len(self.pins)}
+
+
+def has_unannotated_params(source: Path) -> bool:
+    """Whether the tree (or single file) holds a parameter the pins could prove.
+
+    One AST walk per module, no checker contact: the cheap test the
+    inference skip fast path reads (issue #1317). A file that cannot be
+    read or parsed contributes no parameters (the engine skips it the same
+    way), so it cannot flip the verdict alone.
+
+    The surface counted is the one the coverage report counts: a parameter
+    with no annotation and no proven default, `self`/`cls` excluded (the
+    lowerer types those from the owning class).
+    """
+
+    root = source.resolve()
+    if root.is_file():
+        # A single file is its own tree: the walk below reads that one
+        # module, filtered to the file the caller named.
+        return _tree_has_unannotated_params(root.parent, root)
+    return _tree_has_unannotated_params(root, None)
+
+
+def _tree_has_unannotated_params(root: Path, only: Path | None) -> bool:
+    """Whether the modules of a tree hold a parameter the pins could prove.
+
+    `only` narrows the walk to one module (the single-file case).
+    """
+
+    for path in sorted(root.rglob("*.py")):
+        if only is not None and path != only:
+            continue
+        try:
+            tree = ast.parse(path.read_text(encoding="utf-8"))
+        except (OSError, SyntaxError, UnicodeDecodeError):
+            continue
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if _unannotated_params(node):
+                return True
+    return False
+
+
+_SELF_PARAMS = ("self", "cls")
+
+
+def _unannotated_params(node: ast.FunctionDef | ast.AsyncFunctionDef) -> list[str]:
+    """One def's parameters that carry no annotation and no typed default.
+
+    The surface the pin engine and the coverage report both count: a
+    parameter with a proven default (`def f(x=0)`) is already typed by the
+    lowerer's own proof (`_param`, issue #500), so it is not part of the
+    surface the pins would lift. `self` and `cls` are excluded the same
+    way: the lowerer types them from the owning class.
+    """
+
+    args = node.args
+    plain = args.posonlyargs + args.args
+    defaults: list = [None] * (len(plain) - len(args.defaults))
+    defaults.extend(args.defaults)
+    out: list[str] = []
+    for arg, default in zip(plain, defaults, strict=False):
+        if arg.annotation is None and default is None and arg.arg not in _SELF_PARAMS:
+            out.append(arg.arg)
+    for arg, default in zip(args.kwonlyargs, args.kw_defaults, strict=False):
+        if arg.annotation is None and default is None and arg.arg not in _SELF_PARAMS:
+            out.append(arg.arg)
+    return out
 
 
 def parse_pin_type(kind: str) -> TypeFacts | None:

@@ -82,7 +82,8 @@ ROWS: list[dict[str, Any]] = [
     _row("D4", "re subset: L/T/DEBUG and unknown flag bits raise ValueError", "d04_re_flags.py", docs=f"{DOC}#4"),
     _row(
         "D5",
-        "json has no non-ASCII text: non-ASCII emits raw where CPython escapes",
+        "json.dumps escapes the non-ASCII text like CPython's default and ensure_ascii=False writes it raw; "
+        "the reader accepts both forms and a lone surrogate in an escape raises the JSONDecodeError family",
         "d05_json_ascii.py",
         docs=f"{DOC}#5",
     ),
@@ -404,15 +405,6 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#55",
     ),
     _row(
-        "D64",
-        "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view",
-        None,
-        docs=f"{DOC}#55",
-        note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
-        "the byte comparison runs in the differential lane instead "
-        "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
-    ),
-    _row(
         "D56",
         "the binascii subset covers unhexlify and hexlify; every other name is refused",
         "d56_binascii.py",
@@ -584,11 +576,97 @@ ROWS: list[dict[str, Any]] = [
         "return_exceptions fence and the one-result-type rule (PS2002) are the rest of the entry",
     ),
     _row(
-        "D88",
+        "D91",
         "math.sumprod over int sequences is i64 (divergence 1): a result past the i64 range raises "
         "OverflowError where CPython grows a big int",
-        "d88_math_sumprod_int_overflow.py",
+        "d91_math_sumprod_int_overflow.py",
+        docs=f"{DOC}#91",
+    ),
+    _row(
+        "D80",
+        "the http.server handler subset (issue #1270): the loopback request is byte-identical; headers.get "
+        "answers the empty string where CPython answers None, the handler instance persists across the "
+        "requests of one serve call where CPython builds one per request, and the runtime answers no "
+        "log_message",
+        None,
+        docs=f"{DOC}#80",
+        note="the host lane is byte-identical (probes/differential/http_server_loopback.py); the "
+        "headers.get seam, the per-serve handler instance, the missing log_message and the fences are "
+        "the rest of the entry",
+    ),
+    _row(
+        "D81",
+        "the asyncio stream surface (issue #1281): open_connection and the StreamReader / StreamWriter pair "
+        "over the TCP socket runtime; readexactly raises RuntimeError where CPython raises IncompleteReadError, "
+        "read(n) answers the bytes the buffer holds when the socket answered, and the surface is native-only",
+        None,
+        docs=f"{DOC}#81",
+        note="the host lane is byte-identical (probes/differential/asyncio_streams.py); the "
+        "readexactly exception class, the read(n) short read and the target fences are the rest of the entry",
+    ),
+    _row(
+        "D82",
+        "the verify oracle is the target's minor, not its exact patch: any 3.14.x is accepted silently, "
+        "and an older oracle (3.11 through 3.13) is opt-in through --oracle-version or PYSC_ORACLE_ANY=1 "
+        "(issue #1290)",
+        None,
+        docs=f"{DOC}#82",
+        note="the oracle choice is a tool input, not a program behaviour: the ledger cannot record it as "
+        "recorded bytes, so the entry names the contract instead",
+    ),
+    _row(
+        "D83",
+        "the asyncio server surface (issue #1281, slice 2): start_server and the Server handle over the TCP "
+        "socket runtime; sockets answers the one listening socket the subset binds, and close() while "
+        "serve_forever() is parked raises CancelledError at the await",
+        None,
+        docs=f"{DOC}#83",
+        note="the host lane is byte-identical (probes/differential/asyncio_server_loopback.py); the "
+        "sockets shape, the close cancellation and the target fences are the rest of the entry",
+    ),
+    _row(
+        "D84",
+        "time.process_time (issue #503) reads the host's process CPU clock (CLOCK_PROCESS_CPUTIME_ID), the "
+        "CPython semantics; on wasm32 it reads the wall clock instead, because wasi-libc declares no process "
+        "CPU clock",
+        None,
+        docs=f"{DOC}#84",
+        note="the host lane is byte-identical (probes/differential/time_process_time.py); the wasm32 wall-clock "
+        "fallback is the rest of the entry",
+    ),
+    _row(
+        "D85",
+        "an import outside the closed import table routes to the island lane by default (issue #1308): "
+        "the compile records an advisory note instead of a PS2002 fence, and the module runs in the "
+        "embedded interpreter",
+        None,
+        docs=f"{DOC}#85",
+        note="the host lane is byte-identical (probes/differential/island_import_routing.py); the "
+        "routing itself is a compile-time fact the ledger cannot record as program bytes",
+    ),
+    _row(
+        "D86",
+        "the counter/ordered/defaultdict marks ride the dict annotation, not the value: under a plain "
+        "dict[K, V] boundary the value reprs as a plain dict and a d[k] miss raises KeyError (issue #491)",
+        "d86_collections_marks.py",
+        docs=f"{DOC}#86",
+    ),
+    _row(
+        "D88",
+        "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view; "
+        "the whole-array reduction answers a scalar, the shape a list and the axis reductions drop the axis",
+        None,
         docs=f"{DOC}#88",
+        note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
+        "the byte comparison runs in the differential lane instead "
+        "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
+    ),
+    _row(
+        "D87",
+        "math.comb, math.perm and math.prod are i64 (divergence 1): a result past the i64 range raises "
+        "OverflowError where CPython grows a big int",
+        "d87_math_int_overflow.py",
+        docs=f"{DOC}#87",
     ),
     _row(
         "AUDIT-D1",

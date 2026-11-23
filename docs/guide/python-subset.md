@@ -5,7 +5,8 @@ description: "What pyscriptc compiles, how to write code inside the subset, and 
 
 pyscriptc compiles the typed subset of Python 3.14.
 Code inside the subset becomes a native binary with no interpreter inside.
-Code outside it either stops the build with a `PSxxxx` code that names the exact line, or runs through embedded CPython (fallback mode) when you enable it.
+Code outside it either stops the build with a `PSxxxx` code that names the exact line, or runs through embedded CPython (fallback mode).
+An import outside the closed import table routes to the island lane by default, with no flag; a definition the subset cannot express needs fallback mode enabled.
 The compiler never guesses.
 
 Check whether your script is inside the subset before compiling:
@@ -37,13 +38,14 @@ pyscriptc run --fallback=cpython --report=report.json script.py  # the executed 
 ```
 
 `assess` prints a "Path to the island" section: the exact `[tool.pyscriptc.imports]` lines that route each unsupported import to embedded CPython, each with the import site that forced it.
+An import outside the closed import table needs no line there: it routes to the island lane by default, and `assess` reports it as a note.
 The `--json` plane map reports, per function, `native` or `island`, plus the `demotedBy` function that pulled each island demotion.
 Read the plane map, not the per-definition share: the per-definition share answers "how much of this tree is inside the subset", the plane map answers "what actually runs native", and on a framework-heavy app those differ by the whole framework boundary.
 
 ## When pyscriptc fits and when it does not
 
 pyscriptc fits typed application code: CLIs, data pipelines, file and protocol processing, parsers, simulation and math cores, background jobs.
-The pattern that works is a typed core with all annotations, closed data shapes (`dataclass`, `dict[str, int]`, `list[T]`), imports from the closed stdlib table, and third-party interaction pushed to explicit boundaries.
+The pattern that works is a typed core with all annotations, closed data shapes (`dataclass`, `dict[str, int]`, `list[T]`), imports from the closed stdlib table where they exist, and third-party interaction pushed to explicit boundaries (it routes to the island by default, see [Libraries and fallback mode](libraries.md)).
 
 pyscriptc does not fit, as native code, applications whose structure is runtime reflection:
 
@@ -122,16 +124,21 @@ There is no `typing` module object in the binary.
 | `X: TypeAlias = T` (PEP 613) | compiles as an erased annotation: the alias binds the name to the type it spells, so an annotation naming `X` lowers as that type |
 | PEP 695 `def f[T]`, `ParamSpec`, `TypeVar(..., default=...)` | unsupported (`PS1106`, `PS2003`) |
 | `Protocol`, `ABC`, `@abstractmethod`, `@overload` | the annotation is checked, then dropped; no runtime enforcement (divergence 14) |
+| `@island`, `@specialize` (from `pyscriptc._annotations`) | compiles as a marker, then dropped: the module is annotation-only and inert on plain CPython and PyPy (each decorator returns the definition unchanged), the import is erased like a `typing` import, and a name used as a value fences (`PS2002`). Under `--fallback=cpython` the `@island` marker routes its one definition to embedded CPython on purpose and the compile and `assess` name the routing (`demoted by marked @island` in the plane map); `@specialize` stays advisory |
+
 | a base-annotated slot holding a field-less nominal subclass (`b: Base = Sub()`, `def make() -> Base: return Sub()`) | compiles; the slot keeps the subclass, so the overridden method answers the subclass's body (divergence 70). A subclass that adds a field, a factory over two subclasses, or a base-annotated parameter receiving a subclass fences `PS1003` |
 | `NamedTuple`, `TypedDict`, `NewType`, `Literal[...]`, `Self` | unsupported; use a `@dataclass`, a plain `dict[K, V]`, an alias, a plain `str`, or the class name |
-| `Any` as a container element (`dict[K, Any]`, `list[Any]`) | compiles in the builtin and the `typing` spelling; reads need a proven type at the read site (annotation or checker fact), an unproven read fences `PS1107`; bare `Any` or `object` as an annotation is unsupported (`PS1104`) |
+| `Any` as a container element (`dict[K, Any]`, `list[Any]`) | compiles in the builtin and the `typing` spelling; reads need a proven type at the read site (annotation or checker fact), an unproven read fences `PS1107`; bare `Any` as an annotation is unsupported (`PS1104`) |
+| `object` as an annotation (`x: object`, `dict[str, object]`, `list[object]`) | compiles as the tagged dynamic value: the sum of the lowered shapes (`None`, `bool`, `int`, `float`, `str`, `list`, `dict`), so a heterogeneous payload has a type. `Any` keeps its own meaning (the unresolved slot), so the two are not interchangeable; `isinstance(x, T)` narrows an `object` value into `T` inside the branch (the row below) |
 | `async def` and `await` | compiles; `await asyncio.gather(...)` answers `list[T]` in argument order (the coroutines must share one result type, `PS2002`), so the result annotation is a list |
 | `dataclasses.dataclass` with no options | compiles as a native record; `frozen=True` and other decorators are unsupported (`PS1201`) |
 | `dataclasses.field(default_factory=list/dict/set/callable)` | compiles as a per-instance default: each construction that omits the field calls the factory, so two instances never share a container; `field` with other keywords fences (`PS2002`) |
 | `cast(t, v)`, `get_type_hints`, `__annotations__` reads | unsupported (`PS2002`); write the type on an annotated local instead |
 | `isinstance(v, list[int])` | unsupported (`PS2001`); runtime checks take scalar and class names only |
+| `isinstance(x, T)` on a value typed `object` | compiles for `T` in `int`, `float`, `str`, `bool`, `list`, `dict`: the test is the runtime's tag compare, and the taken branch narrows `x` into `T`, so the value is usable as that type (`x + 1`, `len(x)`, `x.upper()`). The narrowing holds through the branch and past an early return (`if not isinstance(x, int): return 0`), and `assert isinstance(x, T)` proves the arm for the rest of the body. A class target is not an arm of the sum and keeps its `PS2001` fence; a name the branch rebinds loses the proof, and the use after the rebinding fences `PS2004` |
 | quoted forward references (`"Node"`) | compiles when the module defines the name by module end; one that never resolves fences (`PS1105`) |
 | a class of another module of the same tree, spelled `mod.Thing` | compiles; the qualified spelling resolves through the same export table the call path uses, so `def use(t: mod.Thing)` and `mod.Thing(...)` agree on the class |
+| a class whose base does not lower (`class C(Base)` where `Base` is island-defined, typing-shaped, or unresolvable) | fences today (`PS2002 this class base is not lowered`); `assess` surfaces a per-class demotion plan per refusal: the class routes to the island as one unit, the plan names the base, its kind (`island-defined`, `typing`, `enum`, `stdlib`, `cascade`) and the demotion the boxed-class ABI routes (`demotionPlans` in `--json`, the "Class demotion plans" section in text) |
 
 Constructs with runtime meaning beyond their annotation (pydantic models, `attrs` validators, anything that reads annotations at run time) are not typing failures: run them through embedded CPython (fallback mode), see [Libraries and fallback mode](libraries.md).
 
@@ -145,6 +152,7 @@ For background on the typing system itself, the upstream references are the best
 The stdlib subsets that touch the outside world keep to a closed surface; each names its divergences in [Divergences from CPython](../reference/divergences.md).
 
 - `selectors`: `DefaultSelector` over the compiled event loop, with `SelectorKey`, `EVENT_READ`/`EVENT_WRITE` and `register`/`unregister`/`modify`/`select`/`get_key`/`close`. `register` takes a bare int fd, not a `fileobj` (the typed socket handle is issue #229), `select()` returns `list[SelectorKey]` rather than CPython's `(key, events)` pairs, and `get_key` of an unregistered fd returns `None` where CPython raises `KeyError`.
+- `http.server`: the loopback handler surface (issue #1270). `HTTPServer((host, port), Handler)` with a handler class that extends `BaseHTTPRequestHandler` and defines `do_GET`/`do_POST`, plus `send_response`, `send_header`, `end_headers`, `wfile.write`, `rfile.read`, `headers.get` and `self.path`; the server answers `serve_forever`, `handle_request`, `shutdown`, `server_close`, `server_port` and `server_address`. `headers.get` answers the empty string for an absent header where CPython answers `None`, the runtime answers no `log_message`, and `ThreadingHTTPServer`, `SimpleHTTPRequestHandler` and the `socketserver` mixins fence with `PS2001`.
 - `os.kill`/`os.killpg` and `signal`: the parent-side watchdog surface (issue #1244). `os.kill(pid, sig)` and `os.killpg(pgrp, sig)` translate the errno values the way CPython does (`ProcessLookupError`, `PermissionError`); `signal` carries the POSIX constants `SIGKILL`, `SIGTERM`, `SIGINT`, `SIGCONT`, `SIGUSR1` and `SIGUSR2` as plain ints. POSIX hosts only: the wasm and Windows targets refuse the kill calls at compile time, and every handler-registration form (`signal.signal`, `signal.getsignal`, `signal.alarm`, `SIG_DFL`/`SIG_IGN`, the `Signals` enum) fences with `PS2001` because a native binary has no Python handler table.
 
 ## What stays unsupported
@@ -169,8 +177,8 @@ Common failure modes on real scripts:
 
 - An assignment without an annotation (`files = os.listdir(d)`) stops with `PS1001`, and every later read of the name stops with `PS2002`; the first one is the cause and the rest follow from it.
 - A keyword argument to a stdlib call (`shutil.copy(src, dst, follow_symlinks=False)`) stops with `PS2003`.
-- A module outside the closed import table (`sqlite3`, `pickle`) stops with `PS2002` on the import.
-Run the module through embedded CPython (fallback mode) instead, see [Libraries and fallback mode](libraries.md).
+- An import outside the closed import table (`sqlite3`, `pickle`, third-party) no longer stops the compile: it routes to the island lane (embedded CPython) by default, and `pyscriptc assess` reports it as a note.
+Run the definitions that fence instead through fallback mode, see [Libraries and fallback mode](libraries.md).
 
 Related commands:
 

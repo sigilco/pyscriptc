@@ -21,7 +21,6 @@ from pyscriptc.imports import (
     KIND_STDLIB,
     LADDER_ISLAND,
     LADDER_NATIVE,
-    LANE_EXTERN,
     LANE_ISLAND,
     LANE_NATIVE,
     LANE_PACK,
@@ -95,10 +94,11 @@ def test_lowered_stdlib_is_ready_to_compile() -> None:
     assert "lowered" in verdict.reason
 
 
-def test_stdlib_outside_the_table_points_at_extern() -> None:
+def test_stdlib_outside_the_table_routes_to_the_island() -> None:
+    # N2 (issue #1308): the closed table is not an admission gate any more.
     verdict = classify("smtplib")
     assert verdict.kind == KIND_STDLIB
-    assert verdict.lane == LANE_EXTERN
+    assert verdict.lane == LANE_ISLAND
     assert "closed import table" in verdict.reason
 
 
@@ -112,7 +112,7 @@ def test_typing_is_an_annotation_only_module() -> None:
 def test_native_backed_import_is_not_compiled_from_source() -> None:
     verdict = classify("scipy")
     assert verdict.kind == KIND_NATIVE
-    assert verdict.lane == LANE_EXTERN
+    assert verdict.lane == LANE_ISLAND
     assert verdict.distribution == "scipy"
     assert verdict.pack == ""
 
@@ -134,7 +134,7 @@ def test_curated_import_matches_a_submodule() -> None:
 def test_unknown_third_party_import_is_pure_python() -> None:
     verdict = classify("requests")
     assert verdict.kind == KIND_PURE
-    assert verdict.lane == LANE_NATIVE
+    assert verdict.lane == LANE_ISLAND
     assert verdict.source == "heuristic"
 
 
@@ -249,13 +249,15 @@ def test_report_schema_is_stable(tmp_path: Path) -> None:
     }
 
 
-def test_without_a_policy_no_import_reaches_the_island(tmp_path: Path) -> None:
-    path = write(tmp_path / "a.py", "import numpy\nimport json\n")
+def test_outside_the_table_routes_to_the_island_by_default(tmp_path: Path) -> None:
+    # N2 (issue #1308): the island lane is the default route, not opt-in.
+    path = write(tmp_path / "a.py", "import requests\nimport json\n")
     report = build_report(path)
-    assert all(item["lane"] != LANE_ISLAND for item in report["imports"])
-    assert report["summary"]["requiresLibpython"] is False
-    assert report["summary"]["islandImports"] == []
-    assert LADDER_ISLAND not in report["summary"]["byLadder"]
+    lanes = {item["name"]: item["lane"] for item in report["imports"]}
+    assert lanes == {"requests": LANE_ISLAND, "json": LANE_NATIVE}
+    assert report["summary"]["requiresLibpython"] is True
+    assert report["summary"]["islandImports"] == ["requests"]
+    assert LADDER_ISLAND in report["summary"]["byLadder"]
 
 
 def test_the_policy_is_the_only_route_to_the_island(tmp_path: Path) -> None:
@@ -343,7 +345,7 @@ def test_render_text_names_the_lane_of_every_import(tmp_path: Path) -> None:
     text = render_text(build_report(path))
     assert "orjson" in text
     assert "lane pack" in text
-    assert "lane extern" in text
+    assert "lane island" in text
 
 
 def test_report_of_an_empty_tree_has_no_imports(tmp_path: Path) -> None:
@@ -477,14 +479,14 @@ def test_a_versioned_dist_info_does_not_mark_another_distribution_native(
 def test_a_known_native_distribution_reads_as_native(dist: str) -> None:
     verdict = classify("x", dist)
     assert verdict.kind == KIND_NATIVE
-    assert verdict.lane == LANE_EXTERN
+    assert verdict.lane == LANE_ISLAND
     assert verdict.source == "native-packages"
 
 
 def test_a_distribution_hint_without_a_table_entry_uses_the_metadata() -> None:
     verdict = classify("x", "a-package-that-is-not-installed")
     assert verdict.kind == KIND_PURE
-    assert verdict.lane == LANE_NATIVE
+    assert verdict.lane == LANE_ISLAND
 
 
 # --------------------------------------------------------------------------

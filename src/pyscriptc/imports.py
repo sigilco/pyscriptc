@@ -87,6 +87,10 @@ KIND_PURE = "pure-python"
 # package itself is a lowered module.
 _ERASED = frozenset({"typing", "typing_extensions", "collections.abc"})
 
+# The compiler's own shadow annotation module (issue #1306): its two
+# decorators are the identity, so the import is erased like `typing`'s.
+SHADOW_ANNOTATIONS = "pyscriptc._annotations"
+
 _DATA_FILE = Path(__file__).parent / "native_packages.json"
 
 # Extension suffixes CPython uses for a compiled extension module.
@@ -547,8 +551,9 @@ def _stdlib_verdict(name: str) -> Verdict | None:
     return _verdict(
         name,
         KIND_STDLIB,
-        LANE_EXTERN,
-        "standard library, outside the closed import table; try a C ABI extern manifest",
+        LANE_ISLAND,
+        "standard library, outside the closed import table; it routes to the island lane "
+        "(requires libpython) by default (issue #1308)",
         source=SOURCE_TABLE,
     )
 
@@ -592,8 +597,9 @@ def classify(name: str, distribution: str = "", policy: dict[str, str] | None = 
     """Classify one import name into a kind and a lane.
 
     `policy` is the `[tool.pyscriptc.imports]` table when the caller has one.
-    Without it the island lane is unreachable: the classifier answers what
-    an import can take, not the user's opt-in choice.
+    Under the default island routing (issue #1308) every import outside the
+    closed table answers the island lane; an explicit policy lane still
+    overrides the classifier, because the policy is what the compile does.
     """
 
     return apply_policy(_classify_base(name, distribution), policy)
@@ -609,6 +615,18 @@ def _classify_base(name: str, distribution: str = "") -> Verdict:
             LANE_NATIVE,
             "empty import name",
             source=SOURCE_HEURISTIC,
+        )
+
+    if name == SHADOW_ANNOTATIONS:
+        # The shadow annotation module of the compiler itself (issue #1306):
+        # it is annotation-only like `typing`, so the import is erased and
+        # never reaches the binary, but it is not a standard-library module.
+        return _verdict(
+            name,
+            KIND_PURE,
+            LANE_NATIVE,
+            "annotation-only module; its decorators steer the lowering and the import is erased",
+            source=SOURCE_TABLE,
         )
 
     stdlib = _stdlib_verdict(name)
@@ -637,8 +655,9 @@ def _classify_base(name: str, distribution: str = "") -> Verdict:
         return _verdict(
             name,
             KIND_NATIVE,
-            LANE_EXTERN,
-            f"native-backed distribution {dist_name} (C, C++ or Rust extension)",
+            LANE_ISLAND,
+            f"native-backed distribution {dist_name} (C, C++ or Rust extension); it routes to the "
+            "island lane (requires libpython) by default (issue #1308)",
             dist_name,
             "",
             SOURCE_DATA,
@@ -650,8 +669,9 @@ def _classify_base(name: str, distribution: str = "") -> Verdict:
             return _verdict(
                 name,
                 KIND_NATIVE,
-                LANE_EXTERN,
-                f"native-backed distribution {distribution}: {reason}",
+                LANE_ISLAND,
+                f"native-backed distribution {distribution}: {reason}; it routes to the island lane "
+                "(requires libpython) by default (issue #1308)",
                 distribution,
                 "",
                 SOURCE_METADATA,
@@ -660,8 +680,9 @@ def _classify_base(name: str, distribution: str = "") -> Verdict:
     return _verdict(
         name,
         KIND_PURE,
-        LANE_NATIVE,
-        "third-party import with no known compiled extension; compile it from source",
+        LANE_ISLAND,
+        "third-party import outside the closed import table; it routes to the island lane "
+        "(requires libpython) by default (issue #1308)",
         "",
         "",
         SOURCE_HEURISTIC,

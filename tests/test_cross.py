@@ -10,6 +10,7 @@ from pathlib import Path
 import pytest
 from tests.test_spike import ROOT
 
+from pyscriptc import zigshim
 from pyscriptc.cli import _apply_env_defaults, _require_toolchain, _resolve_default_driver
 from pyscriptc.errors import IRError
 from pyscriptc.llvm import link_binary
@@ -217,3 +218,13 @@ def test_require_toolchain_diagnostics_mention_ziglang(monkeypatch: pytest.Monke
     msg_zig = str(excinfo_zig.value)
     assert "zig not found on PATH" in msg_zig
     assert "pip install ziglang" in msg_zig
+
+
+def test_require_toolchain_selects_the_ziglang_shim_when_nothing_else_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wheel-only install has no zig or clang on PATH; the shim must be picked, not PS0001."""
+    on_path: list[bool] = []
+    monkeypatch.setattr(shutil, "which", lambda cmd: "/shim/zig" if cmd == "zig" and on_path else None)
+    monkeypatch.setattr(zigshim, "ensure_on_path", lambda: on_path.append(True) or True)
+    args = argparse.Namespace(run=True, emit="bin", driver=None)
+    _require_toolchain(args)
+    assert args.driver == "zig"

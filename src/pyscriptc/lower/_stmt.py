@@ -286,6 +286,8 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             # value is freed first (issue #224).
             dropped = self._rebind_handle(stmt.target.id, typ, stmt.value, span)
             self._note_frozen(stmt.target.id, stmt.value)
+            self._note_httpsrv_handler(stmt.target.id, value)
+            self._note_server_callback(stmt.target.id, value)
             return [*dropped, _assign(stmt.target.id, value, span)]
         if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Attribute):
             # `self.f: T = v` declares the field and stores like an
@@ -422,6 +424,8 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                     self._expect(stmt, value["type"], inferred, target)
                     dropped = self._rebind_handle(target, inferred, stmt.value, span)
                     self._note_frozen(target, stmt.value)
+                    self._note_httpsrv_handler(target, value)
+                    self._note_server_callback(target, value)
                     return [*dropped, _assign(target, value, span)]
                 self._infer_fence(stmt, target)
             value = self._expr(stmt.value, self.locals[target])
@@ -430,17 +434,30 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             # value overwrites the slot after the free read it (issue #224).
             dropped = self._rebind_handle(target, value["type"], stmt.value, span)
             self._note_frozen(target, stmt.value)
+            self._note_httpsrv_handler(target, value)
+            self._note_server_callback(target, value)
             return [*dropped, _assign(target, value, span)]
         if isinstance(stmt, ast.AugAssign):
             return self._aug_assign(stmt, span)
         if isinstance(stmt, ast.If):
             # The test narrows tagged optionals per branch (`x is not None`,
             # `x`, `not x`, and `and`/`or` chains of those): reads of a
-            # narrowed name lower to its `_val`. A name rebound anywhere
-            # inside that branch is not narrowed.
+            # narrowed name lower to its `_val`. The same test narrows a
+            # dynamic-value local through `isinstance(x, T)` (issue #1280):
+            # reads of a proven name lower to the arm's projection. A name
+            # rebound anywhere inside that branch is not narrowed.
             when_true, when_false = self._narrow_names(stmt.test)
-            then_body = self._narrowed(when_true, stmt.body, lambda: self._body(list(stmt.body)))
-            else_body = self._narrowed(when_false, stmt.orelse, lambda: self._body(list(stmt.orelse)))
+            dyn_true, dyn_false = self._narrow_dyn_names(stmt.test)
+            then_body = self._narrowed(
+                when_true,
+                stmt.body,
+                lambda: self._narrowed_dyn(dyn_true, stmt.body, lambda: self._body(list(stmt.body))),
+            )
+            else_body = self._narrowed(
+                when_false,
+                stmt.orelse,
+                lambda: self._narrowed_dyn(dyn_false, stmt.orelse, lambda: self._body(list(stmt.orelse))),
+            )
             return [_if_stmt(self._bool_cond_of(stmt.test, {"kind": "bool"}), then_body, span, else_body)]
         if isinstance(stmt, ast.Assert):
             return self._assert(stmt, span)
@@ -465,7 +482,12 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                 finally:
                     self.prelude = saved_prelude
                 when_true, _ = self._narrow_names(stmt.test)
-                inner = self._narrowed(when_true, stmt.body, lambda: self._body(list(stmt.body)))
+                dyn_true, _ = self._narrow_dyn_names(stmt.test)
+                inner = self._narrowed(
+                    when_true,
+                    stmt.body,
+                    lambda: self._narrowed_dyn(dyn_true, stmt.body, lambda: self._body(list(stmt.body))),
+                )
                 body = [*self._continue_reset(span), *inner]
                 out = self._user_while(cond, body, span, cond_pre=cond_pre)
             finally:

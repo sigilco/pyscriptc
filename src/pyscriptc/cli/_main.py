@@ -536,6 +536,15 @@ def build_parser() -> argparse.ArgumentParser:
     )
     verify_parser.add_argument("--no-cache", action="store_true", help="always recompile (env PYSC_NO_RUN_CACHE=1)")
     verify_parser.add_argument(
+        "--oracle-version",
+        metavar="X.Y",
+        default=None,
+        help=(
+            "use an oracle of that CPython minor instead of the pinned 3.14 (3.11 through 3.13; "
+            "parity is then meaningful only for the subset both share)"
+        ),
+    )
+    verify_parser.add_argument(
         "--ffi",
         action="append",
         metavar="MANIFEST",
@@ -625,6 +634,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     infer_parser.add_argument("source", help="a package directory (or a file's tree) to infer over")
     infer_parser.add_argument("--json", action="store_true", help="print the report as JSON")
+    infer_parser.add_argument(
+        "--report",
+        action="store_true",
+        help="print the inference coverage report: unannotated, pinned and unpinned parameters "
+        "and the pin rate per module plus a tree total (diagnostics only, no behavior change)",
+    )
     infer_parser.add_argument(
         "--overlay",
         metavar="FILE",
@@ -1235,7 +1250,7 @@ def verify_cmd(args: argparse.Namespace) -> int:
     if args.input is not None and not Path(args.input).exists():
         raise IRError(f"--input file not found: {args.input}")
     stdin: bytes = Path(args.input).read_bytes() if args.input is not None else b""
-    oracle = verify.find_oracle()
+    oracle = verify.find_oracle(oracle_version=getattr(args, "oracle_version", None))
     call_args: list[Any] = _parse_args(args.args) if args.call else []
     name: str = source.stem or "app"
     key = _run_key(args)
@@ -1685,6 +1700,12 @@ def _require_toolchain(args: argparse.Namespace) -> None:
         return
     driver: str | None = args.driver
     if driver is None:
+        # A wheel-only install (`pip install ziglang`) has no `zig` on PATH, so
+        # default selection found nothing; the shim is the last resort.
+        zigshim.ensure_on_path()
+        if shutil.which("zig") is not None:
+            args.driver = "zig"
+            return
         raise IRError(
             "no C toolchain found on PATH (neither zig nor clang), and compiling to a binary needs a C toolchain. "
             f"{zigshim.install_hint()}, or clang (xcode-select --install, apt install clang, ...). "
@@ -1924,12 +1945,31 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 # checker then re-checks a pinned copy of each module, so
                 # the return and local types it derives from a pinned
                 # parameter agree with what the lowerer will apply.
-                from pyscriptc.inferrunner import build_facts, facts_as_pins, pinned_facts
+                from pyscriptc.inferrunner import (
+                    build_facts,
+                    facts_as_pins,
+                    has_unannotated_params,
+                    pinned_facts,
+                )
 
                 dbg.begin("infer")
-                facts = build_facts(source_path)
+                infer_started = time.perf_counter()
+                # The skip fast path (issue #1317): a tree with no
+                # unannotated parameter has nothing for the engine to
+                # prove, so no checker server starts and the pins stay
+                # empty. The bridge still opens (it serves the per-module
+                # facts the lowerer reads), but the mirror re-check would
+                # prove nothing, so it is skipped.
+                infer_skipped = not has_unannotated_params(source_path)
+                facts = build_facts(source_path, skip=infer_skipped)
                 pins = facts_as_pins(facts)
-                pinned = pinned_facts(source_path, facts) if source_path.is_dir() else {}
+                pinned = pinned_facts(source_path, facts) if source_path.is_dir() and not infer_skipped else {}
+                dbg.infer_info = {
+                    "skipped": 1 if infer_skipped else 0,
+                    "pins": len(facts.pins),
+                    "callSites": len(facts.calls),
+                    "ms": int((time.perf_counter() - infer_started) * 1000.0),
+                }
                 dbg.end("infer")
             else:
                 pinned = {}
@@ -1955,7 +1995,11 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
             or config.fallback_definitions()
         )
         island_default: bool = fallback or config.wildcard_island()
-        island_ctx = island_policy(island_names, island_default)
+        # N2 (issue #1308): the default island routing is on, so an import
+        # outside the closed table routes to the island with no flag. A
+        # named policy lane (`compile`, `replace`, `extern`) pins that
+        # import off the island; there is no opt-out flag.
+        island_ctx = island_policy(island_names, True, config.native_pinned_imports())
         # boxed:end
         dep_roots, checker_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
         binary: Path = Path(args.output) if args.output else _artifact_base(args, source_path)

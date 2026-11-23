@@ -89,6 +89,45 @@ def _mk_span_of(span: dict[str, Any]) -> Any:
     return dict_to_span(span)
 
 
+def _merge_proofs(left: dict[str, dict[str, Any]], right: dict[str, dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    """Merge two proof sets: a name both sides prove keeps the proof only
+    when both sides prove the same arm."""
+    merged = dict(left)
+    for key, arm in right.items():
+        if key in merged and not types_equal(merged[key], arm):
+            merged.pop(key)
+            continue
+        merged[key] = arm
+    return merged
+
+
+def _isinstance_arm(target: ast.expr) -> dict[str, Any] | None:
+    """The arm type an `isinstance` target names, or None when the target is
+    not one of the sum's arms (issue #1280).
+
+    The names are the lowered scalars and the two containers, the same set
+    `_isinstance` accepts for a dynamic value. A class target is not an arm
+    of the sum, so it keeps its compile-time fence and proves nothing here.
+    `list[T]`/`dict[K, V]` spellings fence in `_isinstance` and prove
+    nothing here either.
+
+    The two container arms carry the sum's own element and value types: the
+    list arm is a sequence of tagged cells and the dict arm a map from a
+    str key to a tagged cell, so a narrowed list reads as `list[object]`
+    and a narrowed dict as `dict[str, object]`.
+    """
+    if not isinstance(target, ast.Name):
+        return None
+    kind = target.id
+    if kind in {"int", "float", "bool", "str"}:
+        return {"kind": kind}
+    if kind == "list":
+        return {"kind": "list", "elem": {"kind": "dynval"}}
+    if kind == "dict":
+        return {"kind": "dict", "key": {"kind": "str"}, "value": {"kind": "dynval"}}
+    return None
+
+
 def _if_stmt(
     cond: dict[str, Any], then: list[dict[str, Any]], span: dict[str, Any], else_: list[dict[str, Any]] | None = None
 ) -> dict[str, Any]:
@@ -230,6 +269,94 @@ class StmtAMixin:
             return body()
         finally:
             self.opt_unwrap = saved
+
+    def _stmt_rebinds(self, stmt: ast.stmt, name: str) -> bool:
+        """Whether one statement rebinds `name` (issue #1280).
+
+        A rebinding drops the dynamic-value proof from that statement on:
+        the name holds a fresh value, so the narrowed projection would read
+        the wrong cell. The walk covers the statement's own nested scopes
+        (a loop body, a nested function's body is not walked: a nested
+        function has its own locals).
+        """
+        for inner in ast.walk(stmt):
+            if isinstance(inner, ast.Name) and inner.id == name and isinstance(inner.ctx, (ast.Store, ast.Del)):
+                return True
+        return False
+
+    def _narrow_dyn_names(self, test: ast.expr) -> tuple[dict[str, dict[str, Any]], dict[str, dict[str, Any]]]:
+        """The dynamic-value locals an `isinstance` test proves, and the arm
+        each proves (issue #1280).
+
+        The first dict is what the test proves when it is true, the second
+        what it proves when it is false. `isinstance(x, T)` on a `dynval`
+        local narrows x to T inside the taken branch: a read of x there
+        lowers to the arm's projection off the same cell. The false side
+        proves nothing: the complement of one arm is the rest of the sum,
+        which is not one type. `not isinstance(x, T)` swaps the two sides.
+        `a and b` carries both sides' proofs into the taken branch; `a or
+        b` carries none, because only one of the two tests ran. A
+        rebinding anywhere in the branch kills the proof, the same rule
+        the optional narrowing applies.
+        """
+        none: dict[str, dict[str, Any]] = {}
+        if isinstance(test, ast.UnaryOp) and isinstance(test.op, ast.Not):
+            when_true, when_false = self._narrow_dyn_names(test.operand)
+            return when_false, when_true
+        if isinstance(test, ast.Call) and isinstance(test.func, ast.Name) and test.func.id == "isinstance":
+            if len(test.args) != 2 or not isinstance(test.args[0], ast.Name):
+                return none, none
+            name = test.args[0].id
+            typ = self.locals.get(name)
+            if typ is None or _type_kind(typ) != "dynval" or name in self.fn_globals:
+                return none, none
+            arm = _isinstance_arm(test.args[1])
+            if arm is None:
+                return none, none
+            return {name: arm}, none
+        if isinstance(test, ast.BoolOp):
+            if isinstance(test.op, ast.And):
+                # `a and b` is true when both are true, so the taken branch
+                # carries both sides' proofs; the false branch carries only
+                # what both sides prove when false.
+                trues: dict[str, dict[str, Any]] = {}
+                falses: dict[str, dict[str, Any]] = {}
+                for value in test.values:
+                    part_true, part_false = self._narrow_dyn_names(value)
+                    for key, arm in part_true.items():
+                        if key in trues and not types_equal(trues[key], arm):
+                            # Two different arms proven for one name: the
+                            # proof is contradictory, so keep neither.
+                            return none, none
+                        trues[key] = arm
+                    falses = _merge_proofs(falses, part_false)
+                return trues, falses
+            # `a or b` is true when either is true, so the taken branch
+            # carries only what both sides prove when true, and the false
+            # branch carries both sides' false proofs.
+            trues = none
+            falses: dict[str, dict[str, Any]] = {}
+            for value in test.values:
+                part_true, part_false = self._narrow_dyn_names(value)
+                trues = _merge_proofs(trues, part_true)
+                falses = _merge_proofs(falses, part_false)
+            return trues, falses
+        return none, none
+
+    def _narrowed_dyn(self, proven: dict[str, dict[str, Any]], scope: list[ast.stmt] | ast.expr, body: Any) -> Any:
+        """Run `body()` with the dynamic-value names narrowed to their arms.
+
+        A rebinding inside the scope drops the proof from the rebinding on
+        (see `_body`), so the scope argument is not read here: the proof
+        survives the statements before the rebinding, which is what CPython's
+        flow analysis does too.
+        """
+        saved = dict(self.dyn_narrow)
+        self.dyn_narrow.update(proven)
+        try:
+            return body()
+        finally:
+            self.dyn_narrow = saved
 
     def _match(self, stmt: ast.Match, span: dict[str, Any]) -> list[dict[str, Any]]:
         """`match` is an if chain; a case's prelude (binds, guard eval) runs only when earlier cases miss."""

@@ -91,6 +91,26 @@ double ps_time_monotonic(void) { return ps_clock(CLOCK_MONOTONIC); }
 
 double ps_time_perf_counter(void) { return ps_clock(CLOCK_MONOTONIC); }
 
+/* The process CPU time (issue #503): CPython's `time.process_time` is the
+   sum of the system and the user CPU time the current process has used,
+   not the wall clock. POSIX spells that `CLOCK_PROCESS_CPUTIME_ID`; the
+   targets that lack it (Windows) fall back to `clock()`, which reports
+   the same sum with a coarser resolution. WASI has neither, so the clock
+   reads the wall clock there (the divergence the entry records). */
+double ps_time_process_time(void) {
+#if defined(CLOCK_PROCESS_CPUTIME_ID)
+    return ps_clock(CLOCK_PROCESS_CPUTIME_ID);
+#elif defined(__wasi__)
+    return ps_clock(CLOCK_REALTIME);
+#else
+    clock_t ticks = clock();
+    if (ticks == (clock_t)-1) {
+        ps_raise_cstr(PS_RUNTIME, "clock failed");
+    }
+    return (double)ticks / (double)CLOCKS_PER_SEC;
+#endif
+}
+
 void ps_time_sleep(double seconds) {
     struct timespec req;
     if (!isfinite(seconds) || seconds < 0) {

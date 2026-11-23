@@ -26,6 +26,12 @@ from pyscriptc.restlower._asyncio import (
 from pyscriptc.restlower._asyncio_proc import (
     _create_subprocess_exec,
 )
+from pyscriptc.restlower._asyncio_server import (
+    _start_server,
+)
+from pyscriptc.restlower._asyncio_streams import (
+    _open_connection,
+)
 from pyscriptc.restlower._asyncio_sync import (
     _prim_call,
     _to_thread,
@@ -58,6 +64,7 @@ from pyscriptc.restlower._functools import _reduce
 from pyscriptc.restlower._hashlib import _hashlib_call, _hashlib_method
 from pyscriptc.restlower._heapq import _heapq_call
 from pyscriptc.restlower._hmac import _hmac, _hmac_compare
+from pyscriptc.restlower._httpserver import _httpserver_call, _httpserver_method
 from pyscriptc.restlower._io import _input, _mkstemp, _named_temp, _open, _print
 from pyscriptc.restlower._iterators import (
     _enumerate_value,
@@ -122,6 +129,7 @@ __all__ = [
     "_archive_method",
     "_email_method",
     "_hashlib_method",
+    "_httpserver_method",
     "_lock_method",
     "_mk_iter",
     "_queue_method",
@@ -180,6 +188,8 @@ _EARLY: dict[tuple[str, str], Handler] = {
     ("asyncio", "gather"): _asyncio_gather,
     ("asyncio", "create_task"): _asyncio_create_task,
     ("asyncio", "wait_for"): _asyncio_wait_for,
+    ("asyncio", "open_connection"): _open_connection,
+    ("asyncio", "start_server"): _start_server,
     ("asyncio", "to_thread"): _to_thread,
     ("asyncio", "create_subprocess_exec"): _create_subprocess_exec,
     ("asyncio", "Lock"): _prim_call,
@@ -211,6 +221,9 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
     # The socket subset (#1270): the module's fixed row (gethostname) answers
     # first, and the TCP surface answers the rest.
     "socket": lambda lo, node, span, expect, attr: _socket_call(lo, node, span, expect, attr),
+    # The http.server handler subset (issue #1270): the server class and
+    # the handler base bind as classes, the rest of the module is refused.
+    "http.server": lambda lo, node, span, expect, attr: _httpserver_call(lo, node, span, expect, attr),
     "random": lambda lo, node, span, expect, attr: _random_call(lo, node, span, attr),
     "csv": lambda lo, node, span, expect, attr: _csv_call(lo, node, span, attr),
     "statistics": lambda lo, node, span, expect, attr: _statistics_call(lo, node, span, attr),

@@ -276,7 +276,13 @@ class AnnotationMixin:
             return _type(island_class_type(f"{floor[0]}.{floor[1]}"))
         # boxed:end
         if isinstance(node, ast.Name) and (node.id in self.declared or node.id in self.known_classes):
-            return _type({"kind": "class", "name": self.class_aliases.get(node.id, node.id)})
+            name = self.class_aliases.get(node.id, node.id)
+            # An IntEnum class is an int at the type level (issue #1314):
+            # CPython's IntEnum members are ints, so a slot or a parameter
+            # the annotation names takes an int and answers an int.
+            if self.classes.get(name, {}).get("enum") and self.classes.get(name, {}).get("base") == "IntEnum":
+                return _type({"kind": "int"})
+            return _type({"kind": "class", "name": name})
         handle = self._handle_annotation(node)
         if handle is not None:
             return handle
@@ -532,6 +538,9 @@ class AnnotationMixin:
                     "kind": "dict",
                     "key": self._annotation(node.slice.elts[0]),
                     "value": self._any_annotation(node.slice.elts[1]),
+                    # `ordered` marks the dict for the OrderedDict repr and the
+                    # order-sensitive fences; it is not part of the type key.
+                    "ordered": True,
                 }
             )
             self._reject_banned_type(node, typ)
@@ -695,6 +704,16 @@ class AnnotationMixin:
                 return alias_name(resolved[1], resolved[2])
             if resolved[1] == "asyncio" and resolved[2] == "Queue":
                 return "AsyncQueue"
+            if resolved[1] == "asyncio" and resolved[2] in {"StreamReader", "StreamWriter"}:
+                # The asyncio stream handles (issue #1281): the reader and
+                # the writer share one runtime record, the class value is
+                # the record pointer.
+                return resolved[2]
+            if resolved[1] == "asyncio" and resolved[2] == "Server":
+                # The asyncio server handle (issue #1281, slice 2): the
+                # listening socket and the callback pair live in the
+                # runtime record, the class value is its pointer.
+                return resolved[2]
             if resolved[1] == "asyncio.subprocess" and resolved[2] == "Process":
                 # The async subprocess handle (issue #1224): the runtime
                 # owns the child, the class value is the record pointer.
@@ -847,8 +866,8 @@ class AnnotationMixin:
                 self._reject_banned_type(node, typ)
                 return typ
             self.fail(node, "PS1001", "tuple[T, ...] is not in the IR")
-        if len(elts) < 2:
-            self.fail(node, "PS1001", "tuples need at least two fields")
+        if len(elts) < 1:
+            self.fail(node, "PS1001", "tuples need at least one field")
         return self._tuple_type([self._annotation(elt) for elt in elts], node)
 
     def _tuple_type(self, fields: list[dict[str, Any]], node: ast.AST) -> dict[str, Any]:
@@ -906,8 +925,8 @@ class AnnotationMixin:
         return _type({"kind": "class", "name": name, "elem": elem})
 
     def _tuple_expr(self, node: ast.Tuple, span: dict[str, Any]) -> dict[str, Any]:
-        if len(node.elts) < 2:
-            self.fail(node, "PS2002", "tuples need at least two fields")
+        if len(node.elts) < 1:
+            self.fail(node, "PS2002", "tuples need at least one field")
         elems = [self._expr(elt) for elt in node.elts]
         return self._materialize_tuple(elems, span, node)
 

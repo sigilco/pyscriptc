@@ -29,6 +29,7 @@ from pyscriptc.lower._annotations import _const_int_index
 from pyscriptc.lower._core import Fence, _any_accepts, _mk_type
 from pyscriptc.lower._stmt import _is_docstring
 from pyscriptc.restlower import alias_name
+from pyscriptc.restlower._httpserver import HANDLER_BASE
 from pyscriptc.tirserde import dict_to_type, node_to_dict
 
 
@@ -68,9 +69,14 @@ _BASE_ENUM = "enum"
 _BASE_EXCEPTION = "exception"
 
 
-def _enum_base(name: str) -> dict[str, str]:
-    """The enum base descriptor one `_resolve_base` spells."""
-    return {"kind": _BASE_ENUM, "name": name}
+def _enum_base(name: str, parent: str = "") -> dict[str, str]:
+    """The enum base descriptor one `_resolve_base` spells.
+
+    The `parent` field names the enum class the base is (the enum subclass
+    case, issue #1314); it is empty for the `Enum`/`IntEnum` bases
+    themselves.
+    """
+    return {"kind": _BASE_ENUM, "name": name, "parent": parent}
 
 
 def _exception_base(name: str) -> dict[str, str]:
@@ -88,6 +94,9 @@ def _bare_leaf(kind: str) -> dict[str, Any]:
 
 _ERASED_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 _ERASED_DECORATORS = frozenset({"abstractmethod", "overload"})
+# The `pyscriptc._annotations` shadow module's decorators (issue #1306):
+# both are the identity, so the compiler erases them with no PS3099 note.
+_SHADOW_DECORATORS = frozenset({"island", "specialize"})
 
 
 # The stdlib decorators that synthesize class behavior: they never take the
@@ -144,6 +153,12 @@ class ClassesMoreMixin:
         methods and constructor and the wrap is skipped (issue #732). The
         divergence is the documented PS3099 seam (issue #745).
         """
+        if not node.decorator_list:
+            return None
+        # The shadow module's decorators are the identity (issue #1306), so
+        # the class lowers undecorated with no PS3099 note: nothing is lost
+        # where CPython applies the wrap.
+        node.decorator_list = [d for d in node.decorator_list if self._shadow_deco_name(d) is None]
         if not node.decorator_list:
             return None
         if len(node.decorator_list) == 1:
@@ -284,8 +299,13 @@ class ClassesMoreMixin:
         # or unknown decorator that does not synthesize behavior takes the
         # advisory erase (divergence 54, issue #732); a synthesizing one
         # keeps the fence.
-        decos = [d for d in fn.decorator_list if self._erased_deco_name(d) is None]
+        decos = [
+            d for d in fn.decorator_list if self._erased_deco_name(d) is None and self._shadow_deco_name(d) is None
+        ]
         if not decos:
+            # Only shadow decorators (or none): the method lowers plain and
+            # the identity wrap has nothing to erase (issue #1306).
+            fn.decorator_list = []
             return "method"
         if self._is_contextmanager_deco(fn) and enabled():
             # `@contextmanager`: the coro pass owns it; the method still
@@ -390,6 +410,22 @@ class ClassesMoreMixin:
                 member = resolved[2]
         return member if member in _ERASED_DECORATORS else None
 
+    def _shadow_deco_name(self, dec: ast.expr) -> str | None:
+        """`island`/`specialize` through the erased shadow-module import, or None.
+
+        The shadow module's decorators are the identity function, so the
+        wrap erases with no observable difference and the PS3099 note stays
+        silent (unlike a user decorator, where the divergence is real).
+        """
+        member: str | None = None
+        if isinstance(dec, ast.Name):
+            member = self.type_aliases.get(dec.id)
+        elif isinstance(dec, ast.Attribute):
+            resolved = self._resolve_module(dec)
+            if resolved is not None and resolved[3] == "erased" and resolved[1] == "pyscriptc._annotations":
+                member = resolved[2]
+        return member if member in _SHADOW_DECORATORS else None
+
     def _declaration_only(self, fn: ast.FunctionDef) -> bool:
         """The body is only a docstring, `pass`, or `...` — a declaration, not an implementation."""
         for stmt in fn.body:
@@ -468,22 +504,72 @@ class ClassesMoreMixin:
         # single-module refusal does.
         if isinstance(node, ast.Name) and node.id in self.island_floor_classes:
             module, name = self.island_floor_classes[node.id]
-            self.fail(
+            self.fail_base(
                 node,
                 "PS2002",
                 f"class {node.id} runs on the island floor of {module} and cannot be a native base class: "
                 "the subclass joins the island",
+                node,
             )
         # boxed:end
         if isinstance(node, ast.Name) and node.id in self.classes:
             info = self.classes[node.id]
             if info.get("synthetic"):
-                self.fail(node, "PS2002", "subclassing a stdlib type is not lowered")
+                self.fail_base(node, "PS2002", "subclassing a stdlib type is not lowered", node)
             if info.get("enum"):
-                self.fail(node, "PS2002", "an enum is not a base")
+                # An enum base lowers only in CPython's own shape: the base
+                # enum carries no member yet, so the subclass is the first
+                # one to fill it (issue #1314). A base with members keeps
+                # the fence: CPython refuses that subclass outright.
+                if info["base"] not in {"IntEnum", "int"} or info["members"]:
+                    self.fail_base(node, "PS2002", "an enum is not a base", node)
+                if node.id in self.enum_subclasses:
+                    self.fail_base(node, "PS2002", f"duplicate enum subclass {node.id}", node)
+                self.enum_subclasses.add(node.id)
+                return _enum_base(str(info["base"]), node.id)
             return _class_type(node.id)
-        self.fail(node, "PS2002", "this class base is not lowered")
+        # The http.server handler base (issue #1270): the spelling is the
+        # module attribute (`http.server.BaseHTTPRequestHandler`) or the
+        # imported name; both resolve to the class the import installed.
+        base = self._http_handler_base_name(node)
+        if base is not None:
+            self._install_http_handler_base()
+            return _class_type(base)
+        self.fail_base(node, "PS2002", "this class base is not lowered", node)
         raise AssertionError("unreachable")
+
+    def _http_handler_base_name(self, node: ast.expr) -> str | None:
+        """`BaseHTTPRequestHandler` as a base-class spelling, or None.
+
+        Both spellings resolve: the module attribute
+        (`http.server.BaseHTTPRequestHandler`) and the imported name. None
+        means this base is not the handler base.
+        """
+        if isinstance(node, ast.Attribute):
+            resolved = self._resolve_module(node)
+            if resolved is not None and resolved[1] == "http.server" and resolved[2] == "BaseHTTPRequestHandler":
+                return "BaseHTTPRequestHandler"
+            return None
+        if isinstance(node, ast.Name):
+            binding = self.bindings.get(node.id)
+            if binding is not None and binding.module == "http.server" and binding.attr == "BaseHTTPRequestHandler":
+                return "BaseHTTPRequestHandler"
+        return None
+
+    def is_http_handler_instance(self, class_name: str | None) -> bool:
+        """True when `class_name` is a handler class (it extends the base).
+
+        The handler's request-backed attributes (`self.path`, `self.rfile`,
+        `self.wfile`, `self.headers`) and its three response methods lower
+        through the http.server handler path, so every read on a handler
+        instance asks this first.
+        """
+        if class_name is None:
+            return False
+        info = self.classes.get(class_name)
+        if info is None:
+            return False
+        return info.get("base") == HANDLER_BASE
 
     def _enum_base_name(self, node: ast.expr) -> str | None:
         if isinstance(node, ast.Name):
@@ -500,7 +586,13 @@ class ClassesMoreMixin:
     def _collect_enum(self, node: ast.ClassDef, which: str) -> None:
         self.declared.add(node.name)
         members: dict[str, int] = {}
-        next_auto = 1
+        # An enum subclass (issue #1314) starts from the base's members and
+        # adds its own: the members of the base stay reachable through the
+        # subclass, the way CPython's enum inheritance keeps them.
+        inherited = self.enum_base_members.get(node.name, {})
+        members.update(inherited)
+        next_value = max(inherited.values(), default=0) + 1
+        next_auto = next_value
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
@@ -523,8 +615,11 @@ class ClassesMoreMixin:
                 self.caught.append(exc)
         if self.caught:
             return
-        if not members:
-            self.fail(node, "PS2002", "an enum needs a member")
+        # An empty enum body is a base another enum extends (issue #1314):
+        # CPython allows exactly that shape, so the record exists with no
+        # members and the subclass fills them. An empty enum with nothing
+        # extending it is the `an enum needs a member` fence, checked at
+        # the end of the collection pass.
         self.classes[node.name] = {
             "fields": [],
             "own_fields": [],

@@ -1248,9 +1248,21 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "urllib.request": ("HttpRequest", "HttpResponse"),
     "urllib.error": ("HTTPError", "URLError"),
     "queue": ("Queue", "Empty", "Full"),
-    "asyncio": ("CancelledError", "AsyncProcess"),
+    "asyncio": ("CancelledError", "AsyncProcess", "StreamReader", "StreamWriter", "Server"),
     "selectors": ("DefaultSelector", "SelectorKey"),
     "socket": ("Socket",),
+    # The http.server classes (issue #1270). `BaseHTTPRequestHandler` is not
+    # in this table: it is a base class, and a synthetic class cannot be a
+    # base (the lowering fences "subclassing a stdlib type"). The handler
+    # base installs itself as a lowered class when the module is imported.
+    "http.server": (
+        "HTTPServer",
+        "HttpServerHeaders",
+        "HttpServerReader",
+        "HttpServerWriter",
+        "HttpServerRequest",
+        "HttpServerResponse",
+    ),
     "tarfile": ("TarFile",),
     "zipfile": ("ZipFile",),
     "email": ("EmailMessage",),
@@ -1303,6 +1315,15 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # The async subprocess record (issue #1224): the runtime owns the child,
     # the class value is the record pointer, so the class has no field.
     "AsyncProcess": [],
+    # The asyncio stream handles (issue #1281) are opaque runtime
+    # pointers: the socket, the read buffer and the out buffer live in
+    # the record, so the class carries no field.
+    "StreamReader": [],
+    "StreamWriter": [],
+    # The asyncio server handle (issue #1281, slice 2) is an opaque runtime
+    # pointer: the listening socket, the callback pair and the closed flag
+    # live in the record, so the class carries no field.
+    "Server": [],
     # The timeout exception (issue #1223): CPython's TimeoutExpired carries
     # the command and the bound, but the runtime's exception record holds
     # the code and the message only, so the class has no field here.
@@ -1329,6 +1350,15 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # descriptor number lives in the runtime record, so the class carries
     # no field.
     "Socket": [],
+    # The http.server records (issue #1270, slice 2): the server, the
+    # request, the response, the header block and the two body streams are
+    # opaque runtime pointers, so every one of them carries no field.
+    "HTTPServer": [],
+    "HttpServerRequest": [],
+    "HttpServerResponse": [],
+    "HttpServerHeaders": [],
+    "HttpServerReader": [],
+    "HttpServerWriter": [],
     "Namespace": [],
     # The logger carries the name getLogger recorded.
     "Logger": [("_name", _S)],
@@ -1422,6 +1452,16 @@ ASYNC_CLASSES: frozenset[str] = frozenset({"AsyncLock", "AsyncEvent", "AsyncSema
 # lives in the runtime, the class value is the record pointer.
 APROC_CLASSES: frozenset[str] = frozenset({"AsyncProcess"})
 
+# The asyncio stream records (issue #1281): the reader and the writer
+# CPython answers are two handles over one runtime record, so the value
+# each carries is the record pointer.
+STREAM_CLASSES: frozenset[str] = frozenset({"StreamReader", "StreamWriter"})
+
+# The asyncio server handle (issue #1281, slice 2): the listening socket,
+# the callback pair and the closed flag live in the runtime record, the
+# value is its pointer.
+SERVER_CLASSES: frozenset[str] = frozenset({"Server"})
+
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
 PTR_CLASSES: frozenset[str] = (
@@ -1429,7 +1469,23 @@ PTR_CLASSES: frozenset[str] = (
     | QUEUE_CLASSES
     | ASYNC_CLASSES
     | APROC_CLASSES
-    | {"ArgParser", "DefaultSelector", "Hash", "TarFile", "ZipFile", "EmailMessage", "Socket"}
+    | STREAM_CLASSES
+    | SERVER_CLASSES
+    | {
+        "ArgParser",
+        "DefaultSelector",
+        "Hash",
+        "TarFile",
+        "ZipFile",
+        "EmailMessage",
+        "Socket",
+        "HTTPServer",
+        "HttpServerRequest",
+        "HttpServerResponse",
+        "HttpServerHeaders",
+        "HttpServerReader",
+        "HttpServerWriter",
+    }
 )
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
@@ -1458,6 +1514,8 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("hashlib", "sha512"): "Hash",
     ("hashlib", "md5"): "Hash",
     ("socket", "socket"): "Socket",
+    ("http.server", "HTTPServer"): "HTTPServer",
+    ("http.server", "BaseHTTPRequestHandler"): "BaseHTTPRequestHandler",
     ("threading", "Lock"): "Lock",
     ("threading", "RLock"): "Lock",
     ("os", "terminal_size"): "TerminalSize",
@@ -1486,6 +1544,11 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("asyncio", "Event"): "AsyncEvent",
     ("asyncio", "Semaphore"): "AsyncSemaphore",
     ("asyncio", "Queue"): "AsyncQueue",
+    # The asyncio stream handles (issue #1281): the reader and the writer
+    # CPython answers are two handles over one runtime record.
+    ("asyncio", "StreamReader"): "StreamReader",
+    ("asyncio", "StreamWriter"): "StreamWriter",
+    ("asyncio", "Server"): "Server",
     ("asyncio.subprocess", "Process"): "AsyncProcess",
     ("selectors", "DefaultSelector"): "DefaultSelector",
     ("selectors", "SelectorKey"): "SelectorKey",
@@ -1581,6 +1644,16 @@ CLASS_METHODS: dict[str, dict[str, Sig]] = {
         "read": sig([], _BY, "ps_http_read"),
     },
     "HttpRequest": {},
+    # The http.server handler surface (issue #1270, slice 2). The methods
+    # live on the handler base the user's class extends; a call reads
+    # through the instance's `_request` / `_response` records, so the
+    # lowering spells the reads itself and these rows only type the two
+    # body streams' own methods. CPython's rfile is a BufferedReader and
+    # wfile a BufferedWriter; the closed surface takes read(n) and write.
+    "HttpServerReader": {"read": sig([_I], _BY, "ps_httpreq_rfile_read")},
+    "HttpServerWriter": {"write": sig([_BY], _I, "ps_httpresp_wfile_write")},
+    "HttpServerHeaders": {"get": sig([_S], _S, "ps_httpreq_header")},
+    "HttpServerResponse": {},
     # The archive handles: the member names, one member's bytes, the
     # extraction and the close. `TarFile.extractfile` is not here: it
     # returns CPython's `IO[bytes] | None`, so it lowers through the
@@ -1621,6 +1694,7 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
         "time": sig([], _F, "ps_time_time"),
         "monotonic": sig([], _F, "ps_time_monotonic"),
         "perf_counter": sig([], _F, "ps_time_perf_counter"),
+        "process_time": sig([], _F, "ps_time_process_time"),
         "strftime": sig([_S, _STM], _S, "ps_time_strftime"),
         "mktime": sig([_STM], _F, "ps_time_mktime"),
     },
@@ -1863,6 +1937,7 @@ REST_MODULES = frozenset(
         "selectors",
         "signal",
         "email",
+        "http.server",
         # The dataclass field marker (issue #1279): `dataclasses.field`
         # is the one lowered member of the module.
         "dataclasses",
@@ -2083,6 +2158,8 @@ def member_callable(module: str, member: str) -> bool:
         "wait_for",
         "to_thread",
         "create_subprocess_exec",
+        "open_connection",
+        "start_server",
         "Lock",
         "Event",
         "Semaphore",

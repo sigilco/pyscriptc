@@ -19,7 +19,7 @@ import time
 from pathlib import Path
 from typing import Any
 
-from pyscriptc import coverage, imports, verify
+from pyscriptc import coverage, imports, stdlib_queue, verify
 from pyscriptc.emit._ir import _str_map
 from pyscriptc.errors import IRError
 from pyscriptc.reflection import mechanism_of, routes_to_island
@@ -332,9 +332,12 @@ def assess(
         str(Path(item["file"]).resolve()): str(item.get("reason", "")) for item in cov_report.get("skippedFiles", [])
     }
 
+    from pyscriptc import boxed
+
     file_results: list[dict[str, Any]] = []
     untyped_imports_needed: dict[str, dict[str, Any]] = {}
     stays_blocked: list[dict[str, Any]] = []
+    demotion_plans: list[dict[str, Any]] = []
     package_roots = _target_package_roots(target, target_files)
 
     for fpath in target_files:
@@ -406,7 +409,6 @@ def assess(
             import_name = _extract_import_name(fence) if root_cause == ROOT_UNTYPED_IMPORT else ""
 
             # Filter out imports whose root is in the assessed package itself or in stdlib
-            from pyscriptc import stdlib_queue
 
             is_own_pkg = bool(import_name and import_name.split(".")[0] in package_roots)
             is_stdlib = bool(
@@ -452,6 +454,11 @@ def assess(
                     if is_partial_stdlib
                     else "unsupported construct outside island routing"
                 )
+                if fence.get("message", "") == boxed.BASE_REFUSAL_MESSAGE:
+                    # Issue #1312: a class-base refusal is not a construct
+                    # the island cannot route: the class demotes as one
+                    # unit, and the demotion plan below names the base.
+                    reason = "class base demotes to the island per class (see the demotion plans)"
                 stays_blocked.append(
                     {
                         "file": rel_path,
@@ -475,7 +482,30 @@ def assess(
 
         from pyscriptc import boxed
 
-        file_plane_map = boxed.plane_map(local_fences, local_defs, entry=None, tree=tree)
+        # Issue #1307: the definitions the source marks `@island` plan
+        # island on purpose; the map names the deliberate routing like any
+        # other demotion cause.
+        file_plane_map = boxed.plane_map(
+            local_fences,
+            local_defs,
+            entry=None,
+            tree=tree,
+            island_marked=boxed.island_marked_definitions(tree) if tree is not None else None,
+        )
+        # The file counts follow the plane map for the marked definitions
+        # only (issue #1307): an `@island`-marked definition plans island,
+        # so it is not native. The other definitions keep the coverage
+        # classifier's counts, as before.
+        marked_here = file_plane_map.get("islandMarked", [])
+        if marked_here:
+            file_planes = {**_str_map(file_plane_map, "functions"), **_str_map(file_plane_map, "classes")}
+            marked_island = sum(1 for name in marked_here if file_planes.get(name) == boxed.ISLAND)
+            island_defs += marked_island
+            native_defs = max(native_defs - marked_island, 0)
+        # Issue #1312: the per-class demotion plan the class-base refusals
+        # imply. The plan is analysis only: the fences stay fences, the plan
+        # names what the boxed-class ABI (N1 step 2) will route.
+        demotion_plans.extend(boxed.class_base_demotions(tree, local_fences, rel_path))
 
         file_results.append(
             {
@@ -540,6 +570,12 @@ def assess(
             share_nat, share_isl, share_blk = 0.0, 0.0, 0.0
 
     # 5. Imports classification
+    # N2 (issue #1308): closed-table refusals that are library facts are
+    # notes, not fences. The coverage pass lowers under the default island
+    # routing, so the fence list no longer carries them; what remains here
+    # is the note list the lowerer recorded.
+    island_notes: list[dict[str, Any]] = list(cov_report.get("notes", []))
+
     assessed_imports = []
     for item in imp_report.get("imports", []):
         imp_name = item["name"]
@@ -592,15 +628,18 @@ def assess(
             all_defs.append({"name": name})
     unique_all_defs = [{"name": n} for n in dict.fromkeys(d["name"] for d in all_defs)]
     merged_demoted_by: dict[str, str] = {}
+    merged_marked: set[str] = set()
     for f in file_results:
         f_plane = f.get("planeMap", {})
         merged_demoted_by.update(f_plane.get("demotedBy", {}))
+        merged_marked.update(f_plane.get("islandMarked", []))
     overall_plane_map = boxed.plane_map(
         all_fences,
         unique_all_defs,
         entry=None,
         demoted_by=merged_demoted_by,
         tree=tree if target.is_file() else None,
+        island_marked=merged_marked,
     )
 
     policy_lines: list[str] = []
@@ -614,11 +653,29 @@ def assess(
         policy_lines.append("[tool.pyscriptc.fallback]")
         policy_lines.append("definitions = true")
 
+    # N2 (issue #1308): an import outside the closed table routes to the
+    # island by default, so no `[imports]` policy line is needed for it; the
+    # notes name the imports that took that route.
+    if island_notes:
+        policy_lines = []
+
     island_routing = {
         "policyLines": policy_lines,
         "routes": sorted(untyped_imports_needed.values(), key=lambda r: r["name"]),
         "staysBlocked": stays_blocked,
     }
+
+    # The per-class demotion plans (issue #1312): one entry per class whose
+    # base the lowerer refuses, with the demotion the boxed-class ABI routes.
+    # Deduplicated by (file, class, line): a plan is per class definition.
+    seen_plans: set[tuple[str, str, int]] = set()
+    unique_plans: list[dict[str, Any]] = []
+    for item in demotion_plans:
+        key = (item.get("file", ""), item.get("class", ""), item.get("line", 0))
+        if key in seen_plans:
+            continue
+        seen_plans.add(key)
+        unique_plans.append(item)
 
     total_imports = len(assessed_imports)
     isl_imports = sum(1 for i in assessed_imports if i["routing"] == "island")
@@ -651,7 +708,7 @@ def assess(
     if verify_diff or bench:
         for entry in compilable_entries:
             if oracle is None:
-                err_msg = "no CPython 3.14 oracle available: set PYSC_ORACLE or run uv python install 3.14"
+                err_msg = "no CPython 3.14 oracle available: set PYSC_ORACLE or run `uv python install 3.14`"
                 if verify_diff:
                     verify_receipts.append({"entry": str(entry), "error": err_msg})
                 if bench:
@@ -801,10 +858,28 @@ def assess(
         "files": file_results,
         "imports": assessed_imports,
         "islandRouting": island_routing,
+        "demotionPlans": unique_plans,
+        "notes": island_notes,
         "compilableEntries": [str(e) for e in compilable_entries],
         "verify": verify_receipts if verify_diff else None,
         "bench": bench_results if bench else None,
     }
+
+
+def _plan_list(report: dict[str, Any]) -> list[dict[str, Any]]:
+    """The demotion plans the report carries, as a list of records.
+
+    The plans are analysis output, so the report may carry them under any
+    shape a caller hands in: only the well-formed records pass.
+    """
+
+    plans: list[dict[str, Any]] = []
+    if "demotionPlans" in report:
+        plan_items: list[dict[str, Any]] = report["demotionPlans"]
+        for item in plan_items:
+            entry: dict[str, Any] = item
+            plans.append(entry)
+    return plans
 
 
 def render_text(
@@ -1008,6 +1083,13 @@ def render_text(
     else:
         lines.append("  (no island routes needed)")
 
+    notes: list[dict[str, Any]] = report.get("notes", [])
+    if notes:
+        lines.append("")
+        lines.append("  Imports routed to the island by default:")
+        for note in notes:
+            lines.append(f"    {note['name']}: not in the closed import table (island lane)")
+
     lines.append("")
     lines.append("  Stays blocked (cannot route to island):")
     stays_blocked: list[dict[str, Any]] = island_routing["staysBlocked"]
@@ -1040,6 +1122,30 @@ def render_text(
     else:
         lines.append("    (none)")
 
+    # The per-class demotion plans (issue #1312): each entry names the class
+    # whose base the lowerer refuses and the demotion the boxed-class ABI
+    # routes. Plans are analysis, not policy lines: the fences stay fences.
+    demotion_plans: list[dict[str, Any]] = _plan_list(report)
+    if demotion_plans:
+        lines.append("")
+        lines.append("Class demotion plans (base refusals route per class to the island):")
+        plan_list: list[dict[str, Any]] = demotion_plans
+        plan_overflow = 0
+        if not show_all and len(plan_list) > top_n:
+            plan_list = plan_list[:top_n]
+            plan_overflow = len(demotion_plans) - top_n
+        for plan_item in plan_list:
+            plan_cls: str = plan_item.get("class", "")
+            plan_kind: str = plan_item.get("baseKind", "")
+            plan_kind_str = f" ({plan_kind})" if plan_kind else ""
+            plan_text: str = plan_item.get("plan", "")
+            plan_file: str = plan_item.get("file", "")
+            plan_where: str = f"{plan_file}:" if plan_file else ""
+            plan_line: int = plan_item.get("line", 0)
+            lines.append(f"  {plan_where}{plan_line}: {plan_cls}{plan_kind_str}: {plan_text}")
+        if plan_overflow > 0:
+            lines.append(f"  ... and {plan_overflow} more class demotion plan(s) (use --all for full list)")
+
     verify_list: list[dict[str, Any]] | None = report["verify"]
     if verify_list is not None:
         lines.append("")
@@ -1063,6 +1169,8 @@ def render_text(
                 oracle_info: dict[str, Any] = rec["oracle"]
                 oracle_exe: str = oracle_info["executable"]
                 oracle_ver: str = oracle_info["version"]
+                oracle_minor: str = oracle_info.get("minor", "")
+                oracle_subset: bool = bool(oracle_info.get("subsetOnly", False))
                 native_info: dict[str, Any] = rec["native"]
                 native_bin: str = native_info["binary"]
                 native_bytes: int = native_info["bytes"]
@@ -1078,7 +1186,7 @@ def render_text(
                 rec_timeout: float = rec["timeoutSeconds"]
                 receipt_obj = Receipt(
                     source=rec_source,
-                    oracle=Oracle(oracle_exe, oracle_ver),
+                    oracle=Oracle(oracle_exe, oracle_ver, oracle_minor, oracle_subset),
                     binary=native_bin,
                     binary_bytes=native_bytes,
                     argv=rec_argv,

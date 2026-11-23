@@ -246,7 +246,7 @@ def test_a_definition_fence_is_reported_before_the_export(tmp_path: Path) -> Non
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh
-def test_dunder_main_is_skipped_and_a_library_import_still_fences(tmp_path: Path) -> None:
+def test_dunder_main_is_skipped_and_a_library_import_routes_to_the_island(tmp_path: Path) -> None:
     root = tmp_path / "pkg"
     root.mkdir()
     (root / "__init__.py").write_text("", encoding="utf-8")
@@ -262,8 +262,11 @@ def test_dunder_main_is_skipped_and_a_library_import_still_fences(tmp_path: Path
     assert "not an importable module" in got.stderr
     (root / "cli.py").write_text("import sqlite3\n", encoding="utf-8")
     refused = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "refused.ir.json"))
-    assert refused.returncode == 3, refused.stderr
+    # N2 (issue #1308): `sqlite3` is outside the closed table, so it routes
+    # to the island and the compile records the routing as a note.
+    assert refused.returncode == 0, refused.stderr
     assert "sqlite3" in refused.stderr
+    assert "island lane" in refused.stderr
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh

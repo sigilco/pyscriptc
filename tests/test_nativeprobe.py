@@ -74,7 +74,10 @@ def _oracle(env: dict[str, str], source: Path, call: str, args: str) -> str:
     return proc.stdout
 
 
-def test_nativeprobe_stays_fenced_without_the_manifest(tmp_path: Path) -> None:
+def test_nativeprobe_routes_to_the_island_without_the_manifest(tmp_path: Path) -> None:
+    # N2 (issue #1308): without the `--ffi` manifest the module is an
+    # unknown import, so it routes to the island and the compile records
+    # the routing as a note instead of fencing with PS2002.
     source = tmp_path / "use.py"
     source.write_text("import nativeprobe\n\ndef main() -> int:\n    return 0\n", encoding="utf-8")
     proc = subprocess.run(
@@ -95,9 +98,9 @@ def test_nativeprobe_stays_fenced_without_the_manifest(tmp_path: Path) -> None:
         text=True,
         check=False,
     )
-    assert proc.returncode == 3, proc.stderr
-    assert "PS2002" in proc.stderr
-    assert "nativeprobe" in proc.stderr
+    assert proc.returncode == 0, proc.stderr
+    assert "nativeprobe is not in the closed import table" in proc.stderr
+    assert "island lane" in proc.stderr
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh

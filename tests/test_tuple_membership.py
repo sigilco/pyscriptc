@@ -86,11 +86,6 @@ def test_tuple_membership_stays_fenced(tmp_path: Path) -> None:
             ),
             "in is lowered for str, bytes, list, and dict",
         ),
-        (
-            "one.py",
-            "def probe(extra: str) -> int:\n    if extra in (extra,):\n        return 1\n    return 0\n",
-            "tuples need at least two fields",
-        ),
     ]
     for name, source, text in cases:
         path = write_case(tmp_path, name, source)

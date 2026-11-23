@@ -430,6 +430,18 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         bases: list[dict[str, str]] = []
         type_params: list[str] = []
         protocol = False
+        # The enum-as-int mixin spelling (issue #1314): `class C(int, Enum)`
+        # is CPython's documented IntEnum spelling, so the bare `int` base
+        # erases here and the enum base drives the enum collection. The
+        # erase happens only in that spelling: an `int` base on its own
+        # keeps the `this class base is not lowered` fence.
+        int_bases = {id(b) for b in node.bases if isinstance(b, ast.Name) and b.id == "int"}
+        enum_mixin = False
+        if int_bases:
+            others = [b for b in node.bases if id(b) not in int_bases]
+            enum_mixin = any(self._enum_base_name(other) is not None for other in others)
+            if enum_mixin:
+                node.bases = others
         for base_node in node.bases:
             if self._is_builtin_object(base_node):
                 continue
@@ -446,12 +458,26 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 continue
             resolved = self._resolve_base(base_node)
             if _base_kind(resolved) != "class" and len(node.bases) > 1:
-                self.fail(node, "PS2002", "multiple inheritance needs lowered class bases")
+                self.fail_base(
+                    node,
+                    "PS2002",
+                    "multiple inheritance needs lowered class bases",
+                    base_node,
+                )
             bases.append(resolved)
         base = bases[0] if bases else None
+        # The int-mixin enum spelling (issue #1314): `class C(int, Enum)` is
+        # CPython's IntEnum spelling, so the collected enum's base is the
+        # integer one and the members answer as ints.
+        if base is not None and _base_kind(base) == "enum" and enum_mixin:
+            base = _enum_base("IntEnum")
         if deco == "dataclass" and base is not None:
             self.fail(node, "PS2002", "a dataclass has no base")
         if base is not None and _base_kind(base) == "enum":
+            parent = str(base.get("parent", ""))
+            if parent:
+                self.enum_parent_of[node.name] = parent
+                self.enum_base_members[node.name] = dict(self.classes.get(parent, {}).get("members", {}))
             self._collect_enum(node, str(base["name"]))
             return
         self.declared.add(node.name)
@@ -519,8 +545,6 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     if stmt.target.id in seen or stmt.target.id in inherited_types:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                     typ = self._annotation(stmt.annotation)
-                    if _type_kind(typ) == "bool":
-                        self.fail(stmt, "PS2002", "bool fields are not lowered")
                     if _type_kind(typ) == "func":
                         self.fail(stmt, "PS2002", "callable fields are not lowered")
                     field: dict[str, Any] = {"name": stmt.target.id, "type": typ}
@@ -1322,7 +1346,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             return expr
         if kind == "dict":
             spec = type_spec(typ, self.classes)
-            if spec is None or not spec.startswith("d"):
+            if spec is None:
                 return None
             expr = _call_node(
                 {"kind": "module", "module": "builtins", "name": "map_repr"},
@@ -1706,6 +1730,28 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         )
         raise AssertionError("unreachable")
 
+    def _http_handler_attr(
+        self, node: ast.AST, obj: dict[str, Any], name: str, span: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """The handler instance's request-backed attribute, or None.
+
+        `self.path` reads the request's target, `self.headers` the parsed
+        header block, `self.rfile` the request's body reader and
+        `self.wfile` the response's body writer (issue #1270, slice 2).
+        Each one is a runtime call over the `_request` or `_response`
+        record the accept loop parked on the instance, so a read lowers
+        here and never lands in the field table.
+
+        The handler's `self` is an ordinary class instance, so a plain
+        name never reaches this: only the four request-backed attributes
+        route through.
+        """
+        from pyscriptc.restlower._httpserver import handler_attr
+
+        if not self.is_http_handler_instance(obj["type"].get("name")):
+            return None
+        return handler_attr(self, node, span, obj)
+
     def _lookup_attr(
         self,
         obj: dict[str, Any],
@@ -1766,6 +1812,34 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         info = self.classes.get(class_name)
         if info is None:
             self.fail(node, "PS2001", f"{class_name} has no fields")
+        # The http.server handler's request-backed attributes (issue #1270,
+        # slice 2): `self.path`, `self.headers`, `self.rfile` and
+        # `self.wfile` read the request and response records the accept
+        # loop parked on the instance, so they are runtime calls and not
+        # plain field reads. The hook runs before the field table: the
+        # base class declares the four names so the checker sees them, but
+        # their values live in the runtime records, not in the instance.
+        handler_attr = self._http_handler_attr(node, obj, name, span)
+        if handler_attr is not None:
+            return handler_attr
+        # The http.server server's bound-address attributes (issue #1270,
+        # slice 2): `server.server_port` and `server.server_address` are
+        # runtime reads over the server record, not instance fields.
+        if class_name == "HTTPServer":
+            from pyscriptc.restlower._httpserver import server_attr
+
+            server_hook = server_attr(self, node, span, obj)
+            if server_hook is not None:
+                return server_hook
+        # The asyncio server's bound socket (issue #1281, slice 2):
+        # `server.sockets` is a runtime read over the server record, not an
+        # instance field.
+        if class_name == "Server":
+            from pyscriptc.restlower._asyncio_server import server_attr as asyncio_server_attr
+
+            asyncio_hook = asyncio_server_attr(self, node, span, obj)
+            if asyncio_hook is not None:
+                return asyncio_hook
         for field in info["fields"]:
             if field["name"] == name:
                 return _attr_node(obj, name, field["type"], span)

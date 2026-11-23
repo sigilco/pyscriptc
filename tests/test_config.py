@@ -205,7 +205,9 @@ def test_dependencies_mapped_to_lanes(tmp_path: Path) -> None:
     assert lanes["orjson>=3"] == "pack"
     assert lanes["rich"] == "refused"
     assert lanes["attrs"] == "island"
-    assert lanes['My-Pure.Pkg[x]; python_version>"3"'] == "native"
+    # N2 (issue #1308): a dependency outside the closed table routes to the
+    # island lane by default.
+    assert lanes['My-Pure.Pkg[x]; python_version>"3"'] == "island"
 
 
 def test_config_exposes_island_import_helpers(tmp_path: Path) -> None:
@@ -226,7 +228,7 @@ def test_dependency_lane_star_and_invalid() -> None:
     from pyscriptc.config import dependency_lanes
 
     assert dependency_lanes(("zzzpure",), {"*": "refuse"}) == {"zzzpure": "refused"}
-    assert dependency_lanes(("zzzpure",), {"*": "compile"}) == {"zzzpure": "native"}
+    assert dependency_lanes(("zzzpure",), {"*": "compile"}) == {"zzzpure": "island"}
     with pytest.raises(ConfigError, match="not a valid requirement"):
         dependency_lanes(("==1",))
 
@@ -283,15 +285,21 @@ def test_other_lanes_unchanged_at_lower(tmp_path: Path) -> None:
         assert "refused by" not in fence["message"]
 
 
-def test_no_policy_byte_identical_fence(tmp_path: Path) -> None:
+def test_no_policy_routes_to_the_island_instead_of_fencing(tmp_path: Path) -> None:
+    # N2 (issue #1308): without a policy an import outside the closed table
+    # is a note, not a fence: the build does not stop on a library fact.
+    # The default routing is installed by the serving entry points (the CLI
+    # compile path, the coverage pass), so the test installs it explicitly.
     from pyscriptc.lower import lower_file
+    from pyscriptc.stdlib_queue import island_policy
 
     plain = tmp_path / "plain.py"
     plain.write_text("import rich\n", encoding="utf-8")
-    mod, _ = lower_file(str(plain))
-    assert len(mod["fences"]) == 1
-    assert mod["fences"][0]["code"] == "PS2002"
-    assert mod["fences"][0]["message"] == "rich is not in the closed import table"
+    with island_policy([], default=True):
+        mod, _ = lower_file(str(plain))
+    assert mod["fences"] == []
+    notes = mod.get("_notes") or []
+    assert any("rich is not in the closed import table" in note for note in notes)
 
 
 def test_pep723_refuse_lane(tmp_path: Path) -> None:

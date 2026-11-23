@@ -91,6 +91,7 @@ pyscriptc verify SOURCE [options]
 | `--skip-check` |  | skip the type-checker preflight |
 | `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight (default `pyrefly`) |
 | `--no-cache` |  | always recompile (env PYSC_NO_RUN_CACHE=1) |
+| `--oracle-version X.Y` | `X.Y` | use an oracle of that CPython minor instead of the pinned 3.14 (3.11 through 3.13; parity is then meaningful only for the subset both share) |
 | `--ffi MANIFEST` | `MANIFEST` | bind a typed extern manifest (TOML) and link its C sources; repeatable |
 
 ### `assess`
@@ -136,6 +137,7 @@ pyscriptc infer SOURCE [options]
 | Flag | Value | Effect |
 | ---- | ----- | ------ |
 | `--json` |  | print the report as JSON |
+| `--report` |  | print the inference coverage report: unannotated, pinned and unpinned parameters and the pin rate per module plus a tree total (diagnostics only, no behavior change) |
 | `--overlay FILE` | `FILE` | write the inferred annotations to FILE as a sidecar the user can apply |
 | `--bridge BRIDGE` | `pyrefly\|own` | inference arm to run (default: pyrefly) (default `pyrefly`) |
 
@@ -256,12 +258,22 @@ Use `pyscriptc coverage FILE` to see every individual code.
 
 `PYSC_CC`, `PYSC_LINKER` and `PYSC_TARGET` fill `--driver`, `--linker` and `--target` when the flag is absent; an explicit flag always wins.
 
+## Notes on `infer`
+
+The per-module call-site facts are cached under `~/.cache/pyscriptc/infer/` (the cache root moves with `PYSC_CACHE_DIR`), keyed on the module's own content hash, the compiler digest, the checker identity and the content hashes of the in-tree modules it imports from. A module whose key still matches contributes its stored call sites without a checker round trip, so a repeat compile of an unchanged tree pays the checker once, not once per compile. The pins are still reduced tree-wide from the merged per-module lists, so a cached fact can only contribute to the same all-or-nothing agreement the checker proved; it never widens what compiles. `PYSC_NO_INFER_CACHE=1` turns the cache off.
+
 ## Notes on `verify`
 
 Exit codes: 0 when every check matches, 1 on a divergence, 3 when the compiler refuses the program, 4 when no CPython 3.14 oracle is available.
 
-The oracle is resolved from `PYSC_ORACLE` (an explicit path, refused if it is not 3.14), `PYSC_ORACLE_DIR`, `python3.14` on PATH, `uv python find 3.14`, then the interpreter running pyscriptc.
+The oracle is resolved from `PYSC_ORACLE` (an explicit path), `PYSC_ORACLE_DIR`, `python3.14` on PATH, `uv python find 3.14`, then the interpreter running pyscriptc.
 It is probed before use: verify never compares a binary against the wrong interpreter.
+Any CPython 3.14.x patch is accepted silently: the patch of the declared target is informational, so an oracle at 3.14.10 draws no warning against a 3.14.9 target.
+
+An older oracle (3.11 through 3.13) is opt-in: `--oracle-version 3.12` names the minor, and `PYSC_ORACLE_ANY=1` accepts whichever older interpreter is around.
+The run then warns that parity is meaningful only for the subset the two interpreters share, and the receipt records the oracle it ran against (its version, its minor and the subset-only flag).
+A newer oracle (3.15) is refused.
+The PS3001 refusal names the exact fix: `uv python install 3.14`.
 
 Verify is a differential smoke test, not a proof.
 It covers the paths the argv and stdin exercised in that run.
@@ -275,6 +287,10 @@ On a single script, assess reports whether it compiles fully, partly, or is refu
 On a library directory it inspects every module without needing an entry point.
 On an application directory (one with `__main__.py` or `main.py`) it evaluates the whole package tree and prints the `[tool.pyscriptc.imports]` lines that route the unsupported imports to embedded CPython.
 See [Config](config.md) for what those lines go into.
+
+A class whose base does not lower is reported as a per-class demotion plan: one entry per refusal, naming the class, the base, the base kind (`island-defined`, `typing`, `enum`, `stdlib`, `cascade`) and the demotion the class takes on the island.
+The `--json` report carries them under `demotionPlans`; the text report prints them as "Class demotion plans".
+The plan is analysis: the fence stays a fence and the compile is unchanged.
 
 ## Notes on `coverage`
 

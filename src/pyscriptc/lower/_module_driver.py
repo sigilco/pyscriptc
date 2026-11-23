@@ -88,6 +88,17 @@ class ModuleDriverMixin:
         fences: list[Fence] = []
         functions: list[ast.FunctionDef] = []
         class_nodes: list[ast.ClassDef] = []
+        # boxed:begin
+        # Issue #1307: the `@island` marker is read once, from the same
+        # tree every pass sees, before the desugar's decorator strips: the
+        # per-definition route (functions in `_boxed_resolve`, classes in
+        # the collect loop below, module functions in the deferred pass)
+        # and the `assess` plane map read this one list.
+        from pyscriptc.boxed import island_marked_definitions, island_marker_spellings
+
+        self._island_marked = set(island_marked_definitions(tree))
+        self._island_marked_spellings = island_marker_spellings(tree)
+        # boxed:end
         live = self._live_statements(list(tree.body), fences)
         # The import pass may have installed slots imported from other
         # modules (a cross-module global read). The scan of the module's own
@@ -122,6 +133,13 @@ class ModuleDriverMixin:
             # its fences drop with it: the island seed defines the class in
             # CPython, exactly like an island function.
             if self.fallback_definitions:
+                # Issue #1307: an `@island`-marked class rides the island on
+                # purpose, per definition, before any fence check runs.
+                if node.name in self._island_marked:
+                    self._boxed_island_class(node)
+                    self._boxed_demoted_by.setdefault(f"class {node.name}", "marked @island")
+                    self._island_marker_note(node.name)
+                    continue
                 class_fences: list[Fence] = []
                 try:
                     self._collect_class(node)
@@ -139,6 +157,16 @@ class ModuleDriverMixin:
             except Fence as exc:
                 fences.append(exc)
             fences.extend(self.caught)
+        # An enum with no member is a base another enum extends (issue
+        # #1314); when nothing extends it, the enum has no member and the
+        # `an enum needs a member` fence stands.
+        for node in class_nodes:
+            info = self.classes.get(node.name)
+            if info is None or not info.get("enum") or info.get("members"):
+                continue
+            if node.name in self.enum_subclasses:
+                continue
+            fences.append(Fence("PS2002", "an enum needs a member", span_of(node, self.filename), node.name))
         for fn in functions:
             self.function = fn.name
             if fn.name in self.declared:
@@ -454,6 +482,9 @@ class ModuleDriverMixin:
                 entry_name,
                 top_level_island,
                 demoted_by=self._boxed_demoted_by,
+                # Issue #1307: the definitions the source marks `@island`
+                # plan island on purpose, per definition.
+                island_marked=self._island_marked,
                 # Issue #628: the class planes the collect and lowering passes
                 # decided, so the summary reports what the binary does.
                 classes=[{"name": node.name, "island": node.name in self.island_classes} for node in class_nodes],

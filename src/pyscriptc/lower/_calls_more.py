@@ -50,10 +50,18 @@ class CallsMoreMixin:
         for arg_node, want in zip(node.args, spec["params"], strict=True):
             arg = self._expr(arg_node)
             if _type_kind(want) == "float" and _node_type_kind(arg) == "int":
+                if attr in {"floor", "ceil", "trunc"}:
+                    # CPython's `math.floor(3)` is 3, an int: the argument
+                    # passes through unchanged, so a value past 2**53 keeps
+                    # every digit.
+                    args.append(arg)
+                    continue
                 arg = node_to_dict(_ir.cast("int_to_float", dict_to_node(arg), _ir.t_leaf("float"), _mk_span(span)))
             if not types_equal(arg["type"], want):
                 self.fail(node, "PS1003", f"math.{attr} argument is {_show(arg['type'])}, expected {_show(want)}")
             args.append(arg)
+        if attr in {"floor", "ceil", "trunc"} and _node_type_kind(args[0]) == "int":
+            return args[0]
         return _mod_call("math", attr, args, spec["return"], span)
 
     def _math_fenced(self, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
@@ -149,12 +157,62 @@ class CallsMoreMixin:
             return self._abi_call("math", "sumprod", args, _t_leaf("int"), "ps_math_sumprod_i64", span)
         return self._abi_call("math", "sumprod", args, _t_leaf("float"), "ps_math_sumprod_f64", span)
 
+    def _math_log_call(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        """`log(x)` and `log(x, base)`: the base form divides the two logs.
+
+        CPython's `math.log(x, base)` is `log(x) / log(base)`, so the base
+        form inherits the positive-input check on both sides.
+        """
+        if len(node.args) == 1:
+            return self._math_call(node, span, "log")
+        if len(node.args) != 2:
+            self.fail(node, "PS2003", "math.log expects 1 or 2 argument(s)")
+        args = []
+        for arg_node in node.args:
+            arg = self._expr(arg_node)
+            if _node_type_kind(arg) == "int":
+                arg = node_to_dict(_ir.cast("int_to_float", dict_to_node(arg), _ir.t_leaf("float"), _mk_span(span)))
+            if _node_type_kind(arg) != "float":
+                self.fail(node, "PS1003", f"math.log argument is {_show(arg['type'])}, expected float")
+            args.append(arg)
+        return self._abi_call("math", "log", args, _t_leaf("float"), "ps_math_log_base", span)
+
+    def _math_list_elem(self, node: ast.Call, span: dict[str, Any], attr: str) -> tuple[dict[str, Any], str]:
+        """The one list argument of `fsum`/`prod`, with its element kind."""
+        if len(node.args) != 1:
+            self.fail(node, "PS2003", f"math.{attr} expects 1 argument(s)")
+        arg = self._expr(node.args[0])
+        typ = _node_type(arg)
+        if _type_kind(typ) != "list":
+            self.fail(node, "PS2003", f"math.{attr} takes a list of int or float")
+        return arg, _type_kind(typ["elem"])
+
+    def _math_fsum(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        """`fsum(xs)`: the exact partials sum over a list of numbers."""
+        arg, elem = self._math_list_elem(node, span, "fsum")
+        if elem == "int":
+            symbol = "ps_math_fsum_i64"
+        elif elem == "float":
+            symbol = "ps_math_fsum_f64"
+        else:
+            self.fail(node, "PS2003", "math.fsum takes a list of int or float")
+        return self._abi_call("math", "fsum", [arg], _t_leaf("float"), symbol, span)
+
+    def _math_prod(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        """`prod(xs)`: the product of a list. An int list keeps the int type."""
+        arg, elem = self._math_list_elem(node, span, "prod")
+        if elem == "int":
+            return self._abi_call("math", "prod", [arg], _t_leaf("int"), "ps_math_prod_i64", span)
+        if elem == "float":
+            return self._abi_call("math", "prod", [arg], _t_leaf("float"), "ps_math_prod_f64", span)
+        self.fail(node, "PS2003", "math.prod takes a list of int or float")
+
     def _math_int_call(self, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
-        """`factorial(n)` and `lcm(a, b)`: the int helpers lower like gcd does."""
-        if len(node.args) != 2 and attr == "lcm":
-            self.fail(node, "PS2003", "math.lcm expects 2 argument(s)")
-        if len(node.args) != 1 and attr == "factorial":
-            self.fail(node, "PS2003", "math.factorial expects 1 argument(s)")
+        """`factorial(n)`, `lcm(a, b)`, `comb(n, k)`, `perm(n, k)` and
+        `isqrt(n)`: the int helpers lower like gcd does."""
+        arity = {"factorial": 1, "lcm": 2, "comb": 2, "perm": 2, "isqrt": 1}[attr]
+        if len(node.args) != arity:
+            self.fail(node, "PS2003", f"math.{attr} expects {arity} argument(s)")
         args = [self._expr(arg_node) for arg_node in node.args]
         for arg in args:
             if _node_type_kind(arg) != "int":
@@ -252,8 +310,9 @@ class CallsMoreMixin:
             self.fail(node, "PS1001", "json.loads needs the result annotation")
         self._json_type(node, expect, "json.loads")
         arg = self._expr(node.args[0])
-        if _node_type_kind(arg) != "str":
-            self.fail(node, "PS1003", "json.loads argument is " + _show(arg["type"]) + ", expected str")
+        kind = _node_type_kind(arg)
+        if kind not in {"str", "bytes"}:
+            self.fail(node, "PS1003", "json.loads argument is " + _show(arg["type"]) + ", expected str or bytes")
         return _mod_call("json", "loads", [arg], expect, span)
 
     def _json_load(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
@@ -313,10 +372,13 @@ class CallsMoreMixin:
         return expr
 
     def _json_dumps_flags(self, node: ast.Call) -> int:
-        """The dumps options: bit 0 sorts the keys, bits 8-15 the indent.
+        """The dumps options: bit 0 sorts the keys, bits 8-15 the indent,
+        bit 17 writes the non-ASCII text raw.
 
         The closed set is `indent`, `sort_keys` and `ensure_ascii`; the
-        other CPython options stay fenced.
+        other CPython options stay fenced. `ensure_ascii=False` (issue
+        #495) writes the text raw as UTF-8 where the default escapes it
+        as the `\\uXXXX` sequence CPython writes.
         """
         flags = 0
         for keyword in node.keywords:
@@ -343,7 +405,7 @@ class CallsMoreMixin:
                 if not isinstance(keyword.value, ast.Constant) or not isinstance(keyword.value.value, bool):
                     self.fail(node, "PS2003", "json.dumps ensure_ascii is a bool constant")
                 if not keyword.value.value:
-                    self.fail(node, "PS2003", "json.dumps ensure_ascii=False is not lowered")
+                    flags |= 0x20000
             else:
                 self.fail(node, "PS2003", f"json.dumps keyword {name} is not lowered")
         return flags

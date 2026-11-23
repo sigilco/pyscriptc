@@ -347,12 +347,60 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_sock_sendall",
         "ps_sock_close",
         "ps_sock_fileno",
+        "ps_sock_fd",
+        "ps_sock_wrap",
+        # The asyncio stream surface (issue #1281) lives in ps_stream.c and
+        # rides the same socket, so the sandbox fences it the same way.
+        "ps_stream_open",
+        "ps_stream_park",
+        "ps_stream_want",
+        "ps_stream_read",
+        "ps_stream_readline",
+        "ps_stream_readexactly",
+        "ps_stream_write_buf",
+        "ps_stream_drain",
+        "ps_stream_close",
+        "ps_stream_wait_closed",
+        # The asyncio server surface (issue #1281, slice 2), same file, same fence.
+        "ps_server_accepted",
+        "ps_server_callback",
+        "ps_server_close",
+        "ps_server_closed",
+        "ps_server_is_serving",
+        "ps_server_open",
+        "ps_server_park",
+        "ps_server_port",
+        "ps_server_set_callback",
+        "ps_server_socket",
+        "ps_httpsrv_new",
+        "ps_httpsrv_shutdown",
+        "ps_httpsrv_host",
+        "ps_httpsrv_port",
+        "ps_httpsrv_serve_one",
+        "ps_httpsrv_finish",
+        "ps_httpsrv_close",
+        "ps_httpsrv_stopped",
+        "ps_httpresp_new",
+        "ps_httpresp_send_response",
+        "ps_httpresp_send_header",
+        "ps_httpresp_end_headers",
+        "ps_httpresp_wfile_write",
+        "ps_httpresp_wfile",
+        "ps_httpresp_status",
+        "ps_httpreq_method",
+        "ps_httpreq_path",
+        "ps_httpreq_body",
+        "ps_httpreq_header",
+        "ps_httpreq_headers",
+        "ps_httpreq_rfile",
+        "ps_httpreq_rfile_read",
     }
 
 
-def test_the_socket_symbols_cover_the_socket_file() -> None:
+@pytest.mark.parametrize("source_name", ["ps_sock.c", "ps_http_server.c"])
+def test_the_excluded_symbols_cover_the_excluded_file(source_name: str) -> None:
     """The symbol table is the whole truth the guard checks against: every
-    `ps_*` symbol the excluded ps_sock.c defines must be in
+    `ps_*` symbol the excluded file defines must be in
     MOBILE_EXCLUDED_SYMBOLS, or a mobile call naming it would skip the
     fence and die as an undefined symbol at link (issue #1270's
     ps_sock_getsockname/peer_host/peer_port were exactly that hole).
@@ -361,13 +409,32 @@ def test_the_socket_symbols_cover_the_socket_file() -> None:
 
     from pyscriptc.mobile import MOBILE_EXCLUDED_SYMBOLS
 
-    text = (runtime_dir() / "ps_sock.c").read_text(encoding="utf-8")
+    text = (runtime_dir() / source_name).read_text(encoding="utf-8")
     defined = {
         match.group(1) for match in re.finditer(r"^(?:void \*?|int64_t )\**\s*(ps_\w+)\(", text, flags=re.MULTILINE)
     }
-    assert defined, "ps_sock.c: no ps_* definitions found"
+    assert defined, f"{source_name}: no ps_* definitions found"
     missing = sorted(defined - set(MOBILE_EXCLUDED_SYMBOLS))
-    assert not missing, f"ps_sock.c defines symbols the mobile guard does not fence: {missing}"
+    assert not missing, f"{source_name} defines symbols the mobile guard does not fence: {missing}"
+
+
+def test_the_stream_symbols_cover_the_stream_file() -> None:
+    """The asyncio stream surface (issue #1281) lives in the excluded
+    ps_stream.c, so every `ps_*` symbol it defines must be fenced the same
+    way: a mobile call naming one would skip the fence and die as an
+    undefined symbol at link.
+    """
+    import re
+
+    from pyscriptc.mobile import MOBILE_EXCLUDED_SYMBOLS
+
+    text = (runtime_dir() / "ps_stream.c").read_text(encoding="utf-8")
+    defined = {
+        match.group(1) for match in re.finditer(r"^(?:void \*?|int64_t )\**\s*(ps_\w+)\(", text, flags=re.MULTILINE)
+    }
+    assert defined, "ps_stream.c: no ps_* definitions found"
+    missing = sorted(defined - set(MOBILE_EXCLUDED_SYMBOLS))
+    assert not missing, f"ps_stream.c defines symbols the mobile guard does not fence: {missing}"
 
 
 # --- the emitted IR shape (in-process emitter, no cross toolchain) ---

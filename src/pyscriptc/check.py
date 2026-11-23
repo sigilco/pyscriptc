@@ -263,6 +263,14 @@ _BUILTINS_FROZENSET = "class frozenset(AbstractSet[_T_co]):"
 _GATHER_TUPLE_RETURN = "-> Future[tuple["
 _GATHER_LIST_RETURN = "-> Future[list["
 
+# The http.server subset (issue #1270). `BaseHTTPRequestHandler.headers.get`
+# answers a plain `str`: the closed subset answers the empty string for an
+# absent header (divergence 80), so the read has one type and no `None`
+# arm. The vendored `http/server.pyi` carries the row; a refresh that drops
+# the anchor is a hard error.
+_HTTPSERVER_HEADERS_ANCHOR = "    headers: email.message.Message\n"
+_HTTPSERVER_HEADERS_ROW = "    headers: _HttpHeaders\n"
+
 
 def _patched_typeshed(dest: Path) -> Path:
     """Copy the vendored typeshed stdlib and realign it with the lowered contract.
@@ -292,7 +300,26 @@ def _patched_typeshed(dest: Path) -> Path:
     block: str = tail[:rel].replace("-> Self:", "-> list[int]:")
     builtins.write_text(text[:start] + block + tail[rel:])
     _patch_gather(dest / "stdlib" / "asyncio" / "tasks.pyi")
+    _patch_httpserver(dest / "stdlib" / "http" / "server.pyi")
     return dest
+
+
+def _patch_httpserver(server: Path) -> None:
+    """Realign the `http.server` stub rows with the closed subset.
+
+    The handler's `headers` is the closed header block whose `get` answers
+    a plain `str`: the subset reads an absent header as the empty string,
+    so the read has one type and no `None` arm (divergence 80). The
+    `_HttpHeaders` protocol rides at the top of the patched file.
+    """
+    text = server.read_text(encoding="utf-8")
+    if _HTTPSERVER_HEADERS_ANCHOR not in text:
+        raise CheckFailed("vendored typeshed http/server.pyi no longer matches the subset patch anchors")
+    text = text.replace(_HTTPSERVER_HEADERS_ANCHOR, _HTTPSERVER_HEADERS_ROW, 1)
+    protocol = "@type_check_only\nclass _HttpHeaders(Protocol):\n    def get(self, keyword: str) -> str: ...\n\n\n"
+    anchor = "class HTTPServer(socketserver.TCPServer):"
+    text = text.replace(anchor, protocol + anchor, 1)
+    server.write_text(text, encoding="utf-8")
 
 
 def _patch_gather(tasks: Path) -> None:
@@ -320,11 +347,12 @@ def _patch_gather(tasks: Path) -> None:
 _TYPESHED_COMPLETE = ".pysc-complete"
 
 _TYPESHED_PATCH_KEY_PARTS = (
-    "v2",
+    "v4",
     _BUILTINS_FROZENSET,
     "class frozenset(set[_T_co]):",
     "-> list[int]:",
     _GATHER_LIST_RETURN,
+    _HTTPSERVER_HEADERS_ROW.strip(),
 )
 
 
@@ -370,9 +398,18 @@ def _typeshed_entry_valid(root: Path) -> bool:
     if not tasks.is_file():
         return False
     try:
-        return _GATHER_LIST_RETURN in tasks.read_text(encoding="utf-8")
+        if _GATHER_LIST_RETURN not in tasks.read_text(encoding="utf-8"):
+            return False
     except OSError:
         return False
+    server = root / "stdlib" / "http" / "server.pyi"
+    if not server.is_file():
+        return False
+    try:
+        text = server.read_text(encoding="utf-8")
+    except OSError:
+        return False
+    return "headers: _HttpHeaders" in text
 
 
 def _patched_typeshed_cached(fallback: Path) -> Path:

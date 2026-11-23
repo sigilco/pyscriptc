@@ -87,6 +87,35 @@ def default_target() -> str:
     return f"{platform.machine()}-{platform.system().lower()} (host, {driver_str})"
 
 
+def oracle_state() -> dict[str, Any]:
+    """The CPython oracle `verify` would use, and the fix when it is missing.
+
+    `verify` needs a CPython 3.14 interpreter. When the host has none, the
+    exact fix is `uv python install 3.14` (issue #1290), so doctor prints it
+    instead of leaving the user to guess.
+    """
+    from pyscriptc import verify
+
+    try:
+        oracle = verify.find_oracle()
+    except Exception as exc:
+        return {
+            "found": False,
+            "path": None,
+            "version": None,
+            "targetVersion": verify.TARGET_CPYTHON,
+            "fix": verify.ORACLE_INSTALL_FIX,
+            "error": str(exc),
+        }
+    return {
+        "found": True,
+        "path": oracle.executable,
+        "version": oracle.version,
+        "targetVersion": verify.TARGET_CPYTHON,
+        "fix": verify.ORACLE_INSTALL_FIX,
+    }
+
+
 def gather() -> dict[str, Any]:
     pyrefly_res: tuple[list[str], str] = _resolve_pyrefly()
     argv: list[str] = pyrefly_res[0]
@@ -113,6 +142,7 @@ def gather() -> dict[str, Any]:
         "log_dir": str(log_dir()),
         "default_target": default_target(),
         "install": install_shape(),
+        "oracle": oracle_state(),
     }
 
 
@@ -150,6 +180,15 @@ def render(info: dict[str, Any]) -> str:
     rc_dir = _opt_str(rc, "dir")
     rc_log_dir = _opt_str(info, "log_dir")
     target = _opt_str(info, "default_target")
+    oracle: dict[str, Any] = info.get("oracle", {})
+    fix: str = _opt_str(oracle, "fix") or "uv python install 3.14"
+    if _flag_of(oracle, "found"):
+        oracle_line = (
+            f"{_opt_str(oracle, 'path')} ({_opt_str_or_none(oracle, 'version') or 'version unknown'}); "
+            f"a different one: `{fix}`"
+        )
+    else:
+        oracle_line = f"not found; run `{fix}`"
     return "\n".join(
         [
             f"pyscriptc {psc} (python {pyv})",
@@ -158,6 +197,7 @@ def render(info: dict[str, Any]) -> str:
             f"driver:         {driver_str}",
             f"clang:          {tool(clang)}",
             f"zig:            {zig_line(zig)}",
+            f"oracle:         {oracle_line}",
             f"cache dir:      {cache_dir}",
             f"rt cache:      {'on' if _flag_of(rc, 'enabled') else 'off (PYSC_NO_RT_CACHE)'}, "
             f"{rc_dir} ({_opt_int(rc, 'entries', 0)} objects, {_opt_int(rc, 'bytes', 0)} bytes)",

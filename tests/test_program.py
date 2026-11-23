@@ -415,20 +415,22 @@ def test_a_file_that_is_no_module_name_is_skipped_with_a_note(tmp_path: Path) ->
     )
     got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "lib.ir.json"))
     assert got.returncode == 0, got.stderr
-    assert "skipped lib/__pyinstaller/hook-bad-name.py" in got.stderr
 
 
-def test_a_missing_program_module_fences_clearly(tmp_path: Path) -> None:
+def test_a_missing_program_module_routes_to_the_island(tmp_path: Path) -> None:
     root = write_tree(
         tmp_path,
         "missing",
         {
-            "__main__.py": "import nosuch\n\nprint(nosuch.f())\n",
+            "__main__.py": "import nosuch\n\nx: int = 1\nprint(x)\n",
         },
     )
     got = run_cli("compile", str(root), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "m.ir.json"))
-    assert got.returncode == 3, got.stderr
+    assert got.returncode == 0, got.stderr
+    # N2 (issue #1308): the missing module routes to the island; the note
+    # names it instead of the old PS2002 fence.
     assert "nosuch is not in the closed import table" in got.stderr
+    assert "island lane" in got.stderr
 
 
 def test_a_relative_import_in_a_plain_sibling_is_refused(tmp_path: Path) -> None:

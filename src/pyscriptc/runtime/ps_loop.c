@@ -237,6 +237,21 @@ void ps_loop_wait_fd(int fd) {
     ps_poller_watch(fd, 1 /* POLLIN */);
 }
 
+/* Drop the task parked on a descriptor (the server close): the row goes
+   away, so a loop with no other wait is free to finish. The poller's
+   interest is dropped with it. */
+void ps_loop_drop_fd_wait(int fd) {
+    int64_t out = 0;
+    for (int64_t i = 0; i < ps_fd_wait_len; i++) {
+        if (ps_fd_waits[i].fd == fd) {
+            ps_poller_unwatch(ps_fd_waits[i].fd, 1 /* POLLIN */);
+            continue;
+        }
+        ps_fd_waits[out++] = ps_fd_waits[i];
+    }
+    ps_fd_wait_len = out;
+}
+
 /* True while a task is parked on an fd: the poller is part of the wait. */
 static int32_t ps_fd_waits_pending(void) {
     return ps_fd_wait_len > 0 ? 1 : 0;
@@ -777,6 +792,15 @@ static void ps_loop_drive(int32_t blocking) {
             ps_fire_deadlines();
             continue;
         }
+        if (ps_threads_pending() || ps_aproc_pending()) {
+            /* A timer, a deadline or an fd wait armed beside a live worker
+               or child must not park the pump for the whole gap: cap the
+               block at the 1ms the spin above uses, so the pump wakes the
+               parked task as soon as the record completes (issue #400). */
+            if (timeout_ms < 0 || timeout_ms > 1) {
+                timeout_ms = 1;
+            }
+        }
         if (ps_fd_wait_len > 0) {
             PsPollFd polls[64];
             int count = 0;
@@ -802,8 +826,15 @@ static void ps_loop_drive(int32_t blocking) {
             }
         } else if (timeout_ms != 0) {
             /* Timers only: sleep the gap, as before. The poller is not
-               involved because there is no fd to wait for. */
+               involved because there is no fd to wait for. A live worker
+               or child caps the gap at the pump's 1ms cadence (issue
+               #400): sleeping the whole timer gap would delay the record
+               completion, and a wait_for deadline would fire while the
+               task was already done. */
             double wait = earliest - now;
+            if ((ps_threads_pending() || ps_aproc_pending()) && wait > 0.001) {
+                wait = 0.001;
+            }
             struct timespec req;
             req.tv_sec = (time_t)wait;
             req.tv_nsec = (long)((wait - (double)req.tv_sec) * 1e9);

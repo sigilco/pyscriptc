@@ -198,6 +198,11 @@ int64_t ps_dyn_bool(const PsDyn *v);
 PsBuf ps_dyn_str(const PsDyn *v);
 void *ps_dyn_list(const PsDyn *v);
 void *ps_dyn_dict(const PsDyn *v);
+/* The narrowed read of the str arm (issue #1280): the cell carries the
+   16-byte PsBuf prefix, the compiler's `str` value wants the four-field
+   header (byte length, data pointer, code-point count, flags), so the
+   projection fills the count and the flag from the bytes. */
+void ps_dyn_get_str(const PsDyn *v, int64_t *nbytes, char **data, int64_t *nchars, int32_t *flags);
 /* The truthiness of a dynamic value, CPython's rule per arm. */
 int ps_dyn_truth(const PsDyn *v);
 /* The map cell helpers: a dynamic value crosses a map slot as a pointer to
@@ -542,6 +547,38 @@ void ps_stderr_flush(void);
    the runtime for the FILE* too. */
 void *ps_stdout_stream(void);
 void ps_stream_write(void *stream, const char *data, int64_t len);
+
+/* ps_stream.c: the asyncio stream surface (#1281). One record per
+   `asyncio.open_connection(host, port)` call; the reader and the writer
+   CPython answers are two handles over the same record, the value of
+   each the record pointer. */
+void *ps_stream_open(int64_t n, const char *host, int64_t port);
+void ps_stream_read(void *stream, int64_t n, PsBuf *out);
+void ps_stream_readline(void *stream, PsBuf *out);
+void ps_stream_readexactly(void *stream, int64_t n, PsBuf *out);
+void ps_stream_write_buf(void *stream, int64_t n, const char *s);
+void ps_stream_drain(void *stream);
+void ps_stream_close(void *stream);
+void ps_stream_wait_closed(void *stream);
+int64_t ps_stream_park(void *stream);
+void ps_stream_want(void *stream, int64_t mode, int64_t n);
+
+/* ps_stream.c: the asyncio server surface (issue #1281, slice 2). One
+   listen record per `asyncio.start_server(cb, host, port)` call; the
+   accept is cooperative, so the serve loop parks on the listen
+   descriptor between peers. */
+void *ps_server_open(int64_t n, const char *host, int64_t port);
+void ps_server_set_callback(void *server, void *pair);
+void *ps_server_callback(void *server);
+int64_t ps_server_park(void *server);
+void *ps_server_accepted(void *server);
+void ps_server_close(void *server);
+int64_t ps_server_is_serving(void *server);
+int64_t ps_server_closed(void *server);
+void *ps_server_socket(void *server);
+int64_t ps_server_port(void *server);
+int64_t ps_sock_fd(void *sock);
+void *ps_sock_wrap(int64_t fd);
 void ps_map_del(PsMap *m, void *key);
 void ps_map_clear(PsMap *m);
 void ps_map_update(PsMap *dst, PsMap *src);
@@ -702,5 +739,35 @@ int64_t ps_sock_send(void *sock, int64_t n, const char *s);
 void ps_sock_sendall(void *sock, int64_t n, const char *s);
 void ps_sock_close(void *sock);
 int64_t ps_sock_fileno(void *sock);
+
+/* ps_http_server.c: the http.server substrate (issue #1270, slice 2). One
+   server record per HTTPServer((host, port), Handler); one request record
+   per accepted request; one response record per handler run. The records
+   are opaque pointers at the ABI: the emitted IR never sees the layout.
+   The runtime answers the request's method name and the lowering turns it
+   into the user's do_GET/do_POST call, so the dispatch stays the ordinary
+   class-method lowering. */
+void *ps_httpsrv_new(int64_t n, const char *host, int64_t port);
+void ps_httpsrv_shutdown(void *box);
+void ps_httpsrv_host(void *box, PsBuf *out);
+int64_t ps_httpsrv_port(void *box);
+void *ps_httpsrv_serve_one(void *box);
+void ps_httpsrv_finish(void *box, void *resp_box);
+void ps_httpsrv_close(void *box);
+int64_t ps_httpsrv_stopped(void *box);
+void *ps_httpresp_new(void);
+void ps_httpresp_send_response(void *box, int64_t status);
+void ps_httpresp_send_header(void *box, int64_t n, const char *name, int64_t vlen, const char *value);
+void ps_httpresp_end_headers(void *box);
+void ps_httpresp_wfile_write(void *box, int64_t n, const char *data);
+void *ps_httpresp_wfile(void *box);
+int64_t ps_httpresp_status(void *box);
+void ps_httpreq_method(void *box, PsBuf *out);
+void ps_httpreq_path(void *box, PsBuf *out);
+void ps_httpreq_body(void *box, PsBuf *out);
+void ps_httpreq_header(void *box, int64_t n, const char *name, PsBuf *out);
+void *ps_httpreq_headers(void *box);
+void *ps_httpreq_rfile(void *box);
+void ps_httpreq_rfile_read(void *box, int64_t n, PsBuf *out);
 
 #endif

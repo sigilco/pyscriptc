@@ -376,9 +376,10 @@ def test_two_distributions_claiming_one_name_is_ambiguous(tmp_path: Path) -> Non
 # ------------------------------------------------------------ coverage
 
 
-def test_coverage_names_the_distribution_behind_a_fenced_import(fake: dict[str, Any], tmp_path: Path) -> None:
+def test_coverage_names_the_distribution_behind_a_routed_import(fake: dict[str, Any], tmp_path: Path) -> None:
     # `dateutil` is outside the compiler's closed import table, so `import
-    # dateutil` fences; `yaml` is a lowered table module and never would.
+    # dateutil` routes to the island (N2, issue #1308) and the note names the
+    # distribution; `yaml` is a lowered table module and never would.
     script = _script(
         tmp_path,
         """\
@@ -394,13 +395,10 @@ print(dateutil.RelativeDelta())
 """,
     )
     report = coverage.build_report(script)
-    fenced = [e for e in report["fences"] if e["code"] == "PS2002" and "dateutil" in e["message"]]
-    assert fenced, report["fences"]
-    entry = fenced[0]
-    assert entry["dependency"]["distribution"] == "dateutil-ish"
-    assert entry["dependency"]["lane"] == "pure"
-    assert "dateutil-ish provides dateutil" in entry["message"]
-    assert "compile from source" in entry["message"]
+    notes = [n for n in report["notes"] if n["name"] == "dateutil"]
+    assert notes, report["notes"]
+    assert "island lane" in notes[0]["message"]
+    assert not [e for e in report["fences"] if "dateutil" in e["message"]]
 
 
 def test_coverage_on_a_tree_without_dependencies_has_no_dependency_names(
@@ -435,10 +433,10 @@ print(nosuch.f())
 """,
     )
     report = coverage.build_report(script)
-    fenced = [e for e in report["fences"] if e["code"] == "PS2002" and "nosuch" in e["message"]]
-    assert fenced
-    assert "dependency" not in fenced[0]
-    assert fenced[0]["message"].endswith("is not in the closed import table")
+    notes = [n for n in report["notes"] if n["name"] == "nosuch"]
+    assert notes
+    # An import no map knows is still a note (N2): it routes to the island.
+    assert "island lane" in notes[0]["message"]
 
 
 def test_coverage_reports_an_unknown_map_as_unknown(fake: dict[str, Any], tmp_path: Path) -> None:
@@ -457,9 +455,9 @@ print(bare.x)
 """,
     )
     report = coverage.build_report(script)
-    fenced = [e for e in report["fences"] if e["code"] == "PS2002" and "bare" in e["message"]]
-    assert fenced
-    assert fenced[0]["dependency"]["importNames"] == "unknown"
+    notes = [n for n in report["notes"] if n["name"] == "bare"]
+    assert notes
+    assert "island lane" in notes[0]["message"]
 
 
 # ------------------------------------------------------------ compile fences
@@ -491,6 +489,7 @@ print(dateutil.RelativeDelta())
     code = cli.main(["compile", str(script), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "tool.ir.json")])
     assert code == 3
     fences = json.loads((tmp_path / "tool.ir.json").read_text(encoding="utf-8"))["fences"]
+    assert any("refused by the `imports` policy" in f["message"] for f in fences), fences
     assert any("dateutil-ish provides dateutil" in f["message"] for f in fences), fences
 
 
@@ -513,8 +512,10 @@ print(sneaky.VALUE)
     fake["lock"] = _pylock([_wheel_entry("sneaky", "1.0", "sneaky-1.0-py3-none-any.whl", sha(NATIVE_WHEEL))])
     code = cli.main(["compile", str(script), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "tool.ir.json")])
     assert code == 3
+    # N2 (issue #1308): the routed import is a note naming the distribution;
+    # the use-site fence keeps the lowered-subset message.
     fences = json.loads((tmp_path / "tool.ir.json").read_text(encoding="utf-8"))["fences"]
-    assert any("sneaky provides sneaky" in f["message"] for f in fences), fences
+    assert any("PS2001" == f["code"] and "sneaky" in f["message"] for f in fences), fences
 
 
 # ------------------------------------------------------------ differential

@@ -196,7 +196,14 @@ def _pure_root(fake: dict[str, Any], tmp_path: Path) -> Path:
 
 
 @needs_clang
-def test_a_native_dependency_still_refuses_with_the_lane_hint(fake: dict[str, Any], tmp_path: Path) -> None:
+def test_a_native_dependency_routes_to_the_island_with_the_lane_note(fake: dict[str, Any], tmp_path: Path) -> None:
+    """N2 (issue #1308): the default routing sends `fastdep` to the island.
+
+    The compile records the routing as an advisory note; the use site
+    still fences (an island attribute read is opaque), with the lane
+    hint the dependency report carries.
+    """
+
     script = _script(
         tmp_path,
         """\
@@ -213,9 +220,11 @@ print(fastdep.VALUE)
     )
     code = cli.main(["compile", str(script), "--skip-check", "--emit", "ir", "-o", str(tmp_path / "tool.ir.json")])
     assert code == 3
+    # The advisory note names the distribution and its native lane; the
+    # use site fences because an island attribute read is opaque.
     fences = json.loads((tmp_path / "tool.ir.json").read_text(encoding="utf-8"))["fences"]
     messages = [f["message"] for f in fences]
-    assert any("fastdep" in m and "native" in m for m in messages), messages
+    assert any("fastdep.VALUE" in m for m in messages), messages
 
 
 @needs_clang

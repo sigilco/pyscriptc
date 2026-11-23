@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "2290cce5d53b2ed2f23d300637e40a5ad3060a99",
+  "commit": "b4161888894c6928ae7bb6964a5b0a7e157237cb",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,12 +15,12 @@
     },
     "stdlib": {
       "green": 0,
-      "yellow": 74,
+      "yellow": 75,
       "red": 0
     },
     "packages": {
       "green": 2,
-      "yellow": 8,
+      "yellow": 11,
       "red": 8
     }
   },
@@ -187,10 +187,9 @@
       "label": "`math`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma, log with a base",
+      "missing": "dist, ulp, nextafter, modf, frexp, ldexp, expm1, log1p, fma, sumprod",
       "codes": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ]
     },
     {
@@ -208,10 +207,9 @@
       "label": "`json`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "ensure_ascii=False, JSONDecodeError() construction",
+      "missing": "JSONDecodeError() construction",
       "codes": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ]
     },
     {
@@ -269,7 +267,7 @@
       "label": "`pyscriptc_ndarray`, `numpy`",
       "status": "\ud83d\udfe1",
       "count": 2,
-      "missing": "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step",
+      "missing": "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step, an axis on a one-dimensional array",
       "codes": [
         "PS2001",
         "PS2003"
@@ -334,7 +332,7 @@
       "label": "`time`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "time_ns, ctime, process_time",
+      "missing": "time_ns, ctime",
       "codes": [
         "PS2001"
       ]
@@ -556,6 +554,15 @@
       "status": "\ud83d\udfe1",
       "count": 1,
       "missing": "gethostbyname, AF_INET6, SOCK_DGRAM, socketpair, UDP and non-blocking mode, makefile, getpeername, shutdown",
+      "codes": [
+        "PS2001"
+      ]
+    },
+    {
+      "label": "`http.server`",
+      "status": "\ud83d\udfe1",
+      "count": 1,
+      "missing": "ThreadingHTTPServer, SimpleHTTPRequestHandler and the socketserver mixins",
       "codes": [
         "PS2001"
       ]
@@ -879,6 +886,14 @@
       "codes": ""
     },
     {
+      "name": "charset-normalizer",
+      "version": "3.5.2",
+      "status": "\ud83d\udfe1",
+      "ratio": "52/148",
+      "blocking": "name-resolution (39), construct-other (27), local-inference (20)",
+      "codes": "PS2002, PS2001, PS1001"
+    },
+    {
       "name": "colorama",
       "version": "0.4.6",
       "status": "\ud83d\udd34",
@@ -899,7 +914,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "249/641",
-      "blocking": "name-resolution (183), construct-other (121), field-lookup (64)",
+      "blocking": "name-resolution (183), construct-other (119), field-lookup (64)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -915,7 +930,7 @@
       "version": "3.20",
       "status": "\ud83d\udd34",
       "ratio": "35/56",
-      "blocking": "keyword-args (47), name-resolution (31), type-mismatch (13)",
+      "blocking": "keyword-args (47), name-resolution (31), type-mismatch (14)",
       "codes": "PS2003, PS2002, PS1003"
     },
     {
@@ -947,23 +962,23 @@
       "version": "0.1.2",
       "status": "\ud83d\udfe1",
       "ratio": "6/12",
-      "blocking": "name-resolution (15), construct-other (7), call-arity (4)",
+      "blocking": "name-resolution (16), construct-other (6), call-arity (4)",
       "codes": "PS2002, PS2003, PS2001"
     },
     {
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "279/558",
-      "blocking": "name-resolution (117), unlowered-type-name (97), field-lookup (82)",
+      "ratio": "278/558",
+      "blocking": "name-resolution (104), unlowered-type-name (98), field-lookup (83)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
       "name": "pathspec",
       "version": "1.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "77/132",
-      "blocking": "name-resolution (30), unlowered-type-name (21), construct-other (21)",
+      "ratio": "75/132",
+      "blocking": "name-resolution (27), unlowered-type-name (21), type-mismatch (19)",
       "codes": "PS2002, PS1106, PS1003"
     },
     {
@@ -971,7 +986,7 @@
       "version": "4.13.0",
       "status": "\ud83d\udfe1",
       "ratio": "135/388",
-      "blocking": "name-resolution (65), construct-other (63), optional-types (33)",
+      "blocking": "construct-other (64), name-resolution (64), optional-types (33)",
       "codes": "PS2002, PS1102, PS2001"
     },
     {
@@ -981,6 +996,14 @@
       "ratio": "32/102",
       "blocking": "param-inference (16), return-inference (2), stdlib:datetime (2)",
       "codes": "PS2002, PS1001, PS2001"
+    },
+    {
+      "name": "requests",
+      "version": "2.34.2",
+      "status": "\ud83d\udfe1",
+      "ratio": "123/319",
+      "blocking": "name-resolution (45), unlowered-type-name (43), construct-other (23)",
+      "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "shellingham",
@@ -1005,6 +1028,14 @@
       "ratio": "0/0",
       "blocking": "",
       "codes": ""
+    },
+    {
+      "name": "urllib3",
+      "version": "2.8.0",
+      "status": "\ud83d\udfe1",
+      "ratio": "217/617",
+      "blocking": "name-resolution (94), unlowered-type-name (74), construct-other (56)",
+      "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "zipp",

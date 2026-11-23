@@ -58,12 +58,19 @@ def test_manifest_module_is_lowered_only_when_loaded() -> None:
     assert lowered["fences"] == []
 
 
-def test_manifest_module_import_fences_without_ffi() -> None:
+def test_manifest_module_import_routes_to_the_island_without_ffi() -> None:
+    # N2 (issue #1308): without the manifest the module is an unknown
+    # import, so under the default routing (the way the CLI compile path
+    # installs it) it routes to the island and the compile records the
+    # routing as a note instead of fencing with PS2002.
+    from pyscriptc.stdlib_queue import island_policy
+
     source = "import demo_math\n\ndef main() -> int:\n    return 0\n"
-    lowered = _lower(source, [])
+    with island_policy([], default=True):
+        lowered = _lower(source, [])
     codes = [fence["code"] for fence in lowered["fences"]]
-    assert codes == ["PS2002"]
-    assert "demo_math" in lowered["fences"][0]["message"]
+    assert codes == []
+    assert any("demo_math" in note and "island lane" in note for note in lowered.get("_notes", []))
 
 
 def test_scalar_call_lowers_to_the_abi_symbol() -> None:

@@ -42,6 +42,8 @@ Relative import is a fence. A module-level constant is an annotated assignment o
 
 Printed speed is `Nx CPython`, the reciprocal of the stored native/CPython ratio. The gate still compares ratios: time growth past `2.0` or RSS growth past `1.25` fails. The top-level geomean in `benchmarks/baseline/reference.json` is the original four kernels. New workloads go in `group_geomeans`. Do not `--record` a partial run over that file.
 
+The compile-time inference suite (`--suite inference`, issue #1319) is report-only: it records `infer_ms` per tree for the release receipt, and it refuses `--record` and `--check`, so no reference file can gate on it before two releases of data exist.
+
 ## Checks
 
 ```bash

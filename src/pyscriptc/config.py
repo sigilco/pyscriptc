@@ -351,6 +351,23 @@ class Config:
         """True when `* = "island"` makes every unlisted import island-bound."""
         return self.imports.get("*") == "island"
 
+    def native_pinned_imports(self) -> list[str]:
+        """Import names an explicit policy pins off the island lane.
+
+        N2 (issue #1308): an import outside the closed table routes to the
+        island by default, but a named `compile` (or `replace`, `extern`)
+        policy entry is the user's explicit lane and wins over the default.
+        The `refuse` lane is not a pin: it stops the compile on its own.
+        """
+
+        names: set[str] = set()
+        for name, lane in self.imports.items():
+            if name == "*" or lane not in ("compile", "replace", "extern"):
+                continue
+            names.add(name)
+            names.add(name.replace("-", "_"))
+        return sorted(names)
+
 
 def lane_for(name: str, imports: Dict[str, str]) -> tuple[str, str]:
     """(lane, matched key) for an imported top-level name.

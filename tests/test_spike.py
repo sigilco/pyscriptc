@@ -252,12 +252,16 @@ def test_method_and_outside_table_are_fences(tmp_path: Path) -> None:
     assert "encode" in method.stderr
     assert not method_ll.exists()
 
+
+def test_outside_table_routes_to_the_island(tmp_path: Path) -> None:
     outside_ll = tmp_path / "pickle.ll"
-    loaded = run_cli("compile", str(EXAMPLES / "fence_pickle.py"), "--emit", "llvm", "-o", str(outside_ll))
-    assert loaded.returncode == 3
-    assert "PS2002" in loaded.stderr
-    assert "pickle" in loaded.stderr
-    assert not outside_ll.exists()
+    loaded = run_cli("compile", str(EXAMPLES / "island_pickle.py"), "--emit", "llvm", "-o", str(outside_ll))
+    # N2 (issue #1308): an import outside the closed table is a library
+    # fact, so it routes to the island and the compile succeeds.
+    assert loaded.returncode == 0, loaded.stderr
+    assert "PS2002 (pickle)" in loaded.stderr
+    assert "island lane" in loaded.stderr
+    assert outside_ll.exists()
 
 
 def test_bad_annotation_fails_in_checker_before_llvm(tmp_path: Path) -> None:

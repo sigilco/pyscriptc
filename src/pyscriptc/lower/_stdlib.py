@@ -179,7 +179,9 @@ class StdlibDispatchMixin(StdlibBindMixin):
         """
         if any(self._erased_deco_name(d) == "overload" for d in fn.decorator_list):
             return False
-        fn.decorator_list = [d for d in fn.decorator_list if self._erased_deco_name(d) is None]
+        fn.decorator_list = [
+            d for d in fn.decorator_list if self._erased_deco_name(d) is None and self._shadow_deco_name(d) is None
+        ]
         if isinstance(fn, ast.AsyncFunctionDef) and not fn.decorator_list and enabled():
             # A module-level coroutine: the coro pass owns it (PS2002 fences
             # from its shape check already carry the precise message).
@@ -487,7 +489,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
             self._reject_keywords(node)
             if attr == "gcd":
                 return self._math_gcd(node, span)
-            if attr in {"factorial", "lcm"}:
+            if attr in {"factorial", "lcm", "comb", "perm", "isqrt"}:
                 return self._math_int_call(node, span, attr)
             if attr in {
                 "dist",
@@ -502,6 +504,12 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 "expm1",
             }:
                 return self._math_rest_call(node, span, attr)
+            if attr == "log":
+                return self._math_log_call(node, span)
+            if attr == "fsum":
+                return self._math_fsum(node, span)
+            if attr == "prod":
+                return self._math_prod(node, span)
             return self._math_call(node, span, attr)
         if module == "bisect":
             from pyscriptc.restlower._bisect import _bisect

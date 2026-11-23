@@ -123,7 +123,7 @@ def test_coverage_json_reports_each_fence(tmp_path: Path) -> None:
     got = run_cli("coverage", str(path), "--json")
     assert got.returncode == 0, got.stderr
     report = json.loads(got.stdout)
-    assert report["schemaVersion"] == 2
+    assert report["schemaVersion"] == 3
     families = {entry["family"] for entry in report["fences"]}
     assert {"optional-types", "generic-alias", "dynamic-annotation", "forward-reference"} <= families
     assert "except-as" in families
@@ -340,12 +340,11 @@ def test_coverage_marks_island_imports_from_the_policy_table(tmp_path: Path) -> 
     report = coverage.build_report(script)
     assert report["summary"]["requiresLibpython"] is True
     assert report["summary"]["islandImports"] == ["requests"]
-    fenced = [e for e in report["fences"] if e["code"] == "PS2002" and "requests" in e["message"]]
-    assert fenced
-    assert "island lane" in fenced[0]["message"]
-    assert "requires libpython" in fenced[0]["message"]
-    assert fenced[0]["dependency"]["lane"] == "island"
-    assert fenced[0]["dependency"]["policy"] == "requests"
+    # N2 (issue #1308): the island routing is a note, not a fence.
+    assert not [e for e in report["fences"] if "requests" in e["message"]]
+    notes = [n for n in report["notes"] if "requests" in n["name"]]
+    assert notes
+    assert "island lane" in notes[0]["message"]
 
 
 def test_coverage_pulls_island_policy_from_a_pyproject(tmp_path: Path) -> None:
@@ -359,7 +358,8 @@ def test_coverage_pulls_island_policy_from_a_pyproject(tmp_path: Path) -> None:
     script.write_text("import requests\n\nx = 1\n", encoding="utf-8")
     report = coverage.build_report(script)
     assert report["summary"]["islandImports"] == ["requests"]
-    assert any("island lane" in e["message"] for e in report["fences"] if "requests" in e["message"])
+    assert not [e for e in report["fences"] if "requests" in e["message"]]
+    assert any("requests" in n["name"] for n in report["notes"])
 
 
 def test_coverage_names_a_wildcard_island_policy(tmp_path: Path) -> None:
@@ -381,7 +381,8 @@ def test_coverage_names_a_wildcard_island_policy(tmp_path: Path) -> None:
     report = coverage.build_report(script)
     assert report["summary"]["requiresLibpython"] is True
     assert report["summary"]["islandImports"] == ["scipy"]
-    assert any("island lane" in e["message"] for e in report["fences"] if "scipy" in e["message"])
+    assert not [e for e in report["fences"] if "scipy" in e["message"]]
+    assert any("scipy" in n["name"] for n in report["notes"])
 
 
 def test_bare_isinstance_target_is_a_report_not_a_traceback(tmp_path: Path) -> None:
@@ -465,6 +466,102 @@ def test_generator_and_contextmanager_families() -> None:
     assert family_of("PS2002", "return inside try or with in a resumable is not lowered yet") == "generators"
     assert family_of("PS2002", "contextlib.contextmanager is not a function") == "contextmanager"
     assert family_of("PS2002", "walrus assignment (:=) is not lowered") == "construct-other"
+
+
+CLASS_BASE_SOURCE = "\n".join(
+    [
+        "from typing import NamedTuple, TypedDict",
+        "from enum import StrEnum",
+        "import threading",
+        "",
+        "class A(NamedTuple):",
+        "    x: int",
+        "",
+        "class B(TypedDict):",
+        "    x: int",
+        "",
+        "class C(StrEnum):",
+        "    A = 'a'",
+        "",
+        "class D(threading.Thread):",
+        "    pass",
+        "",
+        "class E(Unknown):",
+        "    pass",
+        "",
+    ]
+)
+
+
+def test_coverage_census_counts_the_class_bases_by_kind(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "bases.py", CLASS_BASE_SOURCE)
+    got = run_cli("coverage", str(path), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    census = report["summary"]["classBases"]
+    assert report["summary"]["classBaseTotal"] == 5
+    assert census["namedtuple"]["fences"] == 1
+    assert census["namedtuple"]["bases"] == ["NamedTuple"]
+    assert census["typeddict"]["fences"] == 1
+    assert census["typeddict"]["bases"] == ["TypedDict"]
+    assert census["enum"]["fences"] == 1
+    assert census["enum"]["bases"] == ["StrEnum"]
+    assert census["stdlib"]["fences"] == 1
+    assert census["stdlib"]["bases"] == ["threading.Thread"]
+    assert census["other"]["fences"] == 1
+    assert census["other"]["bases"] == ["Unknown"]
+
+
+def test_coverage_census_names_a_library_base(tmp_path: Path) -> None:
+    source = "\n".join(
+        [
+            "from sqlalchemy.orm import DeclarativeBase",
+            "",
+            "class C(DeclarativeBase):",
+            "    pass",
+            "",
+        ]
+    )
+    path = write_case(tmp_path, "lib.py", source)
+    got = run_cli("coverage", str(path), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    census = report["summary"]["classBases"]
+    assert census["library"]["fences"] == 1
+    assert census["library"]["bases"] == ["DeclarativeBase"]
+    entry = next(item for item in report["fences"] if item.get("baseKind"))
+    assert entry["baseExpression"] == "DeclarativeBase"
+    assert entry["baseModule"] == "sqlalchemy.orm"
+
+
+def test_coverage_census_text_lists_the_kinds(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "bases.py", CLASS_BASE_SOURCE)
+    got = run_cli("coverage", str(path))
+    assert got.returncode == 0, got.stderr
+    assert "class bases by kind: 5 fenced" in got.stdout
+    assert "namedtuple: 1 (NamedTuple)" in got.stdout
+    assert "typeddict: 1 (TypedDict)" in got.stdout
+    assert "enum: 1 (StrEnum)" in got.stdout
+    assert "stdlib: 1 (threading.Thread)" in got.stdout
+    assert "other: 1 (Unknown)" in got.stdout
+
+
+def test_coverage_census_is_empty_without_a_class_base(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "plain.py", "def f(x: int) -> int:\n    return x\n")
+    got = run_cli("coverage", str(path), "--json")
+    assert got.returncode == 0, got.stderr
+    report = json.loads(got.stdout)
+    assert report["summary"]["classBases"] == {}
+    assert report["summary"]["classBaseTotal"] == 0
+
+
+def test_the_compile_fence_is_unchanged_by_the_census(tmp_path: Path) -> None:
+    """The census is a report: the fence itself still refuses the compile."""
+
+    path = write_case(tmp_path, "bases.py", CLASS_BASE_SOURCE)
+    got = run_cli("compile", str(path))
+    assert got.returncode != 0
+    assert "PS2002" in got.stderr
 
 
 def test_island_call_emits_requires_libpython_metadata() -> None:
