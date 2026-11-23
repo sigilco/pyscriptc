@@ -405,10 +405,11 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#55",
     ),
     _row(
-        "D64",
-        "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view",
+        "D86",
+        "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view; "
+        "the whole-array reduction answers a scalar, the shape a list and the axis reductions drop the axis",
         None,
-        docs=f"{DOC}#55",
+        docs=f"{DOC}#86",
         note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
         "the byte comparison runs in the differential lane instead "
         "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",

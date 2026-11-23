@@ -523,9 +523,7 @@ def _reduce(
     return lo._abi_call("pyscriptc_ndarray", attr, args, out, f"ps_nd_{attr}", span)
 
 
-def _arg_reduce(
-    lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], attr: str
-) -> dict[str, Any]:
+def _arg_reduce(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], attr: str) -> dict[str, Any]:
     """`argmin` / `argmax`: the index of the extreme.
 
     The whole-array form answers the flat index, the way numpy reads it
