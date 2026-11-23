@@ -197,6 +197,7 @@ def build(date: str | None = None, pin: Path | None = None) -> tuple[dict[str, s
     errors: list[str] = []
     builtins = [evaluate(e, "builtin", errors) for e in data["builtin"]]
     stdlib = [evaluate(e, "stdlib", errors) for e in data["stdlib"]]
+    operators = [evaluate(e, "operator", errors) for e in data.get("operator", [])]
     listed = {n for e in data["stdlib"] for n in e["names"]}
     for module in QUEUE:
         if module not in listed:
@@ -217,8 +218,15 @@ def build(date: str | None = None, pin: Path | None = None) -> tuple[dict[str, s
         entry["codes"] = sorted(entry["codes"])
         serialized_stdlib.append(entry)
 
+    serialized_operators = []
+    for r in operators:
+        entry = dict(r)
+        entry["codes"] = sorted(entry["codes"])
+        serialized_operators.append(entry)
+
     c_builtins = counts(builtins)
     c_stdlib = counts(stdlib)
+    c_operators = counts(operators)
     c_packages = Counter(r["status"] for r in packages)
 
     measured_date = date or os.environ.get("COMPAT_DATE") or datetime.date.today().isoformat()
@@ -249,6 +257,11 @@ def build(date: str | None = None, pin: Path | None = None) -> tuple[dict[str, s
                 "yellow": c_stdlib[YELLOW],
                 "red": c_stdlib[RED],
             },
+            "operators": {
+                "green": c_operators[GREEN],
+                "yellow": c_operators[YELLOW],
+                "red": c_operators[RED],
+            },
             "packages": {
                 "green": c_packages[GREEN],
                 "yellow": c_packages[YELLOW],
@@ -257,6 +270,7 @@ def build(date: str | None = None, pin: Path | None = None) -> tuple[dict[str, s
         },
         "builtins": serialized_builtins,
         "stdlib": serialized_stdlib,
+        "operators": serialized_operators,
         "packages": packages,
     }
     content = json.dumps(doc, indent=2) + "\n"
