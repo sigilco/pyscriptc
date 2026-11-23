@@ -2247,7 +2247,7 @@ def _catalog_event(
 def _plan_event(root: Path, reached: int, owners: dict[str, list[str]]) -> None:
     """Emit the ``package.plan`` record: the modules the import walk reached and the init owners."""
     owner_names: list[str] = []
-    for name in sorted(owners):
+    for name in owners:
         if owners[name]:
             owner_names.append(name)
     owner_fields: dict[str, Any] = {}
