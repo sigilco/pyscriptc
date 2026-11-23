@@ -1421,11 +1421,11 @@
       "status": "unprobed"
     },
     {
-      "id": "D86",
+      "id": "D87",
       "seam": "math.comb, math.perm and math.prod are i64 (divergence 1): a result past the i64 range raises OverflowError where CPython grows a big int",
       "listed": true,
-      "docs": "docs/reference/divergences.md#86",
-      "probe": "probes/divergences/d86_math_int_overflow.py",
+      "docs": "docs/reference/divergences.md#87",
+      "probe": "probes/divergences/d87_math_int_overflow.py",
       "cpython": {
         "stage": "run",
         "exit": 0,

@@ -2,7 +2,7 @@
 # Issue #493: the math surface completion (the integer helpers, the float
 # helpers, the gamma family, log with a base, fsum and prod).
 # math.comb(100, 50) is excluded: on a 64-bit i64 target it raises
-# OverflowError where the host oracle grows a big int (divergence D86).
+# OverflowError where the host oracle grows a big int (divergence D87).
 import math
 
 print(math.comb(5, 2), math.comb(5, 0), math.comb(0, 0), math.comb(5, 6))

@@ -647,11 +647,11 @@ ROWS: list[dict[str, Any]] = [
         "routing itself is a compile-time fact the ledger cannot record as program bytes",
     ),
     _row(
-        "D86",
+        "D87",
         "math.comb, math.perm and math.prod are i64 (divergence 1): a result past the i64 range raises "
         "OverflowError where CPython grows a big int",
-        "d86_math_int_overflow.py",
-        docs=f"{DOC}#86",
+        "d87_math_int_overflow.py",
+        docs=f"{DOC}#87",
     ),
     _row(
         "AUDIT-D1",
