@@ -59,6 +59,11 @@ class NdArrayMixin:
             return self._nd_reduce(expr, values, symbol)
         if symbol in {"ps_nd_argmin", "ps_nd_argmax"}:
             return self._nd_argreduce(expr, values, symbol)
+        if symbol in {"ps_nd_argmin_axis", "ps_nd_argmax_axis"}:
+            # The axis form: the runtime answers the index array, which
+            # the lowering named as an ndarray type, so the pointer is the
+            # result.
+            return self._nd_plain(symbol, values, ["ptr", "i64"])
         if symbol == "ps_nd_tolist":
             return self._nd_tolist(expr, values)
         if symbol in {"ps_nd_ndim", "ps_nd_size", "ps_nd_nbytes"}:

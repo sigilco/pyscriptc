@@ -273,6 +273,20 @@ PsNd *ps_nd_ge_f(PsNd *left, double s) { return ps_nd_binop_scalar(PS_ND_GE, lef
 /* the reductions                                                      */
 /* ------------------------------------------------------------------ */
 
+/* The normalized axis: numpy counts a negative axis from the end, so
+   `axis=-1` is the last dimension. An axis outside the array raises the
+   runtime error numpy raises (an AxisError, which CPython spells
+   ValueError). */
+int64_t ps_nd_axis(const PsNd *a, int64_t axis) {
+    if (axis < 0) {
+        axis += a->ndim;
+    }
+    if (axis < 0 || axis >= a->ndim) {
+        ps_raise_cstr(PS_VALUE, "axis out of bounds");
+    }
+    return axis;
+}
+
 /* The reduction dtype: numpy's sum keeps the array's integer dtype
    widened to int64 for the integer dtypes, and keeps float32 for float32. */
 int64_t ps_nd_reduce_dtype(int64_t dtype) {
@@ -312,9 +326,7 @@ PsNd *ps_nd_sum(PsNd *a, int64_t axis, int64_t has_axis) {
         }
         return out;
     }
-    if (axis < 0 || axis >= a->ndim) {
-        ps_raise_cstr(PS_VALUE, "axis out of bounds");
-    }
+    axis = ps_nd_axis(a, axis);
     {
         int64_t outer = 1;
         int64_t inner = 1;
@@ -385,9 +397,7 @@ PsNd *ps_nd_extreme(PsNd *a, int64_t axis, int64_t has_axis, int want_max) {
         ps_nd_set(out, 0, best);
         return out;
     }
-    if (axis < 0 || axis >= a->ndim) {
-        ps_raise_cstr(PS_VALUE, "axis out of bounds");
-    }
+    axis = ps_nd_axis(a, axis);
     {
         int64_t outer = 1;
         int64_t inner = 1;
@@ -452,6 +462,8 @@ PsNd *ps_nd_mean(PsNd *a, int64_t axis, int64_t has_axis) {
         }
         return out;
     }
+    axis = ps_nd_axis(a, axis);
+    axis = ps_nd_axis(a, axis);
     {
         /* The per-axis mean: the sum over that axis, divided by its
            extent. The sum keeps the reduction dtype, so the division
@@ -526,6 +538,7 @@ PsNd *ps_nd_var(PsNd *a, int64_t axis, int64_t has_axis) {
         }
         return out;
     }
+    axis = ps_nd_axis(a, axis);
     {
         /* The per-axis variance: the mean per column, then the squared
            deviations of that column. */
@@ -585,7 +598,8 @@ PsNd *ps_nd_std(PsNd *a, int64_t axis, int64_t has_axis) {
 }
 
 /* `argmin` / `argmax`: the index of the extreme, as a flat index over the
-   whole array. The axis form is not part of the M1 subset. */
+   whole array. The axis form is `ps_nd_argmin_axis` / `ps_nd_argmax_axis`
+   below. */
 PsNd *ps_nd_argmin(PsNd *a) {
     int64_t best = 0;
     int64_t i;
@@ -619,3 +633,52 @@ PsNd *ps_nd_argmax(PsNd *a) {
     ((int64_t *)out->data)[0] = best;
     return out;
 }
+
+/* `argmin` / `argmax` over one axis: the index of the extreme along that
+   axis, the way numpy reads it (the index into the axis, not the flat
+   index; the first of the equal extremes wins). The result is an int64
+   array whose shape is the receiver's shape without the reduced axis. */
+PsNd *ps_nd_arg_axis(PsNd *a, int64_t axis, int want_max) {
+    int64_t outer = 1;
+    int64_t inner = 1;
+    int64_t i;
+    int64_t j;
+    int64_t k;
+    int64_t dim;
+    PsNd *out;
+    axis = ps_nd_axis(a, axis);
+    dim = a->shape[axis];
+    for (i = 0; i < axis; i++) {
+        outer *= a->shape[i];
+    }
+    for (i = axis + 1; i < a->ndim; i++) {
+        inner *= a->shape[i];
+    }
+    out = ps_nd_alloc(outer * inner, 8, PS_ND_INT64, a->ndim - 1);
+    for (i = 0; i < a->ndim; i++) {
+        if (i < axis) {
+            out->shape[i] = a->shape[i];
+        } else if (i > axis) {
+            out->shape[i - 1] = a->shape[i];
+        }
+    }
+    for (i = 0; i < outer; i++) {
+        for (j = 0; j < inner; j++) {
+            double best = ps_nd_get(a, (i * dim) * inner + j);
+            int64_t best_k = 0;
+            for (k = 1; k < dim; k++) {
+                double v = ps_nd_get(a, (i * dim + k) * inner + j);
+                if (want_max ? (v > best) : (v < best)) {
+                    best = v;
+                    best_k = k;
+                }
+            }
+            ((int64_t *)out->data)[i * inner + j] = best_k;
+        }
+    }
+    return out;
+}
+
+PsNd *ps_nd_argmin_axis(PsNd *a, int64_t axis) { return ps_nd_arg_axis(a, axis, 0); }
+
+PsNd *ps_nd_argmax_axis(PsNd *a, int64_t axis) { return ps_nd_arg_axis(a, axis, 1); }
