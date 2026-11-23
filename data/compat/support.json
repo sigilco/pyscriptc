@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "012ec7a75e9a22c3d67c670f0535616732ef2dec",
+  "commit": "12bbec20aa04d21104e5bde678d0ec121849042a",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -131,8 +131,9 @@
       "label": "`open`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "keywords other than encoding=",
+      "missing": "encoding= other than utf-8, ascii, latin-1, encoding= on a binary mode, keywords other than encoding=",
       "codes": [
+        "PS2001",
         "PS2003"
       ]
     },

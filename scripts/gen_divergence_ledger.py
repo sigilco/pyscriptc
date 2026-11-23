@@ -669,7 +669,6 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#89",
     ),
     _row(
-||||||| a640107e
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
@@ -736,6 +735,7 @@ ROWS: list[dict[str, Any]] = [
         docs=AUDIT,
     ),
 ]
+
 
 
 def oracle_bin() -> str:
