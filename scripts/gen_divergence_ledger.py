@@ -717,6 +717,13 @@ ROWS: list[dict[str, Any]] = [
         docs=AUDIT,
     ),
     _row(
+        "D88",
+        "int / int past 2**53 divides the widened operands, so the quotient rounds before the division; "
+        "CPython divides the exact integers and rounds once",
+        "d88_int_truediv_wide.py",
+        docs=f"{DOC}#88",
+    ),
+    _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT
     ),
     _row(
