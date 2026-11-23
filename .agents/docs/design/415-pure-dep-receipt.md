@@ -11,7 +11,7 @@ was resolved with `pyscriptc deps --json`, then the package directory inside the
 materialised wheel source root (`~/.cache/pyscriptc/deps/src/<sha256>/<pkg>`)
 was profiled with `pyscriptc coverage --json`. A second, realistic consumer
 (`*_real.py`) went through `pyscriptc compile --emit ir` to count the fences in
-the *reachable* slice — the number that actually decides a receipt, since
+the *reachable* slice, so the number that actually decides a receipt, since
 unreached modules are pruned.
 
 ## Fence profile (measured, not quoted)
@@ -69,7 +69,7 @@ mostly because today's resolution is wcwidth 0.9.5, a much larger rewrite
   platform glue; the fences are its semantics, not its surface. Out.
 - **shellingham**: only 5 reachable fences, but they understate the distance.
   `detect_shell` dispatches through `importlib.import_module("." + os.name)`
-  — probe-verified: `PS2001 import_module returns a module`, a hard fence —
+ , so probe-verified: `PS2001 import_module returns a module`, a hard fence
   into `posix` backends that run `subprocess.check_output(["ps", ...])` and
   walk `/proc`. `subprocess` does lower, but only onto the island lane (the
   emitted binary links host libpython, PS4304), which is the weak tier this
@@ -81,7 +81,7 @@ mostly because today's resolution is wcwidth 0.9.5, a much larger rewrite
   `re.Match[str]`, `IO[bytes]`, `Callable`/`Tuple` as values), which masks
   the second wave underneath. Probe-verified pieces of it: a `re.compile`
   result held as a module constant fences (`PS2002 global RE_NUM of Pattern
-  is not lowered` — `re` lowers the *function* surface only, so `RE_*`
+  is not lowered`, so `re` lowers the *function* surface only, so `RE_*`
   constants and every `Match` call are gated), genexp-built `frozenset`
   unions and set difference need annotations/features (literal
   `frozenset(" \t")` does lower). Estimated but unprobed: `Match` methods,
@@ -99,7 +99,7 @@ mostly because today's resolution is wcwidth 0.9.5, a much larger rewrite
 
 The typing-surface slices landed on master (the issue's precondition), so the
 choice is between the two parsers. iniconfig wins on every count: 22 vs 44
-tree-root fences, 26 vs 82 reachable, ~20 vs ~61 non-cascade, and — decisive —
+tree-root fences, 26 vs 82 reachable, ~20 vs ~61 non-cascade, and, so decisive
 a floor test that compiles and runs today.
 
 ### The floor test (the measurement that decides it)
@@ -114,25 +114,25 @@ CPython byte-for-byte** (6 lines, `value / 42 / y / 2 / fallback`).
 
 Every patch point maps to a named compiler slice. Single-statement probes
 (`/tmp/pysc/c415/probes/`, each compiled to a binary and run) tightened the
-list — several suspected blockers already lower today: `frozenset(" \t")`
+list, so several suspected blockers already lower today: `frozenset(" \t")`
 literals and membership, keyword-only parameters, two-arm unions including
 `str | os.PathLike[str]` (the `os.PathLike` arm erases), `str.removeprefix`,
 and `open(path, encoding=...)` with `with ... as fp` + `fp.read()`. The
 remaining work list, in roughly increasing size:
 
-1. `str.splitlines(True)` keepends row — `splitlines()` lowers, the
+1. `str.splitlines(True)` keepends row, so `splitlines()` lowers, the
    `keepends` argument does not (`PS2001 call of attribute is not lowered
    (splitlines)`, probe-verified); `parse_ini_data` uses keepends.
-2. `os.fspath` stdlib row — `PS2001 os.fspath is not in the lowered subset
+2. `os.fspath` stdlib row, so `PS2001 os.fspath is not in the lowered subset
    of os` (probe-verified); used unconditionally in
    `IniConfig.__init__`/`parse`. Identity for `str`.
-3. `Final` in annotations — `PS1103 Final is not a lowered type in the IR`
+3. `Final` in annotations, so `PS1103 Final is not a lowered type in the IR`
    (probe-verified; `UTF8_BOM: Final`, the `Final` fields). Extends the #412
    erased-name machinery to one more name.
 4. `none`-literal → `opt_T` unification: `return None, None` infers
    `tuple[none, none]` and refuses `tuple[str | None, str | None]` (5×
    PS1003 in `_parseline`, probe-verified with a minimal repro). Note
-   `print(x)` on an `opt_str` value also fences — the receipt consumer
+   `print(x)` on an `opt_str` value also fences, so the receipt consumer
    should `str()`/unwrap or print concrete values.
 5. Multi-arg exception constructors and exception attributes:
    `ParseError(path, lineno, msg)` + `super().__init__(path, lineno, msg)`
@@ -144,9 +144,9 @@ remaining work list, in roughly increasing size:
 7. `NamedTuple` class base → record (`ParsedLine`, "this class base is not
    lowered", probe-verified); also unlocks `call to ParsedLine`.
 8. One access path to sections: either dunder dispatch (`ini["s"]["k"]`,
-   `"s" in ini` — `__getitem__`/`__contains__` do not dispatch from `[]`/`in`
+   `"s" in ini`, so `__getitem__`/`__contains__` do not dispatch from `[]`/`in`
    today, probe-verified) or `IniConfig.get` (needs `@overload` stub
-   skipping and the `Callable | None` / TypeVar `default` signature —
+   skipping and the `Callable | None` / TypeVar `default` signature
    `get`'s body itself is small). `ini["s"]["k"]` is the documented API and
    the better demo; `get` is the smaller slice. The two PS1102 multi-arm
    unions (`_D | _T | str | None`, `Callable[[str], _T] | None`) live only
@@ -170,11 +170,11 @@ Same shape as the certifi receipt (#409, `benchmarks/library/` +
 - `benchmarks/library/iniconfig_receipt.py`: a PEP 723 script,
   `requires-python = ">=3.14"`, `dependencies = ["iniconfig"]`, no vendored
   code. The program exercises the documented API: build an `IniConfig` from a
-  literal ini document passed as `data` (no file staging needed — `data=`
+  literal ini document passed as `data` (no file staging needed, so `data=`
   keeps the receipt I/O-free), read `ini["section"]["key"]` (or
   `ini.get(...)` pending slice 9), `ini.lineof(...)`, membership, and a
   `ParseError` path on a malformed document whose `str(e)` is printed. Every
-  printed value is deterministic across the lanes — no host paths, no
+  printed value is deterministic across the lanes, so no host paths, no
   `where()`-style shape asserts.
 - `benchmarks/library/pylock.iniconfig_receipt.toml`: committed lock
   (iniconfig 2.3.1, wheel sha256) so `--frozen` runs without the resolver.
