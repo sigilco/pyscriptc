@@ -94,6 +94,14 @@ class AbiMixin(EmitterBase):
             value_type: dict[str, Any] = _value_of(typ)
             value_kind: str = _kind(value_type)
             vkind: int = {"int": 1, "float": 2, "str": 3, "bytes": 6}[value_kind]
+            # The `ordered` and `defaultdict` marks ride the two bits above
+            # the value kind so `repr_map_into` spells `OrderedDict({...})`
+            # and `defaultdict(<class 'int'>, {...})` (ps_fmt.c masks them
+            # back off for the `%(key)s` value reads).
+            if _flag_of(typ, "ordered"):
+                vkind |= 0x100
+            if _flag_of(typ, "defaultdict"):
+                vkind |= 0x200
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
             self.line(f"store i64 {vkind}, ptr {slot}")

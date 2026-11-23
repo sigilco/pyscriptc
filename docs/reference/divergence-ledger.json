@@ -947,17 +947,6 @@
       "status": "fenced"
     },
     {
-      "id": "D86",
-      "seam": "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view; the whole-array reduction answers a scalar, the shape a list and the axis reductions drop the axis",
-      "listed": true,
-      "docs": "docs/reference/divergences.md#86",
-      "probe": null,
-      "note": "the CPython side is real numpy, which the pinned oracle interpreter does not carry; the byte comparison runs in the differential lane instead (probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
-      "cpython": null,
-      "pyscriptc": null,
-      "status": "unprobed"
-    },
-    {
       "id": "D56",
       "seam": "the binascii subset covers unhexlify and hexlify; every other name is refused",
       "listed": true,
@@ -1416,6 +1405,37 @@
       "docs": "docs/reference/divergences.md#85",
       "probe": null,
       "note": "the host lane is byte-identical (probes/differential/island_import_routing.py); the routing itself is a compile-time fact the ledger cannot record as program bytes",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
+      "id": "D86",
+      "seam": "the counter/ordered/defaultdict marks ride the dict annotation, not the value: under a plain dict[K, V] boundary the value reprs as a plain dict and a d[k] miss raises KeyError (issue #491)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#86",
+      "probe": "probes/divergences/d86_collections_marks.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "OrderedDict({'b': 2})\ndefaultdict(<class 'int'>, {'x': 1})\n0\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "{'b': 2}\n{'x': 1}\n",
+        "stderr": "KeyError: 'zz'\n"
+      },
+      "status": "divergent"
+    },
+    {
+      "id": "D87",
+      "seam": "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view; the whole-array reduction answers a scalar, the shape a list and the axis reductions drop the axis",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#87",
+      "probe": null,
+      "note": "the CPython side is real numpy, which the pinned oracle interpreter does not carry; the byte comparison runs in the differential lane instead (probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
       "cpython": null,
       "pyscriptc": null,
       "status": "unprobed"

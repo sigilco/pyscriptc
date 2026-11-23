@@ -125,13 +125,19 @@ static void repr_str_into(PsGrow *g, int64_t n, const char *p, int ascii_only) {
     ps_grow_byte(g, '\'');
 }
 
+/* A map PsArg's int slot carries the value kind in the low byte; the
+   `ordered` and `defaultdict` type marks ride the two bits above it so a
+   whole-map spelling writes `OrderedDict({...})` /
+   `defaultdict(<class 'int'>, {...})`. The `%(key)s` value reads mask the
+   marks back off. */
+#define PS_MAP_ARG_ORDERED 0x100
+#define PS_MAP_ARG_DEFAULTDICT 0x200
+
 /* `'%s' % d` prints the mapping repr; keys render by the map's key_kind,
    values by the vkind stashed in the PsArg's int slot. Deleted keys keep
    their dense row (marked dead in the index), so the row of iteration
    position i comes from the order cache, not the raw arrays. */
-static void repr_map_into(PsGrow *g, const PsArg *a, int ascii_only) {
-    PsMap *m = (PsMap *)a->b.data;
-    int64_t vkind = a->i;
+static void repr_map_braces(PsGrow *g, PsMap *m, int64_t vkind, int ascii_only) {
     char *key = malloc((size_t)m->key_size);
     char *val = malloc((size_t)m->val_size);
     if (key == NULL || val == NULL) {
@@ -175,6 +181,45 @@ static void repr_map_into(PsGrow *g, const PsArg *a, int ascii_only) {
     ps_grow_byte(g, '}');
     free(key);
     free(val);
+}
+
+static void repr_map_into(PsGrow *g, const PsArg *a, int ascii_only) {
+    PsMap *m = (PsMap *)a->b.data;
+    int64_t vkind = a->i & 0xFF;
+    if (a->i & PS_MAP_ARG_ORDERED) {
+        if (m->len == 0) {
+            grow_text(g, "OrderedDict()");
+            return;
+        }
+        grow_text(g, "OrderedDict(");
+        repr_map_braces(g, m, vkind, ascii_only);
+        ps_grow_byte(g, ')');
+        return;
+    }
+    if (a->i & PS_MAP_ARG_DEFAULTDICT) {
+        const char *name;
+        switch (vkind) {
+            case 1:
+                name = "int";
+                break;
+            case 2:
+                name = "float";
+                break;
+            case 3:
+                name = "str";
+                break;
+            default:
+                ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
+                return;
+        }
+        grow_text(g, "defaultdict(<class '");
+        grow_text(g, name);
+        grow_text(g, "'>, ");
+        repr_map_braces(g, m, vkind, ascii_only);
+        ps_grow_byte(g, ')');
+        return;
+    }
+    repr_map_braces(g, m, vkind, ascii_only);
 }
 
 static void arg_as_str(PsGrow *g, const PsArg *a) {
@@ -624,7 +669,7 @@ static const PsArg *resolve_field(Ctx *c, const char *field, int64_t fn, PsArg *
                     ps_raise_cstr(PS_KEY, "format key not found");
                 }
                 int64_t kv = kidx;
-                int64_t vkind = arg->i;
+                int64_t vkind = arg->i & 0xFF;
                 if (vkind == 1) {
                     int64_t val;
                     ps_map_get(m, &kv, &val);
@@ -646,7 +691,7 @@ static const PsArg *resolve_field(Ctx *c, const char *field, int64_t fn, PsArg *
                     ps_raise_cstr(PS_KEY, "format key not found");
                 }
                 PsBuf kv = {kn, (char *)key};
-                int64_t vkind = arg->i;
+                int64_t vkind = arg->i & 0xFF;
                 if (vkind == 1) {
                     int64_t val;
                     ps_map_get(m, &kv, &val);
@@ -931,6 +976,60 @@ static void emit_dot_field(PsGrow *g, Ctx *c, const char *field, int64_t fn) {
    spec. A malformed spec raises rather than reading past its length. */
 
 static void repr_spec_cell(PsGrow *g, const char *cell, const char *sp, int64_t sn);
+static void repr_map_spec(PsGrow *g, PsMap *m, const char *sp, int64_t sn);
+
+/* A dict cell spec: `d` + key char + value spec, optionally wrapped as
+   `o` (OrderedDict) or `D` + factory char (defaultdict). The wrappers
+   spell CPython 3.14's reprs: `OrderedDict()` / `OrderedDict({...})`
+   and `defaultdict(<class 'list'>, {...})`. */
+static void repr_dict_cell(PsGrow *g, PsMap *m, const char *sp, int64_t sn) {
+    if (sn >= 1 && sp[0] == 'o') {
+        if (m->len == 0) {
+            grow_text(g, "OrderedDict()");
+            return;
+        }
+        grow_text(g, "OrderedDict(");
+        repr_dict_cell(g, m, sp + 1, sn - 1);
+        ps_grow_byte(g, ')');
+        return;
+    }
+    if (sn >= 2 && sp[0] == 'D') {
+        const char *name;
+        switch (sp[1]) {
+            case 'l':
+                name = "list";
+                break;
+            case 't':
+                name = "set";
+                break;
+            case 'd':
+                name = "dict";
+                break;
+            case 'i':
+                name = "int";
+                break;
+            case 'f':
+                name = "float";
+                break;
+            case 's':
+                name = "str";
+                break;
+            default:
+                ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
+                return;
+        }
+        grow_text(g, "defaultdict(<class '");
+        grow_text(g, name);
+        grow_text(g, "'>, ");
+        repr_dict_cell(g, m, sp + 2, sn - 2);
+        ps_grow_byte(g, ')');
+        return;
+    }
+    if (sn < 3 || sp[0] != 'd' || (sp[1] != 'i' && sp[1] != 's')) {
+        ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
+    }
+    repr_map_spec(g, m, sp + 2, sn - 2);
+}
 
 static void repr_seq_spec(PsGrow *g, PsSeq *s, const char *sp, int64_t sn, int64_t is_set) {
     if (is_set != 0 && s->len == 0) {
@@ -1021,13 +1120,12 @@ static void repr_spec_cell(PsGrow *g, const char *cell, const char *sp, int64_t 
             repr_seq_spec(g, sub, sp + 1, sn - 1, c == 't');
             return;
         }
-        case 'd': {
+        case 'd':
+        case 'o':
+        case 'D': {
             PsMap *sub;
-            if (sn < 3 || (sp[1] != 'i' && sp[1] != 's')) {
-                ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
-            }
             memcpy(&sub, cell, sizeof sub);
-            repr_map_spec(g, sub, sp + 2, sn - 2);
+            repr_dict_cell(g, sub, sp, sn);
             return;
         }
         case 'u': {
@@ -1084,6 +1182,8 @@ static void repr_spec_cell(PsGrow *g, const char *cell, const char *sp, int64_t 
                     case 'l':
                     case 't':
                     case 'd':
+                    case 'o':
+                    case 'D':
                     case 'u':
                         size = 8;
                         align = 8;
@@ -1143,10 +1243,7 @@ void ps_seq_repr(PsSeq *s, int64_t sn, const char *sp, int64_t is_set, PsBuf *ou
 void ps_map_repr(PsMap *m, int64_t sn, const char *sp, PsBuf *out) {
     PsGrow g;
     ps_grow_init(&g);
-    if (sn < 3 || sp[0] != 'd' || (sp[1] != 'i' && sp[1] != 's')) {
-        ps_raise_cstr(PS_VALUE, "container repr spec is not lowered");
-    }
-    repr_map_spec(&g, m, sp + 2, sn - 2);
+    repr_dict_cell(&g, m, sp, sn);
     ps_grow_finish(&g, out);
 }
 
@@ -1302,7 +1399,7 @@ void ps_str_format(int64_t fn, const char *f, const PsArg *args, int64_t an, int
                 ps_raise_cstr(PS_KEY, "format key not found");
             }
             PsBuf kv = {kn, (char *)key};
-            int64_t vkind = args[0].i;
+            int64_t vkind = args[0].i & 0xFF;
             if (vkind == 1) {
                 int64_t v;
                 ps_map_get(m, &kv, &v);
