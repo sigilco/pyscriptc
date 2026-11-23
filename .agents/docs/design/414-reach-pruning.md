@@ -82,6 +82,8 @@ Nothing today, and that is the gap #414 names.
 
 The `pruned` note is not surfaced in the coverage report either. `_island_notes` (`src/pyscriptc/coverage.py:662`) only parses notes matching `note: PS2002 (...)`, so a `note: pruned ...` note is dropped: it appears in the IR `_notes` list, not in the coverage JSON.
 
+The note also does not carry the fence count. `_pruned_note` takes only the module name and the path, so the note says the module was pruned but not how many fences it holds. #414 asks for "a `pruned` note (module + fence count)", so the fence count is a small addition to the note, not a new mechanism. The count is available: the pruned unit's fences are computed before the unit is dropped, so the note could carry them without a second lowering pass.
+
 So under the contract as it exists:
 
 - `pyscriptc coverage <dep-tree>` reports every fence as a root fence.
@@ -226,7 +228,7 @@ That is the right default (the consumer decides what it imports), but it means t
 **Recommendation:** record the decision as **narrower than #414 asks, and already largely delivered**. The reach rule is the right rule and it is already the rule for the compile path. What #414 should record is the four gaps, not a new contract:
 
 1. the contract statement itself (program root all-or-nothing, dependency root reached-only, the `pruned` note), so the rule is written down rather than implied by PR #535,
-2. the `coverage` surface: the report must show the pruned fences and their count, so the coverage number and the compile number agree,
+2. the `coverage` surface and the note itself: the report must show the pruned fences and their count (the `pruned` note today carries only the module name and the path), so the coverage number and the compile number agree,
 3. the two soundness guards: the function-local import and the dynamic import,
 4. the catalogued bucket's fence behaviour, stated one way or the other.
 
