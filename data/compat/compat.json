@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-23",
-  "commit": "12bbec20aa04d21104e5bde678d0ec121849042a",
+  "commit": "fe505457e62c368acb53a5053fcd99de7c50d7fa",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-23",
-    "commit": "12bbec20aa04d21104e5bde678d0ec121849042a",
+    "commit": "fe505457e62c368acb53a5053fcd99de7c50d7fa",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -539,7 +539,7 @@
       "status": "partial",
       "count": 2,
       "unsupported": [
-        "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step"
+        "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step, an axis on a one-dimensional array"
       ],
       "fences": [
         "PS2001",
@@ -2910,7 +2910,7 @@
     },
     {
       "date": "2026-11-23",
-      "commit": "12bbec20aa04d21104e5bde678d0ec121849042a",
+      "commit": "fe505457e62c368acb53a5053fcd99de7c50d7fa",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,

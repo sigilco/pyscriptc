@@ -405,15 +405,6 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#55",
     ),
     _row(
-        "D64",
-        "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view",
-        None,
-        docs=f"{DOC}#55",
-        note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
-        "the byte comparison runs in the differential lane instead "
-        "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
-    ),
-    _row(
         "D56",
         "the binascii subset covers unhexlify and hexlify; every other name is refused",
         "d56_binascii.py",
@@ -652,6 +643,16 @@ ROWS: list[dict[str, Any]] = [
         "dict[K, V] boundary the value reprs as a plain dict and a d[k] miss raises KeyError (issue #491)",
         "d86_collections_marks.py",
         docs=f"{DOC}#86",
+    ),
+    _row(
+        "D88",
+        "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view; "
+        "the whole-array reduction answers a scalar, the shape a list and the axis reductions drop the axis",
+        None,
+        docs=f"{DOC}#88",
+        note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
+        "the byte comparison runs in the differential lane instead "
+        "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
     ),
     _row(
         "D87",
