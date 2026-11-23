@@ -626,8 +626,8 @@ def test_every_table_row_has_a_probe() -> None:
     extra = sorted(probed - inventory)
     assert not missing, f"call-table rows without a differential probe: {missing}"
     assert not extra, f"probes without a call-table row: {extra}"
-    assert len(inventory) == 188
-    assert len(PROBES) == 188
+    assert len(inventory) == 198
+    assert len(PROBES) == 198
 
 
 def _group_source(group: str) -> str:
