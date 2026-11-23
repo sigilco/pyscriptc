@@ -526,6 +526,10 @@ class Lowerer(
         # placeholders that only ever live in signatures/field tables;
         # call sites monomorphize them into concrete instantiations.
         self.typevars: dict[str, dict[str, Any] | None] = {}
+        # The `bound=` annotation node of each TypeVar, resolved on first
+        # read (issue #412): the bound may name a class the module declares
+        # below the TypeVar, so it cannot lower at declaration time.
+        self.typevar_bounds: dict[str, ast.expr | None] = {}
         # Active substitution while lowering one instantiation.
         self.tv_subst: dict[str, dict[str, Any]] = {}
         # Functions whose signature carries placeholders, name -> def.
@@ -819,6 +823,7 @@ class Lowerer(
                 saved_aliases = dict(self.type_aliases)
                 saved_declared = set(self.declared)
                 saved_typevars = dict(self.typevars)
+                saved_bounds = dict(self.typevar_bounds)
                 try:
                     body = self._body(list(fn.body))
                     if self.caught:
@@ -844,6 +849,7 @@ class Lowerer(
                     self.type_aliases = saved_aliases
                     self.declared = saved_declared
                     self.typevars = saved_typevars
+                    self.typevar_bounds = saved_bounds
                     self.tv_subst = {}
                     self.inst_sig = None
                     for name, prev in saved_consts.items():
