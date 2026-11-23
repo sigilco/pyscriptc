@@ -735,12 +735,13 @@ def _write_all(fd: int, data: bytes) -> None:
         view = view[written:]
 
 
-def fetch_wheel(wheel: LockedWheel, cache: Path, *, offline: bool = False) -> bytes:
+def fetch_wheel(wheel: LockedWheel, cache: Path, *, offline: bool = False, name: str | None = None) -> bytes:
     """Wheel bytes from the blob cache or the network, verified against the lock's sha256."""
     blob = cache / "blobs" / "sha256" / wheel.sha256[:2] / f"{wheel.sha256}.whl"
     if blob.is_file():
         data = blob.read_bytes()
         if hashlib.sha256(data).hexdigest() == wheel.sha256:
+            _fetch_event(name, wheel, cached=True)
             return data
         blob.unlink()
     if offline:
@@ -750,7 +751,18 @@ def fetch_wheel(wheel: LockedWheel, cache: Path, *, offline: bool = False) -> by
     if got != wheel.sha256:
         raise DepsError(f"{wheel.filename}: sha256 {got} does not match the lock ({wheel.sha256})")
     _atomic_write(blob, data)
+    _fetch_event(name, wheel, cached=False)
     return data
+
+
+def _fetch_event(name: str | None, wheel: LockedWheel, *, cached: bool) -> None:
+    """Emit the ``deps.fetch`` record for one wheel download or cache hit."""
+    fields: dict[str, Any] = {}
+    fields["name"] = name or ""
+    fields["sha256"] = wheel.sha256
+    fields["wheel"] = wheel.filename
+    fields["cached"] = cached
+    emit_event("info", "deps.fetch", fields)
 
 
 def _should_skip_member(parts: tuple[str, ...]) -> bool:
@@ -916,6 +928,28 @@ def _materialise_event(name: str | None, sha256: str, dest: Path, skipped: list[
     emit_event("info", "deps.materialise", fields)
 
 
+def _resolve_event(spec: DepSpec, lock_text: str, provenance: str, packages: list[LockedPackage]) -> None:
+    """Emit the ``deps.resolve`` record after the lock is loaded or written."""
+    lock_digest_val: str | None = lock_digest(lock_text)
+    fields: dict[str, Any] = {}
+    fields["source"] = str(spec.origin)
+    fields["kind"] = spec.kind
+    fields["provenance"] = provenance
+    fields["lock_digest"] = lock_digest_val or ""
+    fields["package_count"] = len(packages)
+    emit_event("info", "deps.resolve", fields)
+
+
+def _lane_events(results: list[DepResult]) -> None:
+    """Emit one ``deps.lane`` record per resolved package."""
+    for result in results:
+        fields: dict[str, Any] = {}
+        fields["name"] = result.name
+        fields["lane"] = result.lane
+        fields["reason"] = result.reason
+        emit_event("info", "deps.lane", fields)
+
+
 def materialise(data: bytes, sha256: str, cache: Path, *, name: str | None = None) -> Path:
     """Unpack a verified pure wheel into `src/<sha256>/` once; returns the import root."""
     dest = cache / "src" / sha256
@@ -1049,7 +1083,7 @@ def analyse(
             result.wheel = wheel.filename
             result.sha256 = wheel.sha256
             if download:
-                data = fetch_wheel(wheel, cache, offline=offline)
+                data = fetch_wheel(wheel, cache, offline=offline, name=pkg.name)
                 pure, reason = inspect_wheel(data)
                 result.reason = reason
                 if pure:
@@ -1068,6 +1102,7 @@ def analyse(
                         if len(dist_infos) == 1:
                             result.import_names = list(_top_level_names(zf, names, dist_infos.pop()))
         results.append(result)
+    _lane_events(results)
     return results
 
 
@@ -1174,7 +1209,9 @@ def run_deps(
     spec = load_spec(source)
     text, provenance = resolve(spec, frozen=frozen, upgrade=upgrade, offline=offline)
     cache = cache_root(cache_dir)
-    results = analyse(parse_pylock(text), cache, download=download, offline=offline)
+    packages = parse_pylock(text)
+    _resolve_event(spec, text, provenance, packages)
+    results = analyse(packages, cache, download=download, offline=offline)
     lanes: dict[str, int] = {}
     for r in results:
         lanes[r.lane] = lanes.get(r.lane, 0) + 1

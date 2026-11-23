@@ -439,3 +439,45 @@ def test_network_resolve_real_pypi(tmp_path: Path, monkeypatch: pytest.MonkeyPat
     lanes = {p["name"]: p["lane"] for p in report["packages"]}
     assert lanes == {"colorama": "pure", "pyyaml": "native"}
     assert (Path(report["sourceRoots"][0]) / "colorama" / "__init__.py").is_file()
+
+
+def _audit_records(event: str) -> list[dict[str, Any]]:
+    lines = log_path().read_text(encoding="utf-8").splitlines()
+    return [r for r in (json.loads(line) for line in lines) if r.get("event") == event]
+
+
+def test_run_deps_emits_resolve_fetch_and_lane_events(
+    fake: dict[str, Any], tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("PYSC_LOG_DIR", str(tmp_path / "audit"))
+    script = _script(tmp_path)
+    report = deps.run_deps(script)
+
+    (resolve,) = _audit_records("deps.resolve")
+    assert resolve["source"] == str(script)
+    assert Path(resolve["source"]).exists()
+    assert resolve["provenance"] == "resolved"
+    assert resolve["package_count"] == 3
+    assert len(resolve["lock_digest"]) == 64
+
+    (fetch,) = _audit_records("deps.fetch")
+    assert fetch["name"] == "colorama"
+    assert fetch["sha256"] == sha(COLORAMA)
+    assert fetch["wheel"] == "colorama-0.4.6-py2.py3-none-any.whl"
+    assert fetch["cached"] is False
+
+    lanes = {r["name"]: r for r in _audit_records("deps.lane")}
+    assert set(lanes) == {"colorama", "pyyaml", "docopt"}
+    assert lanes["colorama"]["lane"] == "pure"
+    assert all(r["reason"] for r in lanes.values())
+    assert sorted(r["lane"] for r in lanes.values()) == sorted(
+        lane for lane, count in report["lanes"].items() for _ in range(count)
+    )
+
+    (mat,) = _audit_records("deps.materialise")
+    assert mat["name"] == "colorama"
+    assert Path(mat["source_root"]).is_dir()
+
+    # A second run is a cache hit: the fetch record says so.
+    deps.run_deps(script)
+    assert [r["cached"] for r in _audit_records("deps.fetch")] == [False, True]
