@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "b35d66a68b750aeef60acd2caf35df8d3aaecf5b",
+  "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -993,8 +993,8 @@
       "name": "pytz",
       "version": "2026.5",
       "status": "\ud83d\udfe1",
-      "ratio": "29/99",
-      "blocking": "param-inference (13), construct-other (2), return-inference (2)",
+      "ratio": "32/102",
+      "blocking": "param-inference (16), return-inference (2), stdlib:datetime (2)",
       "codes": "PS2002, PS1001, PS2001"
     },
     {
@@ -1009,8 +1009,8 @@
       "name": "shellingham",
       "version": "1.5.4",
       "status": "\ud83d\udd34",
-      "ratio": "18/23",
-      "blocking": "module-value (19), param-inference (12), return-inference (5)",
+      "ratio": "19/25",
+      "blocking": "module-value (19), param-inference (12), return-inference (6)",
       "codes": "PS2002, PS1001, PS2001"
     },
     {
@@ -1041,8 +1041,8 @@
       "name": "zipp",
       "version": "4.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "20/26",
-      "blocking": "param-inference (18), module-value (3), stdlib:sys (2)",
+      "ratio": "57/75",
+      "blocking": "param-inference (34), return-inference (18), module-value (3)",
       "codes": "PS1001, PS2002, PS2001"
     }
   ]

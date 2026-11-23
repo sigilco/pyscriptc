@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-23",
-  "commit": "b35d66a68b750aeef60acd2caf35df8d3aaecf5b",
+  "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-23",
-    "commit": "b35d66a68b750aeef60acd2caf35df8d3aaecf5b",
+    "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3874
+    "fences": 3925
   },
   "builtins": [
     {
@@ -2281,41 +2281,41 @@
       "status": "partial",
       "island": "runs",
       "plane": {
-        "definitions": 99,
+        "definitions": 102,
         "native": 70,
         "island": 0,
-        "blocked": 29
+        "blocked": 32
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 42,
-      "definitions": 99,
-      "fenced_definitions": 29,
+      "fences": 52,
+      "definitions": 102,
+      "fenced_definitions": 32,
       "top_families": [
         {
           "family": "param-inference",
-          "count": 13
-        },
-        {
-          "family": "construct-other",
-          "count": 2
+          "count": 16
         },
         {
           "family": "return-inference",
+          "count": 2
+        },
+        {
+          "family": "stdlib:datetime",
           "count": 2
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 25
+          "count": 31
         },
         {
           "code": "PS1001",
-          "count": 15
+          "count": 18
         },
         {
           "code": "PS2001",
-          "count": 2
+          "count": 3
         }
       ],
       "pypi": "https://pypi.org/project/pytz/"
@@ -2373,15 +2373,15 @@
       "status": "none",
       "island": "runs",
       "plane": {
-        "definitions": 23,
-        "native": 5,
+        "definitions": 25,
+        "native": 6,
         "island": 0,
-        "blocked": 18
+        "blocked": 19
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 44,
-      "definitions": 23,
-      "fenced_definitions": 18,
+      "fences": 45,
+      "definitions": 25,
+      "fenced_definitions": 19,
       "top_families": [
         {
           "family": "module-value",
@@ -2393,7 +2393,7 @@
         },
         {
           "family": "return-inference",
-          "count": 5
+          "count": 6
         }
       ],
       "codes": [
@@ -2403,7 +2403,7 @@
         },
         {
           "code": "PS1001",
-          "count": 18
+          "count": 19
         },
         {
           "code": "PS2001",
@@ -2515,37 +2515,37 @@
       "status": "none",
       "island": "runs",
       "plane": {
-        "definitions": 26,
-        "native": 5,
+        "definitions": 75,
+        "native": 16,
         "island": 0,
-        "blocked": 21
+        "blocked": 59
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 29,
-      "definitions": 26,
-      "fenced_definitions": 20,
+      "fences": 69,
+      "definitions": 75,
+      "fenced_definitions": 57,
       "top_families": [
         {
           "family": "param-inference",
+          "count": 34
+        },
+        {
+          "family": "return-inference",
           "count": 18
         },
         {
           "family": "module-value",
           "count": 3
-        },
-        {
-          "family": "stdlib:sys",
-          "count": 2
         }
       ],
       "codes": [
         {
           "code": "PS1001",
-          "count": 18
+          "count": 52
         },
         {
           "code": "PS2002",
-          "count": 8
+          "count": 14
         },
         {
           "code": "PS2001",
@@ -2722,19 +2722,19 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1996,
+      "count": 2008,
       "packages": 19
     },
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 427,
+      "count": 428,
       "packages": 17
     },
     {
       "code": "PS1001",
       "title": "annotation missing or not supported",
-      "count": 383,
+      "count": 421,
       "packages": 18
     },
     {
@@ -2909,12 +2909,12 @@
     },
     {
       "date": "2026-11-23",
-      "commit": "b35d66a68b750aeef60acd2caf35df8d3aaecf5b",
+      "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3874
+      "fences": 3925
     }
   ]
 }
