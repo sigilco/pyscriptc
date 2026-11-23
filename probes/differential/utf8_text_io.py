@@ -14,6 +14,7 @@ this same program and the lane byte-compares stdout, stderr and the exit
 code.
 """
 
+import os
 import sys
 
 PAYLOAD: str = "café naïve 日本 \U0001f600\nline two ü\n"
@@ -91,7 +92,5 @@ try:
         print(fh.read())
 except UnicodeDecodeError:
     print("ascii decode error")
-
-import os
 
 os.remove("utf8_probe.txt")
