@@ -222,13 +222,8 @@ def test_math_issue_493_tail_fma(tmp_path: Path) -> None:
     path = write_case(tmp_path, "tail_fma.py", source)
     got = compile_run(tmp_path, path, "run")
     assert got.returncode == 0, got.stderr
-    assert got.stdout == (
-        "5.0 0.32 -1.0 5.0\n"
-        "inf nan\n"
-        "ValueError\n"
-        "OverflowError\n"
-        "0\n"
-    )
+    assert got.stdout == ("5.0 0.32 -1.0 5.0\ninf nan\nValueError\nOverflowError\n0\n")
+
 
 def test_math_issue_493_tail_sequences(tmp_path: Path) -> None:
     _oracle(
@@ -240,8 +235,9 @@ def test_math_issue_493_tail_sequences(tmp_path: Path) -> None:
             "print(math.dist([1.0], [2.0]), math.dist(ys, ys), math.dist([0.0, 0.0], [0.0, 0.0]))",
             "print(math.dist([1e308, 1e308], [0.0, 0.0]), math.dist([1e-10, 1e-10], [0.0, 0.0]))",
             *_raises("math.dist([0.0, 0.0], [1.0])"),
-            "print(math.sumprod([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]), math.sumprod([1, 2], [3, 4]), math.sumprod([0, 0], [0, 0]))",
-            "print(math.sumprod([0.1, 0.2], [0.3, 0.4]), math.sumprod([0.0, 0.0], [0.0, 0.0]), math.sumprod([-1.0, 2.0], [3.0, -4.0]))",
+            "print(math.sumprod([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]), math.sumprod([1, 2], [3, 4]))",
+            "print(math.sumprod([0, 0], [0, 0]), math.sumprod([0.0, 0.0], [0.0, 0.0]))",
+            "print(math.sumprod([0.1, 0.2], [0.3, 0.4]), math.sumprod([-1.0, 2.0], [3.0, -4.0]))",
             "print(math.sumprod([1e100, 1e-100], [1e-100, 1e100]))",
             *_raises("math.sumprod([1.0, 2.0], [3.0])"),
         ],
