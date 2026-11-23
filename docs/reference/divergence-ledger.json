@@ -1355,6 +1355,26 @@
       "status": "unprobed"
     },
     {
+      "id": "D88",
+      "seam": "math.sumprod over int sequences is i64 (divergence 1): a result past the i64 range raises OverflowError where CPython grows a big int",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#88",
+      "probe": "probes/divergences/d88_math_sumprod_int_overflow.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "11\n9223372036854775808\nValueError\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "11\nOverflowError\nValueError\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,

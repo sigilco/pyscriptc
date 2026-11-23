@@ -584,6 +584,13 @@ ROWS: list[dict[str, Any]] = [
         "return_exceptions fence and the one-result-type rule (PS2002) are the rest of the entry",
     ),
     _row(
+        "D88",
+        "math.sumprod over int sequences is i64 (divergence 1): a result past the i64 range raises "
+        "OverflowError where CPython grows a big int",
+        "d88_math_sumprod_int_overflow.py",
+        docs=f"{DOC}#88",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
