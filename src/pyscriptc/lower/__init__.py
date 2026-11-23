@@ -64,6 +64,7 @@ from pyscriptc.lower._stmt import (
     _stmt_continues_this_loop,
 )
 from pyscriptc.mobile import MOBILE_EXCLUDED_SYMBOLS, is_mobile_target, mobile_fence_hint
+from pyscriptc.roots import RootSet
 from pyscriptc.stdlib_queue import (
     PACK_MODULES,
     canonical_module,
@@ -422,6 +423,10 @@ class Lowerer(
         # a program module may import them by their plain names, the way
         # `sys.path` resolves an unpacked wheel's packages.
         self.program_roots: set[str] = set()
+        # The module-root seam (issue #403): the roots this compile resolves
+        # import names against. `package.lower_directory` fills it; nothing
+        # reads it yet.
+        self.roots: RootSet = RootSet()
         self.package: dict[str, dict[str, dict[str, Any]]] | None = None
         self.pkg_funcs: dict[str, dict[str, Any]] = {}
         self.class_aliases: dict[str, str] = {}
