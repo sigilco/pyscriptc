@@ -458,6 +458,8 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
     def _tuple_fields_of(self, typ: dict[str, Any]) -> list[dict[str, Any]] | None:
         """The field types of a concrete tuple-typed value, or None when the
         type is not a lowered tuple class the table declares."""
+        if not isinstance(typ, dict):
+            return None
         info = self.classes.get(str(typ.get("name")))
         if info is None or not info.get("tuple"):
             return None
