@@ -443,13 +443,16 @@ def _method(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any],
     if attr in {"argmin", "argmax"}:
         return _arg_reduce(lo, node, span, recv, attr)
     if attr == "copy":
+        _no_arguments(lo, node, attr)
         return lo._abi_call("pyscriptc_ndarray", "copy", [recv], recv["type"], "ps_nd_copy", span)
     if attr == "ravel":
+        _no_arguments(lo, node, attr)
         out = _nd_type(dtype, 1)
         return lo._abi_call("pyscriptc_ndarray", "ravel", [recv], out, "ps_nd_ravel", span)
     if attr == "transpose":
         # The transpose is lowered for a 1-D or a 2-D array; the rank is
-        # unchanged.
+        # unchanged. The `axes` keyword numpy takes is outside the subset.
+        _no_arguments(lo, node, attr)
         return lo._abi_call(
             "pyscriptc_ndarray", "transpose", [recv], _nd_type(dtype, _ndim_of(recv["type"])), "ps_nd_transpose", span
         )
@@ -460,8 +463,18 @@ def _method(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any],
     if attr == "tolist":
         return _tolist(lo, node, span, recv, dtype)
     if attr == "tobytes":
+        _no_arguments(lo, node, attr)
         return lo._abi_call("pyscriptc_ndarray", "tobytes", [recv], {"kind": "bytes"}, "ps_nd_tobytes", span)
     return None
+
+
+def _no_arguments(lo: Any, node: ast.Call, attr: str) -> None:
+    """A method of the subset that takes no argument: an argument or a
+    keyword is outside the subset and fences, never ignored silently."""
+    if node.args:
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} takes no arguments")
+    for keyword in node.keywords:
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} keyword {keyword.arg} is not lowered")
 
 
 def _reduce(
@@ -477,6 +490,8 @@ def _reduce(
     lowering names the result type so the emitter reads the right one."""
     axis = None
     args_nodes = list(node.args)
+    if len(args_nodes) > 1:
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} takes at most one axis")
     for keyword in node.keywords:
         if keyword.arg == "axis":
             axis = lo._expr(keyword.value)
@@ -558,6 +573,8 @@ def _arg_reduce(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, A
 
 def _reshape(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], dtype: str) -> dict[str, Any]:
     """`reshape(shape...)`: the same count under new extents."""
+    for keyword in node.keywords:
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.reshape keyword {keyword.arg} is not lowered")
     if len(node.args) == 1 and isinstance(node.args[0], ast.List):
         dims = [lo._expr(elt) for elt in node.args[0].elts]
     else:

@@ -528,6 +528,22 @@ def test_argmin_argmax_axis_fences() -> None:
     )
 
 
+def test_no_argument_methods_fence_on_an_argument() -> None:
+    # `copy`, `ravel`, `transpose` and `tobytes` take no argument in the
+    # subset: an argument or a keyword fences, it never gets ignored.
+    for call, message in (
+        ("a.copy(1)", "pyscriptc_ndarray.copy"),
+        ("a.ravel(1)", "pyscriptc_ndarray.ravel"),
+        ("a.transpose(axes=1)", "pyscriptc_ndarray.transpose"),
+        ("a.tobytes(1)", "pyscriptc_ndarray.tobytes"),
+    ):
+        _fence(
+            f"import pyscriptc_ndarray as np\n\n\ndef run() -> int:\n    a = np.zeros([2, 2])\n    return {call}\n",
+            "PS2003",
+            message,
+        )
+
+
 # ---------------------------------------------------------------------
 # the dtype attribute rides the module binding, not the alias spelling
 # ---------------------------------------------------------------------
