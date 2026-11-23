@@ -655,7 +655,6 @@ ROWS: list[dict[str, Any]] = [
         "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
     ),
     _row(
-||||||| c0e13d59
         "D87",
         "math.comb, math.perm and math.prod are i64 (divergence 1): a result past the i64 range raises "
         "OverflowError where CPython grows a big int",
