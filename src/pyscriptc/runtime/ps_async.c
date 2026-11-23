@@ -21,7 +21,10 @@ to the loop. The loop does not poll the thread, so the completion is checked
 at the top of every loop iteration: the awaiting task is parked until the
 worker marks the record done. The honest boundary is that the loop spins
 while the thread runs; CPython's `to_thread` lets the loop run other tasks
-instead. The divergence is recorded in the stage D3 breakdown.
+instead. The divergence is recorded in the stage D3 breakdown. The spin is
+the loop's cadence even when a timer, a wait_for deadline or an fd wait is
+armed beside a live call: ps_loop.c caps the block at the same 1ms so the
+pump keeps polling (issue #400).
 */
 
 #include "ps_rt.h"

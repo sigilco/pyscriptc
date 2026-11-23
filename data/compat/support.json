@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "9bcafbdeb4e2aeb4612807b154ba4e009f8393dc",
+  "commit": "012ec7a75e9a22c3d67c670f0535616732ef2dec",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -131,9 +131,8 @@
       "label": "`open`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "encoding= other than utf-8, ascii, latin-1, encoding= on a binary mode, keywords other than encoding=",
+      "missing": "keywords other than encoding=",
       "codes": [
-        "PS2001",
         "PS2003"
       ]
     },
@@ -188,10 +187,9 @@
       "label": "`math`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma, log with a base",
+      "missing": "dist, ulp, nextafter, modf, frexp, ldexp, expm1, log1p, fma, sumprod",
       "codes": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ]
     },
     {

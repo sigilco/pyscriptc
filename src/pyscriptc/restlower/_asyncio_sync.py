@@ -24,10 +24,22 @@ in `.agents/docs/design/async-lowering-plan.md` records the divergence.
 from __future__ import annotations
 
 import ast
+import copy
+import hashlib
+import json
 from typing import Any
 
 from pyscriptc import _irnode as _ir
-from pyscriptc.coro import PRIM_MARKER, THREAD_MARKER, _await_result_name, enabled
+from pyscriptc.coro import (
+    PRIM_MARKER,
+    RETURN_MARKER,
+    THREAD_MARKER,
+    FramePlan,
+    _await_result_name,
+    _call_node,
+    _return_node,
+    enabled,
+)
 from pyscriptc.restlower._shared import (
     _asg,
     _call_builtin,
@@ -35,6 +47,8 @@ from pyscriptc.restlower._shared import (
     _class,
     _const_int,
     _expr_stmt,
+    _field_name,
+    _field_type,
     _mk_span,
     _nm,
     _node_kind,
@@ -304,21 +318,18 @@ def _queue_put(
 
 
 def _to_thread(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None, attr: str = "") -> dict[str, Any]:
-    """`asyncio.to_thread(fn, *args)`: run the callable on a worker thread.
+    """`asyncio.to_thread(fn, *args)`: a coroutine frame over a worker call.
 
-    The callable is a `func` value, so it is a callable pair. The bound
-    arguments ride in the pair's env, the way `threading.Thread(target=f,
-    args=(...))` and `functools.partial` bind them: one synthesized
-    env-first stub calls the target pair with the bound values prepended.
-
-    The call is an awaitable: the await parks the task until the worker
-    marks the record done, and the frame reads the result out of the
-    record after the resume.
+    The call lowers to a synthesized coroutine, the same shape `async def`
+    lowers to: one `coro.ps_to_thread_N` class per callable signature
+    whose `resume` starts the worker on the first poll and parks on the
+    record until the worker marks it done. `create_task`, `gather` and
+    `wait_for` only accept frames, so this is the shape that lets them
+    compose with `to_thread` (issue #400); a plain `await` polls the frame
+    through `ps_await_poll` exactly like a user coroutine.
     """
     if not enabled():
         lo.fail(node, "PS2001", "coroutines are not lowered")
-    if lo._coro_current() is None:
-        lo.fail(node, "PS2002", "asyncio.to_thread is only lowered inside a coroutine")
     lo._reject_keywords(node)
     if not node.args:
         lo.fail(node, "PS2003", "asyncio.to_thread expects at least 1 argument")
@@ -329,33 +340,60 @@ def _to_thread(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
     bound_nodes = list(node.args[1:])
     if len(bound_nodes) > len(ftype["params"]):
         lo.fail(node, "PS2003", f"asyncio.to_thread target expects {len(ftype['params'])} argument(s)")
-    env: list[_ir.EnvItem] = []
     bound: list[dict[str, Any]] = []
+    values: list[dict[str, Any]] = []
     for index, arg_node in enumerate(bound_nodes):
-        expect = ftype["params"][index]
-        value = lo._expr(arg_node, expect)
-        lo._expect(arg_node, _node_type(value), expect, f"asyncio.to_thread argument {index + 1}")
-        env.append(_ir.EnvItem(dict_to_node(value), dict_to_type(expect)))
-        bound.append(expect)
-    env.append(_ir.EnvItem(dict_to_node(target), dict_to_type(ftype)))
-    ret = ftype["return"]
-    # The record the worker writes its result into. The size is the result
-    # slot's size, so the runtime copies exactly the value's bytes.
+        expect_arg = ftype["params"][index]
+        value = lo._expr(arg_node, expect_arg)
+        lo._expect(arg_node, _node_type(value), expect_arg, f"asyncio.to_thread argument {index + 1}")
+        bound.append(expect_arg)
+        values.append(value)
+    fname, frame_t = _to_thread_frame(lo, span, ftype, bound)
+    return _call_node(node_to_dict(_ir.function_callee(fname)), [target, *values], frame_t, span)
+
+
+def _to_thread_frame(
+    lo: Any, span: dict[str, Any], ftype: dict[str, Any], bound: list[dict[str, Any]]
+) -> tuple[str, dict[str, Any]]:
+    """The synthesized coroutine behind `to_thread` for one signature.
+
+    Appends a plain function record to `nested_fns` and registers its
+    `FramePlan`, so `lower_resumables` rewrites it into the wrapper, frame
+    class and `coro.*.resume` forwarder the way it rewrites an `async
+    def`. The body's suspendable call is the same `THREAD_MARKER`
+    expansion the D3 caller took: park the running task on the record,
+    poll the worker, and read the result back after the resume.
+    """
+    frames: dict[str, tuple[str, dict[str, Any]]] = lo.__dict__.setdefault("to_thread_frames", {})
+    digest = hashlib.sha1(json.dumps([ftype, bound], sort_keys=True).encode()).hexdigest()[:10]
+    name = f"ps_to_thread_{digest}"
+    frame = f"coro.{name}"
+    hit = frames.get(name)
+    if hit is not None:
+        return hit
     from pyscriptc.emit._ir import _elem_size
 
-    slot = lo._temp("thc")
+    ret = ftype["return"]
+    result_size = _elem_size(ret) if ret.get("kind") != "none" else 0
+    frame_t = _class(frame)
     threadcall = _class("ThreadCall")
-    lo.locals[slot] = threadcall
-    # The record rides in the pair's env, after the inner pair, so the
-    # worker stub can store the result into it. The `init` form packs the
-    # record into a heap cell: a stack slot would die when the coroutine
-    # wrapper suspends, and the worker reads the env after that.
-    env.append(_ir.EnvItem(dict_to_node(_nm(slot, threadcall, span)), dict_to_type(threadcall)))
-    # The record comes first: the pair's env names its slot, so the slot
-    # has to hold the record before the pair is built.
+    record_slot = ".ps_th_rec"
+    result = _await_result_name(record_slot)
+    ir_name = lo._ir_name(name)
+    params = [{"name": ".ps_th_f", "type": ftype}]
+    params += [{"name": f".ps_th_a{index}", "type": arg_t} for index, arg_t in enumerate(bound)]
+    # The worker stub calls the pair with the bound arguments prepended,
+    # the shape `threading.Thread(target=f, args=(...))` binds, and writes
+    # the outcome into the record the env carries last. The env order is
+    # the stub's contract: bound arguments, the inner pair, the record.
+    env = [
+        _ir.EnvItem(dict_to_node(_nm(_field_name(param), _field_type(param), span)), dict_to_type(_field_type(param)))
+        for param in params[1:]
+    ]
+    env.append(_ir.EnvItem(dict_to_node(_nm(".ps_th_f", ftype, span)), dict_to_type(ftype)))
+    env.append(_ir.EnvItem(dict_to_node(_nm(record_slot, threadcall, span)), dict_to_type(threadcall)))
     made = _call_module("asyncio", "to_thread_new", "ps_to_thread_new", [], threadcall, span)
-    made["thread"] = {"result": ret, "size": _elem_size(ret)}
-    lo.prelude.append(_asg(slot, made, span))
+    made["thread"] = {"result": ret, "size": result_size}
     remaining = ftype["params"][len(bound) :]
     pair = node_to_dict(
         _ir.closure(
@@ -374,15 +412,40 @@ def _to_thread(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
         "asyncio",
         "to_thread_start",
         "ps_to_thread_start",
-        [_nm(slot, _node_type(made), span), pair],
+        [_nm(record_slot, threadcall, span), pair],
         _t_leaf("none"),
         span,
     )
-    start["thread"] = {"result": ret, "size": _elem_size(ret)}
-    lo.prelude.append(_expr_stmt(start, span))
-    marker = _call_builtin(THREAD_MARKER, [_nm(slot, _node_type(made), span)], _t_leaf("none"), span)
+    start["thread"] = {"result": ret, "size": result_size}
+    marker = _call_builtin(THREAD_MARKER, [_nm(record_slot, threadcall, span)], _t_leaf("none"), span)
     marker["thread_elem"] = ret
-    lo.prelude.append(_expr_stmt(marker, span))
-    result = _await_result_name(slot)
-    lo.locals[result] = ret
-    return _nm(result, ret, span)
+    ret_mark = _call_node(node_to_dict(_ir.builtin(RETURN_MARKER)), [_nm(result, ret, span)], _t_leaf("none"), span)
+    lo.nested_fns.append(
+        {
+            "name": ir_name,
+            "params": params,
+            "returnType": _t_leaf("none"),
+            "locals": [*params, {"name": record_slot, "type": threadcall}, {"name": result, "type": ret}],
+            "body": [
+                _asg(record_slot, made, span),
+                _expr_stmt(start, span),
+                _expr_stmt(marker, span),
+                _return_node(ret_mark, span),
+            ],
+            "span": span,
+        }
+    )
+    lo._coro_plans()[name] = FramePlan("coroutine", name, frame, ret, params, ir_name)
+    lo.classes[frame] = {
+        "fields": [],
+        "own_fields": [],
+        "methods": {"resume": ([{"name": "self", "type": frame_t}], _t_leaf("int"))},
+        "method_kind": {},
+        "method_owner": {},
+        "base": None,
+        "coro": "coroutine",
+        "coro_elem": copy.deepcopy(ret),
+    }
+    lo.known_classes.add(frame)
+    frames[name] = (ir_name, frame_t)
+    return ir_name, frame_t

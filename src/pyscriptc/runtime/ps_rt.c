@@ -9,6 +9,7 @@ frame is still live if the body raises. Arithmetic overflow stays an LLVM trap.
 #include "ps_case.c"
 
 #include <math.h>
+#include <errno.h>
 #include <setjmp.h>
 #include <stdint.h>
 #include <stdio.h>
@@ -2338,6 +2339,492 @@ int64_t ps_math_lcm(int64_t a, int64_t b) {
     return (int64_t)prod;
 }
 
+/* The integer helpers (issue #493). CPython's ints are arbitrary precision,
+   so a result that does not fit an i64 raises the same OverflowError the
+   `factorial` helper raises; the values that fit agree digit for digit. */
+int64_t ps_math_comb(int64_t n, int64_t k) {
+    if (n < 0) {
+        ps_raise_cstr(PS_VALUE, "n must be a non-negative integer");
+    }
+    if (k < 0) {
+        ps_raise_cstr(PS_VALUE, "k must be a non-negative integer");
+    }
+    if (k > n) {
+        return 0;
+    }
+    if (k > n - k) {
+        k = n - k;
+    }
+    __int128 acc = 1;
+    for (int64_t i = 1; i <= k; i++) {
+        /* The partial value is C(n-k+i, i), an integer at every step, so the
+           division is exact. */
+        acc = acc * (__int128)(n - k + i) / (__int128)i;
+        if (acc > (__int128)INT64_MAX) {
+            ps_raise_cstr(PS_OVERFLOW, "Python int too large to convert to C long");
+        }
+    }
+    return (int64_t)acc;
+}
+
+int64_t ps_math_perm(int64_t n, int64_t k) {
+    if (n < 0) {
+        ps_raise_cstr(PS_VALUE, "n must be a non-negative integer");
+    }
+    if (k < 0) {
+        ps_raise_cstr(PS_VALUE, "k must be a non-negative integer");
+    }
+    if (k > n) {
+        return 0;
+    }
+    __int128 acc = 1;
+    for (int64_t i = 0; i < k; i++) {
+        acc = acc * (__int128)(n - i);
+        if (acc > (__int128)INT64_MAX) {
+            ps_raise_cstr(PS_OVERFLOW, "Python int too large to convert to C long");
+        }
+    }
+    return (int64_t)acc;
+}
+
+int64_t ps_math_isqrt(int64_t n) {
+    if (n < 0) {
+        ps_raise_cstr(PS_VALUE, "isqrt() argument must be nonnegative");
+    }
+    if (n < 2) {
+        return n;
+    }
+    int64_t r = (int64_t)sqrt((double)n);
+    /* The double root is off by at most one for the magnitudes an i64
+       reaches, so the correction loops settle on the exact floor. */
+    while (r > 0 && r > n / r) {
+        r--;
+    }
+    while (r + 1 <= n / (r + 1)) {
+        r++;
+    }
+    return r;
+}
+
+/* The float helpers (issue #493). Each one is the libm function CPython
+   calls, so the digits agree with the oracle. */
+double ps_math_copysign(double x, double y) { return copysign(x, y); }
+
+double ps_math_cbrt(double x) { return cbrt(x); }
+
+double ps_math_erf(double x) { return erf(x); }
+
+double ps_math_erfc(double x) { return erfc(x); }
+
+/* The gamma family (issue #493). CPython 3.14 computes `math.gamma` and
+   `math.lgamma` with its own Lanczos approximation (Modules/mathmodule.c in
+   CPython 3.14), not with the platform libm: the libm tgamma and lgamma
+   differ from CPython's by an ulp or two, and the oracle diff reads the
+   digits. The code below is a port of that implementation (PSF License
+   Agreement; see docs/reference/runtime-pack.md), so `math.gamma(0.5)`
+   spells the same digits here as it does on the oracle. */
+#define PS_PI 3.14159265358979323846
+#define PS_LANCZOS_N 13
+static const double ps_lanczos_g = 6.024680040776729583740234375;
+static const double ps_lanczos_g_minus_half = 5.524680040776729583740234375;
+static const double ps_lanczos_num_coeffs[PS_LANCZOS_N] = {
+    23531376880.410759688572007674451636754734846804940,
+    42919803642.649098768957899047001988850926355848959,
+    35711959237.355668049440185451547166705960488635843,
+    17921034426.037209699919755754458931112671403265390,
+    6039542586.3520280050642916443072979210699388420708,
+    1439720407.3117216736632230727949123939715485786772,
+    248874557.86205415651146038641322942321632125127801,
+    31426415.585400194380614231628318205362874684987640,
+    2876370.6289353724412254090516208496135991145378768,
+    186056.26539522349504029498971604569928220784236328,
+    8071.6720023658162106380029022722506138218516325024,
+    210.82427775157934587250973392071336271166969580291,
+    2.5066282746310002701649081771338373386264310793408
+};
+
+/* The denominator is x*(x+1)*...*(x+LANCZOS_N-2). */
+static const double ps_lanczos_den_coeffs[PS_LANCZOS_N] = {
+    0.0, 39916800.0, 120543840.0, 150917976.0, 105258076.0, 45995730.0,
+    13339535.0, 2637558.0, 357423.0, 32670.0, 1925.0, 66.0, 1.0};
+
+/* The gamma values for the small positive integers, 1 through 22. */
+#define PS_NGAMMA_INTEGRAL 23
+static const double ps_gamma_integral[PS_NGAMMA_INTEGRAL] = {
+    1.0, 1.0, 2.0, 6.0, 24.0, 120.0, 720.0, 5040.0, 40320.0, 362880.0,
+    3628800.0, 39916800.0, 479001600.0, 6227020800.0, 87178291200.0,
+    1307674368000.0, 20922789888000.0, 355687428096000.0,
+    6402373705728000.0, 121645100408832000.0, 2432902008176640000.0,
+    51090942171709440000.0, 1124000727777607680000.0,
+};
+
+static double ps_sinpi(double x) {
+    double y = fmod(fabs(x), 2.0);
+    double r;
+    int n = (int)round(2.0 * y);
+    switch (n) {
+    case 0:
+        r = sin(PS_PI * y);
+        break;
+    case 1:
+        r = cos(PS_PI * (y - 0.5));
+        break;
+    case 2:
+        /* Not -sin(pi*(y-1.0)): that gives -0.0 where this gives 0.0. */
+        r = sin(PS_PI * (1.0 - y));
+        break;
+    case 3:
+        r = -cos(PS_PI * (y - 1.5));
+        break;
+    default:
+        r = sin(PS_PI * (y - 2.0));
+        break;
+    }
+    return copysign(1.0, x) * r;
+}
+
+/* Lanczos' sum L_g(x), for positive x. The rational function is evaluated
+   in 1/x for the large x, where the plain form would overflow. */
+static double ps_lanczos_sum(double x) {
+    double num = 0.0;
+    double den = 0.0;
+    if (x < 5.0) {
+        for (int i = PS_LANCZOS_N; --i >= 0;) {
+            num = num * x + ps_lanczos_num_coeffs[i];
+            den = den * x + ps_lanczos_den_coeffs[i];
+        }
+    } else {
+        for (int i = 0; i < PS_LANCZOS_N; i++) {
+            num = num / x + ps_lanczos_num_coeffs[i];
+            den = den / x + ps_lanczos_den_coeffs[i];
+        }
+    }
+    return num / den;
+}
+
+static double ps_tgamma(double x) {
+    double absx;
+    double r;
+    double y;
+    double z;
+    double sqrtpow;
+
+    if (!isfinite(x)) {
+        if (isnan(x) || x > 0.0) {
+            return x;
+        }
+        errno = EDOM;
+        return NAN;
+    }
+    if (x == 0.0) {
+        errno = EDOM;
+        return copysign(INFINITY, x);
+    }
+    if (x == floor(x)) {
+        if (x < 0.0) {
+            errno = EDOM;
+            return NAN;
+        }
+        if (x <= (double)PS_NGAMMA_INTEGRAL) {
+            return ps_gamma_integral[(int)x - 1];
+        }
+    }
+    absx = fabs(x);
+    if (absx < 1e-20) {
+        r = 1.0 / x;
+        if (isinf(r)) {
+            errno = ERANGE;
+        }
+        return r;
+    }
+    if (absx > 200.0) {
+        if (x < 0.0) {
+            return 0.0 / ps_sinpi(x);
+        }
+        errno = ERANGE;
+        return INFINITY;
+    }
+    y = absx + ps_lanczos_g_minus_half;
+    /* The error in the sum x+g-0.5, which the correction below folds in. */
+    if (absx > ps_lanczos_g_minus_half) {
+        double q = y - absx;
+        z = q - ps_lanczos_g_minus_half;
+    } else {
+        double q = y - ps_lanczos_g_minus_half;
+        z = q - absx;
+    }
+    z = z * ps_lanczos_g / y;
+    if (x < 0.0) {
+        r = -PS_PI / ps_sinpi(absx) / absx * exp(y) / ps_lanczos_sum(absx);
+        r -= z * r;
+        if (absx < 140.0) {
+            r /= pow(y, absx - 0.5);
+        } else {
+            sqrtpow = pow(y, absx / 2.0 - 0.25);
+            r /= sqrtpow;
+            r /= sqrtpow;
+        }
+    } else {
+        r = ps_lanczos_sum(absx) / exp(y);
+        r += z * r;
+        if (absx < 140.0) {
+            r *= pow(y, absx - 0.5);
+        } else {
+            sqrtpow = pow(y, absx / 2.0 - 0.25);
+            r *= sqrtpow;
+            r *= sqrtpow;
+        }
+    }
+    if (isinf(r)) {
+        errno = ERANGE;
+    }
+    return r;
+}
+
+static double ps_lgamma(double x) {
+    double r;
+    double absx;
+
+    if (!isfinite(x)) {
+        if (isnan(x)) {
+            return x;
+        }
+        return INFINITY;
+    }
+    if (x == floor(x) && x <= 2.0) {
+        if (x <= 0.0) {
+            errno = EDOM;
+            return INFINITY;
+        }
+        return 0.0;
+    }
+    absx = fabs(x);
+    if (absx < 1e-20) {
+        return -log(absx);
+    }
+    r = log(ps_lanczos_sum(absx)) - ps_lanczos_g;
+    r += (absx - 0.5) * (log(absx + ps_lanczos_g - 0.5) - 1);
+    if (x < 0.0) {
+        r = log(PS_PI) - log(fabs(ps_sinpi(absx))) - log(absx) - r;
+    }
+    if (isinf(r)) {
+        errno = ERANGE;
+    }
+    return r;
+}
+
+/* CPython's `math.gamma` and `math.lgamma` raise a ValueError naming the
+   argument when the argument is a non-positive integer, and an OverflowError
+   when the result overflows. */
+static void ps_math_value_error(const char *prefix, double x) {
+    char repr[64];
+    snprintf(repr, sizeof repr, "%.17g", x);
+    if (strpbrk(repr, ".eEnN") == NULL) {
+        /* CPython's repr keeps the `.0` on a whole number. */
+        size_t len = strlen(repr);
+        if (len + 3 < sizeof repr) {
+            repr[len] = '.';
+            repr[len + 1] = '0';
+            repr[len + 2] = '\0';
+        }
+    }
+    char msg[192];
+    snprintf(msg, sizeof msg, "%s, got %s", prefix, repr);
+    ps_raise_cstr(PS_VALUE, msg);
+}
+
+double ps_math_gamma(double x) {
+    errno = 0;
+    double r = ps_tgamma(x);
+    if (errno == EDOM) {
+        ps_math_value_error("expected a noninteger or positive integer", x);
+    }
+    if (errno == ERANGE && !(fabs(r) < 1.5)) {
+        ps_raise_cstr(PS_OVERFLOW, "math range error");
+    }
+    return r;
+}
+
+double ps_math_lgamma(double x) {
+    errno = 0;
+    double r = ps_lgamma(x);
+    if (errno == EDOM) {
+        ps_math_value_error("expected a noninteger or positive integer", x);
+    }
+    if (errno == ERANGE && !(fabs(r) < 1.5)) {
+        ps_raise_cstr(PS_OVERFLOW, "math range error");
+    }
+    return r;
+}
+
+/* `math.fsum`: the exact partials sum. The partials list holds
+   non-overlapping partial sums; the fold at the end rounds once, which is
+   what makes `fsum([0.1, 0.2, 0.3])` spell 0.6 and `fsum([1e16, 1.0,
+   -1e16])` come out 1.0. The algorithm is CPython's `msum` (Raymond
+   Hettinger's recipe with Mark Dickinson's exact partials), ported from
+   Modules/mathmodule.c in CPython 3.14 (PSF License Agreement; see
+   docs/reference/runtime-pack.md). */
+static double ps_fsum_doubles(const double *xs, int64_t n) {
+    int64_t cap = 32;
+    int64_t m = 0;
+    double *partials = (double *)malloc((size_t)cap * sizeof(double));
+    if (partials == NULL) {
+        abort();
+    }
+    double special_sum = 0.0;
+    double inf_sum = 0.0;
+    for (int64_t k = 0; k < n; k++) {
+        double x = xs[k];
+        double xsave = x;
+        int64_t i = 0;
+        for (int64_t j = 0; j < m; j++) {
+            double y = partials[j];
+            if (fabs(x) < fabs(y)) {
+                double t = x;
+                x = y;
+                y = t;
+            }
+            double hi = x + y;
+            double yr = hi - x;
+            double lo = y - yr;
+            if (lo != 0.0) {
+                partials[i++] = lo;
+            }
+            x = hi;
+        }
+        m = i;
+        if (x != 0.0) {
+            if (!isfinite(x)) {
+                /* A non-finite partial is either an intermediate overflow or
+                   a non-finite summand. */
+                if (isfinite(xsave)) {
+                    free(partials);
+                    ps_raise_cstr(PS_OVERFLOW, "intermediate overflow in fsum");
+                }
+                if (isinf(xsave)) {
+                    inf_sum += xsave;
+                }
+                special_sum += xsave;
+                m = 0;
+            } else {
+                if (m >= cap) {
+                    cap = cap * 2;
+                    double *grown = (double *)realloc(partials, (size_t)cap * sizeof(double));
+                    if (grown == NULL) {
+                        free(partials);
+                        abort();
+                    }
+                    partials = grown;
+                }
+                partials[m++] = x;
+            }
+        }
+    }
+    double result = 0.0;
+    if (special_sum != 0.0) {
+        if (isnan(inf_sum)) {
+            free(partials);
+            ps_raise_cstr(PS_VALUE, "-inf + inf in fsum");
+        }
+        result = special_sum;
+    } else {
+        double hi = 0.0;
+        double lo = 0.0;
+        if (m > 0) {
+            hi = partials[--m];
+            /* Sum the partials from the top and stop when the sum turns
+               inexact. */
+            while (m > 0) {
+                double x = hi;
+                double y = partials[--m];
+                hi = x + y;
+                double yr = hi - x;
+                lo = y - yr;
+                if (lo != 0.0) {
+                    break;
+                }
+            }
+            /* The half-even rounding across several partials: the sign of
+               the last partial decides the tie. */
+            if (m > 0 && ((lo < 0.0 && partials[m - 1] < 0.0) || (lo > 0.0 && partials[m - 1] > 0.0))) {
+                double y = lo * 2.0;
+                double x = hi + y;
+                double yr = x - hi;
+                if (y == yr) {
+                    hi = x;
+                }
+            }
+        }
+        result = hi;
+    }
+    free(partials);
+    return result;
+}
+
+double ps_math_fsum_f64(PsSeq *s) {
+    int64_t n = ps_seq_len(s);
+    if (n == 0) {
+        return 0.0;
+    }
+    double *xs = (double *)malloc((size_t)n * sizeof(double));
+    if (xs == NULL) {
+        abort();
+    }
+    for (int64_t i = 0; i < n; i++) {
+        double item;
+        memcpy(&item, (char *)s->data + (size_t)i * (size_t)s->elem, sizeof item);
+        xs[i] = item;
+    }
+    double result = ps_fsum_doubles(xs, n);
+    free(xs);
+    return result;
+}
+
+double ps_math_fsum_i64(PsSeq *s) {
+    int64_t n = ps_seq_len(s);
+    if (n == 0) {
+        return 0.0;
+    }
+    double *xs = (double *)malloc((size_t)n * sizeof(double));
+    if (xs == NULL) {
+        abort();
+    }
+    for (int64_t i = 0; i < n; i++) {
+        int64_t item;
+        memcpy(&item, (char *)s->data + (size_t)i * (size_t)s->elem, sizeof item);
+        xs[i] = (double)item;
+    }
+    double result = ps_fsum_doubles(xs, n);
+    free(xs);
+    return result;
+}
+
+/* `math.prod`: the product of the elements. An int list keeps the int type
+   (an empty list is 1), a float list stays a float. */
+int64_t ps_math_prod_i64(PsSeq *s) {
+    int64_t acc = 1;
+    int64_t n = ps_seq_len(s);
+    for (int64_t i = 0; i < n; i++) {
+        int64_t item;
+        memcpy(&item, (char *)s->data + (size_t)i * (size_t)s->elem, sizeof item);
+        if (__builtin_mul_overflow(acc, item, &acc)) {
+            ps_raise_cstr(PS_OVERFLOW, "Python int too large to convert to C long");
+        }
+    }
+    return acc;
+}
+
+double ps_math_prod_f64(PsSeq *s) {
+    double acc = 1.0;
+    int64_t n = ps_seq_len(s);
+    for (int64_t i = 0; i < n; i++) {
+        double item;
+        memcpy(&item, (char *)s->data + (size_t)i * (size_t)s->elem, sizeof item);
+        acc = acc * item;
+    }
+    return acc;
+}
+
 double ps_math_sqrt(double x) {
     if (isnan(x)) {
         return x;
@@ -2385,6 +2872,17 @@ static double ps_positive(double x, double (*fn)(double)) {
 double ps_math_log(double x) { return ps_positive(x, log); }
 double ps_math_log2(double x) { return ps_positive(x, log2); }
 double ps_math_log10(double x) { return ps_positive(x, log10); }
+
+/* `math.log(x, base)`: CPython divides the two natural logarithms, so the
+   base form inherits the same positive-input check on both sides. */
+double ps_math_log_base(double x, double base) {
+    double num = ps_math_log(x);
+    double den = ps_math_log(base);
+    if (den == 0.0) {
+        ps_raise_cstr(PS_ZERO_DIV, "division by zero");
+    }
+    return num / den;
+}
 
 double ps_math_hypot(double x, double y) {
     double r = hypot(x, y);
