@@ -3150,12 +3150,12 @@ double ps_math_log1p(double x) {
     if (isnan(x)) {
         return x;
     }
-    if (x < -1.0) {
-        ps_raise_cstr(PS_VALUE, "math domain error: log1p");
+    if (x <= -1.0) {
+        ps_raise_cstr(PS_VALUE, "math domain error");
     }
     double r = log1p(x);
     if (isnan(r)) {
-        ps_raise_cstr(PS_VALUE, "math domain error: log1p");
+        ps_raise_cstr(PS_VALUE, "math domain error");
     }
     return r;
 }
