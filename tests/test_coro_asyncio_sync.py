@@ -215,8 +215,6 @@ print(asyncio.run(main()))
 # its own call, so two records are live at once and the pump wakes two
 # different tasks. The completion order is racy (CPython's thread pool is
 # racy too), so the results are sorted before they print.
-# (`create_task(to_thread(...))` is a later stage: the awaitable is not a
-# coroutine frame yet.)
 TO_THREAD_TWO = """\
 import asyncio
 
@@ -238,6 +236,121 @@ async def main() -> int:
     results: list[int] = [ra, rb]
     results.sort()
     print("results", results[0], results[1])
+    return 0
+
+
+print(asyncio.run(main()))
+"""
+
+# `to_thread` is a coroutine frame (issue #400): `create_task` wraps it in
+# a task through the same machinery a user coroutine takes, and the task
+# parks on the record until the worker completes.
+TO_THREAD_TASK = """\
+import asyncio
+
+
+def work(n: int) -> int:
+    return n * 2
+
+
+async def main() -> int:
+    t: asyncio.Task[int] = asyncio.create_task(asyncio.to_thread(work, 21))
+    v: int = await t
+    print("got", v)
+    return 0
+
+
+print(asyncio.run(main()))
+"""
+
+# `gather` registers the thread-backed frames like any other coroutine:
+# the results come back in argument order.
+TO_THREAD_GATHER = """\
+import asyncio
+
+
+def work(n: int) -> int:
+    return n * 3
+
+
+async def child() -> int:
+    await asyncio.sleep(0.01)
+    return 7
+
+
+async def main() -> int:
+    results: list[int] = await asyncio.gather(asyncio.to_thread(work, 2), child())
+    print("results", results[0], results[1])
+    return 0
+
+
+print(asyncio.run(main()))
+"""
+
+# `wait_for` runs the frame as a task under a deadline: the worker
+# finishes first, so the awaiter reads the result.
+TO_THREAD_WAIT_FOR = """\
+import asyncio
+
+
+def work(n: int) -> int:
+    return n + 5
+
+
+async def main() -> int:
+    v: int = await asyncio.wait_for(asyncio.to_thread(work, 10), 5.0)
+    print("got", v)
+    return 0
+
+
+print(asyncio.run(main()))
+"""
+
+# The deadline side of `wait_for`: the worker sleeps past it, so the task
+# is cancelled and the awaiter sees TimeoutError. The thread itself still
+# runs to completion (the D3 record divergence).
+TO_THREAD_TIMEOUT = """\
+import asyncio
+import time
+
+
+def work(n: int) -> int:
+    time.sleep(0.05)
+    return n + 5
+
+
+async def main() -> int:
+    try:
+        v: int = await asyncio.wait_for(asyncio.to_thread(work, 10), 0.01)
+        print("got", v)
+    except TimeoutError:
+        print("timed out")
+    return 0
+
+
+print(asyncio.run(main()))
+"""
+
+# `task.cancel()` before the task's first step: the awaiter sees
+# CancelledError and the worker never starts. A cancel that lands while
+# the worker runs cancels the task the same way; the thread itself still
+# runs to completion (the D3 record divergence).
+TO_THREAD_CANCEL = """\
+import asyncio
+
+
+def work(n: int) -> int:
+    return n + 1
+
+
+async def main() -> int:
+    t: asyncio.Task[int] = asyncio.create_task(asyncio.to_thread(work, 1))
+    t.cancel()
+    try:
+        await t
+        print("no cancel")
+    except asyncio.CancelledError:
+        print("cancelled")
     return 0
 
 
@@ -284,6 +397,11 @@ def _run_both(tmp_path: Path, name: str, source: str) -> tuple[str, str]:
         ("to_thread", TO_THREAD),
         ("to_thread_str", TO_THREAD_STR),
         ("to_thread_two", TO_THREAD_TWO),
+        ("to_thread_task", TO_THREAD_TASK),
+        ("to_thread_gather", TO_THREAD_GATHER),
+        ("to_thread_wait_for", TO_THREAD_WAIT_FOR),
+        ("to_thread_timeout", TO_THREAD_TIMEOUT),
+        ("to_thread_cancel", TO_THREAD_CANCEL),
     ],
 )
 def test_prim_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
@@ -307,3 +425,41 @@ def test_to_thread_ir_is_plain_classes() -> None:
     assert module["fences"] == []
     validate_module(module)
     assert THREAD_MARKER not in json.dumps(module)
+
+
+def test_to_thread_lowers_to_a_frame() -> None:
+    """Issue #400: `to_thread` is a `coro.*` frame, the shape `async def`
+    lowers to, so `create_task`, `gather` and `wait_for` take it through
+    the same frame check a user coroutine passes."""
+    module = lower_source(TO_THREAD, "to_thread.py")
+    assert module["fences"] == []
+    frames = [cls["name"] for cls in module["classes"] if cls["name"].startswith("coro.ps_to_thread_")]
+    assert len(frames) == 1
+    functions = {fn["name"] for fn in module["functions"]}
+    assert f"{frames[0]}.resume" in functions
+
+
+def test_to_thread_frame_dedups_by_signature() -> None:
+    """Two calls with the same callable signature share one synthesized
+    frame class."""
+    source = """\
+import asyncio
+
+
+def work(n: int) -> int:
+    return n + 1
+
+
+async def main() -> int:
+    a: int = await asyncio.to_thread(work, 1)
+    b: int = await asyncio.to_thread(work, 2)
+    print(a, b)
+    return 0
+
+
+print(asyncio.run(main()))
+"""
+    module = lower_source(source, "to_thread_dedup.py")
+    assert module["fences"] == []
+    frames = [cls["name"] for cls in module["classes"] if cls["name"].startswith("coro.ps_to_thread_")]
+    assert len(frames) == 1
