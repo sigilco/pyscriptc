@@ -47,6 +47,7 @@ from pyscriptc.emit._ir import (
 from pyscriptc.errors import IRError
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
 from pyscriptc.lower import Lowerer
+from pyscriptc.roots import RootSet, roots_for_directory
 from pyscriptc.stdlib_queue import dependency_lanes, ffi_modules, staged_resources
 from pyscriptc.stdmore import PTR_CLASSES
 
@@ -119,6 +120,7 @@ def lower_directory(
     if dep_fences:
         return _fenced_module(root, dep_fences), ""
     kept, catalogued, pruned = _prune_unreached(units, dep_units, program=program, entry=entry)
+    root_set = roots_for_directory(root)
     merged, notes = _lower_units(
         [*units, *kept],
         root,
@@ -139,6 +141,7 @@ def lower_directory(
         else root.resolve(),
         staged_data=staged_data or [],
         unit_failures=unit_failures,
+        roots=root_set,
     )
     if skipped:
         notes = [*notes, *[_skip_note(root, rel) for rel in skipped]]
@@ -233,6 +236,7 @@ def _lower_units(
     staged_data: list[tuple[Path, bytes]] | None = None,
     package_mode: bool = False,
     unit_failures: list[dict[str, Any]] | None = None,
+    roots: RootSet | None = None,
 ) -> tuple[dict[str, Any], list[str]]:
     """Lower a set of module units into one IR module.
 
@@ -251,6 +255,8 @@ def _lower_units(
     binds, but they lower no code and their fences do not refuse: the
     entry never imports them, so CPython never runs their bodies.
     """
+
+    root_set = roots if roots is not None else RootSet()
 
     # A bridge is built per file: mypy's TypeMap covers one module, so a
     # package tree runs the checker once per unit and lowering consults the
@@ -290,6 +296,7 @@ def _lower_units(
         bridge=bridge_for,
         island_group=island_group,
         unit_failures=unit_failures,
+        roots=root_set,
     )
 
     if program:
@@ -332,6 +339,7 @@ def _lower_units(
                 lowerer.exc_n = exc_n
                 lowerer.program = program
                 lowerer.program_roots = dep_names
+                lowerer.roots = root_set
                 lowerer.module_init = program and name != "__main__" and name != entry
                 lowerer.entry_module = entry is not None and name == entry
                 # The per-module plane split: a program compile keeps the native
@@ -1506,6 +1514,7 @@ def _catalog(
     bridge: Any = None,
     island_group: set[str] | None = None,
     unit_failures: list[dict[str, Any]] | None = None,
+    roots: RootSet | None = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     """Repeat until a subclass can see a base exported by an earlier pass.
 
@@ -1535,6 +1544,7 @@ def _catalog(
             memo=memo,
             island_group=island_group or set(),
             unit_failures=unit_failures,
+            roots=roots if roots is not None else RootSet(),
         )
         if nxt == exports:
             return nxt, nxt_failed
@@ -1571,6 +1581,7 @@ def _catalog_once(
     memo: dict[str, _CatalogMemo] | None = None,
     island_group: set[str] | None = None,
     unit_failures: list[dict[str, Any]] | None = None,
+    roots: RootSet | None = None,
 ) -> tuple[
     dict[str, dict[str, dict[str, Any]]],
     dict[str, dict[str, dict[str, Any]]],
@@ -1603,6 +1614,8 @@ def _catalog_once(
             lowerer.program = program
             lowerer.module_init = program and name != "__main__" and name != entry
             lowerer.entry_module = entry is not None and name == entry
+            if roots is not None:
+                lowerer.roots = roots
             # The per-module plane split: the catalog pass resolves the same
             # cross-module island bindings the real pass does, so the export
             # table agrees on which definitions ride the island.

@@ -157,6 +157,16 @@ class ModuleDriverMixin:
             except Fence as exc:
                 fences.append(exc)
             fences.extend(self.caught)
+        # An enum with no member is a base another enum extends (issue
+        # #1314); when nothing extends it, the enum has no member and the
+        # `an enum needs a member` fence stands.
+        for node in class_nodes:
+            info = self.classes.get(node.name)
+            if info is None or not info.get("enum") or info.get("members"):
+                continue
+            if node.name in self.enum_subclasses:
+                continue
+            fences.append(Fence("PS2002", "an enum needs a member", span_of(node, self.filename), node.name))
         for fn in functions:
             self.function = fn.name
             if fn.name in self.declared:

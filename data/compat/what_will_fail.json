@@ -1,14 +1,14 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "272f04db3ce1129735d55bb21b6fd1ddec4410d4",
+  "commit": "638c05fa359df928c4ecc7dcdfcb17827ef72516",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
   },
   "summary": {
     "scripts": 39,
-    "total_fences": 43,
+    "total_fences": 42,
     "unique_codes": [
       "PS1001",
       "PS1003",
@@ -216,12 +216,6 @@
           "construct": "`zip()` of nested list",
           "code": "PS2002",
           "diagnostic": "zip() of list[list[str]] is not lowered"
-        },
-        {
-          "module": "builtins",
-          "construct": "dataclass bool field",
-          "code": "PS2002",
-          "diagnostic": "bool fields are not lowered"
         },
         {
           "module": "builtins",
