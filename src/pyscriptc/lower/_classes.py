@@ -430,6 +430,18 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         bases: list[dict[str, str]] = []
         type_params: list[str] = []
         protocol = False
+        # The enum-as-int mixin spelling (issue #1314): `class C(int, Enum)`
+        # is CPython's documented IntEnum spelling, so the bare `int` base
+        # erases here and the enum base drives the enum collection. The
+        # erase happens only in that spelling: an `int` base on its own
+        # keeps the `this class base is not lowered` fence.
+        int_bases = {id(b) for b in node.bases if isinstance(b, ast.Name) and b.id == "int"}
+        enum_mixin = False
+        if int_bases:
+            others = [b for b in node.bases if id(b) not in int_bases]
+            enum_mixin = any(self._enum_base_name(other) is not None for other in others)
+            if enum_mixin:
+                node.bases = others
         for base_node in node.bases:
             if self._is_builtin_object(base_node):
                 continue
@@ -454,9 +466,18 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 )
             bases.append(resolved)
         base = bases[0] if bases else None
+        # The int-mixin enum spelling (issue #1314): `class C(int, Enum)` is
+        # CPython's IntEnum spelling, so the collected enum's base is the
+        # integer one and the members answer as ints.
+        if base is not None and _base_kind(base) == "enum" and enum_mixin:
+            base = _enum_base("IntEnum")
         if deco == "dataclass" and base is not None:
             self.fail(node, "PS2002", "a dataclass has no base")
         if base is not None and _base_kind(base) == "enum":
+            parent = str(base.get("parent", ""))
+            if parent:
+                self.enum_parent_of[node.name] = parent
+                self.enum_base_members[node.name] = dict(self.classes.get(parent, {}).get("members", {}))
             self._collect_enum(node, str(base["name"]))
             return
         self.declared.add(node.name)
@@ -524,8 +545,6 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     if stmt.target.id in seen or stmt.target.id in inherited_types:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                     typ = self._annotation(stmt.annotation)
-                    if _type_kind(typ) == "bool":
-                        self.fail(stmt, "PS2002", "bool fields are not lowered")
                     if _type_kind(typ) == "func":
                         self.fail(stmt, "PS2002", "callable fields are not lowered")
                     field: dict[str, Any] = {"name": stmt.target.id, "type": typ}
