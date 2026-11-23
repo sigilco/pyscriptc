@@ -471,6 +471,12 @@ void ps_seq_repr(PsSeq *s, int64_t spec_len, const char *spec, int64_t is_set, P
 void ps_map_repr(PsMap *m, int64_t spec_len, const char *spec, PsBuf *out);
 void ps_utf8_encode(int64_t n, const char *p, PsBuf *out);
 void ps_utf8_decode(int64_t n, const char *p, PsBuf *out);
+/* The strict-UTF-8 boundary check the OS-facing readers share (S6, #478):
+   first_error is the offset of the first bad sequence or -1; require
+   raises UnicodeDecodeError naming it, `what` (may be NULL) names the
+   source. */
+int64_t ps_utf8_first_error(int64_t n, const char *p, const char **why);
+void ps_utf8_require(int64_t n, const char *p, const char *what);
 void ps_latin1_encode(int64_t n, const char *p, PsBuf *out);
 void ps_latin1_decode(int64_t n, const char *p, PsBuf *out);
 /* CPython's repr escape rules for a str; defined in ps_unicode.c next to

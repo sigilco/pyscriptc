@@ -314,6 +314,26 @@ def _const_truthy(value: dict[str, Any] | None) -> bool | None:
     return None
 
 
+_STDIN_READS = frozenset({"ps_input_line", "ps_stdin_readline"})
+
+
+def _reads_stdin(value: Any) -> bool:
+    """True when a value's tree calls a stdin read.
+
+    A stored module constant re-emits at every read of the name, so an
+    `a: str = input()` that stayed a constant would consume one stdin line
+    per use of `a`. The read is an effect that runs once, in source order:
+    the assignment lowers inside the entry instead.
+    """
+    if isinstance(value, dict):
+        if value.get("symbol") in _STDIN_READS:
+            return True
+        return any(_reads_stdin(child) for child in value.values())
+    if isinstance(value, list):
+        return any(_reads_stdin(child) for child in value)
+    return False
+
+
 def _module_closed(value: dict[str, Any]) -> bool:
     """A storable module constant: no `name` references anywhere inside.
 
@@ -330,6 +350,8 @@ def _module_closed(value: dict[str, Any]) -> bool:
     if kind == "name":
         return False
     if _flag(value, "identity"):
+        return False
+    if _reads_stdin(value):
         return False
     if kind in {"list", "tuple-const"}:
         elems: list[dict[str, Any]] = value["elems"]
