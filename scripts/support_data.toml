@@ -283,6 +283,8 @@ ok = [
   "nd_f = pyscriptc_ndarray.array(\"float64\", [1.0, 2.0, 3.0, 4.0])\nx: float = nd_f.mean()",
   "nd_f = pyscriptc_ndarray.array(\"float64\", [1.0, 2.0, 3.0, 4.0])\nx: float = nd_f.std()",
   "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nn: int = nd_a.argmax()",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.argmax(axis=0)",
+  "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.argmin(axis=1)",
   "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.reshape([3, 2])",
   "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.ravel()",
   "nd_m = pyscriptc_ndarray.arange(1, 7, 1).reshape([2, 3])\nnd = nd_m.transpose()",
@@ -304,6 +306,7 @@ no = [
   ["other methods (argsort, clip, cumsum, fill)", "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = nd_a.argsort()", "PS2001"],
   ["dtype outside the four", 'nd = pyscriptc_ndarray.zeros([2], dtype="int16")', "PS2003"],
   ["negative slice step", "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd: pyscriptc_ndarray.ndarray = nd_a[::-1]", "PS2001"],
+  ["an axis on a one-dimensional array", "nd_a = pyscriptc_ndarray.array(\"int64\", [1, 2, 3, 4])\nnd = nd_a.argmax(axis=0)", "PS2003"],
 ]
 
 [[stdlib]]

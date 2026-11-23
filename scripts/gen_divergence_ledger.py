@@ -405,15 +405,6 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#55",
     ),
     _row(
-        "D64",
-        "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view",
-        None,
-        docs=f"{DOC}#55",
-        note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
-        "the byte comparison runs in the differential lane instead "
-        "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
-    ),
-    _row(
         "D56",
         "the binascii subset covers unhexlify and hexlify; every other name is refused",
         "d56_binascii.py",
@@ -654,6 +645,16 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#86",
     ),
     _row(
+        "D88",
+        "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view; "
+        "the whole-array reduction answers a scalar, the shape a list and the axis reductions drop the axis",
+        None,
+        docs=f"{DOC}#88",
+        note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
+        "the byte comparison runs in the differential lane instead "
+        "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
+    ),
+    _row(
         "D87",
         "math.comb, math.perm and math.prod are i64 (divergence 1): a result past the i64 range raises "
         "OverflowError where CPython grows a big int",
@@ -717,11 +718,11 @@ ROWS: list[dict[str, Any]] = [
         docs=AUDIT,
     ),
     _row(
-        "D88",
+        "D90",
         "int / int past 2**53 divides the widened operands, so the quotient rounds before the division; "
         "CPython divides the exact integers and rounds once",
-        "d88_int_truediv_wide.py",
-        docs=f"{DOC}#88",
+        "d90_int_truediv_wide.py",
+        docs=f"{DOC}#90",
     ),
     _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT

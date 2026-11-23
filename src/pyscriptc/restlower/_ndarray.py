@@ -106,6 +106,21 @@ def _is_dtype_spelling(node: ast.expr) -> bool:
     return isinstance(node, ast.Attribute)
 
 
+def _nd_module_alias(lo: Any, name: str) -> bool:
+    """True when `name` binds the ndarray module, under any alias.
+
+    The alias is the program's choice: `import pyscriptc_ndarray as np`
+    and `import pyscriptc_ndarray as n` bind the same module, and the
+    dtype attribute (`np.float64`, `n.float64`) rides the binding, not
+    the spelling of the alias."""
+    binding = getattr(lo, "bindings", {}).get(name)
+    if binding is not None:
+        return binding.kind == "module" and binding.module == "pyscriptc_ndarray"
+    # No binding for the name (an import inside the function body the
+    # binding scan did not see): the historical `np` spelling still works.
+    return name == "np"
+
+
 def _dtype_arg(lo: Any, node: ast.Call, value: ast.expr, default: str) -> str:
     """The `dtype=` argument: one of the four names, as a constant."""
     if isinstance(value, ast.Constant) and isinstance(value.value, str):
@@ -113,11 +128,14 @@ def _dtype_arg(lo: Any, node: ast.Call, value: ast.expr, default: str) -> str:
         if name not in _DTYPES:
             lo.fail(node, "PS2003", f"pyscriptc_ndarray dtype {name} is not in the subset")
         return name
-    if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name) and value.value.id == "np":
-        # The `np.int32` spelling: the same four names ride the attribute.
-        if value.attr in _DTYPES:
+    if isinstance(value, ast.Attribute) and isinstance(value.value, ast.Name):
+        # The `np.int32` spelling: the same four names ride the attribute,
+        # under whatever alias the program bound the module to.
+        if value.attr in _DTYPES and _nd_module_alias(lo, value.value.id):
             return value.attr
-        lo.fail(node, "PS2003", f"pyscriptc_ndarray dtype np.{value.attr} is not in the subset")
+        if value.attr in _DTYPES:
+            lo.fail(node, "PS2003", f"pyscriptc_ndarray dtype {value.value.id}.{value.attr} does not name the module")
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray dtype {value.value.id}.{value.attr} is not in the subset")
     if value is node.args[0] and isinstance(value, ast.Constant) and isinstance(value.value, str):
         return _dtype_arg(lo, node, value, default)
     lo.fail(node, "PS2003", "pyscriptc_ndarray dtype is one of 'int32', 'int64', 'float32', 'float64'")
@@ -422,18 +440,19 @@ def _method(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any],
     dtype = _dtype_of(recv["type"])
     if attr in {"sum", "min", "max", "mean", "std", "var"}:
         return _reduce(lo, node, span, recv, attr, dtype)
-    if attr == "argmin":
-        return lo._abi_call("pyscriptc_ndarray", "argmin", [recv], {"kind": "int"}, "ps_nd_argmin", span)
-    if attr == "argmax":
-        return lo._abi_call("pyscriptc_ndarray", "argmax", [recv], {"kind": "int"}, "ps_nd_argmax", span)
+    if attr in {"argmin", "argmax"}:
+        return _arg_reduce(lo, node, span, recv, attr)
     if attr == "copy":
+        _no_arguments(lo, node, attr)
         return lo._abi_call("pyscriptc_ndarray", "copy", [recv], recv["type"], "ps_nd_copy", span)
     if attr == "ravel":
+        _no_arguments(lo, node, attr)
         out = _nd_type(dtype, 1)
         return lo._abi_call("pyscriptc_ndarray", "ravel", [recv], out, "ps_nd_ravel", span)
     if attr == "transpose":
         # The transpose is lowered for a 1-D or a 2-D array; the rank is
-        # unchanged.
+        # unchanged. The `axes` keyword numpy takes is outside the subset.
+        _no_arguments(lo, node, attr)
         return lo._abi_call(
             "pyscriptc_ndarray", "transpose", [recv], _nd_type(dtype, _ndim_of(recv["type"])), "ps_nd_transpose", span
         )
@@ -444,8 +463,18 @@ def _method(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any],
     if attr == "tolist":
         return _tolist(lo, node, span, recv, dtype)
     if attr == "tobytes":
+        _no_arguments(lo, node, attr)
         return lo._abi_call("pyscriptc_ndarray", "tobytes", [recv], {"kind": "bytes"}, "ps_nd_tobytes", span)
     return None
+
+
+def _no_arguments(lo: Any, node: ast.Call, attr: str) -> None:
+    """A method of the subset that takes no argument: an argument or a
+    keyword is outside the subset and fences, never ignored silently."""
+    if node.args:
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} takes no arguments")
+    for keyword in node.keywords:
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} keyword {keyword.arg} is not lowered")
 
 
 def _reduce(
@@ -461,6 +490,8 @@ def _reduce(
     lowering names the result type so the emitter reads the right one."""
     axis = None
     args_nodes = list(node.args)
+    if len(args_nodes) > 1:
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} takes at most one axis")
     for keyword in node.keywords:
         if keyword.arg == "axis":
             axis = lo._expr(keyword.value)
@@ -507,8 +538,43 @@ def _reduce(
     return lo._abi_call("pyscriptc_ndarray", attr, args, out, f"ps_nd_{attr}", span)
 
 
+def _arg_reduce(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], attr: str) -> dict[str, Any]:
+    """`argmin` / `argmax`: the index of the extreme.
+
+    The whole-array form answers the flat index, the way numpy reads it
+    for an array with no axis. The axis form answers the index along
+    that axis (numpy reads `a.argmax(axis=0)` as the index into the
+    first axis, not the flat index), and the result is an int64 array
+    whose shape is the receiver's shape without the reduced axis."""
+    axis = None
+    args_nodes = list(node.args)
+    if len(args_nodes) > 1:
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} takes at most one axis")
+    for keyword in node.keywords:
+        if keyword.arg == "axis":
+            if axis is not None:
+                lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} takes the axis once")
+            axis = lo._expr(keyword.value)
+        else:
+            lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} keyword {keyword.arg} is not lowered")
+    if len(args_nodes) == 1:
+        if axis is not None:
+            lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} takes the axis once")
+        axis = lo._expr(args_nodes[0])
+    if axis is None:
+        return lo._abi_call("pyscriptc_ndarray", attr, [recv], {"kind": "int"}, f"ps_nd_{attr}", span)
+    if axis["type"]["kind"] != "int":
+        lo.fail(node, "PS1003", f"pyscriptc_ndarray.{attr} axis is an int")
+    if _ndim_of(recv["type"]) < 2:
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.{attr} axis needs an array of two dimensions or more")
+    out = _nd_type("int64", _ndim_of(recv["type"]) - 1)
+    return lo._abi_call("pyscriptc_ndarray", f"{attr}_axis", [recv, axis], out, f"ps_nd_{attr}_axis", span)
+
+
 def _reshape(lo: Any, node: ast.Call, span: dict[str, Any], recv: dict[str, Any], dtype: str) -> dict[str, Any]:
     """`reshape(shape...)`: the same count under new extents."""
+    for keyword in node.keywords:
+        lo.fail(node, "PS2003", f"pyscriptc_ndarray.reshape keyword {keyword.arg} is not lowered")
     if len(node.args) == 1 and isinstance(node.args[0], ast.List):
         dims = [lo._expr(elt) for elt in node.args[0].elts]
     else:

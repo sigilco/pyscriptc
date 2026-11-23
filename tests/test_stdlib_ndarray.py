@@ -18,7 +18,7 @@ import math
 from pathlib import Path
 
 import pytest
-from tests.test_gates import compile_run, write_case
+from tests.test_gates import EXAMPLES, compile_run, run_cli, write_case
 
 from pyscriptc.lower import lower_source
 
@@ -453,3 +453,169 @@ def test_fixture_matches_numpy_values(tmp_path: Path) -> None:
         + "[1.0, 2.0, 3.0, 4.0, 5.0]\n"
     )
     assert got == expect, got
+
+
+# ---------------------------------------------------------------------
+# the axis form of argmin / argmax
+# ---------------------------------------------------------------------
+
+
+def _arg_axis(rows: list[list[int]], axis: int, want_max: bool) -> list[int]:
+    """The reference: the index of the extreme along `axis`, the way numpy
+    reads it (the index into that axis, not the flat index; the first of
+    the equal extremes wins)."""
+    if axis < 0:
+        axis += 2
+    columns = [[row[c] for row in rows] for c in range(len(rows[0]))] if axis == 0 else rows
+    out: list[int] = []
+    for column in columns:
+        best = 0
+        for index in range(1, len(column)):
+            if (column[index] > column[best]) if want_max else (column[index] < column[best]):
+                best = index
+        out.append(best)
+    return out
+
+
+def test_argmin_argmax_over_an_axis_matches_cpython(tmp_path: Path) -> None:
+    got = _run(
+        tmp_path,
+        "nd_argaxis.py",
+        "\n".join(
+            [
+                "import pyscriptc_ndarray as np",
+                "",
+                "def run() -> int:",
+                "    m = np.arange(0, 6).reshape([2, 3])",
+                "    print(m.argmax(axis=0).tolist())",
+                "    print(m.argmax(axis=1).tolist())",
+                "    print(m.argmin(axis=0).tolist())",
+                "    print(m.argmin(axis=1).tolist())",
+                "    print(m.argmax(axis=-1).tolist())",
+                "    print(m.sum(axis=-1).tolist())",
+                "    return 0",
+            ]
+        ),
+    )
+    rows = [[0, 1, 2], [3, 4, 5]]
+    assert got == (
+        f"{_arg_axis(rows, 0, True)}\n"
+        f"{_arg_axis(rows, 1, True)}\n"
+        f"{_arg_axis(rows, 0, False)}\n"
+        f"{_arg_axis(rows, 1, False)}\n"
+        f"{_arg_axis(rows, -1, True)}\n"
+        "[3, 12]\n"
+    )
+
+
+def test_argmin_argmax_axis_fences() -> None:
+    # An unknown keyword, two axes and an axis on a one-dimensional array
+    # are all outside the subset: they fence, they never approximate.
+    _fence(
+        "import pyscriptc_ndarray as np\n\n\ndef run() -> int:\n    a = np.zeros([2, 2])\n    return a.argmax(out=1)\n",
+        "PS2003",
+        "pyscriptc_ndarray.argmax",
+    )
+    _fence(
+        "import pyscriptc_ndarray as np\n\n\ndef run() -> int:\n    a = np.zeros([2, 2])\n    return a.argmax(0, 1)\n",
+        "PS2003",
+        "pyscriptc_ndarray.argmax",
+    )
+    _fence(
+        "import pyscriptc_ndarray as np\n\n\ndef run() -> int:\n    a = np.zeros([2])\n    return a.argmax(axis=0)\n",
+        "PS2003",
+        "pyscriptc_ndarray.argmax",
+    )
+
+
+def test_no_argument_methods_fence_on_an_argument() -> None:
+    # `copy`, `ravel`, `transpose` and `tobytes` take no argument in the
+    # subset: an argument or a keyword fences, it never gets ignored.
+    for call, message in (
+        ("a.copy(1)", "pyscriptc_ndarray.copy"),
+        ("a.ravel(1)", "pyscriptc_ndarray.ravel"),
+        ("a.transpose(axes=1)", "pyscriptc_ndarray.transpose"),
+        ("a.tobytes(1)", "pyscriptc_ndarray.tobytes"),
+    ):
+        _fence(
+            f"import pyscriptc_ndarray as np\n\n\ndef run() -> int:\n    a = np.zeros([2, 2])\n    return {call}\n",
+            "PS2003",
+            message,
+        )
+
+
+# ---------------------------------------------------------------------
+# the dtype attribute rides the module binding, not the alias spelling
+# ---------------------------------------------------------------------
+
+
+def test_dtype_attribute_rides_the_module_binding(tmp_path: Path) -> None:
+    got = _run(
+        tmp_path,
+        "nd_alias.py",
+        "\n".join(
+            [
+                "import pyscriptc_ndarray as n",
+                "",
+                "def run() -> int:",
+                "    a = n.array(n.float64, [1.0, 2.0])",
+                "    b = n.array(n.int32, [1, 2])",
+                "    print(a.tolist(), a.dtype)",
+                "    print(b.tolist(), b.dtype)",
+                "    return 0",
+            ]
+        ),
+    )
+    assert got == "[1.0, 2.0] float64\n[1, 2] int32\n"
+
+
+# ---------------------------------------------------------------------
+# the demo program: the whole subset, 0 fences
+# ---------------------------------------------------------------------
+
+
+def test_demo_program_has_no_fences() -> None:
+    text = run_cli("coverage", str(EXAMPLES / "ndarray_demo.py"))
+    assert text.returncode == 0, text.stderr
+    assert "0 fences" in text.stdout, text.stdout
+    assert "0 fenced" in text.stdout, text.stdout
+
+
+def test_demo_program_matches_cpython(tmp_path: Path) -> None:
+    path = EXAMPLES / "ndarray_demo.py"
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout.endswith("\n0\n"), got.stdout
+    out = got.stdout[: -len("\n0\n")] + "\n"
+    # Every value below is the one numpy produces for the same call
+    # (numpy 2.5.4 under the pinned CPython).
+    assert out == (
+        "[1.0, 2.0, 3.0, 4.0]\n"
+        "[4] 1 4 32 float64\n"
+        "[[0, 0], [0, 0]]\n"
+        "[1.0, 1.0, 1.0]\n"
+        "[[7, 7], [7, 7]]\n"
+        "[0, 2, 4, 6, 8]\n"
+        "[0.0, 0.25, 0.5, 0.75, 1.0]\n"
+        "[5, 7, 9]\n"
+        "[3, 3, 3]\n"
+        "[4, 10, 18]\n"
+        "[0.5, 2.0, 4.5]\n"
+        "[2, 2, 3]\n"
+        "[1, 2, 0]\n"
+        "[True, True, True]\n"
+        "10.0 1.0 4.0 2.5\n"
+        "0 3\n"
+        "[4.0, 6.0]\n"
+        "[1, 1]\n"
+        "[[0, 3], [1, 4], [2, 5]]\n"
+        "[0, 1, 2, 3, 4, 5]\n"
+        "[[0.0, 1.0, 2.0], [3.0, 4.0, 5.0]]\n"
+        "[[0, 1, 2], [3, 4, 5]]\n"
+        "[[0, 0, 0]]\n"
+        "[3, 4, 5]\n"
+        "[7, 8]\n"
+        "24\n"
+        "[1, 2, 3, 4, 5, 6]\n"
+        "[[1, 2, 3], [4, 5, 6]]\n"
+    ), out

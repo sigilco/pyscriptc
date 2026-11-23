@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "c97e0715ef26fc6923fc7020c032f6d99d0744b7",
+  "commit": "2565c6cf3fb60644339aa2f77c74462d9e839b53",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -272,7 +272,7 @@
       "label": "`pyscriptc_ndarray`, `numpy`",
       "status": "\ud83d\udfe1",
       "count": 2,
-      "missing": "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step",
+      "missing": "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step, an axis on a one-dimensional array",
       "codes": [
         "PS2001",
         "PS2003"

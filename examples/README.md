@@ -13,6 +13,7 @@ Programs a person can compile are documented in [Example programs](https://pyscr
 | `route_label.py` | `--call label --args '["/api/health", 201]'` prints `health 201` |
 | `hostname.py` | `--call hostname` prints the machine name and links libpython |
 | `wordcount/` | a program directory: `pyscriptc compile examples/wordcount --run` prints `three 3` |
+| `ndarray_demo.py` | the `pyscriptc_ndarray` subset: `--call run` prints one line per group |
 | `web/flask_app.py` | a Flask app: `--island` serves `/` and `/health` on one binary |
 | `web/fastapi_app.py` | a FastAPI app: `--island` serves `/` and `/health` on one binary |
 
