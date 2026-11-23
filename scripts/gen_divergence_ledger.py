@@ -654,6 +654,13 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#86",
     ),
     _row(
+        "D87",
+        "math.comb, math.perm and math.prod are i64 (divergence 1): a result past the i64 range raises "
+        "OverflowError where CPython grows a big int",
+        "d87_math_int_overflow.py",
+        docs=f"{DOC}#87",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",

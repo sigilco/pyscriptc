@@ -489,8 +489,14 @@ class StdlibDispatchMixin(StdlibBindMixin):
             self._reject_keywords(node)
             if attr == "gcd":
                 return self._math_gcd(node, span)
-            if attr in {"factorial", "lcm"}:
+            if attr in {"factorial", "lcm", "comb", "perm", "isqrt"}:
                 return self._math_int_call(node, span, attr)
+            if attr == "log":
+                return self._math_log_call(node, span)
+            if attr == "fsum":
+                return self._math_fsum(node, span)
+            if attr == "prod":
+                return self._math_prod(node, span)
             return self._math_call(node, span, attr)
         if module == "bisect":
             from pyscriptc.restlower._bisect import _bisect
