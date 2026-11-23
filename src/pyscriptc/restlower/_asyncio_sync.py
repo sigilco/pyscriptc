@@ -47,6 +47,8 @@ from pyscriptc.restlower._shared import (
     _class,
     _const_int,
     _expr_stmt,
+    _field_name,
+    _field_type,
     _mk_span,
     _nm,
     _node_kind,
@@ -347,7 +349,7 @@ def _to_thread(lo: Any, node: ast.Call, span: dict[str, Any], expect: Any = None
         bound.append(expect_arg)
         values.append(value)
     fname, frame_t = _to_thread_frame(lo, span, ftype, bound)
-    return _call_node({"kind": "function", "name": fname}, [target, *values], frame_t, span)
+    return _call_node(node_to_dict(_ir.function_callee(fname)), [target, *values], frame_t, span)
 
 
 def _to_thread_frame(
@@ -385,7 +387,7 @@ def _to_thread_frame(
     # the outcome into the record the env carries last. The env order is
     # the stub's contract: bound arguments, the inner pair, the record.
     env = [
-        _ir.EnvItem(dict_to_node(_nm(param["name"], param["type"], span)), dict_to_type(param["type"]))
+        _ir.EnvItem(dict_to_node(_nm(_field_name(param), _field_type(param), span)), dict_to_type(_field_type(param)))
         for param in params[1:]
     ]
     env.append(_ir.EnvItem(dict_to_node(_nm(".ps_th_f", ftype, span)), dict_to_type(ftype)))
@@ -417,7 +419,7 @@ def _to_thread_frame(
     start["thread"] = {"result": ret, "size": result_size}
     marker = _call_builtin(THREAD_MARKER, [_nm(record_slot, threadcall, span)], _t_leaf("none"), span)
     marker["thread_elem"] = ret
-    ret_mark = _call_node({"kind": "builtin", "name": RETURN_MARKER}, [_nm(result, ret, span)], _t_leaf("none"), span)
+    ret_mark = _call_node(node_to_dict(_ir.builtin(RETURN_MARKER)), [_nm(result, ret, span)], _t_leaf("none"), span)
     lo.nested_fns.append(
         {
             "name": ir_name,
