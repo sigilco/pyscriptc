@@ -12,7 +12,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
-from tests.test_gates import run_cli, write_case
+from tests.test_gates import compile_run, run_cli, write_case
 
 from pyscriptc._irnode import t_dict, t_leaf, t_list
 from pyscriptc.reprspec import type_spec
@@ -118,6 +118,71 @@ def test_names_outside_subset_fence(tmp_path: Path, source: str, text: str) -> N
     assert got.returncode == 3, got.stderr
     assert "PS2001" in got.stderr
     assert text in got.stderr
+
+
+def test_marked_reprs_across_format_paths(tmp_path: Path) -> None:
+    """`repr`, `%` and `.format` spell the marked reprs (the `a->i` mark bits)."""
+    path = write_case(
+        tmp_path,
+        "reprs.py",
+        "\n".join(
+            [
+                "from collections import OrderedDict, defaultdict",
+                "",
+                "def run() -> int:",
+                "    od: OrderedDict[str, int] = OrderedDict()",
+                "    od['b'] = 2",
+                "    print(repr(od))",
+                "    print('%s' % od)",
+                "    print('{}'.format(od))",
+                "    dd: defaultdict[str, int] = defaultdict(int)",
+                "    dd['x'] = 1",
+                "    print(repr(dd))",
+                "    print('%(x)d' % dd)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == (
+        "OrderedDict({'b': 2})\n"
+        "OrderedDict({'b': 2})\n"
+        "OrderedDict({'b': 2})\n"
+        "defaultdict(<class 'int'>, {'x': 1})\n"
+        "1\n"
+        "0\n"
+    )
+
+
+def test_defaulted_read_and_order_roundtrip(tmp_path: Path) -> None:
+    path = write_case(
+        tmp_path,
+        "roundtrip.py",
+        "\n".join(
+            [
+                "from collections import OrderedDict, defaultdict",
+                "",
+                "def run() -> int:",
+                "    od: OrderedDict[str, int] = OrderedDict()",
+                "    od['b'] = 2",
+                "    od['a'] = 1",
+                "    del od['b']",
+                "    od['b'] = 20",
+                "    for k in od.keys():",
+                "        print(k, od[k])",
+                "    dd: defaultdict[str, list[int]] = defaultdict(list)",
+                "    dd['g'].append(3)",
+                "    print(dd['g'], len(dd))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == "a 1\nb 20\n[3] 1\n0\n"
 
 
 @pytest.mark.linux_container

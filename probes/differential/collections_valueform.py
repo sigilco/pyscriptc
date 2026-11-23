@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# ruff: noqa: UP030, UP031, UP032 - the %, indexed and .format spellings are the constructs under test
 """`OrderedDict` and `defaultdict` in the value form (issue #491).
 
 The annotation carries the key and value types: `OrderedDict[str, int]`
