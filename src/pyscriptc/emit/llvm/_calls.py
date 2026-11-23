@@ -184,9 +184,10 @@ class CallsMixin(EmitterBase):
             return self._emit_atexit(expr)
         if _has(expr, "symbol"):
             symbol: str = _node_symbol(expr)
-            if symbol == "ps_math_factorial" or symbol == "ps_math_lcm":
-                # The int helpers (factorial, lcm) ride the `_abi_call` shape:
-                # the `_math_*` declares carry i64 params, not doubles.
+            if symbol in {"ps_math_factorial", "ps_math_lcm", "ps_math_comb", "ps_math_perm", "ps_math_isqrt"}:
+                # The int helpers (factorial, lcm, comb, perm, isqrt) ride
+                # the `_abi_call` shape: the `_math_*` declares carry i64
+                # params, not doubles.
                 return self._emit_math_int(symbol, values)
             if symbol == "ps_path_join":
                 return self._emit_join(values)
