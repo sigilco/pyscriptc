@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "1914f6d97c8eafda5323dd31e06a9c0db133238c",
+  "commit": "012ec7a75e9a22c3d67c670f0535616732ef2dec",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -187,10 +187,9 @@
       "label": "`math`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "fsum, comb, perm, isqrt, copysign, cbrt, prod, erf, erfc, lgamma, gamma, log with a base",
+      "missing": "dist, ulp, nextafter, modf, frexp, ldexp, expm1, log1p, fma, sumprod",
       "codes": [
-        "PS2001",
-        "PS2003"
+        "PS2001"
       ]
     },
     {
@@ -268,7 +267,7 @@
       "label": "`pyscriptc_ndarray`, `numpy`",
       "status": "\ud83d\udfe1",
       "count": 2,
-      "missing": "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step, an axis on a one-dimensional array",
+      "missing": "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step",
       "codes": [
         "PS2001",
         "PS2003"

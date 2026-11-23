@@ -645,14 +645,22 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#86",
     ),
     _row(
-        "D87",
+        "D88",
         "the ndarray pack's reshape returns a contiguous copy, never numpy's shared-buffer view; "
         "the whole-array reduction answers a scalar, the shape a list and the axis reductions drop the axis",
         None,
-        docs=f"{DOC}#87",
+        docs=f"{DOC}#88",
         note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
         "the byte comparison runs in the differential lane instead "
         "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
+    ),
+    _row(
+||||||| c0e13d59
+        "D87",
+        "math.comb, math.perm and math.prod are i64 (divergence 1): a result past the i64 range raises "
+        "OverflowError where CPython grows a big int",
+        "d87_math_int_overflow.py",
+        docs=f"{DOC}#87",
     ),
     _row(
         "AUDIT-D1",
