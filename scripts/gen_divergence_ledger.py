@@ -737,7 +737,6 @@ ROWS: list[dict[str, Any]] = [
 ]
 
 
-
 def oracle_bin() -> str:
     """The CPython 3.14 oracle: the pinned uv interpreter when present."""
     pinned = Path.home() / ".local/share/uv/python"
