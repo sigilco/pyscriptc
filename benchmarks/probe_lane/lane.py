@@ -43,6 +43,7 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -413,17 +414,6 @@ def normalize(text: str, probe: Path, workdir: Path, oracle: str) -> str:
     except ValueError:
         relative = str(probe)
     return text.replace(str(probe), relative).replace(str(workdir), "<cwd>").replace(oracle_prefix(oracle), "<oracle>")
-
-
-def observed_record(obs: Observation, probe: Path, workdir: Path, oracle: str) -> dict[str, Any]:
-    """One side's bytes in the ledger's own record shape."""
-
-    return {
-        "stage": "run",
-        "exit": obs.returncode,
-        "stdout": normalize(obs.stdout.decode("utf-8", "replace"), probe, workdir, oracle),
-        "stderr": normalize(obs.stderr.decode("utf-8", "replace"), probe, workdir, oracle),
-    }
 
 
 def ledger_side(row: dict[str, Any], side: str) -> dict[str, Any] | None:
@@ -897,8 +887,6 @@ def resolve_oracle() -> str | None:
 
 def has_c_toolchain() -> bool:
     """Whether compile-to-binary can find a toolchain."""
-
-    import shutil
 
     from pyscriptc.zigshim import resolve_zig
 
