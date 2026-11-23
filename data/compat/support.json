@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "012ec7a75e9a22c3d67c670f0535616732ef2dec",
+  "commit": "ec4a5f29f633a88632cab55a14e08299b3ef0c4b",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -913,8 +913,8 @@
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "249/641",
-      "blocking": "name-resolution (183), construct-other (119), field-lookup (64)",
+      "ratio": "245/641",
+      "blocking": "name-resolution (181), construct-other (118), field-lookup (64)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -970,7 +970,7 @@
       "version": "26.3",
       "status": "\ud83d\udfe1",
       "ratio": "278/558",
-      "blocking": "name-resolution (104), unlowered-type-name (98), field-lookup (83)",
+      "blocking": "name-resolution (104), unlowered-type-name (94), field-lookup (83)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
@@ -978,7 +978,7 @@
       "version": "1.1.1",
       "status": "\ud83d\udd34",
       "ratio": "75/132",
-      "blocking": "name-resolution (27), unlowered-type-name (21), type-mismatch (19)",
+      "blocking": "name-resolution (27), unlowered-type-name (20), type-mismatch (19)",
       "codes": "PS2002, PS1106, PS1003"
     },
     {
@@ -993,8 +993,8 @@
       "name": "pytz",
       "version": "2026.5",
       "status": "\ud83d\udfe1",
-      "ratio": "32/102",
-      "blocking": "param-inference (16), return-inference (2), stdlib:datetime (2)",
+      "ratio": "29/99",
+      "blocking": "param-inference (13), construct-other (2), return-inference (2)",
       "codes": "PS2002, PS1001, PS2001"
     },
     {
@@ -1002,15 +1002,15 @@
       "version": "2.34.2",
       "status": "\ud83d\udfe1",
       "ratio": "123/319",
-      "blocking": "name-resolution (45), unlowered-type-name (43), construct-other (23)",
+      "blocking": "name-resolution (45), unlowered-type-name (42), construct-other (23)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "shellingham",
       "version": "1.5.4",
       "status": "\ud83d\udd34",
-      "ratio": "19/25",
-      "blocking": "module-value (19), param-inference (12), return-inference (6)",
+      "ratio": "18/23",
+      "blocking": "module-value (19), param-inference (12), return-inference (5)",
       "codes": "PS2002, PS1001, PS2001"
     },
     {
@@ -1041,8 +1041,8 @@
       "name": "zipp",
       "version": "4.1.1",
       "status": "\ud83d\udd34",
-      "ratio": "57/75",
-      "blocking": "param-inference (34), return-inference (18), module-value (3)",
+      "ratio": "20/26",
+      "blocking": "param-inference (18), module-value (3), stdlib:sys (2)",
       "codes": "PS1001, PS2002, PS2001"
     }
   ]
