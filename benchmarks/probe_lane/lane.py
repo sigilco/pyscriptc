@@ -433,6 +433,32 @@ def ledger_side(row: dict[str, Any], side: str) -> dict[str, Any] | None:
     return recorded if isinstance(recorded, dict) else None
 
 
+def oracle_missing_module(obs: Observation) -> str:
+    """The module the oracle could not import, or an empty string.
+
+    The oracle interpreter is a plain CPython 3.14: it carries the standard
+    library and nothing else. A program that needs a third party package (the
+    numpy probe needs numpy) runs on the native side, where the compiler
+    carries its own pack, and fails on the oracle side with a
+    `ModuleNotFoundError`. The two sides are then not running the same
+    program, so the lane reports the program as skipped instead of as a
+    difference.
+    """
+
+    if obs.returncode == 0:
+        return ""
+    text = obs.stderr.decode("utf-8", "replace")
+    match = re.search(r"ModuleNotFoundError: No module named '([^']+)'", text)
+    return match.group(1) if match else ""
+
+
+def _missing_module_note(obs: Observation) -> str:
+    """The note a skipped program carries."""
+
+    module = oracle_missing_module(obs)
+    return f"oracle has no {module}: the two sides do not run the same program"
+
+
 def source_label(program: Program) -> str:
     """The repo-relative path of a program, for the report."""
 
@@ -523,6 +549,21 @@ def compare_program(
                 compile_status="compiled",
                 first_diff="run timed out",
             )
+    if oracle_missing_module(cpython_obs):
+        # The oracle interpreter does not carry what the native side has, so
+        # the two sides are not running the same program and a difference
+        # between them says nothing. The numpy probe is the case: the pinned
+        # oracle has no numpy, the compiler carries the ndarray pack.
+        return LaneRow(
+            name=program.name,
+            lane=program.lane,
+            source=label,
+            verdict=SKIP,
+            compile_status="compiled",
+            first_diff=_missing_module_note(cpython_obs),
+            native=native_obs,
+            cpython=cpython_obs,
+        )
     diffs = channel_diffs(native_obs, cpython_obs)
     verdict = MATCH if not diffs else DIFF
     return LaneRow(
