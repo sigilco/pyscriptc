@@ -538,6 +538,9 @@ class AnnotationMixin:
                     "kind": "dict",
                     "key": self._annotation(node.slice.elts[0]),
                     "value": self._any_annotation(node.slice.elts[1]),
+                    # `ordered` marks the dict for the OrderedDict repr and the
+                    # order-sensitive fences; it is not part of the type key.
+                    "ordered": True,
                 }
             )
             self._reject_banned_type(node, typ)

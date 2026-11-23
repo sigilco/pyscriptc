@@ -647,6 +647,13 @@ ROWS: list[dict[str, Any]] = [
         "routing itself is a compile-time fact the ledger cannot record as program bytes",
     ),
     _row(
+        "D86",
+        "the counter/ordered/defaultdict marks ride the dict annotation, not the value: under a plain "
+        "dict[K, V] boundary the value reprs as a plain dict and a d[k] miss raises KeyError (issue #491)",
+        "d86_collections_marks.py",
+        docs=f"{DOC}#86",
+    ),
+    _row(
         "D87",
         "math.comb, math.perm and math.prod are i64 (divergence 1): a result past the i64 range raises "
         "OverflowError where CPython grows a big int",

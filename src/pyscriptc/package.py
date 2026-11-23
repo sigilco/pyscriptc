@@ -46,6 +46,7 @@ from pyscriptc.emit._ir import (
 )
 from pyscriptc.errors import IRError
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version
+from pyscriptc.log import emit_event
 from pyscriptc.lower import Lowerer
 from pyscriptc.roots import RootSet, roots_for_directory
 from pyscriptc.stdlib_queue import dependency_lanes, ffi_modules, staged_resources
@@ -115,6 +116,7 @@ def lower_directory(
             config = None
 
     units, skipped = _discover(root, program_mode, entry=entry, prefix=prefix, exclude=exclude)
+    _discover_event(root, units, skipped)
     program = program_mode or _is_program_dir(root)
     dep_units, dep_fences = _discover_dep_roots(dep_roots or [])
     if dep_fences:
@@ -298,9 +300,10 @@ def _lower_units(
         unit_failures=unit_failures,
         roots=root_set,
     )
+    _catalog_event(root, units, catalog_units or [], exports, failed)
 
     if program:
-        fences, owners, _cycles = _program_plan(units, exports, entry=entry, island_group=island_group)
+        fences, owners, _cycles = _program_plan(units, exports, entry=entry, island_group=island_group, root=root)
         if fences:
             # boxed:begin
             island = _program_island(
@@ -923,6 +926,7 @@ def _program_plan(
     exports: dict[str, dict[str, dict[str, Any]]],
     entry: str | None = None,
     island_group: set[str] | None = None,
+    root: Path | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, list[str]], set[str]]:
     """The program's import graph: cycles found, init owners assigned.
 
@@ -1022,6 +1026,8 @@ def _program_plan(
     for name in _program_roots(trees, entry):
         if state.get(name) is None:
             visit(name)
+    if root is not None:
+        _plan_event(root, len(state), owners)
     if fences:
         empty_owners: dict[str, list[str]] = {}
         return fences, empty_owners, cycles
@@ -2215,6 +2221,56 @@ def _discover(
     if not found and exclude is None:
         raise IRError(f"no Python files in {root}")
     return found, skipped
+
+
+def _discover_event(root: Path, units: list[tuple[str, Path, bool]], skipped: list[str]) -> None:
+    """Emit the ``package.discover`` record: the root, the modules found, the files skipped."""
+    fields: dict[str, Any] = {}
+    fields["root"] = str(root.resolve())
+    fields["module_count"] = len(units)
+    skipped_fields: dict[str, Any] = {}
+    skipped_fields["count"] = len(skipped)
+    skipped_fields["paths"] = skipped
+    fields["skipped"] = skipped_fields
+    emit_event("info", "package.discover", fields)
+
+
+def _catalog_event(
+    root: Path,
+    units: list[tuple[str, Path, bool]],
+    catalog_units: list[tuple[str, Path, bool]],
+    exports: dict[str, dict[str, dict[str, Any]]],
+    failed: dict[str, dict[str, dict[str, Any]]],
+) -> None:
+    """Emit the ``package.catalog`` record: the export table size and the failed definitions."""
+    export_count = 0
+    for bucket in exports.values():
+        export_count += len(bucket)
+    failed_count = 0
+    for names in failed.values():
+        failed_count += len(names)
+    fields: dict[str, Any] = {}
+    fields["root"] = str(root.resolve())
+    fields["unit_count"] = len(units) + len(catalog_units)
+    fields["export_count"] = export_count
+    fields["failed_count"] = failed_count
+    emit_event("info", "package.catalog", fields)
+
+
+def _plan_event(root: Path, reached: int, owners: dict[str, list[str]]) -> None:
+    """Emit the ``package.plan`` record: the modules the import walk reached and the init owners."""
+    owner_names: list[str] = []
+    for name in owners:
+        if owners[name]:
+            owner_names.append(name)
+    owner_fields: dict[str, Any] = {}
+    owner_fields["count"] = len(owner_names)
+    owner_fields["names"] = owner_names
+    fields: dict[str, Any] = {}
+    fields["root"] = str(root.resolve())
+    fields["reached_count"] = reached
+    fields["init_owners"] = owner_fields
+    emit_event("info", "package.plan", fields)
 
 
 def _skip_reason(relative: str) -> str:
