@@ -1441,6 +1441,26 @@
       "status": "divergent"
     },
     {
+      "id": "D87",
+      "seam": "math.comb, math.perm and math.prod are i64 (divergence 1): a result past the i64 range raises OverflowError where CPython grows a big int",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#87",
+      "probe": "probes/divergences/d87_math_int_overflow.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2598960\n100891344545564193334812497256\n25545471085854720000\n1208925819614629174706176\nValueError\nValueError\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "2598960\nOverflowError\nOverflowError\nOverflowError\nValueError\nValueError\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D1",
       "seam": "list.sort() on a module-scope list was a no-op (audit D1)",
       "listed": false,
