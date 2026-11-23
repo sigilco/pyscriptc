@@ -57,7 +57,7 @@ def _carries_tuple_template(typ: dict[str, Any]) -> bool:
     re-forms the concrete tuple class."""
     if not isinstance(typ, dict):
         return False
-    if typ.get("tuple_template") is not None:
+    if typ.get("tuple_template") is not None or typ.get("tuple_var"):
         return True
     for key in ("elem", "key", "value", "return"):
         inner = typ.get(key)
@@ -894,6 +894,12 @@ class AnnotationMixin:
             # shape. Mixed or nested ellipsis stays the current fence.
             if len(elts) == 2 and _ellipsis_const(elts[1]) and not _node_has_ellipsis(elts[0]):
                 elem = self._annotation(elts[0])
+                if _has_typevar(elem):
+                    # `tuple[T, ...]` is the homogeneous shape (a list at the
+                    # IR), but the argument may be a fixed tuple; the marker
+                    # lets `_unify` bind T from either (issue #412). The raw
+                    # dict passes through: the typed record has no marker.
+                    return {"kind": "list", "elem": elem, "tuple_var": True}
                 typ = _type({"kind": "list", "elem": elem})
                 self._reject_banned_type(node, typ)
                 return typ

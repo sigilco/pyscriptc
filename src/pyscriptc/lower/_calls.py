@@ -496,6 +496,12 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             inner = got["elem"] if _type_kind(got) == "class" and got.get("optional") else got
             self._unify(inner, want["elem"], mapping, node, arg_node)
             return
+        if _type_kind(want) == "list" and want.get("tuple_var"):
+            # `tuple[T, ...]` (issue #412) erases to the homogeneous list, so
+            # the argument is a list and T binds from its element.
+            if _type_kind(got) == "list":
+                self._unify(got["elem"], want["elem"], mapping, node, arg_node)
+                return
         if _type_kind(want) == "list" and _type_kind(got) == "list":
             self._unify(got["elem"], want["elem"], mapping, node, arg_node)
             return
