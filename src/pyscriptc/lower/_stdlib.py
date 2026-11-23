@@ -489,6 +489,19 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 return self._math_gcd(node, span)
             if attr in {"factorial", "lcm"}:
                 return self._math_int_call(node, span, attr)
+            if attr in {
+                "dist",
+                "fma",
+                "frexp",
+                "ldexp",
+                "log1p",
+                "modf",
+                "nextafter",
+                "sumprod",
+                "ulp",
+                "expm1",
+            }:
+                return self._math_rest_call(node, span, attr)
             return self._math_call(node, span, attr)
         if module == "bisect":
             from pyscriptc.restlower._bisect import _bisect
