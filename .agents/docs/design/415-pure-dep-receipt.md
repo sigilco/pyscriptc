@@ -77,15 +77,19 @@ mostly because today's resolution is wcwidth 0.9.5, a much larger rewrite
 - **tomli**: 44/82, and the visible count is optimistic. ~55 of the reachable
   fences are annotation-erasure (`Final`, `Pos`, `Key`, `ParseFloat`,
   `re.Match[str]`, `IO[bytes]`, `Callable`/`Tuple` as values), which masks
-  the second wave underneath: `re.compile` Pattern objects as module
-  constants plus `Match` methods (`re` today lowers the *function* surface
-  only), `frozenset` literals and `-`/`|` set algebra for the char tables,
+  the second wave underneath. Probe-verified pieces of it: a `re.compile`
+  result held as a module constant fences (`PS2002 global RE_NUM of Pattern
+  is not lowered` — `re` lowers the *function* surface only, so `RE_*`
+  constants and every `Match` call are gated), genexp-built `frozenset`
+  unions and set difference need annotations/features (literal
+  `frozenset(" \t")` does lower). Estimated but unprobed: `Match` methods,
   `types.MappingProxyType`, `sys.getrecursionlimit`, `str |
-  type[DEPRECATED_DEFAULT]` unions, `*args`, `-> Any` returns,
-  `lru_cache`, a multi-arg `TOMLDecodeError` with custom attributes, and
+  type[DEPRECATED_DEFAULT]` unions, `*args`, `-> Any` returns, `lru_cache`,
+  a multi-arg `TOMLDecodeError` with custom attributes, and
   `Output`/`Flags`/`NestedDict` classes that set fields without declaring
-  them. Eight-plus distinct feature clusters, several unknown until erasure
-  lands. Out for now; re-measure after the annotation-alias erasure slice.
+  them. Eight-plus distinct feature clusters, several unknowable until
+  erasure lands. Out for now; re-measure after the annotation-alias erasure
+  slice.
 - **iniconfig**: 22 tree-root / 26 reachable, and the floor test below shows
   the gap is enumerable and small.
 
@@ -106,46 +110,55 @@ consumer that parses an ini string and prints values, `lineof` and `get`
 results then **compiles to a native binary whose stdout and exit code match
 CPython byte-for-byte** (6 lines, `value / 42 / y / 2 / fallback`).
 
-Every patch point maps to a named compiler slice — this is the work list for
-the receipt epic, in roughly increasing size:
+Every patch point maps to a named compiler slice. Single-statement probes
+(`/tmp/pysc/c415/probes/`, each compiled to a binary and run) tightened the
+list — several suspected blockers already lower today: `frozenset(" \t")`
+literals and membership, keyword-only parameters, two-arm unions including
+`str | os.PathLike[str]` (the `os.PathLike` arm erases), `str.removeprefix`,
+and `open(path, encoding=...)` with `with ... as fp` + `fp.read()`. The
+remaining work list, in roughly increasing size:
 
-1. `str.splitlines` stdlib row (`data.splitlines(True)`).
-2. `os.fspath` stdlib row (identity for `str`, used unconditionally in
-   `IniConfig.__init__`/`parse`).
-3. `open(path, encoding=...)` keyword row — `with open(...) as fp` +
-   `fp.read()` already lowers (the patched `__init__` kept it and it
-   compiled).
-4. Erased-name extension, same family as #412: `Final` in annotations (5+
-   sites), `os.PathLike[str]` as an abstract name, and collapsing
-   `str | os.PathLike[str]` to `str` when the abstract arm erases. This
-   unlocks `IniConfig.__init__`/`parse` signatures, the two PS1102s.
-5. `none`-literal unification: `return None, None` infers
+1. `str.splitlines(True)` keepends row — `splitlines()` lowers, the
+   `keepends` argument does not (`PS2001 call of attribute is not lowered
+   (splitlines)`, probe-verified); `parse_ini_data` uses keepends.
+2. `os.fspath` stdlib row — `PS2001 os.fspath is not in the lowered subset
+   of os` (probe-verified); used unconditionally in
+   `IniConfig.__init__`/`parse`. Identity for `str`.
+3. `Final` in annotations — `PS1103 Final is not a lowered type in the IR`
+   (probe-verified; `UTF8_BOM: Final`, the `Final` fields). Extends the #412
+   erased-name machinery to one more name.
+4. `none`-literal → `opt_T` unification: `return None, None` infers
    `tuple[none, none]` and refuses `tuple[str | None, str | None]` (5×
-   PS1003 in `_parseline`). A checker slice: coerce `none` into `opt_T`
-   positions.
-6. Multi-arg exception constructors: `ParseError(path, lineno, msg)` and
-   `super().__init__(path, lineno, msg)` (4× PS2003 "exception takes one
-   scalar argument").
-7. `tuple` as a dict key: `dict[tuple[str, str | None], int]` for
+   PS1003 in `_parseline`, probe-verified with a minimal repro). Note
+   `print(x)` on an `opt_str` value also fences — the receipt consumer
+   should `str()`/unwrap or print concrete values.
+5. Multi-arg exception constructors and exception attributes:
+   `ParseError(path, lineno, msg)` + `super().__init__(path, lineno, msg)`
+   (4× PS2003 "exception takes one scalar argument"), and `e.lineno` /
+   `e.msg` reads ("exception has no attribute", probe-verified).
+6. `tuple` as a dict key: `dict[tuple[str, str | None], int]` for
    `_sources` (3× "dict keys are int or str"), read via `.get((section,
    name))` and written `sources[section, name] = lineno`.
-8. `NamedTuple` class base → record (`ParsedLine`, "this class base is not
-   lowered"); also unlocks `call to ParsedLine`.
-9. One access path to sections: either dunder dispatch (`ini["s"]["k"]`,
+7. `NamedTuple` class base → record (`ParsedLine`, "this class base is not
+   lowered", probe-verified); also unlocks `call to ParsedLine`.
+8. One access path to sections: either dunder dispatch (`ini["s"]["k"]`,
    `"s" in ini` — `__getitem__`/`__contains__` do not dispatch from `[]`/`in`
-   today) or `IniConfig.get` (needs `@overload` stub skipping and the
-   `Callable | None` / TypeVar `default` signature — `get`'s body itself is
-   small). `ini["s"]["k"]` is the documented API and the better demo;
-   `get` is the smaller slice.
-10. Tuple-return unpack: `sections_data, sources = parse_ini_data(...)`
-    ("unpacking needs a tuple or list value" on a call result; tuple
-    subscript `parsed[0]` is also unlowered). Needed whichever way
-    `parse_ini_data` is reached — unless the signature evolves first.
+   today, probe-verified) or `IniConfig.get` (needs `@overload` stub
+   skipping and the `Callable | None` / TypeVar `default` signature —
+   `get`'s body itself is small). `ini["s"]["k"]` is the documented API and
+   the better demo; `get` is the smaller slice. The two PS1102 multi-arm
+   unions (`_D | _T | str | None`, `Callable[[str], _T] | None`) live only
+   in `get` (lines 70 and 228), so the `__getitem__` route avoids union
+   work entirely.
+9. Tuple-return unpack: `sections_data, sources = parse_ini_data(...)`
+   ("unpacking needs a tuple or list value" on a call result; tuple
+   subscript `parsed[0]` is also unlowered).
 
 Not needed: the generator/`sorted(key=)`/`Iterator` internals (`__iter__`,
-`items`), the `lineof`'s `int | None` (single-arm optionals already lower),
-`Mapping`/`collections.abc` names (erased by #412). Fenced methods simply do
-not export; the class still lowers.
+`items`), `lineof`'s `int | None` (single-arm optionals already lower),
+`Mapping`/`collections.abc` names (erased by #412), keyword-only params,
+two-arm unions, `os.fspath`-adjacent `os.path` basics. Fenced methods simply
+do not export; the class still lowers.
 
 ## Receipt plan
 
