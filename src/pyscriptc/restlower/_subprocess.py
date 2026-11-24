@@ -122,7 +122,7 @@ def _raise_flag(node: ast.Call) -> bool:
     return False
 
 
-def _cwd(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+def _cwd(lo: Any, node: ast.Call, span: dict[str, Any], what: str = "subprocess.run") -> dict[str, Any]:
     """`cwd=` parameter as a str value or empty str if omitted/None."""
     for keyword in node.keywords:
         if keyword.arg == "cwd":
@@ -134,7 +134,7 @@ def _cwd(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
                 return _call_builtin("str", [val], _t_leaf("str"), span)
             if kind == "none":
                 return _const_text("", "str", span)
-            lo.fail(keyword.value, "PS2003", "subprocess.run cwd must be a str or Path")
+            lo.fail(keyword.value, "PS2003", f"{what} cwd must be a str or Path")
     return _const_text("", "str", span)
 
 

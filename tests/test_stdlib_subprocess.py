@@ -652,10 +652,16 @@ def test_popen_unpiped_stream_read_fences(tmp_path: Path) -> None:
     assert "AttributeError: 'NoneType' object has no attribute 'read'" in ref.stderr
 
 
-def test_popen_environment_keywords_fence(tmp_path: Path) -> None:
-    # The spawn environment is issue #1344's surface: it fences with
-    # PS2003 naming the issue.
-    path = write_case(
+def _popen_case(tmp_path: Path, name: str, body: list[str]) -> Path:
+    """A `run()` that opens with `import subprocess` and the given body."""
+    lines = ["import subprocess", "", "def run() -> int:", *[f"    {line}" for line in body], "    return 0", ""]
+    return write_case(tmp_path, name, "\n".join(lines))
+
+
+def test_popen_env_replaces_the_child_environment(tmp_path: Path) -> None:
+    # `env=` is the whole environment: a variable the parent has but the
+    # map lacks is gone, and the map's own entries arrive.
+    _oracle(
         tmp_path,
         "popen_env.py",
         "\n".join(
@@ -663,17 +669,244 @@ def test_popen_environment_keywords_fence(tmp_path: Path) -> None:
                 "import subprocess",
                 "",
                 "def run() -> int:",
-                "    p: subprocess.Popen = subprocess.Popen(['true'], env={})",
+                "    env: dict[str, str] = {'PATH': '/usr/bin:/bin', 'PYSC_ONE': 'alpha', 'PYSC_TWO': 'b c'}",
+                "    p: subprocess.Popen = subprocess.Popen(",
+                "        ['sh', '-c', 'echo \"$PYSC_ONE|$PYSC_TWO|${HOME:-unset}\"'],",
+                "        env=env,",
+                "        stdout=subprocess.PIPE,",
+                "    )",
+                "    print(p.stdout.readline())",
                 "    print(p.wait())",
                 "    return 0",
                 "",
             ]
         ),
     )
+
+
+def test_popen_env_none_inherits_and_empty_env_clears(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "popen_env_none.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    a: subprocess.Popen = subprocess.Popen(",
+                "        ['sh', '-c', 'test -n \"$PATH\" && echo has-path'], env=None, stdout=subprocess.PIPE",
+                "    )",
+                "    print(a.stdout.read())",
+                "    print(a.wait())",
+                "    empty: dict[str, str] = {}",
+                "    b: subprocess.Popen = subprocess.Popen(",
+                "        ['/bin/sh', '-c', 'echo \"[${PATH:-none}]\"'], env=empty, stdout=subprocess.PIPE",
+                "    )",
+                "    print(b.stdout.read())",
+                "    print(b.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_env_path_lookup_uses_the_child_path(tmp_path: Path) -> None:
+    # A bare program name resolves through the PATH the env carries.
+    tool = tmp_path / "bin" / "pysc-tool"
+    tool.parent.mkdir()
+    tool.write_text("#!/bin/sh\necho from-tool\n")
+    tool.chmod(0o755)
+    _oracle(
+        tmp_path,
+        "popen_env_path.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                f"    env: dict[str, str] = {{'PATH': '{tool.parent}'}}",
+                "    p: subprocess.Popen = subprocess.Popen(['pysc-tool'], env=env, stdout=subprocess.PIPE)",
+                "    print(p.stdout.read())",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_cwd_str_path_and_none(tmp_path: Path) -> None:
+    work = tmp_path / "work dir"
+    work.mkdir()
+    _oracle(
+        tmp_path,
+        "popen_cwd.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "from pathlib import Path",
+                "",
+                "def run() -> int:",
+                f"    here: str = '{work}'",
+                "    a: subprocess.Popen = subprocess.Popen(['pwd'], cwd=here, stdout=subprocess.PIPE)",
+                "    print(a.stdout.read() == (here + '\\n').encode())",
+                "    print(a.wait())",
+                "    where: Path = Path(here)",
+                "    b: subprocess.Popen = subprocess.Popen(['pwd'], cwd=where, stdout=subprocess.PIPE)",
+                "    print(b.stdout.read() == (here + '\\n').encode())",
+                "    print(b.wait())",
+                "    c: subprocess.Popen = subprocess.Popen(['true'], cwd=None)",
+                "    print(c.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_spawn_failures_raise_like_cpython(tmp_path: Path) -> None:
+    # A missing program and a missing working directory raise in the
+    # parent (FileNotFoundError), a file as the cwd is NotADirectoryError,
+    # and a non-executable file is PermissionError; the messages match.
+    blocker = tmp_path / "plain-file"
+    blocker.write_text("x")
+    _oracle(
+        tmp_path,
+        "popen_spawn_fail.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    try:",
+                "        subprocess.Popen(['pysc-no-such-program-xyz'])",
+                "    except FileNotFoundError as e:",
+                "        print('missing program', e)",
+                "    try:",
+                "        subprocess.Popen(['true'], cwd='/pysc/no/such/dir')",
+                "    except FileNotFoundError as e:",
+                "        print('missing cwd', e)",
+                f"    try:",
+                f"        subprocess.Popen(['true'], cwd='{blocker}')",
+                "    except NotADirectoryError as e:",
+                "        print('file cwd', e)",
+                f"    try:",
+                f"        subprocess.Popen(['{blocker}'])",
+                "    except PermissionError as e:",
+                "        print('not executable', e)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_start_new_session_detaches_the_child(tmp_path: Path) -> None:
+    # The child is its own session leader: its session id is its pid,
+    # where an ordinary child shares the parent's session.
+    _oracle(
+        tmp_path,
+        "popen_session.py",
+        "\n".join(
+            [
+                "import os",
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    a: subprocess.Popen = subprocess.Popen(",
+                "        ['sh', '-c', 'echo $$; ps -o sid= -p $$'], start_new_session=True, stdout=subprocess.PIPE",
+                "    )",
+                "    out: bytes = a.stdout.read()",
+                "    print(a.wait())",
+                "    fields: list[str] = out.decode().split()",
+                "    print(fields[0] == fields[1])",
+                "    b: subprocess.Popen = subprocess.Popen(",
+                "        ['sh', '-c', 'echo $$; ps -o sid= -p $$'], start_new_session=False, stdout=subprocess.PIPE",
+                "    )",
+                "    out2: bytes = b.stdout.read()",
+                "    print(b.wait())",
+                "    fields2: list[str] = out2.decode().split()",
+                "    print(fields2[0] == fields2[1])",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_stdin_pipe_with_env_and_cwd(tmp_path: Path) -> None:
+    # The consumer's shape: per-job env and cwd, stdin and stdout piped,
+    # a new session.
+    work = tmp_path / "job"
+    work.mkdir()
+    _oracle(
+        tmp_path,
+        "popen_job.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    env: dict[str, str] = {'PATH': '/usr/bin:/bin', 'JOB': 'j1'}",
+                "    p: subprocess.Popen = subprocess.Popen(",
+                "        ['sh', '-c', 'read line; echo \"$JOB:$line:$(basename \"$(pwd)\")\"'],",
+                f"        env=env, cwd='{work}', start_new_session=True,",
+                "        stdin=subprocess.PIPE, stdout=subprocess.PIPE,",
+                "    )",
+                "    p.stdin.write(b'hello\\n')",
+                "    p.stdin.flush()",
+                "    print(p.stdout.readline())",
+                "    p.stdin.close()",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_env_must_be_a_str_dict(tmp_path: Path) -> None:
+    path = _popen_case(
+        tmp_path,
+        "popen_env_bad.py",
+        [
+            "env: dict[str, int] = {'A': 1}",
+            "p: subprocess.Popen = subprocess.Popen(['true'], env=env)",
+            "print(p.wait())",
+        ],
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0
+    # The checker preflight refuses the int values before the lowering.
+    assert "error" in got.stderr and "env" in got.stderr, got.stderr
+
+
+def test_popen_start_new_session_computed_fences(tmp_path: Path) -> None:
+    path = _popen_case(
+        tmp_path,
+        "popen_session_bad.py",
+        [
+            "flag: bool = True",
+            "p: subprocess.Popen = subprocess.Popen(['true'], start_new_session=flag)",
+            "print(p.wait())",
+        ],
+    )
     got = compile_run(tmp_path, path, "run")
     assert got.returncode != 0
     assert "PS2003" in got.stderr, got.stderr
-    assert "#1344" in got.stderr, got.stderr
+
+
+def test_popen_shell_and_text_keywords_still_fence(tmp_path: Path) -> None:
+    for keyword in ("shell=True", "text=True"):
+        path = _popen_case(
+            tmp_path,
+            f"popen_{keyword.split('=')[0]}.py",
+            [f"p: subprocess.Popen = subprocess.Popen(['true'], {keyword})", "print(p.wait())"],
+        )
+        got = compile_run(tmp_path, path, "run")
+        assert got.returncode != 0
+        assert "PS2003" in got.stderr, got.stderr
 
 
 def test_popen_computed_wait_timeout_fences(tmp_path: Path) -> None:

@@ -37,6 +37,7 @@ so two spellings of `proc.stdout` read the same stream.
    the wasi sysroot never sees the include. */
 #include <signal.h>
 #endif
+#include <fcntl.h>
 #include <sys/wait.h>
 #include <unistd.h>
 #endif
@@ -133,12 +134,131 @@ static char **ps_popen_argv(PsSeq *args) {
 }
 #endif
 
-/* Popen(argv): the child starts now. A spawn failure raises RuntimeError,
-   the stand-in the sync subprocess raises for a failed spawn. pipe_mask
-   names the streams to pipe: bit 0 stdout, bit 1 stderr, bit 2 stdin
-   (issue #1345). The other streams inherit the parent's, the way
-   CPython's Popen does when the caller passes None. */
-void *ps_popen_new(PsSeq *args, int64_t pipe_mask) {
+#ifndef _WIN32
+/* The spawn flag bits beyond the pipe mask (issue #1344): bit 3 puts the
+   child in its own session (setsid in the child), bit 4 says the env
+   map replaces the child's environment. The pipe mask keeps bits 0-2. */
+#define PS_POPEN_NEW_SESSION 8
+#define PS_POPEN_HAS_ENV 16
+
+/* The env map as a NULL-terminated `KEY=VALUE` array, the execvpe
+   spelling: the map replaces the child's environment whole. */
+static char **ps_popen_envp(PsMap *env) {
+    int64_t n = env == NULL ? 0 : env->len;
+    char **envp = calloc((size_t)n + 1, sizeof(char *));
+    int64_t i;
+    if (envp == NULL) {
+        abort();
+    }
+    for (i = 0; i < n; i++) {
+        PsBuf key;
+        PsBuf val;
+        char *entry;
+        ps_map_key_at(env, i, &key);
+        ps_map_val_at(env, i, &val);
+        entry = malloc((size_t)(key.len + val.len + 2));
+        if (entry == NULL) {
+            abort();
+        }
+        if (key.len > 0) {
+            memcpy(entry, key.data, (size_t)key.len);
+        }
+        entry[key.len] = '=';
+        if (val.len > 0) {
+            memcpy(entry + key.len + 1, val.data, (size_t)val.len);
+        }
+        entry[key.len + 1 + val.len] = '\0';
+        envp[i] = entry;
+    }
+    envp[n] = NULL;
+    return envp;
+}
+
+static void ps_popen_free_vec(char **vec) {
+    int64_t i;
+    if (vec == NULL) {
+        return;
+    }
+    for (i = 0; vec[i] != NULL; i++) {
+        free(vec[i]);
+    }
+    free(vec);
+}
+
+/* The program lookup under a replaced environment: CPython walks the
+   PATH of the env it hands the child (`os.get_exec_path(env)`, the
+   default path `/bin:/usr/bin` when the env has no PATH), so the exec
+   does the same walk and passes the env whole. A name with a slash runs
+   as written. The errno left is CPython's: the first one that is not
+   ENOENT or ENOTDIR wins, ENOENT otherwise. */
+static void ps_popen_exec(char **argv, char **envp) {
+    const char *path = "/bin:/usr/bin";
+    const char *cur;
+    int saved = 0;
+    int64_t i;
+    if (envp == NULL) {
+        execvp(argv[0], argv);
+        return;
+    }
+    if (strchr(argv[0], '/') != NULL) {
+        execve(argv[0], argv, envp);
+        return;
+    }
+    for (i = 0; envp[i] != NULL; i++) {
+        if (strncmp(envp[i], "PATH=", 5) == 0) {
+            path = envp[i] + 5;
+        }
+    }
+    cur = path;
+    for (;;) {
+        const char *end = strchr(cur, ':');
+        size_t dlen = end == NULL ? strlen(cur) : (size_t)(end - cur);
+        size_t alen = strlen(argv[0]);
+        char cand[4096];
+        if (dlen + alen + 2 > sizeof cand) {
+            /* Too long for a path: skip it, ENAMETOOLONG as the kernel says. */
+            if (saved == 0) {
+                saved = ENAMETOOLONG;
+            }
+            if (end == NULL) {
+                break;
+            }
+            cur = end + 1;
+            continue;
+        }
+        if (dlen == 0) {
+            memcpy(cand, argv[0], alen + 1);
+        } else {
+            memcpy(cand, cur, dlen);
+            cand[dlen] = '/';
+            memcpy(cand + dlen + 1, argv[0], alen + 1);
+        }
+        execve(cand, argv, envp);
+        if (errno != ENOENT && errno != ENOTDIR && saved == 0) {
+            saved = errno;
+        }
+        if (end == NULL) {
+            break;
+        }
+        cur = end + 1;
+    }
+    errno = saved != 0 ? saved : ENOENT;
+}
+#endif
+
+/* Popen(argv, flags, cwd, env): the child starts now. A spawn failure
+   raises, the way CPython's does: a program or a working directory that
+   does not exist is FileNotFoundError (`[Errno 2] No such file or
+   directory: '<name>'`), a directory that is not one NotADirectoryError,
+   a refused exec PermissionError, anything else OSError. The child
+   reports the errno through a close-on-exec pipe the parent reads before
+   it answers, so a failed spawn is an exception and not an exit code.
+   flags carries the pipe mask in bits 0-2 (bit 0 stdout, bit 1 stderr,
+   bit 2 stdin, issue #1345), bit 3 start_new_session and bit 4 the env
+   map (issue #1344). An empty cwd is the inherited one; the other
+   streams inherit the parent's, the way CPython's Popen does when the
+   caller passes None. */
+void *ps_popen_new(PsSeq *args, int64_t flags, int64_t cwd_len, const char *cwd, PsMap *env) {
     PsPopen *proc = calloc(1, sizeof(PsPopen));
     if (proc == NULL) {
         ps_raise_cstr(PS_RUNTIME, "out of memory");
@@ -147,32 +267,65 @@ void *ps_popen_new(PsSeq *args, int64_t pipe_mask) {
     proc->out_fd = -1;
     proc->err_fd = -1;
 #ifdef _WIN32
-    (void)pipe_mask;
+    (void)flags;
+    (void)cwd_len;
+    (void)cwd;
+    (void)env;
     ps_raise_cstr(PS_RUNTIME, "subprocess.Popen is not available on this platform");
 #else
     {
+        int64_t pipe_mask = flags & 7;
         char **argv = ps_popen_argv(args);
+        char **envp = (flags & PS_POPEN_HAS_ENV) != 0 ? ps_popen_envp(env) : NULL;
+        char *cwd_cstr = NULL;
         int in_pipe[2] = {-1, -1};
         int out_pipe[2] = {-1, -1};
         int err_pipe[2] = {-1, -1};
+        int status_pipe[2] = {-1, -1};
+        if (cwd_len > 0 && cwd != NULL) {
+            cwd_cstr = malloc((size_t)cwd_len + 1);
+            if (cwd_cstr == NULL) {
+                abort();
+            }
+            memcpy(cwd_cstr, cwd, (size_t)cwd_len);
+            cwd_cstr[cwd_len] = '\0';
+        }
         if ((pipe_mask & 4) != 0 && pipe(in_pipe) != 0) {
-            free(argv);
+            ps_popen_free_vec(argv);
+            ps_popen_free_vec(envp);
+            free(cwd_cstr);
             ps_raise_cstr(PS_RUNTIME, "subprocess.Popen pipe failed");
         }
         if ((pipe_mask & 1) != 0 && pipe(out_pipe) != 0) {
-            free(argv);
+            ps_popen_free_vec(argv);
+            ps_popen_free_vec(envp);
+            free(cwd_cstr);
             ps_raise_cstr(PS_RUNTIME, "subprocess.Popen pipe failed");
         }
         if ((pipe_mask & 2) != 0 && pipe(err_pipe) != 0) {
-            free(argv);
+            ps_popen_free_vec(argv);
+            ps_popen_free_vec(envp);
+            free(cwd_cstr);
             ps_raise_cstr(PS_RUNTIME, "subprocess.Popen pipe failed");
         }
+        if (pipe(status_pipe) != 0) {
+            ps_popen_free_vec(argv);
+            ps_popen_free_vec(envp);
+            free(cwd_cstr);
+            ps_raise_cstr(PS_RUNTIME, "subprocess.Popen pipe failed");
+        }
+        (void)fcntl(status_pipe[0], F_SETFD, FD_CLOEXEC);
+        (void)fcntl(status_pipe[1], F_SETFD, FD_CLOEXEC);
         pid_t pid = fork();
         if (pid < 0) {
-            free(argv);
+            ps_popen_free_vec(argv);
+            ps_popen_free_vec(envp);
+            free(cwd_cstr);
             ps_raise_cstr(PS_RUNTIME, "subprocess.Popen fork failed");
         }
         if (pid == 0) {
+            int32_t fail_kind = 0;
+            int32_t fail_errno;
             if (in_pipe[0] >= 0) {
                 close(in_pipe[1]);
                 dup2(in_pipe[0], STDIN_FILENO);
@@ -188,9 +341,29 @@ void *ps_popen_new(PsSeq *args, int64_t pipe_mask) {
                 dup2(err_pipe[1], STDERR_FILENO);
                 close(err_pipe[1]);
             }
-            execvp(argv[0], argv);
+            if ((flags & PS_POPEN_NEW_SESSION) != 0) {
+                (void)setsid();
+            }
+            if (cwd_cstr != NULL && chdir(cwd_cstr) != 0) {
+                fail_kind = 1;
+            } else {
+                ps_popen_exec(argv, envp);
+                fail_kind = 2;
+            }
+            /* The exec (or the chdir) failed: the errno and the failing
+               step go to the parent, and the child leaves. */
+            fail_errno = (int32_t)errno;
+            {
+                int32_t report[2];
+                ssize_t put;
+                report[0] = fail_kind;
+                report[1] = fail_errno;
+                put = write(status_pipe[1], report, sizeof report);
+                (void)put;
+            }
             _exit(127);
         }
+        close(status_pipe[1]);
         if (in_pipe[1] >= 0) {
             close(in_pipe[0]);
             proc->in_fd = in_pipe[1];
@@ -205,6 +378,55 @@ void *ps_popen_new(PsSeq *args, int64_t pipe_mask) {
         }
         proc->pid = (int64_t)pid;
         proc->live = 1;
+        /* The failure report: two int32s when the child could not start
+           the program, EOF (the close-on-exec fired) when it did. */
+        {
+            int32_t report[2] = {0, 0};
+            size_t have = 0;
+            while (have < sizeof report) {
+                ssize_t got = read(status_pipe[0], (char *)report + have, sizeof report - have);
+                if (got < 0 && errno == EINTR) {
+                    continue;
+                }
+                if (got <= 0) {
+                    break;
+                }
+                have += (size_t)got;
+            }
+            close(status_pipe[0]);
+            if (have == sizeof report) {
+                int status = 0;
+                char msg[4400];
+                int32_t code = PS_OSERROR;
+                const char *name = report[0] == 1 ? cwd_cstr : argv[0];
+                pid_t got;
+                do {
+                    got = waitpid(pid, &status, 0);
+                } while (got < 0 && errno == EINTR);
+                if (proc->in_fd >= 0) {
+                    close(proc->in_fd);
+                }
+                if (proc->out_fd >= 0) {
+                    close(proc->out_fd);
+                }
+                if (proc->err_fd >= 0) {
+                    close(proc->err_fd);
+                }
+                if (report[1] == ENOENT) {
+                    code = PS_FILENOTFOUNDERROR;
+                } else if (report[1] == ENOTDIR) {
+                    code = PS_NOTADIRECTORYERROR;
+                } else if (report[1] == EACCES || report[1] == EPERM) {
+                    code = PS_PERMISSIONERROR;
+                }
+                snprintf(msg, sizeof msg, "[Errno %d] %s: '%.4000s'", (int)report[1], strerror((int)report[1]), name);
+                free(proc);
+                ps_popen_free_vec(argv);
+                ps_popen_free_vec(envp);
+                free(cwd_cstr);
+                ps_raise_cstr(code, msg);
+            }
+        }
         /* The argv repr the timeout message carries (CPython's "Command
            '<cmd repr>' timed out after N seconds"). */
         {
@@ -217,10 +439,9 @@ void *ps_popen_new(PsSeq *args, int64_t pipe_mask) {
             }
             free(repr.data);
         }
-        for (int64_t i = 0; argv[i] != NULL; i++) {
-            free(argv[i]);
-        }
-        free(argv);
+        ps_popen_free_vec(argv);
+        ps_popen_free_vec(envp);
+        free(cwd_cstr);
     }
 #endif
     return proc;
