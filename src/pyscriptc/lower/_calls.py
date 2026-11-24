@@ -1251,7 +1251,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         if folded is not None:
             return folded
         kind = _node_type_kind(arg)
-        if kind == "class":
+        if kind == "class" and not arg["type"].get("optional"):
             dispatched = self._truthy_dispatch(node, arg, span)
             if dispatched is not None:
                 return dispatched

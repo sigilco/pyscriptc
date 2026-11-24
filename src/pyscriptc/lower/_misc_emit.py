@@ -280,7 +280,7 @@ class MiscEmitMixin:
         kind = _node_type_kind(cond)
         if kind == "bool":
             return cond
-        if kind == "class":
+        if kind == "class" and not cond["type"].get("optional"):
             dispatched = self._truthy_dispatch(node, cond, span_of(node, self.filename))
             if dispatched is not None:
                 return dispatched
