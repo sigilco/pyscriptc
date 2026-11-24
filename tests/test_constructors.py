@@ -84,10 +84,13 @@ def test_bool_and_list_match_cpython(tmp_path: Path) -> None:
 
 def test_bool_and_list_refuse_the_closed_cases(tmp_path: Path) -> None:
     cases = [
+        # The O3a protocol dispatch (issue #445) replaces the old
+        # "bool() of class" fence: truthiness of a dunder-less class is the
+        # constant True (divergence 99), so the class case compiles and the
+        # fence stays on the closed argument surface.
         (
-            "class Box:\n    n: int\n    def __init__(self, n: int) -> None:\n        self.n = n\n"
-            "def f() -> int:\n    if bool(Box(1)):\n        return 1\n    return 0\n",
-            "bool() of class",
+            "def f() -> int:\n    b: bool = bool(1, 2)\n    return 0\n",
+            "bool expects 1 argument(s)",
         ),
         (
             "def f() -> int:\n    text: str = 'ab'\n    ys: list[str] = list(text)\n    return len(ys)\n",

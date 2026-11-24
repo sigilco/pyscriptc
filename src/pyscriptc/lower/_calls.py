@@ -246,7 +246,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                         called = self._dunder_call(node, args[0], "__repr__", [], span)
                     if called is not None:
                         return called
-                hashable = _node_type_kind(args[0]) == "class" and not args[0]["type"].get("island")
+                hashable = args and _node_type_kind(args[0]) == "class" and not args[0]["type"].get("island")
                 if name == "hash" and len(args) == 1 and hashable:
                     called = self._hash_dispatch(node, args[0], span)
                     if called is not None:
