@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-24",
-  "commit": "38a2e6e6eb6b633ac297729b45a7a370088c32e7",
+  "commit": "1f8d01499bc4c44b2b0000b1bb5408d3e20205b5",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -967,8 +967,8 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "244/641",
-      "blocking": "name-resolution (181), construct-other (118), field-lookup (64)",
-      "codes": "PS2002, PS2001, PS2003"
+      "blocking": "name-resolution (186), construct-other (116), field-lookup (63)",
+      "codes": "PS2002, PS2001, PS1103"
     },
     {
       "name": "h11",
@@ -990,9 +990,9 @@
       "name": "iniconfig",
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
-      "ratio": "10/34",
-      "blocking": "call-arity (4), construct-other (3), optional-types (2)",
-      "codes": "PS2002, PS2003, PS1102"
+      "ratio": "9/34",
+      "blocking": "construct-other (3), optional-types (2), local-inference (2)",
+      "codes": "PS2002, PS1102, PS1001"
     },
     {
       "name": "jmespath",
