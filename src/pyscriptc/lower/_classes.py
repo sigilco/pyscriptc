@@ -26,8 +26,11 @@ from pyscriptc.lower._classes_more import ClassesMoreMixin
 from pyscriptc.lower._core import (
     Fence,
     _assign,
+    _binary_int,
+    _compare,
     _concat_str,
     _const_bool,
+    _const_int,
     _const_str,
     _has_typevar,
     _mk_span,
@@ -39,7 +42,7 @@ from pyscriptc.lower._core import (
     _show,
     _sig_typevars,
 )
-from pyscriptc.lower._expr_compare import _assign_node, _compare_node, _if_node
+from pyscriptc.lower._expr_compare import _assign_node, _compare_node, _if_node, _unary_node
 from pyscriptc.lower._ndarray import _dtype_of as _nd_dtype_of
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.reflection import annotation_note, metaclass_note
@@ -1109,12 +1112,187 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             "__repr__": "str",
             "__len__": "int",
             "__eq__": "bool",
+            "__ne__": "bool",
+            "__lt__": "bool",
+            "__le__": "bool",
+            "__gt__": "bool",
+            "__ge__": "bool",
+            "__contains__": "bool",
+            "__bool__": "bool",
+            "__hash__": "int",
+            "__format__": "str",
             "__exit__": "bool",
         }.get(name)
         if want is not None and _type_kind(ret) != want:
             self.fail(node, "PS1003", f"{class_name}.{name} returns {_show(ret)}, not {want}")
         emit = self._emit_owner(class_name, name)
         return _function_call(f"cls.{emit}.{name}", [receiver, *args], ret, span)
+
+    def _definer(self, class_name: str, name: str) -> str | None:
+        """The first mro class defining `name` as a plain method, or None.
+
+        The `_emit_owner` rule: a dunder bound as an attribute, decorated,
+        a `staticmethod` or a `classmethod` counts as undefined.
+        """
+        info = self.classes.get(class_name)
+        if info is None:
+            return None
+        for ancestor in info.get("mro", [class_name]):
+            xinfo = self.classes.get(ancestor)
+            if xinfo is None:
+                continue
+            if xinfo["methods"].get(name) is not None and xinfo.get("method_kind", {}).get(name, "method") == "method":
+                return ancestor
+        return None
+
+    def _class_in_chain(self, a: str, b: str) -> bool:
+        """True when `b` sits in `a`'s c3 mro (a and b share one chain)."""
+        info = self.classes.get(a)
+        if info is None:
+            return False
+        return b in info.get("mro", [a])
+
+    def _class_accepts(self, definer: str, name: str, operand: str) -> bool:
+        """True when the definer's dunder parameter accepts the operand class.
+
+        The parameter annotation must be the operand class itself or an
+        ancestor of it; the checker rejects the `other: object` spelling
+        that would need narrowing, so no annotation means no match.
+        """
+        info = self.classes.get(definer)
+        if info is None:
+            return False
+        sig = info["methods"].get(name)
+        if sig is None:
+            return False
+        params, _ret = sig
+        if len(params) < 2:
+            return False
+        param = params[1]["type"]
+        if param.get("kind") != "class":
+            return False
+        pname = str(param.get("name"))
+        return pname == operand or self._class_in_chain(operand, pname)
+
+    def _compare_dispatch(
+        self,
+        node: ast.AST,
+        op: str,
+        left: dict[str, Any],
+        right: dict[str, Any],
+        span: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Protocol dispatch for the compare family on class operands.
+
+        The fixed order of decision 2026-11-23: the subclass-priority
+        reflected call, the left definer of the op's dunder, the right
+        class's reflected dunder with swapped operands, else None (the
+        caller applies the identity fallback or fences). `==` passes
+        `__eq__`/`__eq__`, `!=` `__ne__`/`__ne__` (falling back to the
+        `==` result's negation when no user `__ne__` resolves), `<` maps
+        to `__lt__`/`__gt__` and so on.
+        """
+        table = {
+            "==": ("__eq__", "__eq__"),
+            "!=": ("__ne__", "__ne__"),
+            "<": ("__lt__", "__gt__"),
+            "<=": ("__le__", "__ge__"),
+            ">": ("__gt__", "__lt__"),
+            ">=": ("__ge__", "__le__"),
+        }
+        if op not in table:
+            return None
+        dunder, reflected = table[op]
+        lname = str(left["type"].get("name"))
+        rname = str(right["type"].get("name"))
+        ldef = self._definer(lname, dunder)
+        rdef = self._definer(rname, dunder)
+        if op == "!=" and ldef is None and rdef is None:
+            # object.__ne__ negates the == result; == goes through this
+            # same order.
+            eq = self._compare_dispatch(node, "==", left, right, span)
+            if eq is None:
+                return None
+            return _unary_node("not", eq, {"kind": "bool"}, span)
+        if lname != rname and self._class_in_chain(rname, lname):
+            # rname subclasses lname: CPython's subclass priority tries the
+            # reflected call first when the definers differ.
+            if rdef is not None and rdef != ldef and self._class_accepts(rdef, dunder, lname):
+                called = self._dunder_call(node, right, dunder, [left], span)
+                if called is not None:
+                    return called
+        if ldef is not None and self._class_accepts(ldef, dunder, rname):
+            called = self._dunder_call(node, left, dunder, [right], span)
+            if called is not None:
+                return called
+        if op == "!=":
+            if rdef is not None and self._class_accepts(rdef, dunder, lname):
+                called = self._dunder_call(node, right, dunder, [left], span)
+                if called is not None:
+                    return called
+            eq = self._compare_dispatch(node, "==", left, right, span)
+            if eq is None:
+                return None
+            return _unary_node("not", eq, {"kind": "bool"}, span)
+        if rdef is not None and self._class_accepts(rdef, reflected, lname):
+            called = self._dunder_call(node, right, reflected, [left], span)
+            if called is not None:
+                return called
+        return None
+
+    def _pin_operand(self, expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """Pin a lowered operand to a temp so the protocol call reads it
+        once; both compare arms and the bool test see the same value."""
+        temp = self._temp("proto")
+        self.locals[temp] = expr["type"]
+        self.prelude.append(_assign_node(temp, expr, span))
+        return _name(temp, expr["type"], span)
+
+    def _truthy_dispatch(self, node: ast.AST, expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
+        """Truthiness of a class operand: the `__bool__` definer, else the
+        `__len__` definer against zero, else None (the caller keeps the
+        constant-True default the decision spells)."""
+        if expr["type"].get("optional"):
+            return None
+        name = str(expr["type"]["name"])
+        if self._definer(name, "__bool__") is None and self._definer(name, "__len__") is None:
+            return None
+        ref = self._pin_operand(expr, span)
+        if self._definer(name, "__bool__") is not None:
+            called = self._dunder_call(node, ref, "__bool__", [], span)
+            if called is not None:
+                return called
+        called = self._dunder_call(node, ref, "__len__", [], span)
+        if called is not None:
+            return _compare("!=", called, _const_int(0, span), span)
+        return None
+
+    def _hash_dispatch(self, node: ast.AST, arg: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
+        """`hash(x)` on a class operand: the `__hash__` definer with -1
+        mapped to -2, the unhashable fence for an eq-without-hash class,
+        else None (the emit's identity hash answers)."""
+        name = str(arg["type"]["name"])
+        if self._definer(name, "__hash__") is None:
+            eqdef = self._definer(name, "__eq__")
+            if eqdef is not None:
+                self.fail(node, "PS2004", f"hash({name}) is refused: the class defines __eq__ without __hash__")
+            return None
+        called = self._dunder_call(node, arg, "__hash__", [], span)
+        if called is None:
+            return None
+        int_t: dict[str, Any] = {"kind": "int"}
+        # CPython reserves -1 for its own error slot and maps the result to
+        # -2. Our int is i64 (divergence 1), so CPython's wider fold-through
+        # cannot occur and every other value passes through verbatim.
+        pinned = self._pin_operand(called, span)
+        neg_one = _compare("==", pinned, _const_int(-1, span), span)
+        mapped = _binary_int("-", pinned, _const_int(2, span), span)
+        temp = self._temp("hashmap")
+        self.locals[temp] = int_t
+        self.prelude.append(
+            _if_node(neg_one, [_assign_node(temp, mapped, span)], [_assign_node(temp, pinned, span)], span)
+        )
+        return _name(temp, int_t, span)
 
     def _lower_factories(self, info: dict[str, Any]) -> None:
         """Lower the callable factories of one class into callable values.

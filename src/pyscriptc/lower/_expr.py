@@ -32,9 +32,11 @@ from pyscriptc.lower._core import (
     _binary_int,
     _compare,
     _concat_str,
+    _const_bool,
     _const_int,
     _const_list_concat,
     _const_none,
+    _const_str,
     _const_str_join,
     _name,
     _node_text,
@@ -515,6 +517,9 @@ class ExprMixin(ExprCompareMixin):
         if isinstance(node.op, ast.Not) and kind == "bool":
             return _unary_node("not", operand, {"kind": "bool"}, span)
         if isinstance(node.op, ast.Not) and (kind in _TRUTHY or operand["type"].get("optional")):
+            inner = self._truthy(operand, span)
+            return _unary_node("not", inner, {"kind": "bool"}, span)
+        if isinstance(node.op, ast.Not) and kind == "class":
             inner = self._truthy(operand, span)
             return _unary_node("not", inner, {"kind": "bool"}, span)
         if isinstance(node.op, ast.USub) and kind == "class" and operand["type"].get("name") == "TimeDelta":
@@ -1085,6 +1090,11 @@ class ExprMixin(ExprCompareMixin):
         if kind == "float":
             zero = _const_of("0.0", "float", span)
             return _compare("!=", expr, zero, span)
+        if kind == "class":
+            dispatched = self._truthy_dispatch(ast.Pass(), expr, span)
+            if dispatched is not None:
+                return dispatched
+            return _const_bool(True, span)
         if kind in {"str", "bytes", "list", "dict"}:
             length = _builtin_call("len", [expr], {"kind": "int"}, span)
             return _compare("!=", length, _const_int(0, span), span)
@@ -1374,24 +1384,67 @@ class ExprMixin(ExprCompareMixin):
             else:
                 self.fail(value, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
         if not converted:
+            if arg["type"]["kind"] == "class" and arg["type"].get("name") != "Path":
+                # The format resolution (decision 2026-11-23, O3a): a user
+                # __format__ definer takes the spec (empty when the field
+                # spells none); without one only the empty spec is the plain
+                # str conversion.
+                spec_text = "" if value.format_spec is None else self._fstring_spec_text(value.format_spec)
+                cname = str(arg["type"].get("name"))
+                spec_span = span_of(value, self.filename)
+                if self._definer(cname, "__format__") is not None:
+                    called = self._dunder_call(value, arg, "__format__", [_const_str(spec_text, spec_span)], spec_span)
+                    if called is not None:
+                        args.append(called)
+                        converted = True
+                    else:
+                        self.fail(value, "PS2004", f"f-string format spec on {cname} did not lower")
+                elif spec_text == "":
+                    called = self._dunder_call(value, arg, "__str__", [], spec_span)
+                    if called is None:
+                        called = self._dunder_call(value, arg, "__repr__", [], spec_span)
+                    if called is not None:
+                        args.append(called)
+                        converted = True
+                else:
+                    self.fail(
+                        value.format_spec, "PS2004", f"f-string format spec is not supported for {_show(arg['type'])}"
+                    )
             if (
                 arg["type"]["kind"] == "exc" or (arg["type"]["kind"] == "class" and arg["type"].get("name") == "Path")
             ) and value.format_spec is not None:
                 self.fail(
                     value.format_spec, "PS2004", f"f-string format spec is not supported for {_show(arg['type'])}"
                 )
-            args.append(self._fstring_arg(arg, value))
+            if not converted:
+                args.append(self._fstring_arg(arg, value))
         field = ["{", str(len(args) - 1)]
         if value.conversion != -1 and not converted:
             conv = chr(value.conversion)
             if conv not in "sra":
                 self.fail(value, "PS2002", "f-string conversion is not lowered")
             field.append("!" + conv)
-        if value.format_spec is not None:
+        if value.format_spec is not None and not converted:
             field.append(":")
             field.append(self._fstring_spec(value.format_spec, args))
         field.append("}")
         return "".join(field)
+
+    def _fstring_spec_text(self, spec: ast.expr) -> str:
+        """The literal text of a format spec, for the `__format__` call.
+
+        A spec with nested fields fences (the value would need pinning
+        across two calls); the plain literal spell passes through.
+        """
+        parts = spec.values if isinstance(spec, ast.JoinedStr) else [spec]
+        out: list[str] = []
+        for part in parts:
+            if isinstance(part, ast.Constant) and isinstance(part.value, str):
+                out.append(part.value)
+                continue
+            self.fail(part, "PS2002", "nested f-string format fields are not lowered")
+            raise AssertionError("unreachable")
+        return "".join(out)
 
     def _fstring_spec(self, spec: ast.expr, args: list[dict[str, Any]]) -> str:
         parts = spec.values if isinstance(spec, ast.JoinedStr) else [spec]
@@ -1451,6 +1504,16 @@ class ExprMixin(ExprCompareMixin):
             return expr
         if kind in {"int", "float"}:
             return _builtin_call("str", [expr], {"kind": "str"}, span)
+        if kind == "class" and expr["type"].get("name") != "Path":
+            # The format resolution (decision 2026-11-23, O3a): a bare
+            # `{x}` field with no conversion is `format(x, "")`, so a user
+            # __format__ definer answers before the str/repr order.
+            cname = str(expr["type"].get("name"))
+            if self._definer(cname, "__format__") is not None:
+                called = self._dunder_call(node, expr, "__format__", [_const_str("", span)], span)
+                if called is not None:
+                    return called
+                self.fail(node, "PS2004", f"formatting {cname} through __format__ did not lower")
         if kind == "class":
             if expr["type"].get("name") == "Path":
                 return _builtin_call("str", [expr], {"kind": "str"}, span)

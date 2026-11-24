@@ -61,6 +61,7 @@ from pyscriptc.lower._core import (
 from pyscriptc.reflection import kwargs_call_note, typing_note
 from pyscriptc.restlower import _static_builtin_fold, builtin_call
 from pyscriptc.restlower._dataclasses import container_factory, factory_value
+from pyscriptc.restlower._folds import _static_scalar
 from pyscriptc.tirserde import dict_to_node, node_to_dict
 
 
@@ -154,6 +155,36 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             return self._bool_call(node, span)
         if name == "list":
             return self._list_call(node, span, expect)
+        if name == "hash" and not node.keywords and len(node.args) == 1:
+            arg = self._expr(node.args[0])
+            folded = _static_builtin_fold("hash", arg, span, fence=self)
+            if folded is not None:
+                return folded
+            if _node_type_kind(arg) == "class":
+                called = self._hash_dispatch(node, arg, span)
+                if called is not None:
+                    return called
+                # Neither dunder defined: the emit's identity hash answers
+                # (divergence 94), so the lowered int result carries it.
+                return self._abi_call("builtins", "hash", [arg], {"kind": "int"}, "ps_hash_identity", span)
+        if name == "format" and not node.keywords and len(node.args) == 2:
+            arg = self._expr(node.args[0])
+            spec = self._expr(node.args[1])
+            if _node_type_kind(arg) == "class":
+                cname = str(arg["type"].get("name"))
+                if self._definer(cname, "__format__") is not None:
+                    called = self._dunder_call(node, arg, "__format__", [spec], span)
+                    if called is not None:
+                        return called
+                folded = _static_scalar(spec)
+                if isinstance(folded, str) and folded == "":
+                    called = self._dunder_call(node, arg, "__str__", [], span)
+                    if called is None:
+                        called = self._dunder_call(node, arg, "__repr__", [], span)
+                    if called is not None:
+                        return called
+                    self.fail(node, "PS2002", f"{cname} defines neither __str__ nor __repr__")
+                self.fail(node, "PS2002", "a non-empty format spec on a class without __format__ is not lowered")
         found = builtin_call(self, node, span)
         if found is not None:
             return found
@@ -213,6 +244,10 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                     called = self._dunder_call(node, args[0], {"str": "__str__", "len": "__len__"}[name], [], span)
                     if called is None and name == "str":
                         called = self._dunder_call(node, args[0], "__repr__", [], span)
+                    if called is not None:
+                        return called
+                if name == "hash" and len(args) == 1 and _node_type_kind(args[0]) == "class":
+                    called = self._hash_dispatch(node, args[0], span)
                     if called is not None:
                         return called
                 self.fail(node, "PS2003", f"{name} is not lowered for these arguments")
@@ -1216,6 +1251,11 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         if folded is not None:
             return folded
         kind = _node_type_kind(arg)
+        if kind == "class":
+            dispatched = self._truthy_dispatch(node, arg, span)
+            if dispatched is not None:
+                return dispatched
+            return _const_bool(True, span)
         if kind not in {"bool", "int", "float", "str", "bytes", "list", "dict"}:
             self.fail(node, "PS2002", f"bool() of {kind} is not lowered")
         return self._truthy(arg, span)

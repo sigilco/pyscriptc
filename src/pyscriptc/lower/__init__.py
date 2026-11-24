@@ -37,6 +37,7 @@ from pyscriptc.lower._core import (
     _attr,
     _body_bound_names,
     _compare,
+    _const_bool,
     _const_none,
     _const_str,
     _declared_globals,
@@ -1206,6 +1207,11 @@ class Lowerer(
         kind = _node_type_kind(cond)
         if kind == "bool":
             return cond
+        if kind == "class":
+            dispatched = self._truthy_dispatch(node, cond, span_of(node, self.filename))
+            if dispatched is not None:
+                return dispatched
+            return _const_bool(True, span_of(node, self.filename))
         if kind in _TRUTHY or cond["type"].get("optional"):
             return self._truthy(cond, span_of(node, self.filename))
         self.fail(node, "PS2004", "condition must be a bool, not a truthy value")

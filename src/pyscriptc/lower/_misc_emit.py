@@ -21,6 +21,7 @@ from pyscriptc.lower._core import (
     _TRUTHY,
     _assign,
     _attr,
+    _const_bool,
     _const_str,
     _dotted,
     _is_none_expr,
@@ -279,6 +280,11 @@ class MiscEmitMixin:
         kind = _node_type_kind(cond)
         if kind == "bool":
             return cond
+        if kind == "class":
+            dispatched = self._truthy_dispatch(node, cond, span_of(node, self.filename))
+            if dispatched is not None:
+                return dispatched
+            return _const_bool(True, span_of(node, self.filename))
         if kind in _TRUTHY or cond["type"].get("optional"):
             return self._truthy(cond, span_of(node, self.filename))
         self.fail(node, "PS2004", "condition must be a bool, not a truthy value")
