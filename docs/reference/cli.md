@@ -137,7 +137,7 @@ pyscriptc infer SOURCE [options]
 | Flag | Value | Effect |
 | ---- | ----- | ------ |
 | `--json` |  | print the report as JSON |
-| `--report` |  | print the inference coverage report: unannotated, pinned and unpinned parameters and the pin rate per module plus a tree total (diagnostics only, no behavior change) |
+| `--report` |  | print the inference coverage report: unannotated, pinned and unpinned parameters and the pin rate per module plus a tree total, plus the typing findings section (diagnostics only, no behavior change) |
 | `--overlay FILE` | `FILE` | write the inferred annotations to FILE as a sidecar the user can apply |
 | `--bridge BRIDGE` | `pyrefly\|own` | inference arm to run (default: pyrefly) (default `pyrefly`) |
 
