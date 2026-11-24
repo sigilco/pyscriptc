@@ -1286,7 +1286,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         # cannot occur and every other value passes through verbatim.
         pinned = self._pin_operand(called, span)
         neg_one = _compare("==", pinned, _const_int(-1, span), span)
-        mapped = _binary_int("-", pinned, _const_int(2, span), span)
+        mapped = _binary_int("-", pinned, _const_int(1, span), span)
         temp = self._temp("hashmap")
         self.locals[temp] = int_t
         self.prelude.append(
