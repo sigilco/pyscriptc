@@ -585,7 +585,14 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if base is not None and _base_kind(base) == "enum" and enum_mixin:
             base = _enum_base("IntEnum")
         if deco == "dataclass" and base is not None:
-            self.fail(node, "PS2002", "a dataclass has no base")
+            # The dataclass base (issue #452): CPython lets a dataclass
+            # extend a dataclass, and the child's fields follow the base's.
+            # Only a dataclass base lowers: a plain class base would mix
+            # the two constructor shapes, and the base's own `__init__` is
+            # not the dataclass one.
+            base_info = self.classes.get(str(base["name"]))
+            if base_info is None or base_info.get("generated_init") != "dataclass":
+                self.fail(node, "PS2002", "a dataclass base is not lowered")
         if base is not None and _base_kind(base) == "enum":
             parent = str(base.get("parent", ""))
             if parent:
@@ -736,7 +743,6 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                         finally:
                             saved_prelude = self.prelude
                         if _record_kind(default) == "factory-default":
-
                             # The factory default: the field takes the
                             # factory's value per construction, so the
                             # annotation drives the factory's result type.
@@ -758,6 +764,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             field["flags"] = field_flags
                         seen_default = True
                     elif seen_default:
+                        self.fail(stmt, "PS2002", "a non-default field follows a default")
+                    elif any(("default" in base_field or "factory" in base_field) for base_field in inherited):
+                        # The dataclass base (issue #452): CPython's rule
+                        # spans base and child, so a required child field
+                        # after a defaulted base field is the same
+                        # TypeError CPython raises at class creation.
                         self.fail(stmt, "PS2002", "a non-default field follows a default")
                     seen.add(stmt.target.id)
                     fields.append(field)
@@ -832,6 +844,14 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 if mname in method_sigs:
                     continue
                 if owner != ancestor and owner not in ancestor_mro:
+                    continue
+                if deco == "dataclass" and mname in {"__eq__", "__repr__"}:
+                    # The dataclass base (issue #452): CPython regenerates
+                    # the synthesized `__eq__` and `__repr__` on the child,
+                    # over the whole field list, so the base's copies do not
+                    # come through the MRO. A child that writes its own
+                    # `__eq__`/`__repr__` keeps it (the MRO loop skips the
+                    # names the child defines).
                     continue
                 if sig[0] and sig[0][0]["name"] == "self":
                     sig = ([_self_param(node.name), *sig[0][1:]], sig[1])
@@ -935,8 +955,14 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if deco == "dataclass":
             if wrote_init:
                 self.fail(node, "PS2002", "a dataclass does not take a written __init__")
+            # The dataclass base (issue #452): the base's fields are the
+            # constructor's leading parameters, so the child's own fields
+            # follow them. CPython's rule is the whole field list in
+            # order, so a required field after a defaulted one is the same
+            # fence the base-less dataclass has.
+            all_fields = [*inherited, *fields]
             params = [_self_param(node.name)]
-            for field in fields:
+            for field in all_fields:
                 param: dict[str, Any] = {"name": field["name"], "type": field["type"]}
                 if "default" in field:
                     param["default"] = field["default"]
@@ -954,10 +980,10 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             generated = "dataclass"
             if (
                 "__eq__" not in method_sigs
-                and fields
+                and all_fields
                 and all(
                     self._eq_comparable_field(field["type"], current=node.name)
-                    for field in fields
+                    for field in all_fields
                     if field.get("flags", {}).get("compare", True)
                 )
             ):
@@ -1836,6 +1862,31 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         finally:
             self.locals = saved_locals
 
+    def _dataclass_post_init(
+        self, node: ast.ClassDef, info: dict[str, Any], span: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """The `__post_init__` call the generated init ends with, or None.
+
+        CPython's `@dataclass` synthesizes an `__init__` that calls
+        `self.__post_init__()` when the class (or an ancestor) defines
+        one (issue #452). The call is static: the definer's own body
+        runs, so the hook reads and writes the instance fields the way
+        CPython's does. A class that defines no `__post_init__` anywhere
+        in its MRO gets no call.
+        """
+        owner = self._definer(node.name, "__post_init__")
+        if owner is None:
+            return None
+        emit = self._emit_owner(node.name, "__post_init__")
+        sig = self.classes[owner]["methods"]["__post_init__"]
+        if sig[1] is not None and _type_kind(sig[1]) != "none":
+            self.fail(node, "PS1003", "__post_init__ returns None")
+        self_type = _class_type(node.name)
+        return _expr_stmt_node(
+            _function_call(f"cls.{emit}.__post_init__", [_name("self", self_type, span)], _leaf_type("none"), span),
+            span,
+        )
+
     def _generated_method(self, node: ast.ClassDef, info: dict[str, Any]) -> dict[str, Any] | None:
         mode = info.get("generated_init")
         if mode is None:
@@ -1845,12 +1896,18 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self_type = _class_type(node.name)
         self.locals = {param["name"]: param["type"] for param in params}
         if mode == "dataclass":
+            # The dataclass base (issue #452): the base's fields are the
+            # instance's leading slots, so the generated init writes them
+            # before the child's own, the order the layout declares.
             body = [
                 _setattr_node(
                     _name("self", self_type, span), field["name"], _name(field["name"], field["type"], span), span
                 )
-                for field in info["own_fields"]
+                for field in info["fields"]
             ]
+            post = self._dataclass_post_init(node, info, span)
+            if post is not None:
+                body.append(post)
         elif mode == "const-seed":
             # The seeding init: the class body's constant attributes fill
             # the instance slots before any method writes them (issue
@@ -1878,7 +1935,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         mode = info.get("generated_init")
         if mode != "dataclass" or "__repr__" in info["methods"] or "__str__" in info["methods"]:
             return None
-        fields = [field for field in info["own_fields"] if field.get("flags", {}).get("repr", True)]
+        fields = [field for field in info["fields"] if field.get("flags", {}).get("repr", True)]
         if any(not self._reprable_field(field["type"]) for field in fields):
             return None
         span = span_of(node, self.filename)
@@ -1918,7 +1975,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         """
         if not info.get("generated_eq"):
             return None
-        fields = [field for field in info["own_fields"] if field.get("flags", {}).get("compare", True)]
+        fields = [field for field in info["fields"] if field.get("flags", {}).get("compare", True)]
         if any(not self._eq_comparable_field(field["type"], current=node.name) for field in fields):
             return None
         span = span_of(node, self.filename)
