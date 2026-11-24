@@ -3,9 +3,7 @@
 # the class's constants and runtime attributes through the compile-time
 # resolution, `cls.method(...)` is a static call, and inheritance keeps the
 # receiver class's own lookup.
-import subprocess
 import sys
-from pathlib import Path
 
 
 class Counter:
@@ -24,7 +22,7 @@ class Counter:
         return f"{cls.NAME}:{cls.get()}"
 
     @classmethod
-    def make(cls, n: int) -> "Counter":
+    def make(cls, n: int) -> Counter:
         return cls(n + 1)
 
     @staticmethod
