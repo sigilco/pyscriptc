@@ -700,7 +700,7 @@ def test_popen_env_none_inherits_and_empty_env_clears(tmp_path: Path) -> None:
                 "    print(a.wait())",
                 "    empty: dict[str, str] = {}",
                 "    b: subprocess.Popen = subprocess.Popen(",
-                "        ['/bin/sh', '-c', 'echo \"[${PATH:-none}]\"'], env=empty, stdout=subprocess.PIPE",
+                "        ['/bin/sh', '-c', 'echo \"[${HOME:-none}${JOB_ID:-none}]\"'], env=empty, stdout=subprocess.PIPE",
                 "    )",
                 "    print(b.stdout.read())",
                 "    print(b.wait())",
@@ -803,9 +803,9 @@ def test_popen_spawn_failures_raise_like_cpython(tmp_path: Path) -> None:
 
 
 def test_popen_start_new_session_detaches_the_child(tmp_path: Path) -> None:
-    # The child is its own session leader: its session id is its pid,
+    # The child is its own session leader: its process-group id is its pid,
     # where an ordinary child shares the parent's session.
-    _oracle(
+    path = write_case(
         tmp_path,
         "popen_session.py",
         "\n".join(
@@ -815,14 +815,14 @@ def test_popen_start_new_session_detaches_the_child(tmp_path: Path) -> None:
                 "",
                 "def run() -> int:",
                 "    a: subprocess.Popen = subprocess.Popen(",
-                "        ['sh', '-c', 'echo $$; ps -o sid= -p $$'], start_new_session=True, stdout=subprocess.PIPE",
+                "        ['sh', '-c', 'echo $$; ps -o pgid= -p $$'], start_new_session=True, stdout=subprocess.PIPE",
                 "    )",
                 "    out: bytes = a.stdout.read()",
                 "    print(a.wait())",
                 "    fields: list[str] = out.decode().split()",
                 "    print(fields[0] == fields[1])",
                 "    b: subprocess.Popen = subprocess.Popen(",
-                "        ['sh', '-c', 'echo $$; ps -o sid= -p $$'], start_new_session=False, stdout=subprocess.PIPE",
+                "        ['sh', '-c', 'echo $$; ps -o pgid= -p $$'], start_new_session=False, stdout=subprocess.PIPE",
                 "    )",
                 "    out2: bytes = b.stdout.read()",
                 "    print(b.wait())",
@@ -833,6 +833,11 @@ def test_popen_start_new_session_detaches_the_child(tmp_path: Path) -> None:
             ]
         ),
     )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "run")
+    # The new-session child is a group leader; the ordinary one is not.
+    assert got.stdout == "0\nTrue\n0\nFalse\n0\n", got.stdout
 
 
 def test_popen_stdin_pipe_with_env_and_cwd(tmp_path: Path) -> None:
