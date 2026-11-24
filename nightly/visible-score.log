@@ -1,0 +1,3 @@
+scored 13798 probes in 545.629s  {'pass': 1657, 'fence': 10735, 'excluded': 1397, 'build-error': 9}
+versions 3.10: {'pass': 1592, 'fence': 9740, 'excluded': 1221, 'build-error': 1}  3.11: {'pass': 1595, 'fence': 10239, 'excluded': 1331, 'build-error': 1}  3.12: {'pass': 1639, 'fence': 10629, 'excluded': 1359, 'build-error': 1}  3.13: {'pass': 1632, 'fence': 10553, 'excluded': 1269, 'build-error': 1}  3.14: {'pass': 1627, 'fence': 10541, 'excluded': 1203, 'build-error': 1}
+weighted pass 958.1
