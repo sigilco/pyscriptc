@@ -79,6 +79,8 @@ def _dataclass_field(
     factory_kw = next((kw for kw in node.keywords if kw.arg == "default_factory"), None)
     if default_kw is not None and factory_kw is not None:
         lo.fail(node, "PS2002", "field takes default or default_factory, not both")
+    if factory_kw is None and default_kw is None:
+        lo.fail(node, "PS2002", "field lowers default or default_factory")
     if factory_kw is None:
         # `field(default=...)`: the constant form of the bare assignment
         # default (issue #444). The marker defers to the class body pass,
