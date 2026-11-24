@@ -587,7 +587,7 @@ ROWS: list[dict[str, Any]] = [
         "return value",
     ),
     _row(
-        "D93",
+        "D98",
         "the compare and ordering operators resolve their dunder from the operand classes' static mro "
         "with a fixed order (left definer, then the reflected dunder, then the identity fallback), where "
         "CPython tries the reflected operand at run time when the dunder answers NotImplemented; a return "
@@ -595,19 +595,19 @@ ROWS: list[dict[str, Any]] = [
         "fall-through does not compile, and the identity fallback answers False for unrelated classes "
         "where the pair would still be decidable at run time",
         None,
-        docs=f"{DOC}#93",
+        docs=f"{DOC}#98",
         note="the resolved surface is the differential probe (probes/differential/protocol_dispatch.py); "
         "the NotImplemented fence and the mixed-class fence (PS2004) are the rest of the entry",
     ),
     _row(
-        "D94",
+        "D99",
         "hash(x) on a class resolves __hash__ statically: a definer's int result passes through with -1 "
         "mapped to -2, a class that defines __eq__ without __hash__ fences hash() at the call (PS2004) "
         "where CPython raises TypeError at run time, and with neither dunder defined the value hashes by "
         "address, so the numeric hash is not reproducible across runs or implementations in either; dict "
         "and set keys stay int or str and a class key is refused (PS2002)",
         None,
-        docs=f"{DOC}#94",
+        docs=f"{DOC}#99",
         note="the hash-with-definer and truthiness surfaces are in the differential probe "
         "(probes/differential/protocol_dispatch.py); the address-dependent identity hash and the "
         "unhashable fence are the rest of the entry",
@@ -819,6 +819,25 @@ ROWS: list[dict[str, Any]] = [
         "(probes/differential/sqlite3_params.py); the row shape, the description element shape, the lastrowid "
         "None arm, the connect keywords, the exception class and the ownership fences are the rest of the "
         "entry",
+    ),
+    _row(
+        "D97",
+        "a fixed-shape tuple default and a fixed-shape tuple class attribute (issue #444) materialize a fresh "
+        "record per read, where CPython holds one tuple object: C.pair is C.pair is True in CPython and False "
+        "in the lowered program, and a dataclass field's tuple default is one shared tuple there and a fresh "
+        "record per construction here",
+        "d97_tuple_default_identity.py",
+        docs=f"{DOC}#97",
+        note="the values are element for element equal, so only an identity comparison tells the two apart",
+    ),
+    _row(
+        "D100",
+        "an exception raised inside an asyncio.to_thread worker does not reach the awaiter (issue #400): the "
+        "worker record carries the result value and a done flag and no exception slot, so the worker's raise "
+        "ends the process where the worker ran, where CPython hands the exception to the awaiting task and "
+        "the except clause runs",
+        "d100_to_thread_worker_exception.py",
+        docs=f"{DOC}#100",
     ),
     _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT

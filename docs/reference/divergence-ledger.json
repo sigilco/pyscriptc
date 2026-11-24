@@ -1834,7 +1834,27 @@
         "stdout": "False\nFalse\nFalse\nTrue True\n",
         "stderr": ""
       },
-      "status": "differs"
+      "status": "divergent"
+    },
+    {
+      "id": "D100",
+      "seam": "an exception raised inside an asyncio.to_thread worker does not reach the awaiter (issue #400): the worker record carries the result value and a done flag and no exception slot, so the worker's raise ends the process where the worker ran, where CPython hands the exception to the awaiting task and the except clause runs",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#100",
+      "probe": "probes/divergences/d100_to_thread_worker_exception.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "caught kaboom\nafter\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 1,
+        "stdout": "",
+        "stderr": "ValueError: kaboom\n"
+      },
+      "status": "divergent"
     },
     {
       "id": "AUDIT-D11",
