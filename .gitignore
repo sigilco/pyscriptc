@@ -46,3 +46,6 @@ scripts/social/out/
 scripts/social/demo/demo
 scripts/social/demo/demo.report.json
 !tests/census_pins/*.json
+
+# nightly run artifacts (the receipt harness writes here by default)
+nightly/

@@ -5,4 +5,6 @@ dist/
 # Synced at build time from the canonical data/ tree (repo root) by
 # scripts/sync-data.mts; never committed.
 public/compat/data/
+public/receipts/data/
 public/benchmarks/data/
+nightly/
