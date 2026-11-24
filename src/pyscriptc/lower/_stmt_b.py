@@ -708,8 +708,13 @@ class StmtBMixin:
             return None
         init = info["methods"].get("__init__")
         if init is None:
-            if exc.args or exc.keywords:
-                self.fail(exc, "PS2003", f"{resolved} takes no arguments")
+            # No own `__init__`: the class inherits the builtin base's, which
+            # takes the single message argument. The instance carries no
+            # custom field, so the payload is the bare record.
+            if exc.keywords:
+                self.fail(exc, "PS2003", "keyword arguments are not lowered")
+            if len(exc.args) > 1:
+                self.fail(exc, "PS2003", "exception takes one scalar argument")
             return None
         params = [param for param in init[0] if param["name"] != "self"]
         args = self._fill_args(exc, params, resolved)
