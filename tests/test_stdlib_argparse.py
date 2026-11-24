@@ -465,13 +465,6 @@ def test_argparse_keeps_the_closed_surface() -> None:
     assert mod["fences"][0]["code"] == "PS2003"
 
     mod = lower_source(
-        "import argparse\nparser: argparse.ArgumentParser = argparse.ArgumentParser()\nparser.add_subparsers()\n"
-    )
-    assert mod["fences"]
-    assert "ArgParser.add_subparsers is not lowered" in mod["fences"][0]["message"]
-    assert mod["fences"][0]["code"] == "PS2003"
-
-    mod = lower_source(
         "import argparse\n"
         "parser: argparse.ArgumentParser = argparse.ArgumentParser()\n"
         "parser.add_mutually_exclusive_group()\n"
@@ -685,3 +678,214 @@ def test_argparse_is_importable() -> None:
     assert "argparse" in QUEUE
     assert module_status("argparse") == "lowered"
     assert (Path(ROOT) / "src" / "pyscriptc" / "runtime" / "ps_argparse.c").is_file()
+
+
+_SUB_PROLOGUE = "import argparse\nparser: argparse.ArgumentParser = argparse.ArgumentParser(prog='tool')\n"
+
+
+def _first_fence(source: str) -> dict[str, str]:
+    from pyscriptc.lower import lower_source
+
+    mod = lower_source(source)
+    assert mod["fences"], source
+    return mod["fences"][0]
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        ("parser.add_subparsers(title='cmds')", "argparse.add_subparsers keyword title is not lowered"),
+        ("parser.add_subparsers(help='x')", "argparse.add_subparsers keyword help is not lowered"),
+        ("parser.add_subparsers(dest='c', required=1)", "argparse.add_subparsers required is a bool constant"),
+        ("parser.add_subparsers(dest=1)", "argparse.add_subparsers dest is an identifier"),
+        ("parser.add_subparsers('x')", "argparse.add_subparsers takes keyword arguments only"),
+    ],
+)
+def test_argparse_add_subparsers_fences_the_unlowered_keywords(call: str, message: str) -> None:
+    fence = _first_fence(_SUB_PROLOGUE + call + "\n")
+    assert message in fence["message"]
+    assert fence["code"] == "PS2003"
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        ("sub.add_parser('a', aliases=['b'])", "argparse.add_parser keyword aliases is not lowered"),
+        ("sub.add_parser('a', description='d')", "argparse.add_parser keyword description is not lowered"),
+        ("sub.add_parser()", "argparse.add_parser takes exactly one name"),
+        ("sub.add_parser('--a')", "argparse.add_parser name is a str constant without dashes or spaces"),
+        ("sub.add_parser('a b')", "argparse.add_parser name is a str constant without dashes or spaces"),
+        ("sub.add_parser('a', help=1)", "argparse.add_parser help is a str constant"),
+        ("sub.add_parser('a'); sub.add_parser('a')", "argparse.add_parser name a is already registered"),
+        ("sub.add_subparsers()", "SubParsers.add_subparsers is not lowered"),
+    ],
+)
+def test_argparse_add_parser_fences_the_unlowered_shapes(call: str, message: str) -> None:
+    fence = _first_fence(_SUB_PROLOGUE + "sub = parser.add_subparsers(dest='cmd')\n" + call + "\n")
+    assert message in fence["message"]
+    assert fence["code"] == "PS2003"
+
+
+def test_argparse_subparsers_fence_a_second_holder_and_nesting() -> None:
+    source = (
+        _SUB_PROLOGUE
+        + "sub = parser.add_subparsers(dest='cmd')\n"
+        + "child = sub.add_parser('a')\n"
+        + "child.add_subparsers(dest='inner')\n"
+    )
+    assert "one add_subparsers call per module" in _first_fence(source)["message"]
+    source = _SUB_PROLOGUE + "parser.add_subparsers(dest='a')\nparser.add_subparsers(dest='b')\n"
+    assert "one add_subparsers call per module" in _first_fence(source)["message"]
+
+
+def test_argparse_add_parser_needs_a_subparsers_holder() -> None:
+    fence = _first_fence(_SUB_PROLOGUE + "parser.add_parser('a')\n")
+    assert "ArgParser.add_parser is not lowered" in fence["message"]
+    assert fence["code"] == "PS2003"
+
+
+def test_peek_namespace_fields_registers_the_subparsers_dest_in_program_order() -> None:
+    import ast
+
+    from pyscriptc.lower import Lowerer
+    from pyscriptc.restlower._argparse import peek_namespace_fields
+
+    body = ast.parse(
+        "parser.add_argument('--top')\n"
+        "sub = parser.add_subparsers(dest='cmd', required=True)\n"
+        "run = sub.add_parser('run')\n"
+        "run.add_argument('--n', type=int)\n"
+    ).body
+    lo = Lowerer("t.py", "")
+    fields = peek_namespace_fields(lo, body)
+    assert fields is not None
+    assert [f["name"] for f in fields] == ["top", "cmd", "n"]
+    assert peek_namespace_fields(lo, ast.parse("parser.add_subparsers(title='x')").body) is None
+    # Without a dest the holder registers no field.
+    assert peek_namespace_fields(lo, ast.parse("parser.add_subparsers()\nparser.add_argument('--a')").body) is not None
+
+
+_SUB_SOURCE = [
+    "import argparse",
+    "import sys",
+    "",
+    "def main() -> int:",
+    "    parser = argparse.ArgumentParser(prog='tool')",
+    "    parser.add_argument('--verbose', action='store_true')",
+    "    sub = parser.add_subparsers(dest='cmd', required=True)",
+    "    enq = sub.add_parser('enqueue', help='queue a job')",
+    "    enq.add_argument('--name', '-n', required=True)",
+    "    enq.add_argument('--retries', type=int, default=3)",
+    "    st = sub.add_parser('status', help='show a job')",
+    "    st.add_argument('job')",
+    "    st.add_argument('--ratio', type=float, default=0.5)",
+    "    args = parser.parse_args(sys.argv[1:])",
+    "    if args.cmd == 'enqueue':",
+    "        print(args.cmd, args.verbose, args.name, args.retries)",
+    "    else:",
+    "        print(args.cmd, args.verbose, args.job, args.ratio)",
+    "    return 0",
+    "",
+    "main()",
+]
+
+_SUB_ARGVS = [
+    [],
+    ["x"],
+    ["enqueue"],
+    ["enqueue", "--name"],
+    ["enqueue", "--name", "a", "--retries", "zz"],
+    ["enqueue", "--name", "a", "--bogus"],
+    ["enqueue", "--name", "a", "extra"],
+    ["--bogus", "status", "j"],
+    ["status"],
+    ["status", "a", "b"],
+    ["status", "j", "--verbose"],
+    ["status", "j", "--ratio", "x"],
+    ["-h"],
+    ["--help", "status"],
+    ["enqueue", "-h"],
+    ["status", "--help"],
+    ["enqueue", "-n", "q", "--retries=5"],
+    ["--verbose", "status", "j", "--ratio", "2.5"],
+]
+
+
+def test_argparse_subparsers_match_cpython_bytes(tmp_path: Path) -> None:
+    """Stdout, stderr and the exit code agree with CPython on every path.
+
+    The success paths read the dest and the chosen subcommand's arguments;
+    the error paths cover a missing and an unknown subcommand, a missing
+    required option, a bad value, an unrecognized token and the help of
+    each level. The prog is explicit so the usage line is source-independent.
+    """
+    path = _script(tmp_path, "subs.py", _SUB_SOURCE)
+    binary = tmp_path / "subs"
+    got = run_cli("compile", str(path), "--emit", "bin", "-o", str(binary))
+    assert got.returncode == 0, got.stderr
+    for argv in _SUB_ARGVS:
+        native = subprocess.run([str(binary), *argv], capture_output=True, text=True, timeout=60)
+        oracle = subprocess.run([sys.executable, str(path), *argv], capture_output=True, text=True, timeout=60)
+        assert (native.stdout, native.stderr, native.returncode) == (oracle.stdout, oracle.stderr, oracle.returncode), argv
+
+
+def test_argparse_subparsers_without_a_dest_label_the_choices(tmp_path: Path) -> None:
+    path = _script(
+        tmp_path,
+        "nodest.py",
+        [
+            "import argparse",
+            "import sys",
+            "",
+            "def main() -> int:",
+            "    parser = argparse.ArgumentParser(prog='tool')",
+            "    sub = parser.add_subparsers(required=True)",
+            "    a = sub.add_parser('a')",
+            "    a.add_argument('--x', type=int, default=1)",
+            "    sub.add_parser('b')",
+            "    args = parser.parse_args(sys.argv[1:])",
+            "    print('ok')",
+            "    return 0",
+            "",
+            "main()",
+        ],
+    )
+    binary = tmp_path / "nodest"
+    got = run_cli("compile", str(path), "--emit", "bin", "-o", str(binary))
+    assert got.returncode == 0, got.stderr
+    for argv in ([], ["z"], ["a", "--x", "3"], ["b"]):
+        native = subprocess.run([str(binary), *argv], capture_output=True, text=True, timeout=60)
+        oracle = subprocess.run([sys.executable, str(path), *argv], capture_output=True, text=True, timeout=60)
+        assert (native.stdout, native.stderr, native.returncode) == (oracle.stdout, oracle.stderr, oracle.returncode), argv
+
+
+def test_argparse_optional_subcommand_reads_empty_dest(tmp_path: Path) -> None:
+    """An absent optional subcommand reads "" where CPython reads None (the recorded divergence)."""
+    path = _script(
+        tmp_path,
+        "optional.py",
+        [
+            "import argparse",
+            "import sys",
+            "",
+            "def main() -> int:",
+            "    parser = argparse.ArgumentParser(prog='tool')",
+            "    parser.add_argument('--level', type=int, default=1)",
+            "    sub = parser.add_subparsers(dest='action')",
+            "    sub.add_parser('go')",
+            "    args = parser.parse_args(sys.argv[1:])",
+            "    print(args.level, repr(args.action))",
+            "    return 0",
+            "",
+            "main()",
+        ],
+    )
+    binary = tmp_path / "optional"
+    got = run_cli("compile", str(path), "--emit", "bin", "-o", str(binary))
+    assert got.returncode == 0, got.stderr
+    native = subprocess.run([str(binary), "--level", "4"], capture_output=True, text=True, timeout=60)
+    oracle = subprocess.run([sys.executable, str(path), "--level", "4"], capture_output=True, text=True, timeout=60)
+    assert native.stdout == "4 ''\n"
+    assert oracle.stdout == "4 None\n"
+    chosen = subprocess.run([str(binary), "go"], capture_output=True, text=True, timeout=60)
+    assert chosen.stdout == "1 'go'\n"
