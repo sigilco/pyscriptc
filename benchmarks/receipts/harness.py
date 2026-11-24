@@ -29,7 +29,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from benchmarks.receipts.oracle import resolve_oracle
+from benchmarks.receipts.oracle import oracle_version, resolve_oracle
 from benchmarks.receipts.probes import Probe, load_probes
 from benchmarks.receipts.targets import TARGETS, Target, runner_for
 
@@ -140,6 +140,9 @@ class ReceiptDocument:
 
     generated: str
     commit: str
+    # The oracle, as the interpreter's version. The path is the measuring
+    # machine's directory layout and carries the account name with it, so
+    # the document never publishes the path.
     oracle: str
     host: dict[str, str]
     targets: list[TargetReceipt] = field(default_factory=list)
@@ -418,10 +421,11 @@ def measure_all(
         )
     with tempfile.TemporaryDirectory(prefix="pyscriptc-oracle-") as tmp:
         oracle_bytes = {probe.id: oracle_output(probe, resolved, Path(tmp)) for probe in chosen_probes}
+    _version, oracle_full = oracle_version(resolved)
     document = ReceiptDocument(
         generated=datetime.datetime.now(datetime.UTC).strftime("%Y-%m-%d"),
         commit=git_commit(),
-        oracle=resolved,
+        oracle=oracle_full,
         host={
             "system": " ".join(platform_uname()),
             "zig": zig_version(),

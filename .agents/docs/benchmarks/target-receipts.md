@@ -121,7 +121,7 @@ document the page cannot render.
 | `schema` | string | schema version, currently `1` |
 | `generated` | string | UTC date of the measurement run |
 | `commit` | string | git SHA of the tree that produced the file |
-| `oracle` | string | the pinned CPython 3.14 interpreter the run compared against |
+| `oracle` | string | the pinned CPython 3.14 interpreter's version string (never a local path) |
 | `host` | object | the build host and the zig version that built the rows |
 | `targets` | array | one receipt per target |
 

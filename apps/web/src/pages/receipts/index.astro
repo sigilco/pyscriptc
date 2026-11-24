@@ -45,9 +45,9 @@ const document = data as {
 const generated = document.generated;
 const commit = document.commit.slice(0, 12);
 const zig = document.host?.zig || "unknown";
-// The oracle is a path on the runner; the page shows its name, not the
-// runner's directory layout.
-const oracle = document.oracle.split("/").pop() || "CPython 3.14";
+// The oracle is the pinned interpreter's full version string; the
+// measuring machine's path never enters the document.
+const oracle = document.oracle || "CPython 3.14";
 
 const targets = document.targets;
 const runnable = targets.filter((t) => t.method !== "compile-only");
