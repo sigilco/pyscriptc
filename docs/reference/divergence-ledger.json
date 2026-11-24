@@ -164,7 +164,7 @@
     },
     {
       "id": "D9",
-      "seam": "a user exception stores a code and an optional str without calling __init__",
+      "seam": "a user exception class runs its own __init__ on raise and carries the custom fields in the record's payload (issue #448); the residual seam is e.args, which holds the message list instead of the constructor arguments",
       "listed": true,
       "docs": "docs/reference/divergences.md#9",
       "probe": "probes/divergences/d09_user_exc_init.py",
@@ -175,12 +175,12 @@
         "stderr": ""
       },
       "pyscriptc": {
-        "stage": "compile",
-        "exit": 3,
-        "stdout": "",
-        "stderr": "probes/divergences/d09_user_exc_init.py:11:11: PS2001: exception has no attribute code\n      print(e.code)\n            ^\n"
+        "stage": "run",
+        "exit": 0,
+        "stdout": "7\n",
+        "stderr": ""
       },
-      "status": "fenced"
+      "status": "identical"
     },
     {
       "id": "D10",
