@@ -184,6 +184,10 @@ class CallsMixin(EmitterBase):
             return self._emit_atexit(expr)
         if _has(expr, "symbol"):
             symbol: str = _node_symbol(expr)
+            if symbol in {"ps_signal_install", "ps_signal_ignore", "ps_signal_default"}:
+                return self._emit_signal(expr, values, symbol)
+        if _has(expr, "symbol"):
+            symbol: str = _node_symbol(expr)
             if symbol in {"ps_math_factorial", "ps_math_lcm", "ps_math_comb", "ps_math_perm", "ps_math_isqrt"}:
                 # The int helpers (factorial, lcm, comb, perm, isqrt) ride
                 # the `_abi_call` shape: the `_math_*` declares carry i64

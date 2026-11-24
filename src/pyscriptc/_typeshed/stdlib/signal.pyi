@@ -66,7 +66,11 @@ SIG_DFL: Final = Handlers.SIG_DFL
 SIG_IGN: Final = Handlers.SIG_IGN
 
 _SIGNUM: TypeAlias = int | Signals
-_HANDLER: TypeAlias = Callable[[int, FrameType | None], Any] | int | Handlers | None
+# The native handler surface (issue #1347): the handler is the compiled
+# `def handler(signum: int) -> None` shape. CPython also spells the frame
+# parameter; a native binary passes none, so the checked surface is the
+# one-parameter form.
+_HANDLER: TypeAlias = Callable[[int], None] | int | Handlers | None
 
 def default_int_handler(signalnum: int, frame: FrameType | None, /) -> Never: ...
 def getsignal(signalnum: _SIGNUM) -> _HANDLER: ...

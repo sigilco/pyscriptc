@@ -49,6 +49,7 @@ from pyscriptc.emit._ir import (
 )
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.emit.llvm._runtime import _prebaked_declarations
+from pyscriptc.emit.llvm._stmts import dict_to_dict
 from pyscriptc.errors import IRError
 from pyscriptc.stdmore import COMPARE_CLASSES
 
@@ -993,6 +994,28 @@ class AbiMixin(EmitterBase):
         self._abi_decl("atexit", "i32", ["ptr"])
         reg = self.tmp()
         self.line(f"{reg} = call i32 @atexit(ptr @{wrap})")
+        return ""
+
+    def _emit_signal(self, expr: dict[str, Any], values: list[str], symbol: str) -> str:
+        """`signal.signal(signum, handler)` and the two dispositions (issue #1347).
+
+        The install form carries the handler as a closure node: `emit_closure`
+        builds the `{impl, env}` pair, the impl env-first (a plain function
+        gets the lazy `name.clo` wrapper), and the runtime stores the pair so
+        `ps_signal_poll` can call `impl(env, signum)` at a safepoint, outside
+        the signal context. The disposition forms lower to their own runtime
+        calls so the disposition never collides with a signal number.
+        """
+        self.signal_handlers = True
+        if symbol == "ps_signal_install":
+            all_args: list[dict[str, Any]] = _node_args(expr)
+            pair = self.emit_closure(dict_to_dict(all_args[1]))
+            self._abi_decl("ps_signal_install", "void", ["i64", "ptr"])
+            self._call_void("ps_signal_install", [f"i64 {values[0]}", f"ptr {pair}"])
+            return ""
+        decl = "ps_signal_ignore" if symbol == "ps_signal_ignore" else "ps_signal_default"
+        self._abi_decl(decl, "void", ["i64"])
+        self._call_void(decl, [f"i64 {values[0]}"])
         return ""
 
     def _emit_exit(self, value: str) -> str:

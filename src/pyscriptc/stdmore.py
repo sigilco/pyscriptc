@@ -94,6 +94,10 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
     # The POSIX signal constants the watchdog surface carries (issue #1244).
     # Values are read from the host interpreter; they are the kernel numbers,
     # so the CPython 3.14 oracle and the binary agree on every platform.
+    # The two dispositions join them for issue #1347: `SIG_DFL` is 0 and
+    # `SIG_IGN` is 1, the values CPython's `Handlers` enum spells, and the
+    # `signal.signal` lowering reads the spelling so the disposition does not
+    # collide with the `SIGHUP` number.
     "signal": (
         "SIGKILL",
         "SIGTERM",
@@ -101,6 +105,8 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
         "SIGCONT",
         "SIGUSR1",
         "SIGUSR2",
+        "SIG_DFL",
+        "SIG_IGN",
     ),
     "calendar": (
         "MONDAY",
