@@ -170,14 +170,7 @@ def test_signal_handler_value_forms_fence(tmp_path: Path) -> None:
 
 def test_signal_disposition_values_match_cpython(tmp_path: Path) -> None:
     """`SIG_DFL` is 0 and `SIG_IGN` is 1, the values CPython prints."""
-    source = (
-        "import signal\n"
-        "\n"
-        "def run() -> int:\n"
-        "    print(signal.SIG_DFL)\n"
-        "    print(signal.SIG_IGN)\n"
-        "    return 0\n"
-    )
+    source = "import signal\n\ndef run() -> int:\n    print(signal.SIG_DFL)\n    print(signal.SIG_IGN)\n    return 0\n"
     path = write_case(tmp_path, "disposition_values.py", source)
     got = compile_run(tmp_path, path, "run")
     assert got.returncode == 0, got.stderr

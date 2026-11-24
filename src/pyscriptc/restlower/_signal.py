@@ -26,7 +26,7 @@ from __future__ import annotations
 import ast
 from typing import Any
 
-from pyscriptc.restlower._shared import _const_int, _node_type, _node_type_kind, _t_leaf
+from pyscriptc.restlower._shared import _node_type, _node_type_kind, _t_leaf
 
 # The handler-registration and process-signal forms the subset refuses.
 # The message names the boundary: the constants lower, the handler table does
