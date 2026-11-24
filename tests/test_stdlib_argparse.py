@@ -694,8 +694,10 @@ def _first_fence(source: str) -> dict[str, str]:
 @pytest.mark.parametrize(
     ("call", "message"),
     [
-        ("parser.add_subparsers(title='cmds')", "argparse.add_subparsers keyword title is not lowered"),
-        ("parser.add_subparsers(help='x')", "argparse.add_subparsers keyword help is not lowered"),
+        ("parser.add_subparsers(prog='x')", "argparse.add_subparsers keyword prog is not lowered"),
+        ("parser.add_subparsers(action='x')", "argparse.add_subparsers keyword action is not lowered"),
+        ("parser.add_subparsers(title=1)", "argparse.add_subparsers title is a str constant"),
+        ("parser.add_subparsers(parser_class=int)", "argparse.add_subparsers parser_class is argparse.ArgumentParser"),
         ("parser.add_subparsers(dest='c', required=1)", "argparse.add_subparsers required is a bool constant"),
         ("parser.add_subparsers(dest=1)", "argparse.add_subparsers dest is an identifier"),
         ("parser.add_subparsers('x')", "argparse.add_subparsers takes keyword arguments only"),
@@ -710,8 +712,10 @@ def test_argparse_add_subparsers_fences_the_unlowered_keywords(call: str, messag
 @pytest.mark.parametrize(
     ("call", "message"),
     [
-        ("sub.add_parser('a', aliases=['b'])", "argparse.add_parser keyword aliases is not lowered"),
-        ("sub.add_parser('a', description='d')", "argparse.add_parser keyword description is not lowered"),
+        ("sub.add_parser('a', usage='u')", "argparse.add_parser keyword usage is not lowered"),
+        ("sub.add_parser('a', aliases='b')", "argparse.add_parser aliases is a list or tuple of str constants"),
+        ("sub.add_parser('a', aliases=['--b'])", "argparse.add_parser aliases are str constants without dashes"),
+        ("sub.add_parser('a'); sub.add_parser('b', aliases=['a'])", "argparse.add_parser name a is already registered"),
         ("sub.add_parser()", "argparse.add_parser takes exactly one name"),
         ("sub.add_parser('--a')", "argparse.add_parser name is a str constant without dashes or spaces"),
         ("sub.add_parser('a b')", "argparse.add_parser name is a str constant without dashes or spaces"),
@@ -726,16 +730,20 @@ def test_argparse_add_parser_fences_the_unlowered_shapes(call: str, message: str
     assert fence["code"] == "PS2003"
 
 
-def test_argparse_subparsers_fence_a_second_holder_and_nesting() -> None:
-    source = (
+def test_argparse_subparsers_fence_a_second_holder_on_one_parser() -> None:
+    source = _SUB_PROLOGUE + "parser.add_subparsers(dest='a')\nparser.add_subparsers(dest='b')\n"
+    assert "one add_subparsers call per parser" in _first_fence(source)["message"]
+    # A nested holder on a subcommand parser is not a second holder.
+    from pyscriptc.lower import lower_source
+
+    nested = (
         _SUB_PROLOGUE
         + "sub = parser.add_subparsers(dest='cmd')\n"
         + "child = sub.add_parser('a')\n"
-        + "child.add_subparsers(dest='inner')\n"
+        + "inner = child.add_subparsers(dest='inner')\n"
+        + "inner.add_parser('x')\n"
     )
-    assert "one add_subparsers call per module" in _first_fence(source)["message"]
-    source = _SUB_PROLOGUE + "parser.add_subparsers(dest='a')\nparser.add_subparsers(dest='b')\n"
-    assert "one add_subparsers call per module" in _first_fence(source)["message"]
+    assert not lower_source(nested)["fences"]
 
 
 def test_argparse_add_parser_needs_a_subparsers_holder() -> None:
@@ -760,7 +768,7 @@ def test_peek_namespace_fields_registers_the_subparsers_dest_in_program_order() 
     fields = peek_namespace_fields(lo, body)
     assert fields is not None
     assert [f["name"] for f in fields] == ["top", "cmd", "n"]
-    assert peek_namespace_fields(lo, ast.parse("parser.add_subparsers(title='x')").body) is None
+    assert peek_namespace_fields(lo, ast.parse("parser.add_subparsers(prog='x')").body) is None
     # Without a dest the holder registers no field.
     assert peek_namespace_fields(lo, ast.parse("parser.add_subparsers()\nparser.add_argument('--a')").body) is not None
 
