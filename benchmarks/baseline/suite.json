@@ -35,7 +35,8 @@
     "cleandoc",
     "threads",
     "log-info",
-    "echo-out"
+    "echo-out",
+    "pipeline"
   ],
   "catalog": "benchmarks/runtime/workloads.json"
 }

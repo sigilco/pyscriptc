@@ -5,7 +5,7 @@ description: Programs in the repository that compile today, with the value each 
 
 # Example programs
 
-The programs below, from [`examples/`](https://github.com/sigilco/pyscriptc/tree/master/examples), are an invoice, an access-log gate, a log token, a release note, a record digest, a URL allow-list, a route label, and a hostname lookup. Each one compiles, and the printed value matches CPython.
+The programs below, from [`examples/`](https://github.com/sigilco/pyscriptc/tree/master/examples), are an invoice, an access-log gate, a log token, a release note, a record digest, a URL allow-list, a route label, a hostname lookup, and a log pipeline. Each one compiles, and the printed value matches CPython.
 
 `--args` passes `int`, `float`, `bool`, and `str`. Lists and bytes are built inside the function.
 
@@ -109,3 +109,15 @@ uv run pyscriptc compile examples/wordcount --run -o /tmp/wordcount
 ```
 
 It prints `three 3`, the word that appears most often in the sentence and how often it appears.
+
+## Log pipeline
+
+`examples/log_pipeline.py` reads a CSV of access logs, aggregates by status class and by path, computes percentile latencies, and writes a JSON report.
+
+```bash
+uv run pyscriptc compile examples/log_pipeline.py --run --call pipeline \
+  --args '["examples/access_logs.csv"]' -o /tmp/pipeline
+```
+
+That prints the JSON report totaling records, bytes, status classes, paths, and percentile latencies (`p50`, `p90`, `p95`, `p99`). Pass a second argument to write the JSON to a file.
+
