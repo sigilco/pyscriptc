@@ -25,6 +25,22 @@ getenv raises KeyError, which is the subset stand-in for None.
 #include <sys/stat.h>
 #include <unistd.h>
 
+/* A bounded copy of an OS-supplied name, kept so a UnicodeDecodeError can
+   name it after the handle that produced it is closed. */
+#define PS_NAME_COPY 1024
+
+/* Raise the named UnicodeDecodeError for an OS-supplied name that is not
+   strict UTF-8. The copy is bounded, so a name whose bad byte lies past the
+   copy still raises, with the fixed wording. */
+__attribute__((noreturn)) static void ps_name_up_fail(const char *name, int64_t len, const char *what) {
+    char bad[PS_NAME_COPY];
+    int64_t m = len < (int64_t)sizeof bad - 1 ? len : (int64_t)sizeof bad - 1;
+    memcpy(bad, name, (size_t)m);
+    bad[m] = '\0';
+    ps_utf8_require(m, bad, what);
+    ps_raise_cstr(PS_UNICODEDECODE, "'utf-8' codec can't decode a name returned by the OS");
+}
+
 typedef struct {
     PsBuf path;
 } PsPath;
@@ -246,6 +262,7 @@ void ps_os_getcwd(PsBuf *out) {
     if (getcwd(buf, sizeof buf) == NULL) {
         ps_os_fail("getcwd failed");
     }
+    ps_utf8_require((int64_t)strlen(buf), buf, "os.getcwd()");
     ps_buf_copy(out, buf, (int64_t)strlen(buf));
 }
 
@@ -349,6 +366,20 @@ void ps_os_makedirs(int64_t n, const char *s) {
     free(text);
 }
 
+/* os.environ values decode UTF-8 (S6). The OS gives bytes; one that is not
+   strict UTF-8 is a named UnicodeDecodeError naming the variable, where
+   CPython would carry it as surrogate escapes. */
+static void ps_env_decode(int64_t kn, const char *key, const char *value, PsBuf *out) {
+    int64_t vn = (int64_t)strlen(value);
+    const char *why = NULL;
+    if (ps_utf8_first_error(vn, value, &why) >= 0) {
+        char what[160];
+        snprintf(what, sizeof what, "os.environ['%.*s']", (int)(kn < 100 ? kn : 100), key);
+        ps_utf8_require(vn, value, what);
+    }
+    ps_buf_copy(out, value, vn);
+}
+
 void ps_os_getenv(int64_t n, const char *s, PsBuf *out) {
     char *text = ps_cstr(n, s);
     const char *value = getenv(text);
@@ -356,7 +387,7 @@ void ps_os_getenv(int64_t n, const char *s, PsBuf *out) {
     if (value == NULL) {
         ps_raise_cstr(PS_KEY, "environment variable is unset");
     }
-    ps_buf_copy(out, value, (int64_t)strlen(value));
+    ps_env_decode(n, s, value, out);
 }
 
 int32_t ps_env_has(int64_t n, const char *s) {
@@ -374,7 +405,7 @@ void ps_os_getenv_or(int64_t n, const char *s, int64_t dn, const char *d, PsBuf 
         ps_buf_copy(out, d, dn);
         return;
     }
-    ps_buf_copy(out, value, (int64_t)strlen(value));
+    ps_env_decode(n, s, value, out);
 }
 
 PsSeq *ps_os_listdir(int64_t n, const char *s) {
@@ -391,6 +422,17 @@ PsSeq *ps_os_listdir(int64_t n, const char *s) {
         PsBuf name;
         if (strcmp(ent->d_name, ".") == 0 || strcmp(ent->d_name, "..") == 0) {
             continue;
+        }
+        {
+            /* The OS gives bytes up; a name that is not strict UTF-8 is a
+               named UnicodeDecodeError (S6), after the handle closes. */
+            const char *why = NULL;
+            if (ps_utf8_first_error((int64_t)strlen(ent->d_name), ent->d_name, &why) >= 0) {
+                char bad[PS_NAME_COPY];
+                snprintf(bad, sizeof bad, "%s", ent->d_name);
+                closedir(dir);
+                ps_name_up_fail(bad, (int64_t)strlen(bad), "os.listdir()");
+            }
         }
         ps_buf_copy(&name, ent->d_name, (int64_t)strlen(ent->d_name));
         ps_seq_push(seq, &name);
@@ -968,6 +1010,17 @@ void ps_os_readlink(int64_t n, const char *s, PsBuf *out) {
             }
         }
         if (rc < cap) {
+            {
+                const char *why = NULL;
+                if (ps_utf8_first_error(rc, buf, &why) >= 0) {
+                    char bad[PS_NAME_COPY];
+                    int64_t m = rc < (int64_t)sizeof bad - 1 ? rc : (int64_t)sizeof bad - 1;
+                    memcpy(bad, buf, (size_t)m);
+                    free(buf);
+                    free(path);
+                    ps_name_up_fail(bad, m, "os.readlink()");
+                }
+            }
             ps_buf_copy(out, buf, rc);
             break;
         }
