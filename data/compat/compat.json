@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-24",
-  "commit": "073240dbee9edbe9d9e543df18debde976df2225",
+  "commit": "c66aab0e2662c971ce012e221a917988e014ec9b",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-24",
-    "commit": "073240dbee9edbe9d9e543df18debde976df2225",
+    "commit": "c66aab0e2662c971ce012e221a917988e014ec9b",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3842
+    "fences": 3841
   },
   "builtins": [
     {
@@ -1964,7 +1964,7 @@
         "blocked": 12
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 14,
+      "fences": 13,
       "definitions": 34,
       "fenced_definitions": 9,
       "top_families": [
@@ -1977,7 +1977,7 @@
           "count": 2
         },
         {
-          "family": "local-inference",
+          "family": "unlowered-call",
           "count": 2
         }
       ],
@@ -1992,7 +1992,7 @@
         },
         {
           "code": "PS1001",
-          "count": 2
+          "count": 1
         }
       ],
       "pypi": "https://pypi.org/project/iniconfig/"
@@ -2733,7 +2733,7 @@
     {
       "code": "PS1001",
       "title": "annotation missing or not supported",
-      "count": 412,
+      "count": 411,
       "packages": 18
     },
     {
@@ -2835,13 +2835,94 @@
   ],
   "history": [
     {
-      "date": "2026-11-24",
-      "commit": "073240dbee9edbe9d9e543df18debde976df2225",
+      "date": "2026-11-10",
+      "commit": "167c088a60b5436094b8286ed14ea6868fe0a493",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2618
+    },
+    {
+      "date": "2026-11-11",
+      "commit": "3002e29a1066f30e122593c2152789eb7bf70914",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
+    },
+    {
+      "date": "2026-11-12",
+      "commit": "481ad3ff69d0747f1b86ad43927e7b37914dcf86",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
+    },
+    {
+      "date": "2026-11-13",
+      "commit": "7ebd8c40670dccdecfe4096e384b2ea34cf5fa4c",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2585
+    },
+    {
+      "date": "2026-11-15",
+      "commit": "4b1650c6c3fb83880432dae4f4492829af57bcf6",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2870
+    },
+    {
+      "date": "2026-11-16",
+      "commit": "6098eab55544b8b3adfdcbe7bc2058d9a99b8215",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 8,
+      "packages_none": 8,
+      "fences": 2865
+    },
+    {
+      "date": "2026-11-17",
+      "commit": "1651909675bdfac8c1bcd9abcec754d6f48e75d0",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3842
+      "fences": 4238
+    },
+    {
+      "date": "2026-11-18",
+      "commit": "20c2c05dcb75d7b092061703c5a6d6e4586af33a",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 11,
+      "packages_none": 8,
+      "fences": 3944
+    },
+    {
+      "date": "2026-11-23",
+      "commit": "30575a11e3c4e57f2c45a4269fc24e10251eff55",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 11,
+      "packages_none": 8,
+      "fences": 3904
+    },
+    {
+      "date": "2026-11-24",
+      "commit": "c66aab0e2662c971ce012e221a917988e014ec9b",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 11,
+      "packages_none": 8,
+      "fences": 3841
     }
   ]
 }
