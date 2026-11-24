@@ -1764,23 +1764,14 @@
     },
     {
       "id": "D95",
-      "seam": "argparse nargs: a list-valued option that does not appear reads an empty list (CPython None), and a nargs='?' argument needs a default (an absent value would be None)",
+      "seam": "the sqlite3 subset (issue #1343): the row is a list[object] in column order where CPython's cursor row is a tuple, cur.description answers the list of names where CPython answers a tuple of 7-tuples, connect takes the path only (no timeout, no isolation_level, no row_factory), the refused statement is RuntimeError where CPython raises the sqlite3.Error subclasses, and db.close() consumes the handle so a later statement is the PS4010 compile fence",
       "listed": true,
       "docs": "docs/reference/divergences.md#95",
-      "probe": "probes/divergences/d95_argparse_nargs_absent.py",
-      "cpython": {
-        "stage": "run",
-        "exit": 0,
-        "stdout": "None\n[]\n",
-        "stderr": ""
-      },
-      "pyscriptc": {
-        "stage": "run",
-        "exit": 0,
-        "stdout": "[]\n[]\n",
-        "stderr": ""
-      },
-      "status": "divergent"
+      "probe": null,
+      "note": "the host lane is byte-identical on the ? binding of an int, a str and a None, the NULL round trip, cur.rowcount and cur.lastrowid (probes/differential/sqlite3_params.py); the row shape, the description shape, the connect keywords, the exception class and the ownership fences are the rest of the entry",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
     },
     {
       "id": "AUDIT-D11",
