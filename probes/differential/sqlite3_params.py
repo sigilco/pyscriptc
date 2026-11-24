@@ -13,7 +13,8 @@ The surface under the probe:
   - the NULL round trip (a None parameter comes back as None);
   - `cur.rowcount` (the changed rows of a write, -1 for a read);
   - `cur.lastrowid` (the rowid of the last insert);
-  - `cur.description`'s None-or-names shape and its column count.
+  - `cur.description`'s None-or-names shape and its column count;
+  - the `connect` keywords (`timeout`, `isolation_level=None`).
 
 The row is positional, CPython's tuple shape: the value is `row[i]` and
 the column's name rides `cur.description`. A None cell prints as None on
@@ -27,7 +28,7 @@ import sqlite3
 
 
 def main() -> None:
-    db = sqlite3.connect(":memory:")
+    db = sqlite3.connect(":memory:", timeout=2.0, isolation_level=None)
     db.execute("CREATE TABLE job (id INTEGER PRIMARY KEY, name TEXT, tries INTEGER, note TEXT)")
 
     cur = db.execute("INSERT INTO job (name, tries, note) VALUES (?, ?, ?)", ["alpha", 3, None])
