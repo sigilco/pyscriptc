@@ -126,11 +126,33 @@ def peek_namespace_fields(lo: Any, body: list[ast.stmt]) -> list[dict[str, Any]]
     None, so the pin refuses rather than guessing. `nargs="*"` positional
     lists are the one shape the runtime stores as a list; the pin reads the
     element type for them, exactly like the runtime fills it.
+
+    The walk is breadth first, so the field order is the order of the
+    statements of the scanned bodies, which is the order the real lowering
+    registers them in: the namespace slot layout must not diverge between
+    the two. `add_subparsers(dest=)` registers its dest field in that walk.
     """
 
     fields: list[dict[str, Any]] = []
     for node in ast.walk(ast.Module(body=body, type_ignores=[])):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
+            continue
+        if node.func.attr == "add_subparsers":
+            # The subcommand name is a str field, registered where the call
+            # lowers; the walk visits it in the same program order as the
+            # add_argument calls around it, so the slot layout agrees.
+            sub_dest: str | None = None
+            for keyword in node.keywords:
+                if keyword.arg == "dest":
+                    sub_dest = _text(keyword.value)
+                    if sub_dest is None or not sub_dest.isidentifier():
+                        return None
+                elif keyword.arg != "required":
+                    return None
+            if node.args:
+                return None
+            if sub_dest is not None:
+                fields.append({"name": sub_dest, "type": _t_leaf("str")})
             continue
         if node.func.attr != "add_argument" or not node.args:
             continue
