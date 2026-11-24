@@ -39,9 +39,12 @@ ROOT = Path(__file__).resolve().parents[2]
 # the schema validator change in the same PR.
 SCHEMA = "1"
 
-# How long a single compile or run may take, in seconds.
-COMPILE_TIMEOUT = 300.0
-RUN_TIMEOUT = 60.0
+# How long a single compile or run may take, in seconds. An emulator
+# (FEX on an arm64 container running an x86_64 zig, for example) makes a
+# compile much slower than the toolchain itself is, so both are
+# overridable without touching the code.
+COMPILE_TIMEOUT = float(os.environ.get("PYSC_RECEIPT_COMPILE_TIMEOUT", "300"))
+RUN_TIMEOUT = float(os.environ.get("PYSC_RECEIPT_RUN_TIMEOUT", "60"))
 
 
 @dataclass
@@ -327,9 +330,9 @@ def measure_target(
         # The runner exists for this target but is not installed on this
         # host. The row is a skip with a reason, the way the smoke script
         # treats a missing qemu: the build is still the measurement.
-        receipt.runner = runner
         receipt.method = "compile-only"
         receipt.skip_reason = f"{runner} is not installed on this host"
+        runner = ""
     with tempfile.TemporaryDirectory(prefix="pyscriptc-receipt-") as tmp:
         workdir = Path(tmp)
         for probe in probes:

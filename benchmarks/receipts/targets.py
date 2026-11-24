@@ -62,7 +62,7 @@ TARGETS: tuple[Target, ...] = (
     Target("aarch64-linux-gnu", "aarch64-linux-gnu.2.39", "linux", "aarch64"),
     Target("riscv64-linux-gnu", "riscv64-linux-gnu.2.39", "linux", "riscv64", "", RISCV_REASON),
     Target("x86_64-linux-musl", "x86_64-linux-musl", "linux", "x86_64"),
-    Target("aarch64-linux-musl", "aarch64-linux-musl", "linux", "aarch64", "qemu-aarch64"),
+    Target("aarch64-linux-musl", "aarch64-linux-musl", "linux", "aarch64", "qemu-aarch64-static"),
     Target(
         "riscv64-linux-musl",
         "riscv64-linux-musl",
