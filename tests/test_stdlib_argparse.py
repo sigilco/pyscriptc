@@ -1004,7 +1004,8 @@ def test_argparse_subcommands_nest_alias_and_follow_registration_order(tmp_path:
             "def main() -> int:",
             "    p = argparse.ArgumentParser(prog='t', epilog='bye')",
             "    p.add_argument('pre')",
-            "    sub = p.add_subparsers(dest='cmd', required=True, title='cmds', description='pick one', metavar='CMD')",
+            "    sub = p.add_subparsers(dest='cmd', required=True, title='cmds', "
+            "description='pick one', metavar='CMD')",
             "    p.add_argument('post', nargs='?', default='P')",
             "    run = sub.add_parser('run', aliases=['r'], help='run it', description='runs', epilog='see')",
             "    run.add_argument('w', nargs='*')",
