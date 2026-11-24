@@ -97,6 +97,37 @@ def _oracle(tmp_path: Path, name: str, source_path: Path) -> tuple[bytes, bytes,
     return ran.stdout, ran.stderr, ran.returncode
 
 
+def test_the_v1_module_spelling_still_binds(tmp_path: Path) -> None:
+    """`import pyscriptc_sqlite` binds the same surface, the manifest alias.
+
+    The v1 pilot claimed the `pyscriptc_sqlite` module name; the surface
+    moved under the stdlib `sqlite3` name, and the alias keeps a v1
+    program compiling.
+    """
+    source = """
+import pyscriptc_sqlite
+
+
+def main() -> None:
+    db = pyscriptc_sqlite.connect(":memory:")
+    db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+    db.execute("INSERT INTO t (name) VALUES ('alias')")
+    cur = db.execute("SELECT name FROM t")
+    row = cur.fetchone()
+    if row is not None:
+        print("row", row[0])
+    db.close()
+
+
+main()
+"""
+    path = tmp_path / "alias.py"
+    path.write_text(source, encoding="utf-8")
+    native = _run(_build(tmp_path, "alias", path), tmp_path)
+    assert native[2] == 0
+    assert b"row alias" in native[0]
+
+
 def test_connect_keywords_match_cpython(tmp_path: Path) -> None:
     """`connect(path, timeout=, isolation_level=None)` compiles and runs.
 

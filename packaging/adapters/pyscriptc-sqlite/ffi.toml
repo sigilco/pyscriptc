@@ -26,6 +26,10 @@
 
 [manifest]
 module = "sqlite3"
+# The v1 spelling stays an alias (issue #1343): the surface moved under
+# the stdlib module name, and a v1 program that spells `pyscriptc_sqlite`
+# compiles unchanged against the same surface.
+aliases = ["pyscriptc_sqlite"]
 ps_abi = 1
 format = 1
 

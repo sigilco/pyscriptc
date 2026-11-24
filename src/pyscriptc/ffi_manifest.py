@@ -96,7 +96,7 @@ ALLOWED_TYPE_NAMES = frozenset({"int", "float", "bool", "str", "bytes", "list", 
 CONST_TYPES = frozenset({"int", "float", "str"})
 
 # The keys each section accepts. Anything else is `PS4005`.
-_MANIFEST_KEYS = frozenset({"module", "ps_abi", "format", "libs", "lib_dirs", "include_dirs"})
+_MANIFEST_KEYS = frozenset({"module", "aliases", "ps_abi", "format", "libs", "lib_dirs", "include_dirs"})
 _SOURCE_KEYS = frozenset({"path", "objects"})
 _HANDLE_KEYS = frozenset({"name", "c_type", "frees"})
 _CONST_KEYS = frozenset({"name", "type", "value"})
@@ -370,6 +370,17 @@ class FfiManifest:
     include_dirs: tuple[str, ...] = ()
     methods: tuple[ManifestMethod, ...] = ()
     attrs: tuple[ManifestAttr, ...] = ()
+    aliases: tuple[str, ...] = ()
+
+    def claims(self, module: str) -> bool:
+        """Whether this manifest answers to the import name `module`.
+
+        The claimed name and the declared aliases both bind the same
+        surface (issue #1343): the sqlite3 manifest claims `sqlite3` and
+        keeps `pyscriptc_sqlite` as an alias, so a v1 program compiles
+        unchanged.
+        """
+        return module == self.module or module in self.aliases
 
     def function(self, name: str) -> ManifestFunction | None:
         """The function bound to a Python-visible name, if any."""
@@ -517,15 +528,16 @@ def load_manifests(paths: list[Path | str], *, ps_abi: int = CURRENT_PS_ABI) -> 
     manifests = [load_manifest(path, ps_abi=ps_abi) for path in paths]
     claimed: dict[str, Path] = {}
     for manifest in manifests:
-        owner = claimed.get(manifest.module)
-        if owner is not None:
-            raise FfiManifestError(
-                "PS4007",
-                f"the module {manifest.module} is already claimed by {owner}",
-                manifest.path,
-                "",
-            )
-        claimed[manifest.module] = manifest.path
+        for name in [manifest.module, *manifest.aliases]:
+            owner = claimed.get(name)
+            if owner is not None:
+                raise FfiManifestError(
+                    "PS4007",
+                    f"the module {name} is already claimed by {owner}",
+                    manifest.path,
+                    "",
+                )
+            claimed[name] = manifest.path
     return manifests
 
 
@@ -566,6 +578,22 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
     libs = _optional_str_list(header, "libs", path=path, where=where)
     lib_dirs = _optional_str_list(header, "lib_dirs", path=path, where=where)
     include_dirs = _optional_str_list(header, "include_dirs", path=path, where=where)
+    aliases = _optional_str_list(header, "aliases", path=path, where=where)
+    for alias in aliases:
+        if not _IDENT.match(alias) and "." not in alias:
+            raise FfiManifestError(
+                "PS4005",
+                f"the alias {alias!r} is not a module name",
+                path,
+                where,
+            )
+        if alias == module:
+            raise FfiManifestError(
+                "PS4007",
+                f"the alias {alias!r} repeats the claimed module name",
+                path,
+                where,
+            )
     for library in libs:
         _check_link_name(library, key="libs", path=path, where=where)
     for directory in lib_dirs:
@@ -607,6 +635,7 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
         include_dirs,
         methods,
         attrs,
+        tuple(aliases),
     )
 
 

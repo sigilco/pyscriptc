@@ -1850,11 +1850,15 @@ def _manifest_stub_roots(manifests: list[FfiManifest]) -> list[Path]:
         # relative root would resolve against the wrong place.
         base: Path = manifest.path.parent.resolve()
         roots.append(base)
-        module = manifest.module.replace(".", "/")
-        for candidate in (base / f"{module}.pyi", base / module / "__init__.pyi"):
-            if candidate.is_file():
-                roots.append(candidate.parent)
-                break
+        # The claimed name and the aliases each carry a stub (issue #1343):
+        # the sqlite adapter ships `sqlite3.pyi` and `pyscriptc_sqlite.pyi`,
+        # and the checker has to find the one the program spells.
+        for name in [manifest.module, *manifest.aliases]:
+            module = name.replace(".", "/")
+            for candidate in (base / f"{module}.pyi", base / module / "__init__.pyi"):
+                if candidate.is_file():
+                    roots.append(candidate.parent)
+                    break
     return roots
 
 
