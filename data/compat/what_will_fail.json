@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "b8286d9c316e34265b3d027f510f2d0df5ca3fb3",
+  "commit": "5ce19d2446e3e4713d97c954ed6a062cedaff6a3",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
@@ -63,7 +63,7 @@
           "module": "argparse",
           "construct": "`argparse` option/default",
           "code": "PS2003",
-          "diagnostic": "argparse.add_argument keyword nargs is not lowered"
+          "diagnostic": "argparse.ArgumentParser description is a str constant"
         },
         {
           "module": "argparse",
@@ -142,7 +142,7 @@
           "module": "builtins",
           "construct": "name read after unannotated assignment",
           "code": "PS2002",
-          "diagnostic": "had_error is not a local or parameter"
+          "diagnostic": "parser is not a local or parameter"
         },
         {
           "module": "builtins",
@@ -270,7 +270,7 @@
           "module": "builtins",
           "construct": "class attribute access",
           "code": "PS2001",
-          "diagnostic": "Namespace.files is not a field"
+          "diagnostic": "Scheduling.j is not a field"
         }
       ]
     },
