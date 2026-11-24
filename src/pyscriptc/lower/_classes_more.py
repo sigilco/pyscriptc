@@ -608,6 +608,11 @@ class ClassesMoreMixin:
         members.update(inherited)
         next_value = max((v for v in inherited.values() if isinstance(v, int)), default=0) + 1
         next_auto = next_value
+        # The values spelled so far, the ones the `auto()` counter reads:
+        # CPython's `auto()` takes the largest value the body has spelled
+        # plus one, so `A = 5` then `auto()` gives 6 and a later `C = 2`
+        # then `auto()` gives 7, not 3.
+        spelled: list[int] = [v for v in inherited.values() if isinstance(v, int)]
         methods: list[tuple[ast.FunctionDef, str]] = []
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
@@ -653,7 +658,9 @@ class ClassesMoreMixin:
                         member_value = target.lower()
                     else:
                         member_value = next_auto
-                next_auto = next_auto + 1 if isinstance(member_value, int) else next_auto
+                if isinstance(member_value, int):
+                    spelled.append(member_value)
+                    next_auto = max(spelled) + 1
                 if target in members:
                     self.fail(stmt, "PS2002", f"duplicate enum member {target}")
                 members[target] = member_value

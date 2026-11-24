@@ -113,6 +113,45 @@ def test_strenum_auto_spells_the_lower_case_name(tmp_path: Path) -> None:
     )
 
 
+def test_auto_continues_from_the_last_spelled_value(tmp_path: Path) -> None:
+    """CPython's `auto()` continues from the last value the body spelled.
+
+    `DEBUG = 10` then `auto()` gives 11, and an explicit value after an
+    `auto()` moves the counter again (`A = 5`, `auto()` gives 6, `C = 2`,
+    `auto()` gives 7), so the counter follows the last member, not the
+    largest one.
+    """
+    _oracle(
+        tmp_path,
+        "auto_continues.py",
+        "\n".join(
+            [
+                "from enum import IntEnum, auto",
+                "",
+                "class Level(IntEnum):",
+                "    DEBUG = 10",
+                "    INFO = auto()",
+                "    WARN = auto()",
+                "    ERROR = 40",
+                "    CRITICAL = auto()",
+                "",
+                "class Mixed(IntEnum):",
+                "    A = 5",
+                "    B = auto()",
+                "    C = 2",
+                "    D = auto()",
+                "",
+                "def run() -> int:",
+                "    print(Level.DEBUG.value, Level.INFO.value, Level.WARN.value)",
+                "    print(Level.ERROR.value, Level.CRITICAL.value)",
+                "    print(Mixed.A.value, Mixed.B.value, Mixed.C.value, Mixed.D.value)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
 def test_strenum_annotation_takes_a_str(tmp_path: Path) -> None:
     _oracle(
         tmp_path,

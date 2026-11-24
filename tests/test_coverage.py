@@ -471,8 +471,11 @@ def test_generator_and_contextmanager_families() -> None:
 CLASS_BASE_SOURCE = "\n".join(
     [
         "from typing import NamedTuple, TypedDict",
-        "from enum import StrEnum",
+        "from enum import Enum",
         "import threading",
+        "",
+        "class Color(Enum):",
+        "    RED = 1",
         "",
         "class A(NamedTuple):",
         "    x: int",
@@ -480,8 +483,8 @@ CLASS_BASE_SOURCE = "\n".join(
         "class B(TypedDict):",
         "    x: int",
         "",
-        "class C(StrEnum):",
-        "    A = 'a'",
+        "class C(Color):",
+        "    pass",
         "",
         "class D(threading.Thread):",
         "    pass",
@@ -505,7 +508,10 @@ def test_coverage_census_counts_the_class_bases_by_kind(tmp_path: Path) -> None:
     assert census["typeddict"]["fences"] == 1
     assert census["typeddict"]["bases"] == ["TypedDict"]
     assert census["enum"]["fences"] == 1
-    assert census["enum"]["bases"] == ["StrEnum"]
+    # The plain bases lower since the StrEnum and flag bases joined the
+    # subset (issue #451); the fenced enum shape is the member-holding
+    # subclass, which CPython refuses outright.
+    assert census["enum"]["bases"] == ["Color"]
     assert census["stdlib"]["fences"] == 1
     assert census["stdlib"]["bases"] == ["threading.Thread"]
     assert census["other"]["fences"] == 1
@@ -541,7 +547,7 @@ def test_coverage_census_text_lists_the_kinds(tmp_path: Path) -> None:
     assert "class bases by kind: 5 fenced" in got.stdout
     assert "namedtuple: 1 (NamedTuple)" in got.stdout
     assert "typeddict: 1 (TypedDict)" in got.stdout
-    assert "enum: 1 (StrEnum)" in got.stdout
+    assert "enum: 1 (Color)" in got.stdout
     assert "stdlib: 1 (threading.Thread)" in got.stdout
     assert "other: 1 (Unknown)" in got.stdout
 
@@ -558,7 +564,13 @@ def test_coverage_census_is_empty_without_a_class_base(tmp_path: Path) -> None:
 def test_the_compile_fence_is_unchanged_by_the_census(tmp_path: Path) -> None:
     """The census is a report: the fence itself still refuses the compile."""
 
-    path = write_case(tmp_path, "bases.py", CLASS_BASE_SOURCE)
+    # A member fence, not the class-base census shape: the plain enum
+    # bases lower since the StrEnum and flag bases joined the subset
+    # (issue #451), so the base fence the census reads is the subclass
+    # one and the compile refuses on the pyrefly preflight's final-class
+    # error before the lowerer runs. An enum member that is not an
+    # integer constant still fences the compile with PS2002.
+    path = write_case(tmp_path, "bases.py", "from enum import Enum\nclass C(Enum):\n    A = 'x'\n")
     got = run_cli("compile", str(path))
     assert got.returncode != 0
     assert "PS2002" in got.stderr
