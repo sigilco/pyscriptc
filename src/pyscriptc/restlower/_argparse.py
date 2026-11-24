@@ -5,20 +5,28 @@ The subset covers the shape a script uses: one `ArgumentParser`, a few
 list of encoded spec strings; `parse_args` walks the process argv and fills
 a `Namespace` whose fields are declared in registration order.
 
-The spec string is `dest|action|const|default|flags|required|slot`. `dest` is the
+The spec string is `dest|action|const|default|flags|required|slot|nargs`. `dest` is the
 attribute the namespace carries, `action` is `store`, `store_true`,
 `store_false` or `store_const`, `const` is the value a `store_const`
 action sets, `default` is the value the option keeps when it does not
 appear, `flags` is the comma-separated list of option spellings (empty
 for positional arguments), `required` is "1" or "0", and `slot` is the index of
-the namespace field the value lands in (several parsers share one namespace).
+the namespace field the value lands in (several parsers share one namespace),
+and `nargs` is empty, `?`, `*`, `+`, `R` (REMAINDER) or a count. A list-valued
+nargs (`*`, `+`, `R`, a count) declares a `list[T]` namespace field.
 
-`add_subparsers(dest=, required=)` and `add_parser(name, help=)` add a second
-level: each subcommand parser keeps its own spec rows, and the runtime hands the
-rest of argv to the subcommand the first positional token names. One level only.
+`add_subparsers` and `add_parser(name, ...)` add a level: each subcommand parser
+keeps its own spec rows, and the runtime hands the token the subcommand action
+consumes, and everything after it, to the subcommand the first token names. A
+subcommand parser takes its own `add_subparsers`, so the levels nest. The
+subcommand action is a positional of nargs PARSER, ordered among the positional
+specs of its parser by registration.
 
 The keyword set is the closed one scripts use: `dest`, `action`, `const`,
-`default`, `type`, `required` and `help`. `type` accepts `int`, `float` and `str`.
+`default`, `type`, `required`, `nargs` and `help`. `type` accepts `int`, `float`
+and `str`. `add_subparsers` takes `dest`, `required`, `title`, `description`,
+`metavar`, `help` and `parser_class=argparse.ArgumentParser`; `add_parser` takes
+`help`, `aliases`, `description` and `epilog`.
 """
 
 from __future__ import annotations
@@ -48,6 +56,8 @@ _KIND_BOOL = 2
 _KIND_FLOAT = 3
 
 _ACTIONS = {"store", "store_true", "store_false", "store_const"}
+_SUBS_KEYWORDS = {"dest", "required", "title", "description", "metavar", "help", "parser_class"}
+_PARSER_KEYWORDS = {"help", "aliases", "description", "epilog"}
 
 
 def _text(node: ast.AST) -> str | None:
@@ -71,6 +81,45 @@ def _bool_const(node: ast.AST) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, bool):
         return "1" if node.value else "0"
     return None
+
+
+_NARGS_NAMES = {"?": "?", "*": "*", "+": "+", "...": "R"}
+_NARGS_CONSTANTS = {"OPTIONAL": "?", "ZERO_OR_MORE": "*", "ONE_OR_MORE": "+", "REMAINDER": "R"}
+# The element kind of a list-valued nargs is the kind code plus this.
+_KIND_LIST = 4
+
+
+def _nargs_code(lo: Any, node: ast.expr) -> str | None:
+    """The spec code of an `nargs=` value, or None when it is outside the lowered set.
+
+    `""` is the default (one value). `?`, `*` and `+` are themselves, `R` is
+    REMAINDER (`...`), and a count is its digits. The values spelled through
+    the `argparse` constants resolve to the same codes. PARSER (`A...`) and
+    SUPPRESS are not lowered.
+    """
+    if isinstance(node, ast.Constant):
+        value = node.value
+        if isinstance(value, bool):
+            return None
+        if isinstance(value, int):
+            return str(value) if value >= 1 else None
+        if isinstance(value, str):
+            return _NARGS_NAMES.get(value)
+        return None
+    if isinstance(node, ast.Name):
+        binding = lo.bindings.get(node.id)
+        if binding is not None and binding.module == "argparse":
+            return _NARGS_CONSTANTS.get(binding.attr)
+        return None
+    if isinstance(node, ast.Attribute):
+        resolved = lo._resolve_module(node)
+        if resolved is not None and resolved[1] == "argparse":
+            return _NARGS_CONSTANTS.get(resolved[2])
+    return None
+
+
+def _is_list_nargs(code: str) -> bool:
+    return code in {"*", "+", "R"} or code.isdigit()
 
 
 def _folded_constant(lo: Any, node: ast.expr) -> ast.expr:
@@ -147,7 +196,7 @@ def peek_namespace_fields(lo: Any, body: list[ast.stmt]) -> list[dict[str, Any]]
                     sub_dest = _text(keyword.value)
                     if sub_dest is None or not sub_dest.isidentifier():
                         return None
-                elif keyword.arg != "required":
+                elif keyword.arg not in _SUBS_KEYWORDS:
                     return None
             if node.args:
                 return None
@@ -174,9 +223,15 @@ def peek_namespace_fields(lo: Any, body: list[ast.stmt]) -> list[dict[str, Any]]
                 flags.append(text)
         type_name = "str"
         action = "store"
+        nargs = ""
         for keyword in node.keywords:
             name = keyword.arg
-            if name == "dest" and not is_positional:
+            if name == "nargs":
+                code = _nargs_code(lo, keyword.value)
+                if code is None:
+                    return None
+                nargs = code
+            elif name == "dest" and not is_positional:
                 text = _text(keyword.value)
                 if text is None or not text.isidentifier():
                     return None
@@ -214,6 +269,8 @@ def peek_namespace_fields(lo: Any, body: list[ast.stmt]) -> list[dict[str, Any]]
             field_type = _class("Path")
         else:
             field_type = _t_leaf("str")
+        if _is_list_nargs(nargs):
+            field_type = _t_list(field_type)
         fields.append({"name": dest, "type": field_type})
     return fields or None
 
@@ -236,12 +293,22 @@ def _dest_from_flags(flags: list[str]) -> str | None:
 
 
 class ArgGroup:
-    """The arguments one parser level registers, for the help replay."""
+    """The arguments one parser level registers, for the help replay.
 
-    def __init__(self, name: str, help_text: str | None) -> None:
+    `parent` is the group of the parser whose `add_subparsers` holder this
+    level hangs from (None for the top parser). `holder` is the subcommand
+    action this level registered, if any.
+    """
+
+    def __init__(self, name: str, help_text: str | None, parent: int | None = None) -> None:
         self.name = name
         self.help = help_text
+        self.parent = parent
+        self.aliases: list[str] = []
+        self.description: str | None = None
+        self.epilog: str | None = None
         self.args: list[dict[str, Any]] = []
+        self.holder: dict[str, Any] | None = None
 
 
 class ArgparseState:
@@ -262,15 +329,13 @@ class ArgparseState:
         self.parser_name: str | None = None
         self.prog: str = ""
         self.description: str = ""
+        self.epilog: str = ""
         # Group 0 is the top parser; each add_parser call adds one child.
         self.groups: list[ArgGroup] = [ArgGroup("", None)]
         # Which group a call or a binding name stands for, so add_argument
         # reaches the right parser level when the help text is replayed.
         self.group_by_pos: dict[tuple[int, int], int] = {}
         self.group_of_name: dict[str, int] = {}
-        self.subs_pos: tuple[int, int] | None = None
-        self.sub_dest: str | None = None
-        self.sub_required = False
 
     def add(self, dest: str, field: dict[str, Any], kind: int, arg_meta: dict[str, Any], group: int = 0) -> int:
         slot = len(self.fields)
@@ -414,10 +479,11 @@ def _parser(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     """
     prog = ""
     description = ""
+    epilog = ""
     for keyword in node.keywords:
         if keyword.arg is None:
             lo.fail(node, "PS2002", kwargs_call_note())
-        if keyword.arg not in {"prog", "description"}:
+        if keyword.arg not in {"prog", "description", "epilog"}:
             lo.fail(node, "PS2003", f"argparse.ArgumentParser keyword {keyword.arg} is not lowered")
         if keyword.arg == "prog":
             text = _text(keyword.value)
@@ -429,6 +495,11 @@ def _parser(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
             if text is None:
                 lo.fail(node, "PS2003", "argparse.ArgumentParser description is a str constant")
             description = text
+        elif keyword.arg == "epilog":
+            text = _text(keyword.value)
+            if text is None:
+                lo.fail(node, "PS2003", "argparse.ArgumentParser epilog is a str constant")
+            epilog = text
     if node.args:
         if len(node.args) != 1:
             lo.fail(node, "PS2003", "argparse.ArgumentParser expects 0 or 1 argument(s)")
@@ -440,6 +511,7 @@ def _parser(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     state = _state(lo)
     state.prog = prog
     state.description = description
+    state.epilog = epilog
     expr = lo._abi_call(
         "argparse",
         "ArgumentParser",
@@ -499,10 +571,19 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
     type_name = "str"
     required = is_positional
     help_text: str | None = None
+    nargs = ""
+    raw_const: Any = None
+    has_default = False
+    has_const = False
 
     for keyword in node.keywords:
         name = keyword.arg
-        if name == "dest":
+        if name == "nargs":
+            code = _nargs_code(lo, keyword.value)
+            if code is None:
+                lo.fail(node, "PS2003", "argparse nargs is an int count, '?', '*', '+' or argparse.REMAINDER")
+            nargs = code
+        elif name == "dest":
             if is_positional:
                 lo.fail(node, "PS2003", "argparse positional argument does not take dest")
             text = _text(keyword.value)
@@ -517,11 +598,20 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
                 lo.fail(node, "PS2003", "argparse action is store, store_true, store_false or store_const")
             action = text
         elif name == "const":
+            has_const = True
             text = _text(keyword.value)
-            if text is None:
+            number = _number(_folded_constant(lo, keyword.value))
+            if text is not None:
+                const = text
+                raw_const = text
+            elif number is not None:
+                # A numeric const is read by nargs='?' (checked below); store_const stays a str.
+                const = number
+                raw_const = ast.literal_eval(number)
+            else:
                 lo.fail(node, "PS2003", "argparse const is a str constant")
-            const = text
         elif name == "default":
+            has_default = True
             value_node = _folded_constant(lo, keyword.value)
             text = _text(value_node)
             number = _number(value_node)
@@ -554,6 +644,29 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
         else:
             lo.fail(node, "PS2003", f"argparse.add_argument keyword {name} is not lowered")
 
+    list_valued = _is_list_nargs(nargs)
+    if nargs:
+        if action != "store":
+            lo.fail(node, "PS2003", "argparse nargs takes the store action")
+        if type_name == "Path":
+            lo.fail(node, "PS2003", "argparse type=Path does not take nargs")
+        if list_valued and has_default:
+            lo.fail(node, "PS2003", "argparse nargs list arguments take no default")
+        if nargs == "?":
+            if not has_default:
+                # An absent value is None in CPython, and the namespace has no None slot.
+                lo.fail(node, "PS2003", "argparse nargs='?' needs a default")
+            if not is_positional and not has_const:
+                lo.fail(node, "PS2003", "argparse nargs='?' option needs a const")
+        if is_positional and nargs in {"?", "R"}:
+            required = False
+        elif is_positional and nargs == "*":
+            required = True
+    if has_const and action != "store_const" and nargs != "?":
+        lo.fail(node, "PS2003", "argparse const takes the store_const action or nargs='?'")
+    if action == "store_const" and raw_const is not None and not isinstance(raw_const, str):
+        lo.fail(node, "PS2003", "argparse const is a str constant")
+
     if dest is None:
         dest = _dest_from_flags(flags)
     if dest is None:
@@ -583,7 +696,10 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
     _install_classes(lo)
     req_str = "1" if required else "0"
     slot = len(state.fields)
-    spec = "|".join([dest, action, const, default, ",".join(flags), req_str, str(slot)])
+    if list_valued:
+        kind += _KIND_LIST
+        field_type = _t_list(field_type)
+    spec = "|".join([dest, action, const, default, ",".join(flags), req_str, str(slot), nargs])
     arg_meta = {
         "dest": dest,
         "flags": flags,
@@ -594,6 +710,8 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
         "type_name": type_name,
         "required": required,
         "help": help_text,
+        "nargs": nargs,
+        "raw_const": raw_const,
     }
     state.add(dest, {"name": dest, "type": field_type}, kind, arg_meta, _receiver_group(lo, node))
     if type_name == "Path":
@@ -612,12 +730,13 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
 
 
 def _add_subparsers(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
-    """`parser.add_subparsers(dest=, required=)`: the subcommand holder.
+    """`parser.add_subparsers(dest=, required=, ...)`: the subcommand holder.
 
     The holder keeps the slot of the namespace field the chosen subcommand
-    name lands in (`-1` without a dest) and whether a subcommand is required.
-    One call per module: the second level is one level deep, and a second
-    holder would need a second dispatch table.
+    name lands in (`-1` without a dest), whether a subcommand is required and
+    its metavar. A parser takes one holder (CPython refuses a second one on
+    the same parser); each subcommand parser takes its own, so the levels
+    nest. `title`, `description` and `help` only shape the help text.
     """
     if _node_type(receiver).get("name") != "ArgParser":
         lo.fail(node, "PS2001", "add_subparsers needs an argparse parser")
@@ -627,6 +746,7 @@ def _add_subparsers(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dic
         lo.fail(node, "PS2003", "argparse.add_subparsers takes keyword arguments only")
     dest: str | None = None
     required = False
+    texts: dict[str, str] = {}
     for keyword in node.keywords:
         if keyword.arg == "dest":
             text = _text(keyword.value)
@@ -637,18 +757,26 @@ def _add_subparsers(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dic
             if not isinstance(keyword.value, ast.Constant) or not isinstance(keyword.value.value, bool):
                 lo.fail(node, "PS2003", "argparse.add_subparsers required is a bool constant")
             required = keyword.value.value
+        elif keyword.arg in {"title", "description", "metavar", "help"}:
+            text = _text(keyword.value)
+            if text is None or (keyword.arg == "metavar" and not text):
+                lo.fail(node, "PS2003", f"argparse.add_subparsers {keyword.arg} is a str constant")
+            texts[keyword.arg] = text
+        elif keyword.arg == "parser_class":
+            if not _is_argument_parser_class(lo, keyword.value):
+                lo.fail(node, "PS2003", "argparse.add_subparsers parser_class is argparse.ArgumentParser")
         else:
             lo.fail(node, "PS2003", f"argparse.add_subparsers keyword {keyword.arg} is not lowered")
     state = _state(lo)
     _install_classes(lo)
     key = (node.lineno, node.col_offset)
-    if state.subs_pos is not None and state.subs_pos != key:
-        lo.fail(node, "PS2003", "argparse takes one add_subparsers call per module")
-    if _receiver_group(lo, node) != 0:
-        lo.fail(node, "PS2003", "argparse nested subparsers are not lowered")
+    group = _receiver_group(lo, node)
+    holder = state.groups[group].holder
+    if holder is not None and holder["pos"] != key:
+        lo.fail(node, "PS2003", "argparse takes one add_subparsers call per parser")
     slot = -1
     if dest is not None:
-        known = state.dests.get(dest) if state.subs_pos == key else None
+        known = state.dests.get(dest) if holder is not None else None
         if known is not None:
             slot = known
         else:
@@ -658,9 +786,8 @@ def _add_subparsers(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dic
             state.kinds.append(_KIND_STR)
             lo.classes["Namespace"]["fields"] = list(state.fields)
             lo.classes["Namespace"]["own_fields"] = list(state.fields)
-    state.subs_pos = key
-    state.sub_dest = dest
-    state.sub_required = required
+    state.groups[group].holder = {"pos": key, "dest": dest, "required": required, **texts}
+    _bind_group(lo, node, group)
     expr = lo._abi_call(
         "argparse",
         "add_subparsers",
@@ -669,6 +796,7 @@ def _add_subparsers(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dic
             _const_int(slot, span),
             _const_int(1 if required else 0, span),
             _const_text(dest or "", "str", span),
+            _const_text(texts.get("metavar", ""), "str", span),
         ],
         _class("SubParsers"),
         "ps_argparse_subs",
@@ -678,12 +806,24 @@ def _add_subparsers(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dic
     return expr
 
 
-def _add_parser(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
-    """`sub.add_parser(name, help=)`: one subcommand parser.
+def _is_argument_parser_class(lo: Any, node: ast.expr) -> bool:
+    """`ArgumentParser` or `argparse.ArgumentParser` as a `parser_class=`."""
+    if isinstance(node, ast.Name):
+        binding = lo.bindings.get(node.id)
+        return binding is not None and binding.module == "argparse" and binding.attr == "ArgumentParser"
+    if isinstance(node, ast.Attribute):
+        resolved = lo._resolve_module(node)
+        return resolved is not None and resolved[1] == "argparse" and resolved[2] == "ArgumentParser"
+    return False
 
-    The returned parser takes `add_argument` and nothing else of the
-    ArgumentParser surface that is not already lowered; `help` is the line the
-    parent's help lists beside the name.
+
+def _add_parser(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+    """`sub.add_parser(name, help=, aliases=, description=, epilog=)`: one subcommand parser.
+
+    The returned parser takes `add_argument` and `add_subparsers` and nothing
+    else of the ArgumentParser surface that is not already lowered; `help` is
+    the line the parent's help lists beside the name, and each alias is one
+    more name the subcommand answers to.
     """
     if _node_type(receiver).get("name") != "SubParsers":
         lo.fail(node, "PS2001", "add_parser needs the result of add_subparsers")
@@ -692,36 +832,78 @@ def _add_parser(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
     if len(node.args) != 1:
         lo.fail(node, "PS2003", "argparse.add_parser takes exactly one name")
     name = _text(node.args[0])
-    if name is None or not name or name.startswith("-") or any(ch.isspace() or ch in "\x1e\x1f" for ch in name):
+    if name is None or not _is_subcommand_name(name):
         lo.fail(node, "PS2003", "argparse.add_parser name is a str constant without dashes or spaces")
     help_text: str | None = None
+    description: str | None = None
+    epilog: str | None = None
+    aliases: list[str] = []
     for keyword in node.keywords:
-        if keyword.arg == "help":
-            help_text = _text(keyword.value)
-            if help_text is None:
-                lo.fail(node, "PS2003", "argparse.add_parser help is a str constant")
-        else:
+        if keyword.arg not in _PARSER_KEYWORDS:
             lo.fail(node, "PS2003", f"argparse.add_parser keyword {keyword.arg} is not lowered")
+        if keyword.arg == "aliases":
+            if not isinstance(keyword.value, (ast.List, ast.Tuple)):
+                lo.fail(node, "PS2003", "argparse.add_parser aliases is a list or tuple of str constants")
+            for element in keyword.value.elts:
+                alias = _text(element)
+                if alias is None or not _is_subcommand_name(alias):
+                    lo.fail(node, "PS2003", "argparse.add_parser aliases are str constants without dashes or spaces")
+                aliases.append(alias)
+            continue
+        text = _text(keyword.value)
+        if text is None:
+            lo.fail(node, "PS2003", f"argparse.add_parser {keyword.arg} is a str constant")
+        if keyword.arg == "help":
+            help_text = text
+        elif keyword.arg == "description":
+            description = text
+        else:
+            epilog = text
     state = _state(lo)
     _install_classes(lo)
     key = (node.lineno, node.col_offset)
+    parent = _receiver_group(lo, node)
     group = state.group_by_pos.get(key)
     if group is None:
-        if any(existing.name == name for existing in state.groups[1:]):
-            lo.fail(node, "PS2003", f"argparse.add_parser name {name} is already registered")
-        state.groups.append(ArgGroup(name, help_text))
+        taken = {
+            label
+            for existing in state.groups
+            if existing.parent == parent
+            for label in (existing.name, *existing.aliases)
+        }
+        for label in (name, *aliases):
+            if label in taken:
+                lo.fail(node, "PS2003", f"argparse.add_parser name {label} is already registered")
+        child = ArgGroup(name, help_text, parent)
+        child.aliases = aliases
+        child.description = description
+        child.epilog = epilog
+        state.groups.append(child)
         group = len(state.groups) - 1
         _bind_group(lo, node, group)
     expr = lo._abi_call(
         "argparse",
         "add_parser",
-        [receiver, _const_text(name, "str", span)],
+        [receiver, _const_text(name, "str", span), _const_text(" ".join(aliases), "str", span)],
         _class("ArgParser"),
         "ps_argparse_add_parser",
         span,
     )
     expr["identity"] = True
     return expr
+
+
+def _is_subcommand_name(name: str) -> bool:
+    return bool(name) and not name.startswith("-") and not any(ch.isspace() or ch in "\x1e\x1f" for ch in name)
+
+
+def _probe_nargs(code: str) -> Any:
+    """The value argparse's `nargs=` takes for a spec's nargs code."""
+    import argparse as _c_argparse
+
+    if code == "R":
+        return _c_argparse.REMAINDER
+    return int(code) if code.isdigit() else code
 
 
 def _replay(hp: Any, args: list[dict[str, Any]]) -> None:
@@ -745,6 +927,10 @@ def _replay(hp: Any, args: list[dict[str, Any]]) -> None:
         kwargs: dict[str, Any] = {}
         if arg["help"] is not None:
             kwargs["help"] = arg["help"]
+        if arg["nargs"]:
+            kwargs["nargs"] = _probe_nargs(arg["nargs"])
+        if arg["nargs"] == "?" and not arg["is_positional"]:
+            kwargs["const"] = arg["raw_const"]
         if arg["is_positional"]:
             probe_type = _probe_type(arg["type_name"])
             if probe_type is not None:
@@ -778,6 +964,43 @@ def _replay(hp: Any, args: list[dict[str, Any]]) -> None:
         seen_strings.update(names)
 
 
+def _build_levels(state: ArgparseState, index: int, hp: Any, parsers: dict[int, Any]) -> None:
+    """Replay one level's arguments and its subcommand tree into the CPython parser `hp`."""
+    group = state.groups[index]
+    _replay(hp, group.args)
+    if group.holder is None:
+        return
+    holder_kwargs: dict[str, Any] = {}
+    for key in ("dest", "title", "description", "metavar", "help"):
+        if group.holder.get(key):
+            holder_kwargs[key] = group.holder[key]
+    if group.holder["required"]:
+        holder_kwargs["required"] = True
+    holder = hp.add_subparsers(**holder_kwargs)
+    children = [(i, child) for i, child in enumerate(state.groups) if child.parent == index]
+    for i, child in children:
+        child_kwargs: dict[str, Any] = {}
+        if child.help is not None:
+            child_kwargs["help"] = child.help
+        if child.aliases:
+            child_kwargs["aliases"] = list(child.aliases)
+        if child.description is not None:
+            child_kwargs["description"] = child.description
+        if child.epilog is not None:
+            child_kwargs["epilog"] = child.epilog
+        parsers[i] = holder.add_parser(child.name, **child_kwargs)
+    for i, _child in children:
+        _build_levels(state, i, parsers[i], parsers)
+
+
+def _emit_levels(state: ArgparseState, index: int, path: str, parsers: dict[int, Any], pieces: list[str]) -> None:
+    """Append `path prog help` for a level and its subcommands, after the whole tree registered."""
+    pieces += [path, parsers[index].prog, parsers[index].format_help()]
+    for i, child in enumerate(state.groups):
+        if child.parent == index:
+            _emit_levels(state, i, f"{path} {child.name}" if path else child.name, parsers, pieces)
+
+
 def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
     """`parser.parse_args()`: the namespace with one field per option."""
     lo._reject_keywords(node)
@@ -807,35 +1030,19 @@ def _parse_args(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[st
     hp = _c_argparse.ArgumentParser(
         prog=state.prog or prog_sentinel,
         description=state.description or None,
+        epilog=state.epilog or None,
     )
     # The help probe replays each parser level's registered arguments into a
     # fresh CPython parser to synthesize the help text the runtime prints
-    # (and the usage line its error paths print).
-    _replay(hp, state.groups[0].args)
-    # One blob carries every level: `name RS prog RS help` triples joined by
-    # RS (0x1e), the top parser first under the empty name. The runtime finds
-    # a level by name and prints its help or its usage and error prefix.
-    pieces = ["", hp.prog, ""]
-    if state.subs_pos is not None:
-        sub_kwargs: dict[str, Any] = {}
-        if state.sub_dest:
-            sub_kwargs["dest"] = state.sub_dest
-        if state.sub_required:
-            sub_kwargs["required"] = True
-        holder = hp.add_subparsers(**sub_kwargs)
-        children = []
-        for group in state.groups[1:]:
-            child_kwargs: dict[str, Any] = {}
-            if group.help is not None:
-                child_kwargs["help"] = group.help
-            child = holder.add_parser(group.name, **child_kwargs)
-            _replay(child, group.args)
-            children.append((group.name, child))
-        # The top help is formatted after the children register, so its
-        # subcommand listing is complete.
-        for name, child in children:
-            pieces += [name, child.prog, child.format_help()]
-    pieces[2] = hp.format_help()
+    # (and the usage line its error paths print). One blob carries every
+    # level: `path RS prog RS help` triples joined by RS (0x1e), the top
+    # parser first under the empty path and a nested level under its
+    # space-joined subcommand path. The runtime finds a level by path and
+    # prints its help or its usage and error prefix.
+    parsers: dict[int, Any] = {0: hp}
+    _build_levels(state, 0, hp, parsers)
+    pieces: list[str] = []
+    _emit_levels(state, 0, "", parsers, pieces)
     help_expr = _const_text("\x1e".join(pieces), "str", span)
 
     namespace = _class("Namespace")

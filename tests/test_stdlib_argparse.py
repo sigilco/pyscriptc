@@ -430,10 +430,10 @@ def test_argparse_keeps_the_closed_surface() -> None:
     mod = lower_source(
         "import argparse\n"
         "parser: argparse.ArgumentParser = argparse.ArgumentParser()\n"
-        "parser.add_argument('--name', nargs=2)\n"
+        "parser.add_argument('--name', nargs='A...')\n"
     )
-    assert mod["fences"], "an unknown add_argument keyword must fence"
-    assert "argparse.add_argument keyword nargs is not lowered" in mod["fences"][0]["message"]
+    assert mod["fences"], "an unsupported nargs value must fence"
+    assert "argparse nargs is an int count" in mod["fences"][0]["message"]
     assert mod["fences"][0]["code"] == "PS2003"
 
     mod = lower_source(
@@ -572,7 +572,7 @@ def test_peek_namespace_fields_skips_non_add_argument_calls() -> None:
         "metavar='N'",
         "type=bool",
         "type=check",
-        "nargs='*'",
+        "nargs='A...'",
         "default=open('x')",
         "choices=['a']",
     ],
