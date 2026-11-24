@@ -680,6 +680,13 @@ def _used_names(body: list[dict[str, Any]]) -> set[str]:
             slot = _opt_excslot(node)
             if slot is not None:
                 names.add(slot)
+        elif kind == "raise":
+            # A re-raise over a bound handler value (`raise e`, issue #448):
+            # the excslot names the record to raise again, so the slot must
+            # be packed even when no statement reads it as a name.
+            slot = _opt_excslot(node)
+            if slot is not None:
+                names.add(slot)
         for key, value in node.items():
             if key in {"target", "id", "excslot"} and isinstance(value, str):
                 continue

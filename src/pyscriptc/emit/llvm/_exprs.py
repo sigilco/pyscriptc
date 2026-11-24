@@ -449,9 +449,7 @@ class ExprsMixin(EmitterBase):
             if bound == "":
                 raise IRError(f"exception has no attribute {node.name}")
             self._abi_decl("ps_exc_payload", "ptr", ["ptr"])
-            record = self._call_ret(
-                "ptr", "ps_exc_payload", [f"ptr {self.emit_expr(dict_to_dict(node.value))}"]
-            )
+            record = self._call_ret("ptr", "ps_exc_payload", [f"ptr {self.emit_expr(dict_to_dict(node.value))}"])
             field = self._field(bound, node.name)
             slot = self._field_ptr(bound, record, field)
             return self._widen_cell(_field_type(field), slot)

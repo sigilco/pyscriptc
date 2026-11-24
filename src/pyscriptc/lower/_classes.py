@@ -2223,6 +2223,15 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     for field in info["fields"]:
                         if field["name"] == name:
                             return _attr_node(obj, name, field["type"], span)
+                    # A class-body constant the class declares (`tag: str =
+                    # "sub"`): CPython's instance read falls back to the
+                    # class attribute (issue #444's rule), and the payload
+                    # is that class's instance, so the constant reads
+                    # through it the same way an ordinary instance read
+                    # does.
+                    const = self._class_const(target, name)
+                    if const is not None:
+                        return {**const, "span": span}
             self.fail(node, "PS2001", f"exception has no attribute {name}")
         if obj.get("symbol") == "ps_exc_class" and obj.get("attrtype") == "type":
             # type(e): the carrier holds the runtime class name. `.__name__`
