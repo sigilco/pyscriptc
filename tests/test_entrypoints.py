@@ -101,9 +101,11 @@ def test_counts_match_spec_tables():
     # The sqlite pilot example (#66) is the 29th example and the fifth
     # script: its `__main__` guard calls `main()`, so the detector
     # classifies it as a script. The ndarray demo (#496) is the 30th
-    # example and has no `__main__` guard, so it is not a script.
-    assert len(examples) == 30
-    assert sum(1 for r in examples if r["is_script"]) == 5
+    # example and has no `__main__` guard, so it is not a script. The
+    # log pipeline app (#498) is the 31st example and has a `__main__`
+    # guard, so it is the sixth script.
+    assert len(examples) == 31
+    assert sum(1 for r in examples if r["is_script"]) == 6
     assert len(scripts) == 20
     assert sum(1 for r in scripts if r["is_script"]) == 20
 
