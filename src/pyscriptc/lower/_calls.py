@@ -165,7 +165,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 if called is not None:
                     return called
                 # Neither dunder defined: the emit's identity hash answers
-                # (divergence 94), so the lowered int result carries it.
+                # (divergence 98), so the lowered int result carries it.
                 return self._abi_call("builtins", "hash", [arg], {"kind": "int"}, "ps_hash_identity", span)
         if name == "format" and not node.keywords and len(node.args) == 2:
             arg = self._expr(node.args[0])
