@@ -1,7 +1,7 @@
 {
   "schema": "2",
-  "generated": "2026-11-23",
-  "commit": "57c828e1bf53a43bf0c1107e96acdc71916db765",
+  "generated": "2026-11-24",
+  "commit": "b94a9fbe77b554b0afe1a53090c0f36f0ccdaf02",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -17,8 +17,8 @@
     "measured": 18,
     "packages": 18,
     "runs": 18,
-    "date": "2026-11-23",
-    "commit": "57c828e1bf53a43bf0c1107e96acdc71916db765",
+    "date": "2026-11-24",
+    "commit": "b94a9fbe77b554b0afe1a53090c0f36f0ccdaf02",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -1045,7 +1045,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "getoutput, the Popen environment keywords (issue #1344), Popen.communicate"
+        "getoutput, Popen shell=, Popen.communicate"
       ],
       "fences": [
         "PS2001",
@@ -2835,7 +2835,16 @@
   "history": [
     {
       "date": "2026-11-23",
-      "commit": "57c828e1bf53a43bf0c1107e96acdc71916db765",
+      "commit": "41459c8918b27d6fb07257f9c1f70030d5f50ef7",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 11,
+      "packages_none": 8,
+      "fences": 3925
+    },
+    {
+      "date": "2026-11-24",
+      "commit": "b94a9fbe77b554b0afe1a53090c0f36f0ccdaf02",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
