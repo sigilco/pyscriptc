@@ -347,6 +347,20 @@ class ClassesMoreMixin:
             return False
         return self._is_cached_property_deco(dec)
 
+    def _setter_target(self, dec: ast.expr) -> str | None:
+        """The property name a `@<name>.setter` decorator writes, or None.
+
+        The descriptor member spelling `setter` is what distinguishes the
+        property-setter sugar from a user's own attribute decorator; the
+        bare name before the dot is the property the setter attaches to
+        (CPython's class body binds it there).
+        """
+        if not isinstance(dec, ast.Attribute) or dec.attr != "setter":
+            return None
+        if not isinstance(dec.value, ast.Name):
+            return None
+        return dec.value.id
+
     def _method_decorator(self, fn: ast.FunctionDef) -> str:
         # Erased typing decorators (`@abstractmethod`) drop out first, so
         # `@property @abstractmethod` still resolves to a property. A user
@@ -384,11 +398,20 @@ class ClassesMoreMixin:
                 self.fail(fn, "PS1201", "decorators are not lowered")
             fn.decorator_list = []
             return "cached_property"
+        setter_targets = [name for name in (self._setter_target(d) for d in decos) if name is not None]
+        if setter_targets:
+            # `@a.setter`: the descriptor write the property getter made
+            # (issue #439, D4a). The body lowers as the property's setter
+            # method; the instance-write sites dispatch to it.
+            if len(decos) != 1 or len(setter_targets) != 1:
+                self.fail(fn, "PS1201", "decorators are not lowered")
+            fn.decorator_list = []
+            return "setter"
         if any(self._is_descriptor_deco(d) for d in decos):
-            # A descriptor-style decorator (`@v.setter`, `@v.deleter`) does
-            # not wrap the function: it mutates the descriptor the getter
-            # made. Erasing it would leave the property half-written, so
-            # the stack keeps the fence.
+            # A descriptor-style decorator (`@v.deleter`, `@v.getter`, or a
+            # non-name receiver) does not wrap the function: it mutates the
+            # descriptor the getter made. Erasing it would leave the
+            # property half-written, so the stack keeps the fence.
             self.fail(fn, "PS1201", "decorators are not lowered")
         builtin = self._builtin_method_kind(decos)
         if builtin is not None:
