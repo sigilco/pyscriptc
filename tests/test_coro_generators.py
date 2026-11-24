@@ -1343,3 +1343,17 @@ def test_send_frame_carries_send_field_and_method() -> None:
     assert any(f["name"] == ".ps_send" for f in frame["fields"])
     assert "send" in {m["name"] for m in frame["methods"]}
     validate_module(module)
+
+
+def test_differential_generator_send_probe_matches_cpython(tmp_path: Path) -> None:
+    """`probes/differential/generator_send.py` is the AGENTS.md differential
+    probe for the send path: the compiled program prints what CPython
+    prints, byte for byte, on stdout, stderr and the exit code."""
+    from tests.test_gates import ROOT
+    from tests.test_runtime_divergences import compile_and_run, oracle_run
+
+    source = (ROOT / "probes" / "differential" / "generator_send.py").read_text(encoding="utf-8")
+    got = compile_and_run(tmp_path, "gen_send", source)
+    want = oracle_run(tmp_path, "gen_send", source)
+    assert got == want
+    assert got[0] == b"0 2 5 done\n"
