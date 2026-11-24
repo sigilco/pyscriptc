@@ -381,7 +381,7 @@ class ExprsMixin(EmitterBase):
         typ: dict[str, Any] = _type_dict_of(node)
         key_t: dict[str, Any] = typ["key"]
         val_t: dict[str, Any] = typ["value"]
-        key_kind = 1 if key_t["kind"] == "int" else 2
+        key_kind = self._map_key_kind(key_t)
         stored = [
             (self.emit_expr(dict_to_dict(pair.key)), self.emit_expr(dict_to_dict(pair.value)))
             for pair in node.pairs or []
@@ -397,7 +397,7 @@ class ExprsMixin(EmitterBase):
             ],
         )
         for key_v, val_v in stored:
-            key = self._stash_cell(key_t, key_v)
+            key = self._stash_map_key(key_t, key_v)
             value = self._stash_cell(val_t, val_v)
             self.line(f"call void @ps_map_put(ptr {reg}, ptr {key}, ptr {value})")
         return reg
@@ -418,7 +418,7 @@ class ExprsMixin(EmitterBase):
         if kind == "dict":
             slot = vt["value"]
             self.needed.add("map")
-            key = self._stash_cell(_type_dict_of(node.index), index)
+            key = self._stash_map_key(_type_dict_of(node.index), index)
             out = self._alloca(_memory_type(out_t))
             self.line(f"call void @ps_map_get(ptr {value}, ptr {key}, ptr {out})")
             return self._widen_cell(out_t, out, slot if slot["kind"] == "any" else None)
@@ -488,7 +488,7 @@ class ExprsMixin(EmitterBase):
             flag = bit
         elif hay_kind == "dict":
             self.needed.add("map")
-            key = self._stash_cell(_type_dict_of(node.needle), needle)
+            key = self._stash_map_key(_type_dict_of(node.needle), needle)
             raw = self._call_ret("i32", "ps_map_has", [f"ptr {hay}", f"ptr {key}"])
             flag = self.tmp()
             self.line(f"{flag} = icmp ne i32 {raw}, 0")
