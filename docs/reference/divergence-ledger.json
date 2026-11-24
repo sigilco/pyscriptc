@@ -1344,6 +1344,17 @@
       "status": "unprobed"
     },
     {
+      "id": "D92",
+      "seam": "the native signal handler surface (issue #1347): signal.signal installs a sigaction handler whose compiled function runs at a safepoint with the signal number only, where CPython calls the handler with the frame too and returns the previous handler",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#92",
+      "probe": null,
+      "note": "the probe is the differential one (probes/differential/signal_handler.py); the lane's bytes are identical, the seams are the handler arity, the delivery point and the lost return value",
+      "cpython": null,
+      "pyscriptc": null,
+      "status": "unprobed"
+    },
+    {
       "id": "D91",
       "seam": "math.sumprod over int sequences is i64 (divergence 1): a result past the i64 range raises OverflowError where CPython grows a big int",
       "listed": true,

@@ -576,6 +576,17 @@ ROWS: list[dict[str, Any]] = [
         "return_exceptions fence and the one-result-type rule (PS2002) are the rest of the entry",
     ),
     _row(
+        "D92",
+        "the native signal handler surface (issue #1347): signal.signal installs a sigaction handler "
+        "whose compiled function runs at a safepoint with the signal number only, where CPython calls "
+        "the handler with the frame too and returns the previous handler",
+        None,
+        docs=f"{DOC}#92",
+        note="the probe is the differential one (probes/differential/signal_handler.py); the lane's "
+        "bytes are identical, the seams are the handler arity, the delivery point and the lost "
+        "return value",
+    ),
+    _row(
         "D91",
         "math.sumprod over int sequences is i64 (divergence 1): a result past the i64 range raises "
         "OverflowError where CPython grows a big int",

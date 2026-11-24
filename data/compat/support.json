@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "c0c588d1d77bfc1ae5cc903ae0b1b9801ceeee25",
+  "commit": "7c761464b14615e5a752e715e3ba23d632009c31",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -403,7 +403,7 @@
       "label": "`signal`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "handler registration (signal.signal), getsignal, alarm, the Signals enum, SIG_DFL",
+      "missing": "getsignal, alarm, the Signals enum, raise_signal",
       "codes": [
         "PS2001"
       ]

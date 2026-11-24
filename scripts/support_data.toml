@@ -383,10 +383,10 @@ no = [["scandir, urandom, cpu_count, rmdir, getuid", 'os.scandir(s)', "PS2001"],
 [[stdlib]]
 names = ["signal"]
 imports = ["os"]
-ok = ['os.kill(n, signal.SIGTERM)', 'y: int = signal.SIGKILL', 'y: int = signal.SIGCONT', 'y: int = signal.SIGUSR1']
-no = [["handler registration (signal.signal)", '''def h(n: int, f: int) -> None:
+ok = ['os.kill(n, signal.SIGTERM)', 'y: int = signal.SIGKILL', 'y: int = signal.SIGCONT', 'y: int = signal.SIGUSR1', 'y: int = signal.SIG_DFL', 'y: int = signal.SIG_IGN', '''def h(n: int) -> None:
     pass
-signal.signal(signal.SIGINT, h)''', "PS2001"], ["getsignal", 'y: int = signal.getsignal(signal.SIGINT)', "PS2001"], ["alarm", 'signal.alarm(5)', "PS2001"], ["the Signals enum", 'y: int = signal.Signals.SIGKILL', "PS2001"], ["SIG_DFL", 'y: int = signal.SIG_DFL', "PS2001"]]
+signal.signal(signal.SIGTERM, h)''', 'signal.signal(signal.SIGTERM, signal.SIG_IGN)']
+no = [["getsignal", 'y: int = signal.getsignal(signal.SIGINT)', "PS2001"], ["alarm", 'signal.alarm(5)', "PS2001"], ["the Signals enum", 'y: int = signal.Signals.SIGKILL', "PS2001"], ["raise_signal", 'signal.raise_signal(signal.SIGCONT)', "PS2001"]]
 
 [[stdlib]]
 names = ["posixpath"]
