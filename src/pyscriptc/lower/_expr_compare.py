@@ -125,7 +125,9 @@ class ExprCompareMixin:
                 if info is not None:
                     # No __eq__ on a user class: CPython falls back to identity.
                     return _compare(op, left, right, span)
-            if left_kind == "class" and right_kind == "class":
+            if left_kind == "class" and right_kind == "class" and not self.classes.get(str(left["type"]["name"]), {}).get(
+                "tuple"
+            ) and not self.classes.get(str(right["type"]["name"]), {}).get("tuple"):
                 dispatched = self._compare_dispatch(node, op, left, right, span)
                 if dispatched is not None:
                     return dispatched
