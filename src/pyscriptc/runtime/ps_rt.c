@@ -3358,6 +3358,85 @@ void ps_utf8_decode(int64_t n, const char *p, PsBuf *out) {
     ps_buf_copy(out, p, n);
 }
 
+/* The first byte offset at which `p` stops being strict UTF-8, or -1 when
+   all `n` bytes are valid. `*why` names CPython's reason for the first bad
+   sequence. The text I/O boundaries (stdin, text files, argv, the
+   environment) call this: the OS hands over bytes, and a str holds only
+   valid code points, so a bad sequence is a named UnicodeDecodeError, never
+   a silent replacement (the S6 surrogate policy, decision D88). */
+int64_t ps_utf8_first_error(int64_t n, const char *p, const char **why) {
+    int64_t i = 0;
+    while (i < n) {
+        unsigned char c = (unsigned char)p[i];
+        int w;
+        unsigned int cp;
+        unsigned char lo = 0x80;
+        unsigned char hi = 0xBF;
+        if (c < 0x80) {
+            i++;
+            continue;
+        }
+        if (c >= 0xC2 && c <= 0xDF) {
+            w = 2;
+            cp = c & 0x1F;
+        } else if (c >= 0xE0 && c <= 0xEF) {
+            w = 3;
+            cp = c & 0x0F;
+            if (c == 0xE0) {
+                lo = 0xA0;
+            } else if (c == 0xED) {
+                hi = 0x9F;
+            }
+        } else if (c >= 0xF0 && c <= 0xF4) {
+            w = 4;
+            cp = c & 0x07;
+            if (c == 0xF0) {
+                lo = 0x90;
+            } else if (c == 0xF4) {
+                hi = 0x8F;
+            }
+        } else {
+            *why = "invalid start byte";
+            return i;
+        }
+        for (int k = 1; k < w; k++) {
+            if (i + k >= n) {
+                *why = "unexpected end of data";
+                return i;
+            }
+            unsigned char cc = (unsigned char)p[i + k];
+            if (cc < (k == 1 ? lo : 0x80) || cc > (k == 1 ? hi : 0xBF)) {
+                *why = "invalid continuation byte";
+                return i;
+            }
+            cp = (cp << 6) | (cc & 0x3F);
+        }
+        (void)cp;
+        i += w;
+    }
+    return -1;
+}
+
+/* Raise UnicodeDecodeError when `p` is not strict UTF-8. `what` names the
+   source in the message tail (`sys.argv[1]`, `os.environ['HOME']`); NULL
+   leaves the CPython wording unchanged. */
+void ps_utf8_require(int64_t n, const char *p, const char *what) {
+    const char *why = NULL;
+    int64_t at = ps_utf8_first_error(n, p, &why);
+    if (at < 0) {
+        return;
+    }
+    char msg[256];
+    if (what != NULL) {
+        snprintf(msg, sizeof msg, "'utf-8' codec can't decode byte 0x%02x in position %lld: %s (%s)",
+                 (unsigned)(unsigned char)p[at], (long long)at, why, what);
+    } else {
+        snprintf(msg, sizeof msg, "'utf-8' codec can't decode byte 0x%02x in position %lld: %s",
+                 (unsigned)(unsigned char)p[at], (long long)at, why);
+    }
+    ps_raise_cstr(PS_UNICODEDECODE, msg);
+}
+
 void ps_latin1_encode(int64_t n, const char *p, PsBuf *out) {
     /* encode("latin-1"): a raise above U+00FF is the codec's boundary
        behavior, not a fence. The buffer holds UTF-8, so the walk re-decodes

@@ -662,6 +662,14 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#87",
     ),
     _row(
+        "D89",
+        "text I/O is strict UTF-8 at every OS boundary: argv, environ and OS names that are not UTF-8 raise "
+        "UnicodeDecodeError (CPython carries them as surrogate escapes), and a text file decodes line by line "
+        "so the error rises at the bad line (issue #478)",
+        "d88_utf8_boundary.py",
+        docs=f"{DOC}#89",
+    ),
+    _row(
         "AUDIT-D1",
         "list.sort() on a module-scope list was a no-op (audit D1)",
         "ad01_sort.py",
