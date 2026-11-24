@@ -337,6 +337,15 @@ def test_self_census_ballpark() -> None:
     # the pipe reads and the runtime helpers add about 280 lines on top, so
     # the combined census stays under the same 94k ceiling.
     assert 11_000 <= census["lines"] <= 94_000
+||||||| parent of a67b8193 (test(census): the ceiling moves to 94k for the sqlite3 surface lines (#1343))
+    assert 11_000 <= census["lines"] <= 92_000
+    # The sqlite3 surface (#1343): the FFI method/attr lowering and the
+    # optional/object vocabulary in ffi_manifest.py and lower/_stdlib.py add
+    # about 400 lines, taking the census further past the 94k ceiling.
+    # The sqlite3 surface (#1343): the FFI method/attr lowering and the
+    # optional/object vocabulary in ffi_manifest.py and lower/_stdlib.py add
+    # about 1.7k lines, taking the census to 92,394, so the ceiling moves to 94k.
+    assert 11_000 <= census["lines"] <= 94_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
