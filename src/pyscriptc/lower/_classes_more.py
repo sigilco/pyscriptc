@@ -31,6 +31,8 @@ from pyscriptc.lower._core import Fence, _any_accepts, _mk_type
 from pyscriptc.lower._expr import _const_of
 from pyscriptc.lower._stmt import _is_docstring
 from pyscriptc.restlower import alias_name
+from pyscriptc.restlower._httpserver import HANDLER_BASE
+from pyscriptc.tirserde import dict_to_type, node_to_dict
 
 # The enum bases the subset lowers (issue #451): the plain and integer
 # ones the subset always carried, plus StrEnum and the two flag bases.
@@ -42,8 +44,6 @@ def _const_str_value(node: ast.expr) -> str | None:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
         return node.value
     return None
-from pyscriptc.restlower._httpserver import HANDLER_BASE
-from pyscriptc.tirserde import dict_to_type, node_to_dict
 
 
 def _type_rt(typ: dict[str, Any]) -> dict[str, Any]:
@@ -681,9 +681,7 @@ class ClassesMoreMixin:
         if methods:
             self._enum_method_sigs(node, methods)
 
-    def _enum_method_sigs(
-        self, node: ast.ClassDef, methods: list[tuple[ast.FunctionDef, str]]
-    ) -> None:
+    def _enum_method_sigs(self, node: ast.ClassDef, methods: list[tuple[ast.FunctionDef, str]]) -> None:
         """The signatures of the methods an enum class body spells (issue #451).
 
         CPython attaches an enum's methods to the enum class, so every
