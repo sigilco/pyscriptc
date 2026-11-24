@@ -8,21 +8,24 @@ The connection/cursor shape (issue #1343):
 
 - `connect(path)` opens the database (the busy timeout rides the open's
   default, 5 seconds, CPython's `timeout` default).
-- `db.execute(sql, params)` prepares the statement, binds the params and
-  returns the cursor. A DML statement runs to completion at the call, so
-  `cur.rowcount` is decided when `execute` returns; a SELECT keeps its
-  rows on the cursor for the fetch methods. `params` may be omitted: an
-  empty bind.
+- `db.execute(sql, params)` prepares the statement, binds the params,
+  steps it once and returns the cursor, CPython's `cursor.execute`. The
+  step at the call settles a DML run's row count and parks a read's first
+  row for the first `fetchone`. `params` may be omitted: an empty bind.
 - `db.executemany(sql, rows)` runs the statement once per params list;
   `cur.rowcount` is the sum of the runs' changed rows, CPython's rule.
+  A statement that is not an INSERT, UPDATE, DELETE or REPLACE is
+  refused with RuntimeError, CPython's ProgrammingError.
 - `db.commit()` commits, `db.close()` closes (and consumes the handle,
   so a later use is the PS4010 compile fence).
 - `cur.fetchone()` returns the next row or None; `cur.fetchall()`
   returns the remaining rows. The row is positional, CPython's tuple
   shape: `row[i]` is the column value in column order.
-- `cur.rowcount` is the row count of the last run: -1 for a read, the
-  changed rows for a write, the sum for an executemany.
+- `cur.rowcount` follows CPython's rule: -1 for a statement that is not
+  an INSERT, UPDATE, DELETE or REPLACE, the changed rows for a DML run
+  and the sum for an executemany.
 - `cur.lastrowid` is the rowid of the last insert (0 before any insert).
+  CPython's None on a cursor no `execute` ran on is 0 here.
 - `cur.description` is the list of column names, or None when the
   statement has no result columns (the DML arm, CPython's None).
 
@@ -38,11 +41,12 @@ Exception surface:
   The message is "sqlite3: " plus SQLite's own error text.
 - ValueError: the connection is already closed.
 
-Divergences from CPython (docs/reference/divergences.md, entry 66): the
+Divergences from CPython (docs/reference/divergences.md, entry 92): the
 row is a list, not a tuple (printing it is the list spelling); the
-description element is the bare name, not the 7-tuple; there is no
-context manager, no timeout/isolation_level arguments spelled at the
-call, no row_factory, and no conn.execute PRAGMA row rows beyond the
+description element is the bare name, not the 7-tuple; `cur.lastrowid` is
+0 where CPython answers None; there is no context manager, no
+timeout/isolation_level arguments spelled at the call, no row_factory,
+and no conn.execute PRAGMA row rows beyond the
 count.
 """
 

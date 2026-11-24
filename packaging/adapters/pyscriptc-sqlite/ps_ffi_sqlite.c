@@ -389,28 +389,105 @@ typedef struct ps_sqlite_cursor {
     sqlite3 *db;        /* the owning connection's sqlite3, NULL once closed */
     sqlite3_stmt *stmt; /* the statement the cursor steps; NULL when spent */
     int64_t rowcount;   /* CPython's rule: -1 for reads, changes for writes */
-    int64_t lastrowid;  /* 0 until an INSERT ran on the connection */
+    int64_t lastrowid;  /* the connection's rowid after the cursor's execute */
     int ncols;          /* the prepared statement's column count */
-    int stepped;        /* the statement has run at least once */
+    int has_lri;        /* the cursor carries a rowid: an execute ran on it */
+    int is_dml;         /* CPython's prefix rule: insert/update/delete/replace */
     int done;           /* the statement is exhausted; stepping it again would restart it */
+    int pending;        /* a row is current: the execute's first step landed on one */
+    PsSeq *columns;     /* the statement's column names, CPython's description */
 } ps_sqlite_cursor;
 
-/* Step the cursor's statement once and build the row, or report done. */
-static int ps_sqlite_cur_step(ps_sqlite_cursor *cur) {
-    if (cur == NULL || cur->db == NULL || cur->stmt == NULL || cur->done) {
-        return SQLITE_DONE;
+/* CPython's DML spelling check (Modules/_sqlite/statement.c): the first
+   token after whitespace and the SQL comments decides. INSERT, UPDATE,
+   DELETE and REPLACE are the DML statements; a WITH or anything else is
+   not, even when it writes. The match is ASCII case-insensitive like
+   CPython's PyOS_strnicmp. */
+static int ps_sqlite_is_dml(int64_t n, const char *sql) {
+    const char *p = sql;
+    const char *end = sql + n;
+    for (;;) {
+        while (p < end && (*p == ' ' || *p == '\t' || *p == '\f' || *p == '\n' || *p == '\r')) {
+            p++;
+        }
+        if (p >= end) {
+            return 0; /* only whitespace: CPython's lstrip is NULL */
+        }
+        if (p[0] == '-' && p + 1 < end && p[1] == '-') {
+            p += 2;
+            while (p < end && *p != '\n') {
+                p++;
+            }
+            continue; /* the newline itself is whitespace */
+        }
+        if (p[0] == '/' && p + 1 < end && p[1] == '*') {
+            p += 2;
+            while (p + 1 < end && !(p[0] == '*' && p[1] == '/')) {
+                p++;
+            }
+            p = p + 2 < end ? p + 2 : end;
+            continue;
+        }
+        break;
+    }
+    static const char *const dml[] = {"insert", "update", "delete", "replace"};
+    for (int i = 0; i < 4; i++) {
+        const char *d = dml[i];
+        int64_t len = 0;
+        while (d[len] != '\0') {
+            len++;
+        }
+        if (end - p < len) {
+            continue;
+        }
+        int matched = 1;
+        for (int64_t j = 0; j < len; j++) {
+            char c = p[j];
+            if (c >= 'A' && c <= 'Z') {
+                c = (char)(c - 'A' + 'a');
+            }
+            if (c != d[j]) {
+                matched = 0;
+                break;
+            }
+        }
+        if (matched) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+/* Move the cursor to the next row, CPython's iternext rule. The execute's
+   first step already landed on the first row of a read, so the pending row
+   is handed out before the statement is stepped again. A DML statement
+   that produced rows (a RETURNING clause) takes its row count when the
+   statement is spent. */
+static int ps_sqlite_cur_next_row(ps_sqlite_cursor *cur) {
+    if (cur == NULL || cur->db == NULL) {
+        return 0;
+    }
+    if (cur->pending) {
+        cur->pending = 0;
+        return 1;
+    }
+    if (cur->stmt == NULL || cur->done) {
+        return 0;
     }
     int rc = sqlite3_step(cur->stmt);
     if (rc == SQLITE_ROW) {
-        cur->stepped = 1;
-        return rc;
+        return 1;
     }
     if (rc == SQLITE_DONE) {
-        cur->stepped = 1;
         /* The statement is spent. Stepping it again would restart it from
            the first row, so the cursor remembers that it is done. */
         cur->done = 1;
-        return SQLITE_DONE;
+        if (cur->is_dml) {
+            cur->rowcount = (int64_t)sqlite3_changes(cur->db);
+        }
+        sqlite3_finalize(cur->stmt);
+        cur->stmt = NULL;
+        return 0;
     }
     char msg[256];
     snprintf(msg, sizeof msg, "sqlite3: %s", sqlite3_errmsg(cur->db));
@@ -430,77 +507,97 @@ static PsSeq *ps_sqlite_row_of(ps_sqlite_cursor *cur) {
     return row;
 }
 
-/* The one execute: prepare, bind, run. A DML statement runs to DONE here
-   (CPython's Connection.execute does the same, so the counts are decided
-   at the call); a SELECT stops at the first ROW so the cursor's fetch
-   methods read the rows. */
+/* The statement's column names, CPython's description. The names are
+   copied at prepare time: the statement may be finalized later (a spent
+   cursor, a close), and the description still answers. */
+static PsSeq *ps_sqlite_columns_of(sqlite3_stmt *stmt) {
+    int ncols = stmt != NULL ? sqlite3_column_count(stmt) : 0;
+    PsSeq *names = ps_seq_new((int64_t)sizeof(PsBuf), ncols);
+    for (int i = 0; i < ncols; i++) {
+        const char *name = sqlite3_column_name(stmt, i);
+        PsBuf buf;
+        ps_buf_copy(&buf, name != NULL ? name : "", name != NULL ? (int64_t)strlen(name) : 0);
+        ps_seq_set(names, i, &buf);
+    }
+    return names;
+}
+
+/* The one execute: prepare, bind and step once, CPython's cursor.execute.
+   The step happens at the call, so a DML run's row count is decided there
+   and a read's first row is pending for the first fetchone. The rowid is
+   the connection's after the step, CPython's rule. */
 void *ps_ffi_sqlite_conn_execute(void *handle, int64_t n, const char *sql, void *params) {
     sqlite3 *db = ps_sqlite_live(handle);
     sqlite3_stmt *stmt = ps_sqlite_prepare(db, n, sql);
     ps_sqlite_cursor *cur = ps_alloc((int64_t)sizeof *cur);
     cur->db = db;
     cur->stmt = stmt;
-    cur->rowcount = -1;
-    cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
+    /* CPython: a non-DML statement reports -1 from the call, a DML one 0
+       until its rows are spent. */
+    cur->is_dml = ps_sqlite_is_dml(n, sql);
+    cur->rowcount = cur->is_dml ? 0 : -1;
+    cur->has_lri = 1;
+    cur->lastrowid = 0;
     cur->ncols = stmt != NULL ? sqlite3_column_count(stmt) : 0;
-    cur->stepped = 0;
+    cur->columns = ps_sqlite_columns_of(stmt);
     cur->done = 0;
+    cur->pending = 0;
     if (stmt == NULL) {
         /* An empty or comment-only statement: CPython reports rowcount -1. */
+        cur->rowcount = -1;
+        cur->is_dml = 0;
+        cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
         return cur;
     }
     ps_sqlite_bind_all(stmt, (const PsSeq *)params);
-    if (cur->ncols > 0) {
-        /* The read arm: a statement with result columns keeps its rows for
-           fetchone, so the cursor does not step it here. CPython's
-           Connection.execute does step it, but its Cursor keeps the
-           pending row and hands it to the first fetchone, which is the
-           same row the first fetchone sees here. */
-        return cur;
-    }
+    /* The one step CPython's execute does. A row lands as the pending row
+       (a read, or a DML with a RETURNING clause); DONE spends the
+       statement and settles a DML run's row count. */
     int rc = sqlite3_step(stmt);
-    cur->stepped = 1;
-    if (rc == SQLITE_DONE) {
-        /* The DML arm: the row count is the changes of this run. */
-        cur->rowcount = (int64_t)sqlite3_changes(db);
-        cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
+    if (rc == SQLITE_ROW) {
+        cur->pending = 1;
+    } else if (rc == SQLITE_DONE) {
+        cur->done = 1;
+        if (cur->is_dml) {
+            cur->rowcount = (int64_t)sqlite3_changes(db);
+        }
         sqlite3_finalize(stmt);
         cur->stmt = NULL;
-        return cur;
+    } else {
+        char msg[256];
+        snprintf(msg, sizeof msg, "sqlite3: %s", sqlite3_errmsg(db));
+        sqlite3_finalize(stmt);
+        cur->stmt = NULL;
+        ps_raise_cstr(PS_RUNTIMEERROR, msg);
     }
-    if (rc == SQLITE_ROW) {
-        /* A statement with no result columns that produced a row (a
-           RETURNING clause): the row stays for the fetch methods. */
-        return cur;
-    }
-    char msg[256];
-    snprintf(msg, sizeof msg, "sqlite3: %s", sqlite3_errmsg(db));
-    sqlite3_finalize(stmt);
-    cur->stmt = NULL;
-    ps_raise_cstr(PS_RUNTIMEERROR, msg);
+    cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
+    return cur;
 }
 
 /* executemany(sql, rows): the statement runs once per parameter row. The
-   row count is the sum of the runs' changes, CPython's rule. The cursor
-   keeps the statement only when rows were produced (a SELECT with the
-   reset-and-restep shape executemany has no use for); CPython's
-   executemany cursor never offers rows, so the statement finalizes and
-   the fetches report done. */
+   row count is the sum of the runs' changes, CPython's rule (each run adds
+   sqlite3_changes() to the cursor's count). The cursor keeps no rows: a
+   DML statement has none, so the fetches report done. */
 void *ps_ffi_sqlite_conn_executemany(void *handle, int64_t n, const char *sql, void *rows) {
     sqlite3 *db = ps_sqlite_live(handle);
     PsSeq *seq = (PsSeq *)rows;
     ps_sqlite_cursor *cur = ps_alloc((int64_t)sizeof *cur);
     cur->db = db;
     cur->stmt = NULL;
-    cur->rowcount = -1;
-    cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
+    /* CPython refuses a read statement here before the loop; the rowcount
+       starts 0 on a DML statement and -1 on everything else, and the
+       rowid stays None after an executemany (only execute sets it). */
+    cur->is_dml = ps_sqlite_is_dml(n, sql);
+    cur->rowcount = cur->is_dml ? 0 : -1;
+    cur->has_lri = 0;
     cur->ncols = 0;
-    cur->stepped = 0;
+    cur->columns = ps_seq_new((int64_t)sizeof(PsBuf), 0);
     cur->done = 0;
+    cur->pending = 0;
     int64_t count = ps_seq_len(seq);
-    if (count == 0) {
-        /* CPython: executemany over an empty sequence leaves rowcount -1. */
-        return cur;
+    if (!cur->is_dml) {
+        ps_raise_cstr(PS_RUNTIMEERROR,
+                      "sqlite3: executemany() can only execute DML statements.");
     }
     sqlite3_stmt *stmt = ps_sqlite_prepare(db, n, sql);
     if (stmt == NULL) {
@@ -520,10 +617,10 @@ void *ps_ffi_sqlite_conn_executemany(void *handle, int64_t n, const char *sql, v
             sqlite3_finalize(stmt);
             ps_raise_cstr(PS_RUNTIMEERROR, msg);
         }
+        /* CPython adds the run's changed rows to the cursor's count. */
         total += (int64_t)sqlite3_changes(db);
     }
     cur->rowcount = total;
-    cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
     sqlite3_finalize(stmt);
     return cur;
 }
@@ -561,7 +658,7 @@ int32_t ps_ffi_sqlite_cur_row_hit(void *handle) {
     if (cur == NULL || cur->db == NULL) {
         ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
     }
-    return ps_sqlite_cur_step(cur) == SQLITE_ROW ? 1 : 0;
+    return ps_sqlite_cur_next_row(cur) ? 1 : 0;
 }
 
 PsSeq *ps_ffi_sqlite_cur_row_make(void *handle) {
@@ -578,7 +675,7 @@ PsSeq *ps_ffi_sqlite_cur_rows(void *handle) {
         ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
     }
     PsSeq *rows = ps_seq_new((int64_t)sizeof(PsSeq *), 0);
-    while (ps_sqlite_cur_step(cur) == SQLITE_ROW) {
+    while (ps_sqlite_cur_next_row(cur)) {
         PsSeq *row = ps_sqlite_row_of(cur);
         ps_seq_push(rows, &row);
     }
@@ -598,6 +695,13 @@ int64_t ps_ffi_sqlite_cur_lastrowid(void *handle) {
     if (cur == NULL || cur->db == NULL) {
         ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
     }
+    /* CPython's lastrowid is None on a cursor no execute ran on (a fresh
+       cursor, anything after executemany) and the connection's rowid
+       after an execute, 0 when no insert ever ran. The subset's getter
+       answers an int, so the None case is 0 here (divergence 92). */
+    if (!cur->has_lri) {
+        return 0;
+    }
     return cur->lastrowid;
 }
 
@@ -605,7 +709,8 @@ int64_t ps_ffi_sqlite_cur_lastrowid(void *handle) {
    or NULL (CPython's None) when the statement has no result columns. The
    manifest spells the return `list[str] | None`, so the pair follows the
    fetchone shape: the probe says whether columns exist, the make call
-   builds the names. */
+   builds the names. The names were copied at prepare time, so a spent
+   cursor still answers its description. */
 
 int32_t ps_ffi_sqlite_cur_description_hit(void *handle) {
     ps_sqlite_cursor *cur = handle;
@@ -623,12 +728,5 @@ PsSeq *ps_ffi_sqlite_cur_description_make(void *handle) {
     if (cur == NULL || cur->db == NULL) {
         ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
     }
-    PsSeq *names = ps_seq_new((int64_t)sizeof(PsBuf), cur->ncols);
-    for (int i = 0; i < cur->ncols; i++) {
-        const char *name = sqlite3_column_name(cur->stmt, i);
-        PsBuf buf;
-        ps_buf_copy(&buf, name != NULL ? name : "", name != NULL ? (int64_t)strlen(name) : 0);
-        ps_seq_set(names, i, &buf);
-    }
-    return names;
+    return cur->columns;
 }

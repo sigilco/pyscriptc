@@ -773,15 +773,17 @@ ROWS: list[dict[str, Any]] = [
         "D95",
         "the sqlite3 subset (issue #1343): the row is a list[object] in column order where CPython's cursor "
         "row is a tuple, cur.description answers the list of names where CPython answers a tuple of 7-tuples, "
-        "connect takes the path only (no timeout, no isolation_level, no row_factory), the refused statement "
-        "is RuntimeError where CPython raises the sqlite3.Error subclasses, and db.close() consumes the "
-        "handle so a later statement is the PS4010 compile fence",
+        "cur.lastrowid answers 0 where CPython answers None on a cursor no execute ran on, connect takes the "
+        "path only (no timeout, no isolation_level, no row_factory), the refused statement is RuntimeError "
+        "where CPython raises the sqlite3.Error subclasses, and db.close() consumes the handle so a later "
+        "statement is the PS4010 compile fence",
         None,
         docs=f"{DOC}#95",
-        note="the host lane is byte-identical on the ? binding of an int, a str and a None, the NULL round "
-        "trip, cur.rowcount and cur.lastrowid (probes/differential/sqlite3_params.py); the row shape, the "
-        "description shape, the connect keywords, the exception class and the ownership fences are the rest "
-        "of the entry",
+        note="the host lane is byte-identical on the ? binding of an int, a float, a str and a None, the NULL "
+        "round trip, cur.rowcount, cur.lastrowid and the description's presence and count "
+        "(probes/differential/sqlite3_params.py); the row shape, the description element shape, the lastrowid "
+        "None arm, the connect keywords, the exception class and the ownership fences are the rest of the "
+        "entry",
     ),
     _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT

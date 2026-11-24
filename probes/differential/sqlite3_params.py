@@ -9,14 +9,18 @@ and the exit code.
 
 The surface under the probe:
 
-  - a `?` parameter bound to an int, a str and a None;
+  - a `?` parameter bound to an int, a float, a str and a None;
   - the NULL round trip (a None parameter comes back as None);
   - `cur.rowcount` (the changed rows of a write, -1 for a read);
-  - `cur.lastrowid` (the rowid of the last insert).
+  - `cur.lastrowid` (the rowid of the last insert);
+  - `cur.description`'s None-or-names shape and its column count.
 
 The row is positional, CPython's tuple shape: the value is `row[i]` and
 the column's name rides `cur.description`. A None cell prints as None on
-both sides, so the NULL round trip byte-compares.
+both sides, so the NULL round trip byte-compares. The description's
+element is the bare column name, where CPython's is a 7-tuple, so the
+probe prints the description's presence and its length and leaves the
+element shape to the divergence entry.
 """
 
 import sqlite3
@@ -52,6 +56,25 @@ def main() -> None:
     cur = db.execute("SELECT id, name FROM job ORDER BY id")
     for each in cur.fetchall():
         print("all", each[0], each[1])
+
+    # The float arm: a REAL column reads back as a float.
+    db.execute("CREATE TABLE reading (id INTEGER PRIMARY KEY, value REAL)")
+    db.execute("INSERT INTO reading (value) VALUES (?)", [1.5])
+    cur = db.execute("SELECT value FROM reading")
+    row = cur.fetchone()
+    if row is not None:
+        print("float", row[0])
+
+    # The description: the None-or-names shape and the column count. The
+    # element itself differs (the bare name against CPython's 7-tuple), so
+    # the probe prints the count and the presence only.
+    cur = db.execute("SELECT id, name FROM job ORDER BY id")
+    desc = cur.description
+    print("desc is none", desc is None)
+    if desc is not None:
+        print("desc len", len(desc))
+    cur = db.execute("INSERT INTO job (name) VALUES ('delta')")
+    print("dml desc is none", cur.description is None)
 
     db.close()
 

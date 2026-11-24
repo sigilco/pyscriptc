@@ -159,6 +159,72 @@ main()
     assert (ins_rc, ins_lri, sel_rc, upd_rc, del_rc, many_rc) == (3, 3, -1, 2, 0, 4) or create_rc == -1
 
 
+def test_rowcount_dml_sniffing_matches_cpython(tmp_path: Path) -> None:
+    """A non-DML statement reports -1, the way CPython's DML sniff does.
+
+    CPython decides DML by the first token after whitespace and comments
+    (INSERT, UPDATE, DELETE, REPLACE), so a DDL, a PRAGMA set and a
+    writing WITH all report -1, and a PRAGMA read reports -1 too. The
+    subset sniffs the same way.
+    """
+    source = """
+import sqlite3
+
+
+def main() -> None:
+    db = sqlite3.connect(":memory:")
+    cur = db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+    print("ddl", cur.rowcount)
+    cur = db.execute("PRAGMA user_version = 3")
+    print("pragma set", cur.rowcount)
+    cur = db.execute("PRAGMA table_info(t)")
+    print("pragma read", cur.rowcount)
+    cur = db.execute("WITH c AS (SELECT 1) INSERT INTO t (id, name) SELECT 2, 'b'")
+    print("with insert", cur.rowcount)
+    cur = db.execute("INSERT INTO t (id, name) VALUES (3, 'c')")
+    print("insert", cur.rowcount)
+
+
+main()
+"""
+    path = tmp_path / "dml.py"
+    path.write_text(source, encoding="utf-8")
+    native = _run(_build(tmp_path, "dml", path), tmp_path)
+    oracle = _oracle(tmp_path, "dml", path)
+    assert native == oracle
+    assert b"ddl -1" in native[0]
+    assert b"pragma set -1" in native[0]
+    assert b"pragma read -1" in native[0]
+    assert b"with insert -1" in native[0]
+    assert b"insert 1" in native[0]
+
+
+def test_empty_executemany_is_zero(tmp_path: Path) -> None:
+    """An executemany over an empty sequence reports 0, CPython's rule."""
+    source = """
+import sqlite3
+
+
+def main() -> None:
+    db = sqlite3.connect(":memory:")
+    db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+    cur = db.executemany("INSERT INTO t (id) VALUES (?)", [])
+    print("empty many", cur.rowcount)
+    cur = db.executemany("INSERT INTO t (id) VALUES (?)", [[1], [2], [3]])
+    print("many", cur.rowcount)
+
+
+main()
+"""
+    path = tmp_path / "emptymany.py"
+    path.write_text(source, encoding="utf-8")
+    native = _run(_build(tmp_path, "emptymany", path), tmp_path)
+    oracle = _oracle(tmp_path, "emptymany", path)
+    assert native == oracle
+    assert b"empty many 0" in native[0]
+    assert b"many 3" in native[0]
+
+
 def test_fetchone_spends_the_rows(tmp_path: Path) -> None:
     """A spent cursor's fetchone is None, and the second cursor sees rows."""
     source = """
