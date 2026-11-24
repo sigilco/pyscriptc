@@ -500,8 +500,7 @@ sized:
   %atmax = icmp eq i64 %n, @MAXLEN@
   br i1 %atmax, label %trap, label %alloc
 alloc:
-@ALLOC@
-  %null = icmp eq ptr %mem, null
+@ALLOC@  %null = icmp eq ptr %mem, null
   br i1 %null, label %nomem, label %copy
 copy:
   call void @llvm.memcpy.p0.p0.i64(ptr %mem, ptr %pa, i64 %na, i1 false)
