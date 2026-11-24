@@ -805,7 +805,7 @@ class ExprMixin(ExprCompareMixin):
             pairs.append({"key": key, "value": value})
         key_t = pairs[0]["key"]["type"]
         val_t = pairs[0]["value"]["type"]
-        if key_t["kind"] not in {"int", "str"}:
+        if key_t["kind"] not in {"int", "str"} and not self._tuple_key_ok(key_t):
             self.fail(node, "PS2002", "dict keys are int or str")
         if val_t["kind"] == "bool" and not (
             expect and expect.get("kind") == "dict" and expect.get("value", {}).get("kind") == "dynval"
