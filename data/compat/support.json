@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-24",
-  "commit": "07fb3e9046a8cf0230a79ef7f3f5ccfd8cfd2f8f",
+  "commit": "23117244de0782901e5e9979995c00a72d023ec4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -354,7 +354,7 @@
       "label": "`functools`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "reduce with a lambda, reduce with an initializer, partial, wraps, lru_cache, cmp_to_key, cache, total_ordering",
+      "missing": "reduce with a lambda, reduce with an initializer, partial, wraps, lru_cache, cmp_to_key, cache, total_ordering, cached_property getter whose return type has no slot form, a write to the cached name",
       "codes": [
         "PS2001",
         "PS2002"
