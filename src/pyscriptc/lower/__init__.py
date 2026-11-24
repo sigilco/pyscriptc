@@ -525,6 +525,14 @@ class Lowerer(
         # The module's own function definitions, name -> def, so a call site
         # can queue a frame-specialized copy of the callee (issue #441).
         self.module_fns: dict[str, ast.FunctionDef] = {}
+        # (class, method) -> def, the same registry for a frame-specialized
+        # method copy (issue #441).
+        self.method_nodes: dict[tuple[str, str], ast.FunctionDef] = {}
+        # (class, method, slot, type_key) -> emitted method-copy name.
+        self.frame_method_fns: dict[tuple[str, str, int, str], str] = {}
+        # Queued frame-specialized method copies: (class, owner, method,
+        # emitted name, def, slot, frame type).
+        self.frame_method_queue: list[tuple[str, str, str, str, ast.FunctionDef, int, dict[str, Any]]] = []
         # `name = const` initializers for active global slots, emitted at the
         # top of main as ps_global_set_* calls.
         self.global_inits: list[dict[str, Any]] = []

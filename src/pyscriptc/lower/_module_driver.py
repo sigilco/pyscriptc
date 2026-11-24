@@ -399,6 +399,9 @@ class ModuleDriverMixin:
                 self.typevar_bounds = saved_bounds
         self._drain_instances(lowered, lowered_classes, fences)
         self._drain_frames(lowered, fences)
+        # The frame-specialized method copies queue from the call sites of
+        # the bodies that just lowered, so the drain comes after them.
+        self._drain_frame_methods(lowered_classes, fences)
         lowered.extend(self.nested_fns)
         # The class-attribute initializers (issue #732) join the module's
         # lowered functions: their bodies are already the IR statements, so

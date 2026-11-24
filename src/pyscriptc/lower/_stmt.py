@@ -537,7 +537,7 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                 _params, ret = self.inst_sig
             elif self.frame_sig is not None:
                 # The frame-specialized copy keeps the original return type;
-                # the emitted name (`take.gen_gen_int`) is not in `sigs`.
+                # the emitted name is not in `sigs`.
                 _params, ret = self.frame_sig
             elif self.function in self.sigs:
                 _params, ret = self.sigs[self.function or ""]
