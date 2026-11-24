@@ -699,28 +699,40 @@ class StmtBMixin:
         (the emitter allocates the record and runs `__init__`) and hands it
         to the runtime as the exception's payload, so the custom fields ride
         the exception (issue #448, divergence 9). A raise of the bare class
-        name (`raise C`) carries no payload: CPython instantiates the class
-        with no arguments, and every field reads its zero value.
+        name (`raise C`) instantiates the class with no arguments, the way
+        CPython calls `C()`: fields the `__init__` sets on its own keep
+        their value, everything else reads its zero value.
         """
 
         exc = stmt.exc
-        if not isinstance(exc, ast.Call):
-            return None
         init = info["methods"].get("__init__")
+        if not isinstance(exc, ast.Call):
+            if init is None:
+                # `raise C` over a class without own `__init__`:
+                # CPython's `C()` needs no arguments.
+                return self._exc_instance(resolved, span)
+            params = [param for param in init[0] if param["name"] != "self"]
+            if any("default" not in param for param in params):
+                self.fail(stmt, "PS1003", f"{resolved}() expects {len(params)} argument(s)")
+            return self._exc_instance(resolved, span)
         if init is None:
-            # No own `__init__`: the class inherits the builtin base's, which
-            # takes the single message argument. The instance carries no
-            # custom field, so the payload is the bare record.
+            # No own `__init__`: the class inherits the builtin base's,
+            # which takes the single message argument.
             if exc.keywords:
                 self.fail(exc, "PS2003", "keyword arguments are not lowered")
             if len(exc.args) > 1:
                 self.fail(exc, "PS2003", "exception takes one scalar argument")
-            return None
+            return self._exc_instance(resolved, span)
         params = [param for param in init[0] if param["name"] != "self"]
         args = self._fill_args(exc, params, resolved)
+        return self._exc_instance(resolved, span, args)
+
+    def _exc_instance(
+        self, resolved: str, span: dict[str, Any], args: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
         from pyscriptc.lower._classes import _class_call, _class_type  # noqa: PLC0415  # local import avoids the mixin cycle
 
-        return _class_call(resolved, args, _class_type(resolved), span)
+        return _class_call(resolved, args or [], _class_type(resolved), span)
 
     def _bound_exc_class(self, names: list[str]) -> str | None:
         """The user exception class a handler binds, or None.
