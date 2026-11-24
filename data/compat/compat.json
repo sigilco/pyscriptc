@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-23",
-  "commit": "b4161888894c6928ae7bb6964a5b0a7e157237cb",
+  "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-23",
-    "commit": "b4161888894c6928ae7bb6964a5b0a7e157237cb",
+    "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3944
+    "fences": 3925
   },
   "builtins": [
     {
@@ -1822,22 +1822,22 @@
       "island": "runs",
       "plane": {
         "definitions": 641,
-        "native": 371,
+        "native": 375,
         "island": 4,
-        "blocked": 266
+        "blocked": 262
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 727,
+      "fences": 718,
       "definitions": 641,
-      "fenced_definitions": 249,
+      "fenced_definitions": 245,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 183
+          "count": 181
         },
         {
           "family": "construct-other",
-          "count": 119
+          "count": 118
         },
         {
           "family": "field-lookup",
@@ -1847,7 +1847,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 410
+          "count": 405
         },
         {
           "code": "PS2001",
@@ -1855,7 +1855,7 @@
         },
         {
           "code": "PS1103",
-          "count": 53
+          "count": 52
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1873,7 +1873,7 @@
         "blocked": 62
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 189,
+      "fences": 188,
       "definitions": 133,
       "fenced_definitions": 71,
       "top_families": [
@@ -2149,7 +2149,7 @@
         "blocked": 290
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 660,
+      "fences": 656,
       "definitions": 558,
       "fenced_definitions": 278,
       "top_families": [
@@ -2159,7 +2159,7 @@
         },
         {
           "family": "unlowered-type-name",
-          "count": 98
+          "count": 94
         },
         {
           "family": "field-lookup",
@@ -2177,7 +2177,7 @@
         },
         {
           "code": "PS1106",
-          "count": 98
+          "count": 94
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -2195,7 +2195,7 @@
         "blocked": 84
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 187,
+      "fences": 183,
       "definitions": 132,
       "fenced_definitions": 75,
       "top_families": [
@@ -2205,7 +2205,7 @@
         },
         {
           "family": "unlowered-type-name",
-          "count": 21
+          "count": 20
         },
         {
           "family": "type-mismatch",
@@ -2219,7 +2219,7 @@
         },
         {
           "code": "PS1106",
-          "count": 21
+          "count": 20
         },
         {
           "code": "PS1003",
@@ -2333,7 +2333,7 @@
         "blocked": 128
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 359,
+      "fences": 358,
       "definitions": 319,
       "fenced_definitions": 123,
       "top_families": [
@@ -2343,7 +2343,7 @@
         },
         {
           "family": "unlowered-type-name",
-          "count": 43
+          "count": 42
         },
         {
           "family": "construct-other",
@@ -2357,7 +2357,7 @@
         },
         {
           "code": "PS1106",
-          "count": 43
+          "count": 42
         },
         {
           "code": "PS2001",
@@ -2722,7 +2722,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 2013,
+      "count": 2008,
       "packages": 19
     },
     {
@@ -2734,19 +2734,19 @@
     {
       "code": "PS1001",
       "title": "annotation missing or not supported",
-      "count": 422,
+      "count": 421,
       "packages": 18
     },
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 357,
+      "count": 349,
       "packages": 12
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 177,
+      "count": 176,
       "packages": 12
     },
     {
@@ -2806,8 +2806,8 @@
     {
       "code": "PS1105",
       "title": "forward reference annotation",
-      "count": 7,
-      "packages": 3
+      "count": 3,
+      "packages": 2
     },
     {
       "code": "PS1206",
@@ -2909,12 +2909,12 @@
     },
     {
       "date": "2026-11-23",
-      "commit": "b4161888894c6928ae7bb6964a5b0a7e157237cb",
+      "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3944
+      "fences": 3925
     }
   ]
 }

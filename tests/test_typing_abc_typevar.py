@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from tests.test_gates import compile_run, oracle, write_case
+from tests.test_gates import ROOT, compile_run, oracle, write_case
 
 from pyscriptc.lower import lower_source
 
@@ -249,3 +249,100 @@ def test_typevar_dict_key_outside_int_or_str_fences() -> None:
 def test_typevar_default_keyword_stays_fenced() -> None:
     fences = _fences("from typing import TypeVar\nD = TypeVar('D', default=int)\n")
     assert fences == [("PS2003", "TypeVar keyword default is not lowered")]
+
+
+_TUPLE_TYPEVAR = """
+from typing import TypeVar
+
+T = TypeVar("T")
+
+
+def head(x: tuple[T, int]) -> T:
+    return x[0]
+
+
+def wide(x: tuple[T, ...]) -> T:
+    return x[0]
+
+
+def rows(x: list[tuple[T, int]]) -> T:
+    return x[0][0]
+
+
+def probe() -> str:
+    parts: list[str] = [str(head((1, 2))), str(head(("a", 2)))]
+    parts.append(str(wide([3, 4])))  # type: ignore[arg-type]
+    parts.append(str(rows([(5, 6)])))
+    return " ".join(parts)
+"""
+
+
+def test_tuple_over_a_typevar_lowers_clean() -> None:
+    assert _fences(_TUPLE_TYPEVAR) == []
+
+
+def test_tuple_over_a_typevar_matches_cpython(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "tuple_typevar.py", _TUPLE_TYPEVAR)
+    got = compile_run(tmp_path, path, "probe")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "probe")
+
+
+_BOUND_TYPEVAR = """
+from typing import TypeVar
+
+
+class Point:
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    def twice(self) -> int:
+        return self.n * 2
+
+
+T = TypeVar("T", bound=Point)
+
+
+def twice(p: T) -> int:
+    return p.twice()
+
+
+def probe() -> int:
+    return twice(Point(21))
+"""
+
+
+def test_a_bound_naming_a_user_class_lowers_clean() -> None:
+    assert _fences(_BOUND_TYPEVAR) == []
+
+
+def test_a_bound_naming_a_user_class_matches_cpython(tmp_path: Path) -> None:
+    path = write_case(tmp_path, "bound_typevar.py", _BOUND_TYPEVAR)
+    got = compile_run(tmp_path, path, "probe")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "probe")
+
+
+def test_a_bound_naming_a_class_declared_below_the_typevar_lowers_clean() -> None:
+    source = "\n".join(
+        [
+            "from typing import TypeVar",
+            "T = TypeVar('T', bound=Point)",
+            "class Point:",
+            "    def __init__(self) -> None:",
+            "        self.n: int = 1",
+            "def size(p: T) -> int:",
+            "    return p.n",
+            "",
+        ]
+    )
+    assert _fences(source) == []
+
+
+def test_the_committed_probe_matches_cpython(tmp_path: Path) -> None:
+    """The differential probe byte-compiles against the pinned CPython."""
+    source = (ROOT / "probes" / "differential" / "typevar_tuple_and_bound.py").read_text(encoding="utf-8")
+    path = write_case(tmp_path, "typevar_tuple_and_bound.py", source)
+    got = compile_run(tmp_path, path, "probe")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == oracle(path, "probe")

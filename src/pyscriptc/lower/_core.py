@@ -827,6 +827,9 @@ def _has_typevar(typ: dict[str, Any]) -> bool:
         inner = _dict_field(typ, key)
         if inner is not None and _has_typevar(inner):
             return True
+    for field in _list_field(typ, "tuple_template"):
+        if isinstance(field, dict) and _has_typevar(field):
+            return True
     return any(isinstance(param, dict) and _has_typevar(param) for param in _list_field(typ, "params"))
 
 
@@ -844,6 +847,9 @@ def _sig_typevars(types: list[dict[str, Any]]) -> list[str]:
             inner = _dict_field(typ, key)
             if inner is not None:
                 walk(inner)
+        for field in _list_field(typ, "tuple_template"):
+            if isinstance(field, dict):
+                walk(field)
         for param in _list_field(typ, "params"):
             if isinstance(param, dict):
                 walk(param)
@@ -860,7 +866,8 @@ def _subst_type(typ: dict[str, Any], mapping: dict[str, dict[str, Any]]) -> dict
         name: str = typ["name"]
         return mapping.get(name, typ)
     tail_elem = _dict_field(typ, "elem")
-    if kind not in {"list", "dict", "func"} and tail_elem is None:
+    template = _list_field(typ, "tuple_template")
+    if kind not in {"list", "dict", "func"} and tail_elem is None and not template:
         return typ
     out: dict[str, Any] = {}
     out.update(typ)
@@ -873,6 +880,10 @@ def _subst_type(typ: dict[str, Any], mapping: dict[str, dict[str, Any]]) -> dict
         params: list[dict[str, Any]] = typ["params"]
         out["params"] = [_subst_type(param, mapping) for param in params]
         out["return"] = _subst_type(typ["return"], mapping)
+    elif template:
+        # The tuple template carries its substituted fields; `_concrete_opt`
+        # re-forms the concrete tuple class once every field is bound.
+        out["tuple_template"] = [_subst_type(field, mapping) for field in template]
     elif tail_elem is not None:
         out["elem"] = _subst_type(tail_elem, mapping)
     return out
