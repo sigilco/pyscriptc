@@ -14,7 +14,6 @@ from pyscriptc.emit._ir import (
     _callee_tuple,
     _elem_of,
     _elem_size,
-    _kind,
     _mark_fmt,
     _memory_type,
     _node_args,
@@ -504,7 +503,7 @@ class CallsMixin(EmitterBase):
                 # A bytes input decodes through ps_json_loads_bytes: the
                 # buffer is validated as UTF-8 the way CPython's decode does
                 # before the parse; a str is already a UTF-8 buffer.
-                loads_symbol = "ps_json_loads_bytes" if _kind(_arg_type(args[0])) == "bytes" else "ps_json_loads"
+                loads_symbol = "ps_json_loads_bytes" if self._t_kind(_arg_type(args[0])) == "bytes" else "ps_json_loads"
                 return self._emit_json_loads(values[0], typ, loads_symbol)
             json_arg: dict[str, Any] = args[0]
             json_typ: dict[str, Any] = _arg_type(json_arg)
