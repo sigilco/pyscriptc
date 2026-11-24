@@ -1857,6 +1857,27 @@
       "status": "divergent"
     },
     {
+      "id": "D101",
+      "seam": "the enum member is the value itself, not a member object (issue #451): print(Color.RED) prints the value where CPython prints the member spelling, an identity compare over the same member twice compares two values where CPython compares one object, and a flag combination is the integer sum where CPython answers a member (whose .name has no lowered answer)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#101",
+      "probe": "probes/divergences/d101_enum_member_value_identity.py",
+      "note": "the resolved member surface is the differential probe (probes/differential/enum_members.py); the value/name reads, the enum methods and properties and the StrEnum and flag bases are byte-identical",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "Color.RED\nTrue\n3\nBits.A|B\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1\nTrue\n3\n3\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D11",
       "seam": "json.dumps does not escape non-ASCII (audit D11)",
       "listed": false,

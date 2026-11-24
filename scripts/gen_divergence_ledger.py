@@ -840,6 +840,17 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#100",
     ),
     _row(
+        "D101",
+        "the enum member is the value itself, not a member object (issue #451): print(Color.RED) prints the "
+        "value where CPython prints the member spelling, an identity compare over the same member twice "
+        "compares two values where CPython compares one object, and a flag combination is the integer sum "
+        "where CPython answers a member (whose .name has no lowered answer)",
+        "d101_enum_member_value_identity.py",
+        docs=f"{DOC}#101",
+        note="the resolved member surface is the differential probe (probes/differential/enum_members.py); "
+        "the value/name reads, the enum methods and properties and the StrEnum and flag bases are byte-identical",
+    ),
+    _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT
     ),
     _row(
