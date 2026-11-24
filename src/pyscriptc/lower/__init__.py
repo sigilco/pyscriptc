@@ -203,6 +203,62 @@ def _dotted_prefix(node: ast.expr) -> str:
     return ".".join([current.id, *parts[:-1]])
 
 
+_FINAL_MODULES = frozenset({"typing", "typing_extensions"})
+
+
+def _erase_bare_final(tree: ast.Module) -> None:
+    """Rewrite `X: Final = value` (bare `Final`, a value) to `X = value` in place.
+
+    Issue #417: PEP 591's bare `Final` asks the checker to infer the type
+    from the value, so the annotation names no type the IR could carry. The
+    rewrite covers module and function scopes; a class body keeps its
+    annotation, since a dataclass reads a bare `Final` as a field. Only the
+    `typing`/`typing_extensions` spellings match: a local class named
+    `Final` is not the qualifier.
+    """
+    names: set[str] = set()
+    modules: set[str] = set()
+    for stmt in ast.walk(tree):
+        if isinstance(stmt, ast.ImportFrom) and stmt.module in _FINAL_MODULES and stmt.level == 0:
+            names.update(alias.asname or alias.name for alias in stmt.names if alias.name == "Final")
+        elif isinstance(stmt, ast.Import):
+            modules.update(alias.asname or alias.name for alias in stmt.names if alias.name in _FINAL_MODULES)
+    if not names and not modules:
+        return
+
+    def bare_final(node: ast.expr) -> bool:
+        if isinstance(node, ast.Name):
+            return node.id in names
+        if not (isinstance(node, ast.Attribute) and node.attr == "Final"):
+            return False
+        return isinstance(node.value, ast.Name) and node.value.id in modules
+
+    def rewrite(body: list[ast.stmt]) -> None:
+        for i, stmt in enumerate(body):
+            if (
+                isinstance(stmt, ast.AnnAssign)
+                and stmt.value is not None
+                and isinstance(stmt.target, ast.Name)
+                and bare_final(stmt.annotation)
+            ):
+                target = ast.Name(id=stmt.target.id, ctx=ast.Store())
+                ast.copy_location(target, stmt.target)
+                body[i] = ast.copy_location(ast.Assign(targets=[target], value=stmt.value), stmt)
+            elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                rewrite(stmt.body)
+            elif isinstance(stmt, ast.ClassDef):
+                for inner in stmt.body:
+                    if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        rewrite(inner.body)
+            elif isinstance(stmt, (ast.If, ast.For, ast.AsyncFor, ast.While, ast.With, ast.AsyncWith, ast.Try)):
+                for field in ("body", "orelse", "finalbody"):
+                    rewrite(getattr(stmt, field, []))
+                for handler in getattr(stmt, "handlers", []):
+                    rewrite(handler.body)
+
+    rewrite(tree.body)
+
+
 class Lowerer(
     CoroMixin,
     StdlibDispatchMixin,
@@ -757,9 +813,11 @@ class Lowerer(
         fences; those belong to the lowering passes that run after it.
 
         Today lowering happens inline (`for` becomes `while` inside
-        `_for`/`_for_range`, not before it), so this hook is the identity.
-        E1 replaces the body with the first real AST-to-AST pass.
+        `_for`/`_for_range`, not before it). The one rewrite here is the
+        bare `Final` qualifier (issue #417): `X: Final = value` carries no
+        type, so it lowers as the plain `X = value` the checker infers from.
         """
+        _erase_bare_final(tree)
         return tree
 
     def _ir_name(self, name: str) -> str:

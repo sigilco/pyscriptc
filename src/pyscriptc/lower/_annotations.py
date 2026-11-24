@@ -985,10 +985,20 @@ class AnnotationMixin:
             self.fail(node, "PS2002", f"{name} clashes with an iterator type")
         return _type({"kind": "class", "name": name, "elem": elem})
 
-    def _tuple_expr(self, node: ast.Tuple, span: dict[str, Any]) -> dict[str, Any]:
+    def _tuple_expr(
+        self, node: ast.Tuple, span: dict[str, Any], expect: dict[str, Any] | None = None
+    ) -> dict[str, Any]:
         if len(node.elts) < 1:
             self.fail(node, "PS2002", "tuples need at least one field")
-        elems = [self._expr(elt) for elt in node.elts]
+        # Issue #417: an expected tuple type hands each field's type to its
+        # element, so `return None, x` against `tuple[str | None, str | None]`
+        # boxes each arm into the field's optional the way a bare
+        # `return None` boxes into an `-> str | None` signature.
+        fields = self._tuple_fields_of(expect)
+        if fields is not None and len(fields) == len(node.elts):
+            elems = [self._expr(elt, field) for elt, field in zip(node.elts, fields, strict=True)]
+        else:
+            elems = [self._expr(elt) for elt in node.elts]
         return self._materialize_tuple(elems, span, node)
 
     def _tuple_subscript(self, node: ast.Subscript, value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:

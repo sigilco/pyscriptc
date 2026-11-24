@@ -340,7 +340,7 @@ class ExprMixin(ExprCompareMixin):
         if isinstance(node, ast.Dict):
             return self._dict(node, span, expect)
         if isinstance(node, ast.Tuple):
-            return self._tuple_expr(node, span)
+            return self._tuple_expr(node, span, expect)
         if isinstance(node, ast.Subscript):
             return self._subscript(node, span, expect)
         if isinstance(node, ast.BoolOp):
