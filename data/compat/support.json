@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-24",
-  "commit": "c524bce463b0522571f97c3f9f19f6507bd28fbf",
+  "commit": "757b4cc98658828a6985c8d0ef6ce042adcf5c41",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -943,8 +943,8 @@
       "version": "3.5.2",
       "status": "\ud83d\udfe1",
       "ratio": "52/148",
-      "blocking": "name-resolution (39), construct-other (27), local-inference (20)",
-      "codes": "PS2002, PS2001, PS1001"
+      "blocking": "name-resolution (42), construct-other (27), type-mismatch (21)",
+      "codes": "PS2002, PS2001, PS1003"
     },
     {
       "name": "colorama",
@@ -958,8 +958,8 @@
       "name": "python-dotenv",
       "version": "1.2.4",
       "status": "\ud83d\udd34",
-      "ratio": "45/75",
-      "blocking": "unlowered-call (25), name-resolution (24), construct-other (24)",
+      "ratio": "44/75",
+      "blocking": "name-resolution (24), unlowered-call (24), construct-other (24)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
@@ -967,7 +967,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "245/641",
-      "blocking": "name-resolution (181), construct-other (118), field-lookup (64)",
+      "blocking": "name-resolution (180), construct-other (118), field-lookup (64)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -1023,7 +1023,7 @@
       "version": "26.3",
       "status": "\ud83d\udfe1",
       "ratio": "278/558",
-      "blocking": "name-resolution (104), unlowered-type-name (94), field-lookup (77)",
+      "blocking": "name-resolution (101), unlowered-type-name (94), field-lookup (77)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
