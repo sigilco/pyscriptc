@@ -1018,6 +1018,8 @@ class ExprMixin(ExprCompareMixin):
                 return _const_of(str(member), "int", span)
             const = self._class_const(class_name, node.attr)
             if const is not None:
+                if const.get("kind") == "tuple-const":
+                    return self._materialize_tuple(const["elems"], span)
                 return {**const, "span": span}
             if self.cls_class == class_name and self._class_ids.of(class_name) != 0:
                 # `cls.attr` inside a classmethod (issue #447): CPython reads

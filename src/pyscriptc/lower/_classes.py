@@ -178,6 +178,13 @@ def _node_kind(node: dict[str, Any]) -> str:
     return dict_to_node(node).kind
 
 
+def _maybe_node_kind(node: dict[str, Any] | None) -> str | None:
+    """The kind tag of an IR node record that may carry none."""
+    if node is None or "kind" not in node:
+        return None
+    return _node_kind(node)
+
+
 def _record_kind(record: dict[str, Any]) -> str:
     """The kind tag of a record the typed layer cannot carry.
 
@@ -187,6 +194,20 @@ def _record_kind(record: dict[str, Any]) -> str:
     """
     kind: str = record["kind"]
     return kind
+
+
+#: The default markers the class body pass produces. A marker is not an
+#: IR node: the construction site that omits the argument replays it, so
+#: its kind tag stays a plain dict read (issue #444).
+DEFAULT_MARKERS = frozenset({"tuple-default", "factory-default", "field-const-default"})
+
+
+def _default_kind(default: dict[str, Any]) -> str:
+    """The kind tag of a default value: an IR node or a default marker."""
+    kind = default.get("kind")
+    if kind in DEFAULT_MARKERS:
+        return str(kind)
+    return _node_kind(default)
 
 
 def _base_kind(base: dict[str, Any]) -> str:
@@ -395,6 +416,30 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         """
         return rest_call(self, node, span_of(node, self.filename), "dataclasses", "field", typ)
 
+    def _is_tuple_annotation(self, typ: dict[str, Any]) -> bool:
+        """Whether the annotation names a fixed-shape tuple class."""
+        return _maybe_type_kind(typ) == "class" and bool(self.classes.get(typ["name"], {}).get("tuple"))
+
+    def _tuple_field_default(self, node: ast.expr, typ: dict[str, Any], stmt: ast.AnnAssign) -> dict[str, Any]:
+        """Lower a fixed-shape tuple default into the tuple-default marker.
+
+        The marker stores the constant elements, not a materialized
+        record: the construction site that omits the argument replays the
+        elements into a fresh record, the same rule the function default
+        follows.
+        """
+        field_rows = self.classes[typ["name"]]["fields"]
+        if not isinstance(node, ast.Tuple) or len(node.elts) != len(field_rows):
+            self.fail(stmt, "PS2002", "a tuple default must match the annotation's shape")
+        elems = []
+        for elt, frow in zip(node.elts, field_rows, strict=True):
+            ev = self._expr(elt, frow["type"])
+            self._expect(elt, ev["type"], frow["type"], stmt.target.id)
+            if _node_kind(ev) != "const":
+                self.fail(elt, "PS2002", "a tuple default element must be a constant")
+            elems.append(ev)
+        return _tuple_default(elems, typ)
+
     def _field_const_default(self, marker: dict[str, Any], typ: dict[str, Any], stmt: ast.AnnAssign) -> dict[str, Any]:
         """Lower one `field(default=<constant>)` into a plain default.
 
@@ -407,18 +452,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         """
         node = marker.get("default_ast")
         assert isinstance(node, ast.expr)
-        if _maybe_type_kind(typ) == "class" and self.classes.get(typ["name"], {}).get("tuple"):
-            field_rows = self.classes[typ["name"]]["fields"]
-            if not isinstance(node, ast.Tuple) or len(node.elts) != len(field_rows):
-                self.fail(stmt, "PS2002", "a tuple default must match the annotation's shape")
-            elems = []
-            for elt, frow in zip(node.elts, field_rows, strict=True):
-                ev = self._expr(elt, frow["type"])
-                self._expect(elt, ev["type"], frow["type"], stmt.target.id)
-                if _node_kind(ev) != "const":
-                    self.fail(elt, "PS2002", "a tuple default element must be a constant")
-                elems.append(ev)
-            return _tuple_default(elems, typ)
+        if self._is_tuple_annotation(typ):
+            return self._tuple_field_default(node, typ, stmt)
         value = self._expr(node, None if typ.get("optional") else typ)
         if _node_kind(value) != "const":
             self.fail(node, "PS2002", "a field default must be a constant")
@@ -565,8 +600,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             try:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                     if stmt.value is not None and deco != "dataclass":
+                        if self._is_field_call(stmt.value):
+                            # `field(...)` spells a dataclass field (issues
+                            # #1279, #444); a plain class body is not a
+                            # dataclass, so the call keeps its fence.
+                            self.fail(stmt.value, "PS2002", "dataclasses.field lowers on a @dataclass only")
                         const = self._module_fold(stmt.value)
-                        if const is None or const.get("kind") != "const":
+                        if const is None or const.get("kind") not in {"const", "tuple-const"}:
                             typ = self._annotation(stmt.annotation)
                             if _type_kind(typ) not in {"str", "int", "list", "dict"}:
                                 self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
@@ -576,7 +616,17 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             seen.add(stmt.target.id)
                             continue
                         typ = self._annotation(stmt.annotation)
-                        if typ.get("optional"):
+                        if const.get("kind") == "tuple-const":
+                            # A fixed-shape tuple constant (issue #444): the
+                            # class attribute holds the tuple, and the
+                            # annotation must name the same shape.
+                            if not self._is_tuple_annotation(typ):
+                                self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
+                            if len(const["elems"]) != len(self.classes[typ["name"]]["fields"]):
+                                self.fail(stmt, "PS2002", "a tuple default must match the annotation's shape")
+                            for elem, frow in zip(const["elems"], self.classes[typ["name"]]["fields"], strict=True):
+                                self._expect(stmt, elem["type"], frow["type"], stmt.target.id)
+                        elif typ.get("optional"):
                             if _type_kind(const["type"]) != "none" and not types_equal(const["type"], typ["elem"]):
                                 self.fail(stmt, "PS1003", f"{stmt.target.id} default is not {_show(typ)}")
                         else:
@@ -599,19 +649,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             # A fixed-shape tuple default stores its constant
                             # elements, not a materialized record: the generated
                             # init replays them per omitted argument.
-                            if _maybe_type_kind(typ) == "class" and self.classes.get(typ["name"], {}).get("tuple"):
-                                field_rows = self.classes[typ["name"]]["fields"]
-                                if not isinstance(stmt.value, ast.Tuple) or len(stmt.value.elts) != len(field_rows):
-                                    self.fail(stmt, "PS2002", "a tuple default must match the annotation's shape")
-                                elems = []
-                                for elt, frow in zip(stmt.value.elts, field_rows, strict=True):
-                                    ev = self._expr(elt, frow["type"])
-                                    self._expect(elt, ev["type"], frow["type"], stmt.target.id)
-                                    if _node_kind(ev) != "const":
-                                        self.fail(elt, "PS2002", "a tuple default element must be a constant")
-                                    elems.append(ev)
-                                default = _tuple_default(elems, typ)
-                            elif self._is_field_call(stmt.value):
+                            if self._is_field_call(stmt.value):
                                 # `field(default_factory=...)` (issue #1279): the
                                 # per-instance default. The marker carries the
                                 # factory, not a value, so the construction
@@ -623,6 +661,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                                 default = self._field_default(stmt.value, typ)
                                 if _record_kind(default) == "field-const-default":
                                     default = self._field_const_default(default, typ, stmt)
+                            elif self._is_tuple_annotation(typ):
+                                default = self._tuple_field_default(stmt.value, typ, stmt)
                             else:
                                 default = self._expr(stmt.value, None if typ.get("optional") else typ)
                         finally:
@@ -633,13 +673,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             # annotation drives the factory's result type.
                             self._check_factory_default(stmt, default, typ)
                             field["factory"] = default
-                        elif _node_kind(default) not in {"const", "tuple-default"}:
+                        elif _default_kind(default) not in {"const", "tuple-default"}:
                             self.fail(stmt, "PS2002", "a dataclass default must be a constant")
                         elif typ.get("optional"):
                             if _type_kind(default["type"]) != "none" and not types_equal(default["type"], typ["elem"]):
                                 self.fail(stmt, "PS1003", f"{stmt.target.id} default is not {_show(typ)}")
                             field["optdefault"] = True
-                        else:
+                        elif _default_kind(default) != "tuple-default":
                             self._expect(stmt, default["type"], typ, stmt.target.id)
                         if _record_kind(default) != "factory-default":
                             field["default"] = default
@@ -2078,6 +2118,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         # field shadows it.
         const = self._class_const(class_name, name)
         if const is not None:
+            if const.get("kind") == "tuple-const":
+                return self._materialize_tuple(const["elems"], span)
             return {**const, "span": span}
         # A runtime class attribute reads through the instance too: the value
         # lives in the class's slot, not in the instance's field table.
