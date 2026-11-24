@@ -86,8 +86,11 @@ CONTAINER_TYPES = frozenset({"list", "dict"})
 
 # The type names a manifest may use in a `py` signature. Everything else is
 # refused: the vocabulary is the lowered subset's, so the emitter never has
-# to inspect a value at runtime.
-ALLOWED_TYPE_NAMES = frozenset({"int", "float", "bool", "str", "bytes", "list", "dict"})
+# to inspect a value at runtime. `object` is the tagged dynamic value
+# (issue #1343): the C side marshals int/float/str/None arms through the
+# `PsDyn` cell the JSON codec and the `Any` floor already use, so a
+# parameter or a returned cell can hold one arm of that sum.
+ALLOWED_TYPE_NAMES = frozenset({"int", "float", "bool", "str", "bytes", "list", "dict", "object"})
 
 # The C types a `[[const]]` may hold.
 CONST_TYPES = frozenset({"int", "float", "str"})
@@ -126,8 +129,11 @@ _SIGNATURE = re.compile(r"^\((?P<params>[^()]*)\)\s*(?:->\s*(?P<ret>[^()]+))?$")
 
 # A parameter inside a signature: `name: type`, with an optional default.
 # Numbered groups: `Match.group("name")` does not lower (the group order is
-# fixed by the pattern above).
-_PARAM = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^=,]+)(?:\s*=\s*(.+))?$")
+# fixed by the pattern above). The type body stops at a top-level `,` or `=`
+# only: a comma inside `dict[str, object]` or a `=` inside brackets is part
+# of the type, so the scan walks the bracket depth instead of a character
+# class (issue #1343's `dict[str, object]` row shape needs the depth walk).
+_PARAM = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+)$")
 
 
 class FfiManifestError(SpikeError):
@@ -823,9 +829,8 @@ def _parse_signature(
                     where,
                 )
             names.add(name)
-            type_name = declared.strip()
+            type_name, default = _split_type_default(declared)
             _check_type(type_name, path=path, where=where, handle_names=handle_names)
-            default = param_match.group(3)
             params.append(ManifestParam(name, type_name, default.strip() if default else None))
     ret = match.group(2)
     if ret is None:
@@ -1005,6 +1010,12 @@ def type_ir(type_name: str, handle_names: set[str] | None = None) -> dict[str, A
         return ir
     if name == "None":
         return {"kind": "none"}
+    if name == "object":
+        # The tagged dynamic value (issue #1343): the same sum the `Any`
+        # floor erases to (issue #1226), so a manifest parameter or return
+        # can hold an int, a float, a str or None and the read site picks
+        # the arm the tag names.
+        return {"kind": "dynval"}
     raise FfiManifestError("PS4006", f"the type {name!r} has no IR type in the FFI vocabulary", None, "")
 
 
@@ -1027,6 +1038,24 @@ def is_handle_type(typ: dict[str, Any]) -> bool:
     kind: str = typ["kind"]
     handle: bool = typ["handle"]
     return kind == "class" and bool(handle)
+
+
+def _split_type_default(declared: str) -> tuple[str, str | None]:
+    """The type and the optional default of one declared parameter.
+
+    The split walks the bracket depth: a comma inside `dict[str, object]`
+    and an `=` inside a bracketed type are part of the type, not the
+    parameter's own punctuation (issue #1343's row shape needs this).
+    """
+    depth = 0
+    for index, char in enumerate(declared):
+        if char in "[(":
+            depth += 1
+        elif char in "])":
+            depth -= 1
+        elif char == "=" and depth == 0:
+            return declared[:index].strip(), declared[index + 1 :].strip()
+    return declared.strip(), None
 
 
 def _split_params(raw: str) -> list[str]:
