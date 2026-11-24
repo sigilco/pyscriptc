@@ -440,8 +440,22 @@ class ExprsMixin(EmitterBase):
 
     def emit_attr(self, expr: dict[str, Any]) -> str:
         node: Any = dict_to_node(expr)
-        obj = self.emit_expr(dict_to_dict(node.value))
         vt: dict[str, Any] = _type_dict_of(node.value)
+        if vt["kind"] == "exc":
+            # `except C as e` over a user exception class (issue #448): the
+            # custom fields ride the record's payload, the class instance the
+            # raise site built. Read the field at the class's static offset.
+            bound: str = vt.get("name", "")
+            if bound == "":
+                raise IRError(f"exception has no attribute {node.name}")
+            self._abi_decl("ps_exc_payload", "ptr", ["ptr"])
+            record = self._call_ret(
+                "ptr", "ps_exc_payload", [f"ptr {self.emit_expr(dict_to_dict(node.value))}"]
+            )
+            field = self._field(bound, node.name)
+            slot = self._field_ptr(bound, record, field)
+            return self._widen_cell(_field_type(field), slot)
+        obj = self.emit_expr(dict_to_dict(node.value))
         field = self._field(vt["name"], node.name)
         slot = self._field_ptr(vt["name"], obj, field)
         return self._widen_cell(_field_type(field), slot)

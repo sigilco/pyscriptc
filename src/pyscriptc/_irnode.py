@@ -204,6 +204,7 @@ class IrNode:
     message: IrNode | None
     cause: IrNode | None
     target_node: IrNode | None
+    payload: IrNode | None
     id: str = ""
     name: str = ""
     op: str = ""
@@ -232,6 +233,17 @@ def t_leaf(kind: str) -> T:
     """A leaf type dict: `str`, `int`, `float`, `bool`, `bytes`, `none`,
     `buf`, `exc`, `typevar`."""
     return T(kind=kind, elem=None, key=None, value=None, params=None, ret=None)
+
+
+def t_exc(name: str = "") -> T:
+    """The `exc` type dict: the runtime exception record.
+
+    `name` is the user exception class the record carries, when the value
+    came from `except C as e` for a user class `C` (issue #448): the
+    emitter reads the custom fields off the record's payload with that
+    class's layout. It is empty for every builtin exception.
+    """
+    return T(kind="exc", elem=None, key=None, value=None, params=None, ret=None, name=name)
 
 
 def t_class(
@@ -323,6 +335,7 @@ def assign(target: str, value: IrNode, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         target=target,
     )
 
@@ -359,6 +372,7 @@ def attr(name: str, typ: T, value: IrNode, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         name=name,
     )
 
@@ -395,6 +409,7 @@ def binary(op: str, left: IrNode, right: IrNode, typ: T, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         op=op,
     )
 
@@ -431,6 +446,7 @@ def builtin(name: str) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         name=name,
     )
 
@@ -478,6 +494,7 @@ def call(
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         symbol=symbol,
         format_style=format_style,
         format_kwnames=format_kwnames,
@@ -517,6 +534,7 @@ def cast(op: str, value: IrNode, typ: T, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         op=op,
     )
 
@@ -554,6 +572,7 @@ def class_callee(name: str) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         name=name,
     )
 
@@ -597,6 +616,7 @@ def closure(
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         name=name,
     )
 
@@ -633,6 +653,7 @@ def compare(op: str, left: IrNode, right: IrNode, typ: T, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         op=op,
     )
 
@@ -669,6 +690,7 @@ def const_str(svalue: str, typ: T, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         ptag=P_STR,
         svalue=svalue,
     )
@@ -707,6 +729,7 @@ def const_node(ptag: int, svalue: str, typ: T, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         ptag=ptag,
         svalue=svalue,
     )
@@ -745,6 +768,7 @@ def contains(hay: IrNode, needle: IrNode, typ: T, span: Span, negated: bool = Fa
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         flags=flags,
     )
 
@@ -781,6 +805,7 @@ def dict_lit(pairs: list[Pair], typ: T, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
     )
 
 
@@ -817,6 +842,7 @@ def dict_type(key: T, value: T) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
     )
 
 
@@ -853,6 +879,7 @@ def excmake(exc: str, span: Span, code: int, message: IrNode | None = None) -> I
         message=message,
         cause=None,
         target_node=None,
+        payload=None,
         exc=exc,
         code=code,
     )
@@ -890,6 +917,7 @@ def expr_stmt(expr: IrNode, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
     )
 
 
@@ -926,6 +954,7 @@ def function_callee(name: str) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         name=name,
     )
 
@@ -962,6 +991,7 @@ def if_stmt(cond: IrNode, then: list[IrNode], else_: list[IrNode], span: Span) -
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
     )
 
 
@@ -998,6 +1028,7 @@ def list_lit(elems: list[IrNode], typ: T, span: Span, frozen: bool = False) -> I
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         flags=flags,
     )
 
@@ -1035,6 +1066,7 @@ def list_type(elem: T) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
     )
 
 
@@ -1071,6 +1103,7 @@ def method_callee(receiver: str, name: str, tuple_: str = "") -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         name=name,
         receiver=receiver,
         tuple_=tuple_,
@@ -1110,6 +1143,7 @@ def module_callee(module: str, name: str) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         name=name,
         module=module,
     )
@@ -1147,6 +1181,7 @@ def name_expr(id_: str, typ: T, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         id=id_,
     )
 
@@ -1159,6 +1194,7 @@ def raise_stmt(
     reraise: bool = False,
     excslot: str = "",
     cause: IrNode | None = None,
+    payload: IrNode | None = None,
 ) -> IrNode:
     flags = F_RERAISE if reraise else 0
     return IrNode(
@@ -1192,6 +1228,7 @@ def raise_stmt(
         message=message,
         cause=cause,
         target_node=None,
+        payload=payload,
         exc=exc,
         code=code,
         excslot=excslot,
@@ -1231,6 +1268,7 @@ def return_stmt(value: IrNode | None, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
     )
 
 
@@ -1266,6 +1304,7 @@ def setattr_stmt(object_: IrNode, name: str, value: IrNode, span: Span) -> IrNod
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         name=name,
     )
 
@@ -1302,6 +1341,7 @@ def setitem_stmt(container: IrNode, index: IrNode, value: IrNode, span: Span) ->
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
     )
 
 
@@ -1337,6 +1377,7 @@ def subscript(value: IrNode, index: IrNode, typ: T, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
     )
 
 
@@ -1380,6 +1421,7 @@ def try_stmt(
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         brk=brk,
         cont=cont,
     )
@@ -1417,6 +1459,7 @@ def unary(op: str, operand: IrNode, typ: T, span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
         op=op,
     )
 
@@ -1489,4 +1532,5 @@ def while_stmt(cond: IrNode, body: list[IrNode], span: Span) -> IrNode:
         message=None,
         cause=None,
         target_node=None,
+        payload=None,
     )

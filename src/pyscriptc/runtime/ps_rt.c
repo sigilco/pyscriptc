@@ -393,6 +393,16 @@ void ps_exc_set_cause(PsExc *e, PsExc *cause) {
     }
 }
 
+void ps_exc_set_payload(PsExc *e, void *payload) {
+    if (e != NULL) {
+        e->payload = payload;
+    }
+}
+
+void *ps_exc_payload(PsExc *e) {
+    return e != NULL ? e->payload : NULL;
+}
+
 __attribute__((noinline, noreturn)) void ps_raise_exc(PsExc *e) {
     if (e == NULL) {
         e = ps_exc_new(PS_RUNTIME);

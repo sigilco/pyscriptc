@@ -2207,6 +2207,22 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if _type_kind(obj["type"]) == "exc":
             if name == "args":
                 return self._abi_call("builtins", "exc.args", [obj], _list_type(_leaf_type("str")), "ps_exc_args", span)
+            bound = obj["type"].get("name")
+            if bound:
+                # `except C as e` over a user exception class (issue #448):
+                # the runtime record carries the class instance as its
+                # payload, so the custom fields read through it. The read is
+                # a normal attribute read on the payload pointer: the emitter
+                # knows the class layout statically, so the field keeps its
+                # own type. Methods and the builtin attributes stay fenced:
+                # the payload is the record the raise site built, nothing
+                # else.
+                target = self.class_aliases.get(bound, bound)
+                info = self.classes.get(target)
+                if info is not None:
+                    for field in info["fields"]:
+                        if field["name"] == name:
+                            return _attr_node(obj, name, field["type"], span)
             self.fail(node, "PS2001", f"exception has no attribute {name}")
         if obj.get("symbol") == "ps_exc_class" and obj.get("attrtype") == "type":
             # type(e): the carrier holds the runtime class name. `.__name__`

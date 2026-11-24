@@ -425,6 +425,12 @@ def validate_stmt(stmt: Any, where: str) -> None:
                     raise IRError(f"{where}.cause: excmake needs an exception name")
                 if cause.get("message") is not None:
                     validate_expr(cause["message"], f"{where}.cause.message")
+        payload = stmt.get("payload")
+        if payload is not None:
+            # The user exception's instance record: the raise site builds the
+            # class instance (running its `__init__`) and the runtime carries
+            # the record as the exception payload (issue #448).
+            validate_expr(payload, f"{where}.payload")
         if stmt.get("reraise") is not None and not isinstance(stmt.get("reraise"), bool):
             raise IRError(f"{where}: raise reraise must be a bool")
         if stmt.get("excslot") is not None and not isinstance(stmt.get("excslot"), str):

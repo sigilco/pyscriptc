@@ -331,7 +331,13 @@ typedef struct PsGrow {
 static class-name table, message at a 256-byte owned buffer like the old
 ps_msg channel. cause links `raise ... from`; args is built lazily by
 ps_exc_args from message (E3 stores real ctor args). exit_status carries the
-`raise SystemExit(<int>)` value the uncaught handler exits with. */
+`raise SystemExit(<int>)` value the uncaught handler exits with.
+
+payload points at the instance record of a user exception class: the raise
+site builds the class instance (running the user's `__init__`), so the
+custom fields ride the exception (issue #448, divergence 9). The runtime
+never dereferences it: the emitter knows the class layout statically and
+reads the fields by offset. It is NULL for every builtin exception. */
 typedef struct PsExc {
     int32_t code;
     int32_t flags;
@@ -339,6 +345,7 @@ typedef struct PsExc {
     PsBuf message;
     struct PsExc *cause;
     PsSeq *args;
+    void *payload;
     int64_t exit_status;
 } PsExc;
 
@@ -363,6 +370,13 @@ void ps_report_current(const char *prefix);
 PsExc *ps_exc_current(void);
 void ps_exc_restore(PsExc *e);
 PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
+/* Attach the user exception class's instance record. `raise C(args)` runs
+   the user `__init__` over a fresh class instance and the emitter hands the
+   record here before ps_raise_exc (issue #448, divergence 9). */
+void ps_exc_set_payload(PsExc *e, void *payload);
+/* The class instance a user exception carries (issue #448). NULL for every
+   builtin exception. */
+void *ps_exc_payload(PsExc *e);
 /* Run `fn(env)` and catch the exception it raises: 0 returned (its status
    lands in `*status`), 1 raised (the record lands in `*out`). The event loop
    drives a child coroutine through this, so its failure travels to the
