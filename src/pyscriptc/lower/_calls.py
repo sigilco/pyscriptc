@@ -21,6 +21,7 @@ behavior-identical.
 from __future__ import annotations
 
 import ast
+import copy
 from typing import Any
 
 from pyscriptc import _irnode as _ir
@@ -381,6 +382,11 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 return self._generic_call(node, span, name)
             params, ret = self.sigs[name]
             args = self._fill_args(node, params, name)
+            if args is None:
+                # A generator frame crossed into an iterator-shaped
+                # parameter: the call lowers to the frame-specialized copy
+                # instead (issue #441).
+                return self._frame_call(node, span, name, params, ret)
             return node_to_dict(
                 _ir.call(
                     _ir.function_callee(self._ir_name(name)),
@@ -879,43 +885,112 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                     got = param["default"]
             if not types_equal(got["type"], param["type"]) and not self._accepts_protocol(param["type"], got["type"]):
                 self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
-            self._check_iterator_arg(node, param, got, what)
+            if self._needs_frame_copy(param["type"], got["type"]):
+                # The caller needs the frame-specialized copy (issue #441);
+                # `_frame_call` lowers the whole call against it.
+                return None
             args.append(got)
         return args
 
-    def _check_iterator_arg(self, node: ast.Call, param: dict[str, Any], got: dict[str, Any], what: str) -> None:
-        """A generator frame may not flow into an iterator-cursor parameter.
+    def _needs_frame_copy(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
+        """True when a generator frame flows into an iterator-cursor slot.
 
         `_accepts_protocol` proves the frame's element against the
         annotation, but the callee's own slot still carries the synthetic
         `iter_` cursor layout ({seq, idx}): a frame pointer read as that
         record dereferences the frame's fields as a list cell and
-        segfaults (issue #441). Passing the frame through a call boundary
-        needs the callee specialized on the frame parameter, which is not
-        lowered yet, so the boundary fences instead of emitting the
-        mismatched layout. A frame bound to a local keeps the frame type
-        (`_narrows_to_generator`) and iterates fine.
+        segfaults. Instead of the mismatched layout the callee gets a
+        frame-specialized copy (`_frame_call`): its parameter type is the
+        frame, so the body's `for`/`next()` dispatch on the frame's real
+        `__iter__`/`__next__` methods. A frame bound to a local keeps the
+        frame type already (`_narrows_to_generator`), and a same-type
+        argument (the specialized copy's own call sites) passes through.
         """
-        want = param["type"]
-        got_t = got["type"]
         want_name = want.get("name") if _type_kind(want) == "class" else None
-        got_name = got_t.get("name") if _type_kind(got_t) == "class" else None
+        got_name = got.get("name") if _type_kind(got) == "class" else None
         if not isinstance(want_name, str) or not isinstance(got_name, str):
-            return
+            return False
         if not self.classes.get(want_name, {}).get("iterator"):
-            return
+            return False
         if not got_name.startswith(("gen.", "coro.")):
-            return
-        if not self.classes.get(got_name, {}).get("coro"):
-            return
-        if types_equal(got_t, want):
-            return
-        self.fail(
-            node,
-            "PS2002",
-            f"a generator frame as {what} argument {param['name']} is not lowered yet: "
-            "an Iterator[T]/Generator[T] parameter keeps the cursor layout, so the frame "
-            "cannot cross the call boundary (bind it to a local and pass the local)",
+            return False
+        if self.classes.get(got_name, {}).get("coro") is None:
+            return False
+        return not types_equal(got, want)
+
+    def _frame_call(
+        self,
+        node: ast.Call,
+        span: dict[str, Any],
+        name: str,
+        params: list[dict[str, Any]],
+        ret: dict[str, Any],
+    ) -> dict[str, Any]:
+        """A call whose generator-frame argument crossed into an iterator-
+        shaped parameter: lower to the callee's frame-specialized copy.
+
+        The copy is one concrete function per (callee, slot, frame type),
+        queued for the module driver the way a TypeVar instantiation is.
+        Its parameter type is the frame, so the copied body sees the
+        frame's own `__iter__`/`__next__` methods where the original body
+        saw the cursor. Every other parameter keeps the original type.
+        """
+        fn = self.module_fns.get(name)
+        if fn is None:
+            self.fail(
+                node,
+                "PS2002",
+                f"a generator frame as {name} argument is not lowered yet: the parameter keeps the "
+                "cursor layout and the frame cannot cross the call boundary (bind it to a local)",
+            )
+        node.args = self._expand_starred(node)
+        if node.keywords:
+            self.fail(node, "PS2002", "keyword arguments on a frame-parameter call are not lowered")
+        frame_slot: int | None = None
+        frame_t: dict[str, Any] | None = None
+        # Every argument lowers without the iterator expect: the expect
+        # would stamp the cursor type onto the frame argument's value
+        # record, and the frame keeps its own type.
+        args: list[dict[str, Any]] = []
+        for index, arg_node in enumerate(node.args):
+            value = self._expr(arg_node)
+            if (
+                frame_slot is None
+                and index < len(params)
+                and self._needs_frame_copy(params[index]["type"], value["type"])
+            ):
+                frame_slot, frame_t = index, value["type"]
+            args.append(value)
+        if frame_slot is None or frame_t is None:
+            # Another call site of this callee specialized it first; the
+            # earlier copy satisfies this call.
+            return node_to_dict(
+                _ir.call(
+                    _ir.function_callee(self._ir_name(name)),
+                    [dict_to_node(arg) for arg in args],
+                    _mk_type(ret),
+                    _mk_span(span),
+                    "",
+                    "",
+                    -1,
+                )
+            )
+        key = (name, frame_slot, type_key(frame_t))
+        emit = self.frame_fns.get(key)
+        if emit is None:
+            emit = f"{name}.{_type_slug(frame_t)}"
+            self.frame_fns[key] = emit
+            self.frame_queue.append((fn, emit, frame_slot, copy.deepcopy(frame_t)))
+        return node_to_dict(
+            _ir.call(
+                _ir.function_callee(emit),
+                [dict_to_node(arg) for arg in args],
+                _mk_type(ret),
+                _mk_span(span),
+                "",
+                "",
+                -1,
+            )
         )
 
     def _factory_default(self, marker: dict[str, Any], typ: dict[str, Any], node: ast.Call) -> dict[str, Any]:
