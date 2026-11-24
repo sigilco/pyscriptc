@@ -31,12 +31,12 @@ from typing import Any
 #: value is lowered.
 CONTAINER_FACTORIES = frozenset({"list", "dict", "set"})
 
-#: The keywords that name the field in the dataclass metadata and not in
-#: the class's own value semantics (issue #444). CPython stores them for
-#: the serializer libraries to read; the instance, the repr, the compare
-#: and the constructor never see them, so the lowered subset accepts and
-#: drops them.
-IGNORED_KEYWORDS = frozenset({"alias", "metadata"})
+#: The keyword that names the field in the dataclass metadata and not in
+#: the class's own value semantics (issue #444). CPython stores the
+#: mapping for the serializer libraries to read; the instance, the repr,
+#: the compare and the constructor never see it, so the lowered subset
+#: accepts and drops it.
+IGNORED_KEYWORDS = frozenset({"metadata"})
 
 
 def _dataclass_field(
@@ -66,12 +66,12 @@ def _dataclass_field(
         if kw.arg is None:
             lo.fail(kw, "PS2002", "**kwargs are not lowered")
         if kw.arg in IGNORED_KEYWORDS:
-            # `alias=` and `metadata=` name the field in the dataclass
-            # metadata, not in the class's own value semantics: CPython
-            # stores them for the serializer libraries to read, and the
+            # `metadata=` names the field in the dataclass metadata, not
+            # in the class's own value semantics: CPython stores the
+            # mapping for the serializer libraries to read, and the
             # instance, the repr, the compare and the constructor never
-            # see them. The lowered subset has no metadata surface, so
-            # the keywords are accepted and dropped.
+            # see it. The lowered subset has no metadata surface, so the
+            # keyword is accepted and dropped.
             continue
         if kw.arg not in {"default_factory", "default"}:
             lo.fail(kw, "PS2002", f"field({kw.arg}=...) is not lowered; use default or default_factory")

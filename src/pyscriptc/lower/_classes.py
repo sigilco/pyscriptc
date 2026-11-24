@@ -744,9 +744,40 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                         const_types,
                     )
                 )
+        # A method other than `__init__` may write a field the class body
+        # declared as a constant attribute (`x: T = <const>`, issue
+        # #444): the write creates the instance attribute, and the class
+        # attribute keeps its own value. The field's type is the class
+        # body's annotation, the same rule the `__init__` write follows.
+        for method, _kind in methods:
+            if method.name == "__init__":
+                continue
+            fields.extend(
+                self._method_const_fields(
+                    method,
+                    {field["name"] for field in fields} | set(inherited_types),
+                    const_types,
+                )
+            )
         generated: str | None = None
         generated_eq = False
         init_target: str | None = None
+        seed_init = (
+            deco != "dataclass"
+            and not wrote_init
+            and "__init__" not in method_sigs
+            and any(field["name"] in class_constants for field in fields)
+        )
+        if seed_init:
+            # The class body spells a constant attribute and a method
+            # writes it: the instance slot needs the constant before the
+            # write, the CPython class-attribute fallback. The class has
+            # no written `__init__`, so the seeding one is synthesized
+            # (issue #444).
+            method_sigs["__init__"] = ([_self_param(node.name)], _leaf_type("none"))
+            kinds["__init__"] = "method"
+            owners["__init__"] = node.name
+            generated = "const-seed"
         if deco == "dataclass":
             if wrote_init:
                 self.fail(node, "PS2002", "a dataclass does not take a written __init__")
@@ -785,7 +816,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 kinds["__eq__"] = "method"
                 owners["__eq__"] = node.name
                 generated_eq = True
-        elif not wrote_init and "__init__" in method_sigs:
+        elif not wrote_init and "__init__" in method_sigs and not seed_init:
             if fields:
                 self.fail(node, "PS1001", f"{node.name} needs __init__")
             init_owner = owners["__init__"]
@@ -925,6 +956,38 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 continue
             seen.add(name)
             found.append({"name": name, "type": copy.deepcopy(typ)})
+        return found
+
+    def _method_const_fields(
+        self,
+        fn: ast.FunctionDef,
+        taken: set[str],
+        const_types: dict[str, dict[str, Any]],
+    ) -> list[dict[str, Any]]:
+        """Fields a non-init method proves by `self.<constant name>` writes.
+
+        Only the class body's constant attributes take part: `x: T =
+        <const>` declares the type, and the method's `self.x = ...`
+        creates the instance attribute over it (issue #444). A write to
+        a name the class body never declared has no type and stays
+        fenced at the write site, the rule every other undeclared
+        attribute write follows.
+        """
+        found: list[dict[str, Any]] = []
+        for stmt in ast.walk(fn):
+            if not (
+                isinstance(stmt, ast.Assign)
+                and len(stmt.targets) == 1
+                and isinstance(stmt.targets[0], ast.Attribute)
+                and isinstance(stmt.targets[0].value, ast.Name)
+                and stmt.targets[0].value.id == "self"
+                and stmt.targets[0].attr in const_types
+                and stmt.targets[0].attr not in taken
+            ):
+                continue
+            name = stmt.targets[0].attr
+            taken.add(name)
+            found.append({"name": name, "type": copy.deepcopy(const_types[name])})
         return found
 
     def _mro_chain(self, node: ast.ClassDef, bases: list[dict[str, str]]) -> tuple[list[str], set[str]]:
@@ -1193,6 +1256,18 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             const = constants.get(field["name"])
             if const is None or const.get("kind") != "const":
                 continue
+            if not types_equal(const["type"], field["type"]):
+                # The class attribute and the instance field disagree on
+                # the type (a re-annotation spells this in CPython, which
+                # keeps the class attribute and gives the instance its
+                # own). One struct slot cannot hold both, so the fence
+                # names the field and the two types.
+                self.fail(
+                    info.get("node"),
+                    "PS1003",
+                    f"{class_name}.{field['name']} is a {_show(const['type'])} class attribute "
+                    f"and a {_show(field['type'])} field",
+                )
             seeds.append(_setattr_node(_name("self", self_type, span), field["name"], {**const, "span": span}, span))
         if not seeds:
             return body
@@ -1231,6 +1306,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 )
                 for field in info["own_fields"]
             ]
+        elif mode == "const-seed":
+            # The seeding init: the class body's constant attributes fill
+            # the instance slots before any method writes them (issue
+            # #444).
+            body = self._seed_const_fields(node.name, info, [], span)
         else:
             parent = info.get("init_target") or info["base"]
             args = [_name(param["name"], param["type"], span) for param in params]
