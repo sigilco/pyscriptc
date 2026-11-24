@@ -217,6 +217,83 @@ def test_type_conflict_between_const_and_field_fences() -> None:
     assert any(fence["code"] == "PS1003" and "C.x" in fence["message"] for fence in fences)
 
 
+def test_optional_const_attribute_seeds_the_field(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "optional_const.py",
+        "\n".join(
+            [
+                "class C:",
+                "    a: int | None = None",
+                "",
+                "    def fill(self) -> None:",
+                "        self.a = 3",
+                "",
+                "def run() -> int:",
+                "    c: C = C()",
+                "    before: int = 0 if c.a is None else c.a",
+                "    c.fill()",
+                "    after: int = 0 if c.a is None else c.a",
+                "    return before + after",
+                "",
+            ]
+        ),
+    )
+
+
+def test_tuple_const_attribute_reads_through_the_class(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "tuple_const.py",
+        "\n".join(
+            [
+                "class C:",
+                "    pair: tuple[int, int] = (1, 2)",
+                "",
+                "def run() -> int:",
+                "    c: C = C()",
+                "    return C.pair[0] * 10 + C.pair[1] + c.pair[0]",
+                "",
+            ]
+        ),
+    )
+
+
+def test_dataclass_tuple_default_lowers(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "dc_tuple_default.py",
+        "\n".join(
+            [
+                "from dataclasses import dataclass, field",
+                "",
+                "",
+                "@dataclass",
+                "class C:",
+                "    pair: tuple[int, int] = (1, 2)",
+                "    spelled: tuple[int, str] = field(default=(3, 'x'))",
+                "",
+                "def run() -> int:",
+                "    c: C = C()",
+                "    return c.pair[0] + c.pair[1] + c.spelled[0] + len(c.spelled[1])",
+                "",
+            ]
+        ),
+    )
+
+
+def test_plain_class_field_call_fences_instead_of_crashing() -> None:
+    fences = _fences("from dataclasses import field\n\n\nclass C:\n    a: int = field(default=7)\n")
+    assert any(fence["code"] == "PS2002" for fence in fences)
+
+
+def test_tuple_default_shape_mismatch_fences() -> None:
+    fences = _fences(
+        "from dataclasses import dataclass\n\n\n@dataclass\nclass C:\n    a: tuple[int, int] = (1, 2, 3)\n"
+    )
+    assert any(fence["code"] == "PS2002" for fence in fences)
+
+
 def test_field_default_non_constant_fences() -> None:
     fences = _fences(
         "def make() -> int:\n"

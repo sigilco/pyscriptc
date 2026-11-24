@@ -339,7 +339,10 @@ def test_self_census_ballpark() -> None:
     # optional/object vocabulary in ffi_manifest.py and lower/_stdlib.py add
     # about 1.7k lines, taking the census to 92,394, so the ceiling stays
     # at 94k.
-    assert 11_000 <= census["lines"] <= 94_000
+    # The class-field lifts (#444 O2b): the tuple-default and marker-kind
+    # helpers in lower/_classes.py add about 20 lines, taking the census
+    # to 94,019, so the ceiling moves to 96k.
+    assert 11_000 <= census["lines"] <= 96_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.

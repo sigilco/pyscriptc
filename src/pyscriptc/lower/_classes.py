@@ -1296,6 +1296,22 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             const = constants.get(field["name"])
             if const is None or const.get("kind") != "const":
                 continue
+            if field["type"].get("optional") and (
+                _type_kind(const["type"]) == "none" or types_equal(const["type"], field["type"]["elem"])
+            ):
+                # The class attribute holds the Optional's unwrapped value
+                # (`None` or the element, CPython's class dictionary) and
+                # the field slot holds the boxed cell: seed the cell with
+                # the attribute's value (issue #444).
+                seeds.append(
+                    _setattr_node(
+                        _name("self", self_type, span),
+                        field["name"],
+                        self._opt_box(None if _type_kind(const["type"]) == "none" else const, field["type"], span),
+                        span,
+                    )
+                )
+                continue
             if not types_equal(const["type"], field["type"]):
                 # The class attribute and the instance field disagree on
                 # the type (a re-annotation spells this in CPython, which
@@ -1309,6 +1325,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     f"and a {_show(field['type'])} field",
                 )
             seeds.append(_setattr_node(_name("self", self_type, span), field["name"], {**const, "span": span}, span))
+        if self.prelude:
+            # The prelude builds the temps the seeds read (the Optional
+            # cell), so it comes first.
+            seeds = [*self.prelude, *seeds]
+            self.prelude = []
         if not seeds:
             return body
         return [*seeds, *body]
@@ -1339,6 +1360,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         params, ret = info["methods"]["__init__"]
         span = span_of(node, self.filename)
         self_type = _class_type(node.name)
+        self.locals = {param["name"]: param["type"] for param in params}
         if mode == "dataclass":
             body = [
                 _setattr_node(
@@ -1352,10 +1374,9 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # #444).
             body = self._seed_const_fields(node.name, info, [], span)
         else:
-            parent = info.get("init_target") or info["base"]
+            parent = info.get("init_target") or info.get("base")
             args = [_name(param["name"], param["type"], span) for param in params]
             body = [_expr_stmt_node(_function_call(f"cls.{parent}.__init__", args, _leaf_type("none"), span), span)]
-        self.locals = {param["name"]: param["type"] for param in params}
         return self._method_ir("__init__", params, ret, body, span)
 
     def _generated_repr(self, node: ast.ClassDef, info: dict[str, Any]) -> dict[str, Any] | None:
