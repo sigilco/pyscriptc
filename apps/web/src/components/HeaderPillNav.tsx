@@ -5,6 +5,7 @@ export interface HeaderPillNavProps {
   docsUrl?: string;
   compatUrl?: string;
   compareUrl?: string;
+  receiptsUrl?: string;
   githubUrl?: string;
 }
 
@@ -13,6 +14,7 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
   docsUrl = "/docs",
   compatUrl = "/compat",
   compareUrl = "/compare",
+  receiptsUrl = "/receipts",
   githubUrl = "https://github.com/sigilco/pyscriptc",
 }) => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -67,6 +69,12 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
             className="px-2.5 py-1 rounded-full hover:text-white transition-colors"
           >
             Compare
+          </a>
+          <a
+            href={receiptsUrl}
+            className="px-2.5 py-1 rounded-full hover:text-white transition-colors"
+          >
+            Receipts
           </a>
           <a
             href={githubUrl}
@@ -135,6 +143,13 @@ export const HeaderPillNav: React.FC<HeaderPillNavProps> = ({
               className="px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
             >
               How pyscriptc compares
+            </a>
+            <a
+              href={receiptsUrl}
+              onClick={() => setMobileMenuOpen(false)}
+              className="px-3 py-2 rounded-lg hover:bg-white/10 transition-colors"
+            >
+              Per-target probe receipts
             </a>
             <a
               href={githubUrl}

@@ -29,13 +29,15 @@ on:
       - "docs/.docmd/pnpm-lock.yaml"
       - ".github/workflows/site.yml"
   pull_request:
-    # bot/compat-snapshot carries only data/compat/*.json and changes data/,
-    # so this workflow would otherwise fire on the nightly bot PR and its
-    # pull_request run would sit at action_required (see ci.yml). The
-    # nightly calls the `site` job below through workflow_call to validate
-    # the data the bot PR carries, so nothing is lost here.
+    # bot/compat-snapshot and bot/receipt-snapshot carry only
+    # data/compat/*.json and change data/, so this workflow would otherwise
+    # fire on the nightly bot PRs and their pull_request runs would sit at
+    # action_required (see ci.yml). The nightly calls the `site` job below
+    # through workflow_call to validate the data the bot PR carries, so
+    # nothing is lost here.
     branches-ignore:
       - bot/compat-snapshot
+      - bot/receipt-snapshot
     paths:
       - "apps/web/**"
       - "docs/**"

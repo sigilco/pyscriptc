@@ -1,0 +1,195 @@
+---
+import ReceiptsLayout from "../../layouts/ReceiptsLayout.astro";
+
+// The receipts page is static: every number is baked in at build time from
+// data/compat/receipts.json. The page cannot claim more than the receipts
+// say: a target this host could not run shows the reason, never a bare
+// false, and a target whose receipt has not landed yet reads as not
+// measured.
+//
+// Design: .agents/docs/benchmarks/target-receipts.md
+import data from "../../../../../data/compat/receipts.json";
+
+interface ProbeRow {
+  id: string;
+  built: boolean;
+  ran: boolean;
+  match: boolean;
+  detail: string;
+}
+interface TargetReceipt {
+  target: string;
+  triple: string;
+  system: string;
+  arch: string;
+  runner: string;
+  method: string;
+  skip_reason: string;
+  toolchain: string;
+  built: number;
+  ran: number;
+  matched: number;
+  total: number;
+  probes: ProbeRow[];
+}
+
+const document = data as {
+  schema: string;
+  generated: string;
+  commit: string;
+  oracle: string;
+  host: { system?: string; zig?: string };
+  targets: TargetReceipt[];
+};
+
+const generated = document.generated;
+const commit = document.commit.slice(0, 12);
+const zig = document.host?.zig || "unknown";
+// The oracle is a path on the runner; the page shows its name, not the
+// runner's directory layout.
+const oracle = document.oracle.split("/").pop() || "CPython 3.14";
+
+const targets = document.targets;
+const runnable = targets.filter((t) => t.method !== "compile-only");
+const matched = runnable.reduce((sum, t) => sum + t.matched, 0);
+const ranTotal = runnable.reduce((sum, t) => sum + t.ran, 0);
+
+const METHOD_LABEL: Record<string, string> = {
+  native: "runs natively",
+  qemu: "runs under qemu",
+  wasmtime: "runs under wasmtime",
+  "compile-only": "compile-only",
+};
+
+// A row's verdict cell: matched, ran-but-differs, built-only, not built.
+// The compile-only posture is a documented state, not a failure, so it has
+// its own color rather than a red one.
+function verdict(row: ProbeRow): { label: string; css: string } {
+  if (row.match) return { label: "match", css: "ok" };
+  if (row.ran) return { label: "differs", css: "bad" };
+  if (row.built) return { label: "built", css: "idle" };
+  return { label: "not built", css: "bad" };
+}
+
+const probeIds = targets[0]?.probes.map((p) => p.id) ?? [];
+const rowsByTarget = new Map(targets.map((t) => [t.target, t]));
+---
+
+<ReceiptsLayout>
+  <header class="receipts-hero">
+    <h1>PER-TARGET RECEIPTS</h1>
+    <p class="lead">
+      Run-and-match receipts per target. Every probe is a small,
+      toolchain-independent program: pyscriptc compiles it for the target,
+      the binary runs through the runner that can execute it, and the
+      output is compared byte for byte against the pinned CPython 3.14
+      oracle. Island rows stay out by design: a cross-compiled binary
+      cannot run island calls, so the receipts cover the non-island
+      subset only.
+    </p>
+    <p class="meta">
+      generated {generated} at commit <code>{commit}</code> ·
+      zig {zig} ·
+      oracle <code>{oracle}</code> ·
+      raw data <a href="/receipts/data/receipts.json">receipts.json</a>
+    </p>
+  </header>
+
+  <section class="receipts-strip">
+    <div class="receipts-card">
+      <span class="stat-value">{matched}</span>
+      <span class="stat-label">probe runs matched the oracle</span>
+    </div>
+    <div class="receipts-card">
+      <span class="stat-value">{ranTotal}</span>
+      <span class="stat-label">probe runs executed across the runnable targets</span>
+    </div>
+    <div class="receipts-card">
+      <span class="stat-value">{runnable.length}</span>
+      <span class="stat-label">targets this run could execute</span>
+    </div>
+  </section>
+
+  <section class="table-section">
+    <h2>Per-target receipts</h2>
+    <p class="section-note">
+      The method column is how the binary was run: natively on the build
+      host, under a user-mode qemu for a foreign Linux architecture, or
+      under wasmtime for WASI. A compile-only row is a target no runner
+      can execute on the build host (or, for riscv64, a documented
+      compile-only posture), and the reason is spelled out in its receipt.
+      The riscv64 rows stay exactly what they are today.
+    </p>
+    <div class="table-scroll">
+      <table class="receipts-table">
+        <thead>
+          <tr>
+            <th scope="col">Probe</th>
+            {targets.map((t) => (
+              <th scope="col" title={t.triple}>{t.target}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {probeIds.map((id) => (
+            <tr>
+              <th scope="row"><code>{id}</code></th>
+              {targets.map((t) => {
+                const row = t.probes.find((p) => p.id === id);
+                const v = verdict(row!);
+                return (
+                  <td class={`verdict ${v.css}`}>
+                    <span class="dot" aria-hidden="true"></span>
+                    {v.label}
+                  </td>
+                );
+              })}
+            </tr>
+          ))}
+          <tr class="totals-row">
+            <th scope="row">matched</th>
+            {targets.map((t) => (
+              <td>{t.ran > 0 ? `${t.matched} / ${t.ran}` : "not run"}</td>
+            ))}
+          </tr>
+          <tr class="method-row">
+            <th scope="row">method</th>
+            {targets.map((t) => (
+              <td>{METHOD_LABEL[t.method] ?? t.method}</td>
+            ))}
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="table-section">
+    <h2>How each target ran</h2>
+    <div class="table-scroll">
+      <table class="receipts-table">
+        <thead>
+          <tr>
+            <th scope="col">Target</th>
+            <th scope="col">Triple</th>
+            <th scope="col">System</th>
+            <th scope="col">Runner</th>
+            <th scope="col">Method</th>
+            <th scope="col">Note</th>
+          </tr>
+        </thead>
+        <tbody>
+          {targets.map((t) => (
+            <tr>
+              <th scope="row">{t.target}</th>
+              <td><code>{t.triple}</code></td>
+              <td>{t.system}</td>
+              <td><code>{t.runner || "—"}</code></td>
+              <td>{METHOD_LABEL[t.method] ?? t.method}</td>
+              <td class="note">{t.skip_reason || "—"}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  </section>
+</ReceiptsLayout>

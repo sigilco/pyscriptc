@@ -4,15 +4,17 @@ on:
   push:
     branches: [master]
   pull_request:
-    # The nightly compat snapshot PR (branch bot/compat-snapshot) is
-    # data-only and authored by github-actions[bot]; a pull_request run of
-    # this workflow from that branch is held at action_required until an
-    # owner approves it, which wedges the nightly. The nightly validates
-    # the snapshot itself (the site workflow is called through
-    # workflow_call, and the compat seams run as a test step), and this
-    # workflow has no required context on the bot PR, so nothing is lost.
+    # The nightly snapshot PRs (branches bot/compat-snapshot and
+    # bot/receipt-snapshot) are data-only and authored by
+    # github-actions[bot]; a pull_request run of this workflow from those
+    # branches is held at action_required until an owner approves it, which
+    # wedges the nightly. The nightly validates the snapshot itself (the
+    # site workflow is called through workflow_call, and the compat seams
+    # run as a test step), and this workflow has no required context on the
+    # bot PR, so nothing is lost.
     branches-ignore:
       - bot/compat-snapshot
+      - bot/receipt-snapshot
 
 # A PR branch push used to run twice (push and pull_request) and every new
 # commit queued behind the previous one. PRs run once and a newer commit

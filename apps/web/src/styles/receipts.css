@@ -1,0 +1,229 @@
+/* The receipts page (served at /receipts/). It reads the shared site tokens in
+   theme.css: the same obsidian canvas, ink ladder, hairlines and logo blue as
+   the landing page, the compat page and the compare page, so all four read as
+   one site. No literal hex here: every color is a token, and every value has
+   a light-mode counterpart through [data-theme="light"]. No client JS: static
+   HTML. */
+
+.receipts-body {
+  background: var(--color-bg-base);
+  color: var(--color-text-secondary);
+  font-family: var(--font-sans);
+  margin: 0;
+  min-height: 100vh;
+}
+
+/* The floating pill navbar is position:fixed; clear it. */
+.receipts-nav-spacer {
+  height: 5.5rem;
+}
+
+.receipts-page {
+  max-width: 72rem;
+  margin: 0 auto;
+  padding: 0 1.5rem 4rem;
+}
+
+/* Only the page content gets the accent link color. The shared header and
+   footer carry their own ink colors and must not be repainted here. */
+.receipts-page a {
+  color: var(--color-accent);
+  text-decoration: none;
+  text-underline-offset: 0.2em;
+}
+.receipts-page a:hover {
+  text-decoration: underline;
+}
+
+.receipts-body code {
+  font-family: var(--font-mono);
+  font-size: 0.85em;
+  background: var(--color-accent-soft);
+  border-radius: 4px;
+  padding: 0.1em 0.35em;
+  color: var(--color-text-primary);
+}
+
+.receipts-body :focus-visible {
+  outline: 2px solid var(--color-accent);
+  outline-offset: 2px;
+}
+
+/* Hero */
+
+.receipts-hero {
+  margin-bottom: 2.5rem;
+}
+.receipts-hero h1 {
+  font-size: clamp(2rem, 6vw, 3.2rem);
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  color: var(--color-text-primary);
+  margin: 0 0 0.75rem;
+}
+.receipts-hero .lead {
+  font-size: 1.05rem;
+  line-height: 1.6;
+  max-width: 46rem;
+  margin: 0 0 0.75rem;
+}
+.receipts-hero .meta {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+/* Headline strip */
+
+.receipts-strip {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1rem;
+  margin-bottom: 2.5rem;
+}
+.receipts-card {
+  background: var(--color-bg-card);
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+  padding: 1rem 1.25rem;
+}
+.receipts-card .stat-value {
+  display: block;
+  font-size: 3rem;
+  font-weight: 800;
+  color: var(--color-accent);
+  line-height: 1;
+}
+.receipts-card .stat-label {
+  display: block;
+  margin-top: 0.5rem;
+  font-size: 0.85rem;
+  color: var(--color-text-secondary);
+}
+
+/* Tables */
+
+.table-section {
+  margin-bottom: 2.5rem;
+}
+.table-section h2 {
+  font-size: 1.25rem;
+  color: var(--color-text-primary);
+  margin: 0 0 0.35rem;
+}
+.section-note {
+  font-size: 0.9rem;
+  line-height: 1.6;
+  color: var(--color-text-secondary);
+  max-width: 48rem;
+  margin: 0 0 1rem;
+}
+.table-scroll {
+  overflow-x: auto;
+  border: 1px solid var(--color-border);
+  border-radius: 12px;
+}
+.receipts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.88rem;
+}
+.receipts-table th,
+.receipts-table td {
+  text-align: left;
+  padding: 0.55rem 0.9rem;
+  border-bottom: 1px solid var(--color-border);
+  vertical-align: top;
+  white-space: nowrap;
+}
+.receipts-table thead th {
+  color: var(--color-text-muted);
+  font-weight: 600;
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  background: var(--color-bg-surface);
+}
+.receipts-table tbody th {
+  color: var(--color-text-primary);
+  font-weight: 500;
+}
+.receipts-table tbody tr:last-child th,
+.receipts-table tbody tr:last-child td {
+  border-bottom: none;
+}
+.receipts-table td.note {
+  color: var(--color-text-secondary);
+  max-width: 24rem;
+  white-space: normal;
+}
+
+/* The verdict cell: a dot and a word. The color vocabulary matches the
+   compat page's status colors, so "match" reads the same everywhere. */
+.verdict {
+  font-size: 0.8rem;
+}
+.verdict .dot {
+  display: inline-block;
+  width: 0.5rem;
+  height: 0.5rem;
+  border-radius: 999px;
+  margin-right: 0.4rem;
+  vertical-align: baseline;
+}
+.verdict.ok {
+  color: var(--color-status-full);
+}
+.verdict.ok .dot {
+  background: var(--color-status-full);
+}
+.verdict.bad {
+  color: var(--color-status-none);
+}
+.verdict.bad .dot {
+  background: var(--color-status-none);
+}
+.verdict.idle {
+  color: var(--color-text-muted);
+}
+.verdict.idle .dot {
+  background: var(--color-text-muted);
+}
+
+.totals-row th,
+.totals-row td,
+.method-row th,
+.method-row td {
+  color: var(--color-text-primary);
+  font-weight: 600;
+}
+.method-row th,
+.method-row td {
+  color: var(--color-text-muted);
+  font-weight: 500;
+  font-size: 0.8rem;
+}
+
+/* Data footer */
+
+.receipts-data-footer {
+  border-top: 1px solid var(--color-border);
+  padding: 1.25rem 0 2.5rem;
+  text-align: center;
+}
+.receipts-data-footer p {
+  margin: 0;
+  font-size: 0.8rem;
+  color: var(--color-text-muted);
+}
+
+/* Narrow viewports: the strip folds to one column and the tables keep
+   their horizontal scroll, so nothing is clipped. */
+@media (max-width: 640px) {
+  .receipts-strip {
+    grid-template-columns: 1fr;
+  }
+  .receipts-page {
+    padding: 0 1rem 3rem;
+  }
+}

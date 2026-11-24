@@ -1,11 +1,12 @@
 // Sync the canonical data tree (repo-root data/) and the shared site assets
 // (docs/assets) into the Astro public dir, so the compat page ships its JSON,
-// the benchmark files are public, and every page finds the logo.
+// the receipts page ships its own JSON, the benchmark files are public, and
+// every page finds the logo.
 // Synced output is gitignored: data/ and docs/assets are the only committed
 // copies.
 //
 // Run as part of `pnpm build` (prebuild), not a source step.
-import { copyFileSync, mkdirSync, readdirSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readdirSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -19,6 +20,11 @@ const COPIES: Array<[sourceDir: string, outDir: string]> = [
   ["data/benchmarks", "benchmarks/data"],
   ["docs/assets", "."],
 ];
+
+// The receipts page reads its own copy of the receipt document, so the page
+// and its raw data live under the same prefix. The source file is the same
+// committed one the compat page's data directory carries.
+const RECEIPTS_DATA = "receipts.json";
 
 for (const [sourceDir, outDir] of COPIES) {
   const source = join(repoRoot, sourceDir);
@@ -48,4 +54,15 @@ function jsonOnly(name: string): boolean {
 
 function imageOnly(name: string): boolean {
   return /\.(png|ico|svg|webp)$/.test(name);
+}
+
+// The receipts data, copied next to the receipts page so the page's raw
+// data link resolves. The file is optional: a tree without a receipt run
+// yet still builds, and the page reads the committed data/compat copy.
+const receiptsSource = join(repoRoot, "data", "compat", RECEIPTS_DATA);
+if (existsSync(receiptsSource)) {
+  const receiptsOut = join(publicDir, "receipts", "data");
+  mkdirSync(receiptsOut, { recursive: true });
+  copyFileSync(receiptsSource, join(receiptsOut, RECEIPTS_DATA));
+  console.log(`sync-data: data/compat/${RECEIPTS_DATA} -> public/receipts/data`);
 }

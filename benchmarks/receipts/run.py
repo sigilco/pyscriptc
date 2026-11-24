@@ -62,6 +62,11 @@ def main(argv: list[str] | None = None) -> int:
         help="exit non-zero when a runnable probe did not build, run or match",
     )
     parser.add_argument("--quiet", action="store_true", help="print only the summary table")
+    parser.add_argument(
+        "--summary",
+        metavar="PATH",
+        help="write the markdown summary table to this file (the GitHub job summary path)",
+    )
     args = parser.parse_args(argv)
 
     if args.target:
@@ -94,6 +99,10 @@ def main(argv: list[str] | None = None) -> int:
         for path in written:
             print(f"wrote {path}")
     print(summary_table(document))
+    if args.summary:
+        summary = Path(args.summary)
+        summary.parent.mkdir(parents=True, exist_ok=True)
+        summary.write_text(summary_table(document) + "\n", encoding="utf-8")
 
     if args.strict:
         return _strict_exit(document, chosen_targets)

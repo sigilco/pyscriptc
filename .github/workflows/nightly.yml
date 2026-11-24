@@ -257,6 +257,206 @@ jobs:
     permissions:
       contents: read
 
+  # The per-target probe receipts (issue #469). The lane compiles a small,
+  # toolchain-independent probe set for every target in the tier-A cross
+  # matrix, runs each binary through the runner that can execute it
+  # (native, qemu-aarch64-static, wasmtime) and byte-compares the output
+  # against the pinned CPython 3.14 oracle. It writes one JSON per target
+  # plus the combined document.
+  #
+  # Report only: the step is continue-on-error, the job feeds no
+  # `report-failure` need and opens no nightly-failure issue. A target
+  # this runner cannot run is a skip with a reason, the way the smoke
+  # script treats a missing qemu; only a wrong output is a finding.
+  #
+  # The riscv64 rows are compile-only by decision (#469): the receipt
+  # records them as built but not run, and never claims a run.
+  #
+  # Design: .agents/docs/benchmarks/target-receipts.md
+  target-receipts:
+    name: per-target probe receipts
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    # contents: write and pull-requests: write are for the receipt snapshot
+    # bot PR only. The PR carries data/compat/receipts.json and nothing else.
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Cache zig tarball
+        uses: actions/cache@v5
+        with:
+          path: /tmp/zig.tar.xz
+          key: zig-0.16.0-x86_64-linux
+
+      - name: Install zig 0.16.0
+        run: |
+          set -euo pipefail
+          [ -f /tmp/zig.tar.xz ] || \
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://ziglang.org/download/0.16.0/zig-x86_64-linux-0.16.0.tar.xz -o "/tmp/zig.tar.xz"
+          echo "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00  /tmp/zig.tar.xz" | sha256sum -c -
+          sudo tar -xJf "/tmp/zig.tar.xz" -C /usr/local
+          echo "/usr/local/zig-x86_64-linux-0.16.0" >> "$GITHUB_PATH"
+
+      - name: Cache wasmtime tarball
+        uses: actions/cache@v5
+        with:
+          path: /tmp/wasmtime.tar.xz
+          key: wasmtime-v50.0.0-x86_64-linux
+
+      - name: Install wasmtime v50.0.0
+        run: |
+          set -euo pipefail
+          [ -f /tmp/wasmtime.tar.xz ] || \
+            curl -fsSL --retry 3 --retry-delay 5 --retry-all-errors https://github.com/bytecodealliance/wasmtime/releases/download/v50.0.0/wasmtime-v50.0.0-x86_64-linux.tar.xz -o "/tmp/wasmtime.tar.xz"
+          tar -xJf "/tmp/wasmtime.tar.xz" -C /tmp
+          echo "/tmp/wasmtime-v50.0.0-x86_64-linux" >> "$GITHUB_PATH"
+
+      - name: Install qemu-user-static (run the aarch64 musl binaries)
+        run: |
+          set -uo pipefail
+          # The runner's apt mirror can be unreachable (see the zig smoke
+          # job in ci.yml). The harness treats a missing qemu as a skip
+          # with a reason, so the step retries, then falls back to the
+          # canonical archive, and degrades to compile-only when every
+          # mirror is unreachable.
+          install_qemu() {
+            sudo apt-get update -o Acquire::Retries=3 && \
+              sudo apt-get install -y --no-install-recommends qemu-user-static
+          }
+          if install_qemu; then
+            echo "qemu-user-static installed"
+          else
+            echo "note: the default mirror is unreachable, retrying archive.ubuntu.com" >&2
+            sudo sed -i 's|azure\.archive\.ubuntu\.com|archive.ubuntu.com|g' \
+              /etc/apt/apt-mirrors.txt 2>/dev/null || true
+            if install_qemu; then
+              echo "qemu-user-static installed from archive.ubuntu.com"
+            else
+              echo "note: qemu-user-static is unavailable; the aarch64 musl row is compile-only" >&2
+            fi
+          fi
+
+      - uses: astral-sh/setup-uv@v6
+        with:
+          version: ">=0.13.4"  # emSign CA incident: uv 0.13.4 dropped the compromised root
+          enable-cache: true
+          python-version: "3.14"
+
+      - name: Install clang
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq clang
+
+      - run: uv python install 3.14.9
+
+      - name: Sync dependencies
+        run: uv sync --frozen
+
+      - name: The per-target receipts
+        id: receipts
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p nightly/receipts
+          uv run python -m benchmarks.receipts.run \
+            --outdir nightly/receipts \
+            --summary "$GITHUB_STEP_SUMMARY" \
+            | tee nightly/receipts.txt
+
+      # The committed receipt document the page reads. The builder refuses a
+      # document the page cannot render, and it never invents a receipt: a
+      # run that produced no document leaves the committed file alone, so
+      # the page shows the last measurement rather than an invented one.
+      - name: Build the receipt data file
+        id: data
+        if: steps.receipts.outcome == 'success'
+        run: |
+          set -euo pipefail
+          uv run python scripts/build_receipts_json.py \
+            --from nightly/receipts/receipts.json \
+            --out data/compat/receipts.json
+          if git diff --quiet -- data/compat/receipts.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+            echo "receipt data unchanged"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      # The bot PR carries only data/compat/receipts.json, so master stays
+      # PR-only. The nightly validates the file before opening the PR, the
+      # way the compat snapshot does.
+      - name: The receipt data the PR will carry validates
+        if: steps.data.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          uv run python -c "
+          import json, sys
+          sys.path.insert(0, '.')
+          from scripts.build_receipts_json import validate
+          problems = validate(json.load(open('data/compat/receipts.json')))
+          if problems:
+              print('\n'.join(problems), file=sys.stderr)
+              sys.exit(1)
+          print('receipts.json validates')
+          "
+          uv run pytest -q tests/test_receipts.py -m "not linux_container"
+
+      - name: Open the receipt snapshot PR
+        id: pr
+        if: steps.data.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          DATE="$(date -u +%Y-%m-%d)"
+          branch="bot/receipt-snapshot"
+          git config user.name 'github-actions[bot]'
+          git config user.email 'github-actions[bot]@users.noreply.github.com'
+          git add data/compat/receipts.json
+          git commit -m "ci: nightly target receipts ${DATE}"
+          git push --force origin "HEAD:${branch}"
+          body="$(mktemp)"
+          printf 'Nightly per-target probe receipts for %s.\n\nThis PR carries only `data/compat/receipts.json`, the receipt document `scripts/build_receipts_json.py` built from the nightly harness run. The nightly validated it before opening this PR. The commit is the bot identity, so the owner merges it without review.\n' "${DATE}" > "$body"
+          number="$(gh pr list --repo "$REPO" --head "$branch" --state open \
+            --json number --jq '.[0].number // empty')"
+          if [ -n "$number" ]; then
+            gh pr edit "$number" --repo "$REPO" --body-file "$body" >/dev/null
+          else
+            number="$(gh pr create --repo "$REPO" --head "$branch" --base master \
+              --title "ci: nightly target receipts ${DATE}" --body-file "$body" \
+              | sed -E 's|.*/pull/([0-9]+)$|\1|')"
+          fi
+          echo "number=${number}" >> "$GITHUB_OUTPUT"
+          echo "url=$(gh pr view "$number" --repo "$REPO" --json url --jq '.url')" >> "$GITHUB_OUTPUT"
+
+      - name: The receipt snapshot PR waits for the owner
+        if: steps.pr.outputs.number != ''
+        env:
+          NUMBER: ${{ steps.pr.outputs.number }}
+        run: |
+          set -euo pipefail
+          echo "receipt snapshot PR $NUMBER opened; the nightly validated the data above" >&2
+          echo "and the repo disables auto-merge for bot PRs, so the owner merges it by hand." >&2
+
+      - name: Record outcome
+        if: always()
+        run: |
+          set -euo pipefail
+          mkdir -p nightly
+          printf '{"date":"%s","commit":"%s","outcome":"%s","snapshot_pr":"%s"}\n' \
+            "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$GITHUB_SHA" \
+            "${{ steps.receipts.outcome }}" "${{ steps.pr.outputs.url }}" > nightly/receipts-run.json
+
+      - uses: actions/upload-artifact@v6
+        if: always()
+        with:
+          name: nightly-receipts-${{ github.run_id }}
+          path: nightly/receipts/
+          retention-days: 90
+          if-no-files-found: warn
+
   boxed-ledger:
     name: boxed ledger window
     runs-on: ubuntu-24.04

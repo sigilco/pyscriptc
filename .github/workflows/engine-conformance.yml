@@ -25,6 +25,7 @@ on:
   pull_request:
     branches-ignore:
       - bot/compat-snapshot
+      - bot/receipt-snapshot
 
 permissions:
   contents: read

@@ -50,21 +50,26 @@ class Target:
         return self.system == "wasi"
 
 
+# The reason the riscv64 rows carry. The scope line of issue #469: the
+# riscv64 rows stay exactly what they are today, so the receipt records
+# them as built but not run, with the reason spelled out.
+RISCV_REASON = "compile-only by decision (#469): the riscv64 rows stay exactly what they are today"
+
 # The matrix. The order is the one the smoke script uses, so the two read
 # the same way.
 TARGETS: tuple[Target, ...] = (
     Target("x86_64-linux-gnu", "x86_64-linux-gnu.2.39", "linux", "x86_64"),
     Target("aarch64-linux-gnu", "aarch64-linux-gnu.2.39", "linux", "aarch64"),
-    Target("riscv64-linux-gnu", "riscv64-linux-gnu.2.39", "linux", "riscv64"),
+    Target("riscv64-linux-gnu", "riscv64-linux-gnu.2.39", "linux", "riscv64", "", RISCV_REASON),
     Target("x86_64-linux-musl", "x86_64-linux-musl", "linux", "x86_64"),
-    Target("aarch64-linux-musl", "aarch64-linux-musl", "linux", "aarch64", "qemu-aarch64-static"),
+    Target("aarch64-linux-musl", "aarch64-linux-musl", "linux", "aarch64", "qemu-aarch64"),
     Target(
         "riscv64-linux-musl",
         "riscv64-linux-musl",
         "linux",
         "riscv64",
         "qemu-riscv64-static",
-        "compile-only by decision (#469): the riscv64 rows stay exactly what they are today",
+        RISCV_REASON,
         compile_only_by_decision=True,
     ),
     Target("aarch64-macos", "aarch64-macos", "macos", "aarch64"),

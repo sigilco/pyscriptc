@@ -1,0 +1,51 @@
+{
+  "arch": "wasm32",
+  "built": 0,
+  "matched": 0,
+  "method": "compile-only",
+  "probes": [
+    {
+      "built": false,
+      "detail": "the compiler could not run: [Errno 2] No such file or directory: '/work/.venv/bin/python'",
+      "id": "control_flow",
+      "match": false,
+      "ran": false
+    },
+    {
+      "built": false,
+      "detail": "the compiler could not run: [Errno 2] No such file or directory: '/work/.venv/bin/python'",
+      "id": "float_math",
+      "match": false,
+      "ran": false
+    },
+    {
+      "built": false,
+      "detail": "the compiler could not run: [Errno 2] No such file or directory: '/work/.venv/bin/python'",
+      "id": "int_arith",
+      "match": false,
+      "ran": false
+    },
+    {
+      "built": false,
+      "detail": "the compiler could not run: [Errno 2] No such file or directory: '/work/.venv/bin/python'",
+      "id": "list_dict",
+      "match": false,
+      "ran": false
+    },
+    {
+      "built": false,
+      "detail": "the compiler could not run: [Errno 2] No such file or directory: '/work/.venv/bin/python'",
+      "id": "str_ops",
+      "match": false,
+      "ran": false
+    }
+  ],
+  "ran": 0,
+  "runner": "wasmtime",
+  "skip_reason": "wasmtime is not installed on this host",
+  "system": "wasi",
+  "target": "wasm32-wasi",
+  "toolchain": "0.16.0",
+  "total": 5,
+  "triple": "wasm32-wasi-musl"
+}

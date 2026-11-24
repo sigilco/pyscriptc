@@ -5,8 +5,9 @@
 //   deploy/docs/           the user docs         (docmd output)
 //   deploy/compat/         the compat page       (apps/web dist/compat, base /compat)
 //   deploy/compare/        the compare page      (apps/web dist/compare, base /compare)
+//   deploy/receipts/       the receipts page     (apps/web dist/receipts, base /receipts)
 //   deploy/_headers        response headers      (apps/web/_headers)
-//   deploy/_redirects      /docs, /compat and /compare 308 to their trailing-slash form
+//   deploy/_redirects      /docs, /compat, /compare and /receipts 308 to their trailing-slash form
 //
 // Idempotent: deploy/ is wiped on every run. Every part must exist; there is
 // no fallback build here — the parts are built before this script runs.
@@ -50,6 +51,8 @@ const REQUIRED = [
   "compat/data/what_will_fail.json",
   "compat/data/support.json",
   "compare/index.html",
+  "receipts/index.html",
+  "receipts/data/receipts.json",
 ];
 
 function fail(message: string): never {
@@ -98,7 +101,7 @@ for (const rel of REQUIRED) {
 }
 
 const redirects = readFileSync(join(deploy, "_redirects"), "utf8");
-for (const rule of ["/docs    /docs/    308", "/compat  /compat/  308", "/compare  /compare/  308"]) {
+for (const rule of ["/docs    /docs/    308", "/compat  /compat/  308", "/compare  /compare/  308", "/receipts  /receipts/  308"]) {
   if (!redirects.includes(rule)) problems.push(`missing redirect rule ${rule}`);
 }
 
@@ -151,6 +154,10 @@ function appendLlmsDataSection(): void {
     "support.json": [
       "Evaluated support status for standard library and builtin functions from compile probes",
       "support JSON (version 1)",
+    ],
+    "receipts.json": [
+      "Per-target probe receipts: the probe programs compiled and run on x86_64, aarch64 and wasm32, byte-compared against a pinned CPython 3.14 oracle",
+      "receipts JSON (version 1)",
     ],
   };
 

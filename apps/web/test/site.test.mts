@@ -35,6 +35,8 @@ test("deploy tree carries the three site parts", { skip: !hasDeploy }, () => {
     "compat/data/what_will_fail.json",
     "compat/data/support.json",
     "compare/index.html",
+    "receipts/index.html",
+    "receipts/data/receipts.json",
   ]) {
     assert.ok(existsSync(join(deploy, rel)), `missing ${rel}`);
   }
@@ -45,6 +47,7 @@ test("deploy redirect rules are present", { skip: !hasDeploy }, () => {
   assert.ok(text.includes("/docs    /docs/    308"));
   assert.ok(text.includes("/compat  /compat/  308"));
   assert.ok(text.includes("/compare  /compare/  308"));
+  assert.ok(text.includes("/receipts  /receipts/  308"));
 });
 
 test("theme.css ships next to the docs index (docmd customCss gap)", { skip: !hasDeploy }, () => {
@@ -90,6 +93,25 @@ test("placeholder default is the single site", () => {
   const plugin = readFileSync(join(repoRoot, "docs", ".docmd", "plugins", "placeholders.js"), "utf8");
   assert.ok(plugin.includes("https://pyscriptc.pages.dev/compat"));
   assert.ok(!plugin.includes("pyscriptc-compat.pages.dev"));
+});
+
+test("the receipts page reads the receipt document and claims nothing more", () => {
+  const page = readFileSync(join(repoRoot, "apps", "web", "src", "pages", "receipts", "index.astro"), "utf8");
+  assert.ok(page.includes("data/compat/receipts.json"), "the page reads the receipt file");
+  // The page states the method per target and the compile-only posture.
+  assert.ok(page.includes("METHOD_LABEL"), "the method column is data-driven");
+  assert.ok(page.includes("compile-only"), "the compile-only posture is stated");
+  // Island rows stay out by design and the page says so.
+  assert.ok(page.includes("island"), "the page states the island exclusion");
+  // The riscv64 posture is named, so a reader knows it is a decision.
+  assert.ok(page.includes("riscv64"), "the page names the riscv64 posture");
+});
+
+test("the nightly carries the per-target receipt lane", () => {
+  const workflow = readFileSync(join(repoRoot, ".github", "workflows", "nightly.yml"), "utf8");
+  assert.ok(workflow.includes("benchmarks.receipts.run"), "the nightly runs the receipt harness");
+  assert.ok(workflow.includes("target-receipts:"), "the nightly has a receipt job");
+  assert.ok(workflow.includes("nightly-receipts-"), "the nightly uploads the receipt artifacts");
 });
 
 // -- workflows: the seam that runs these very tests --
