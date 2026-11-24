@@ -806,6 +806,8 @@ class AbiMixin(EmitterBase):
                     # pipe ends, so the values are the record pointers.
                     "Popen",
                     "PopenPipe",
+                    "PopenText",
+                    "PopenPipeText",
                 }
                 or symbol.startswith("ps_ffi_")
                 # boxed:begin

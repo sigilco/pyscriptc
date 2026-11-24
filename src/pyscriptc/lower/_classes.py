@@ -1829,7 +1829,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # code is -1 while the child still runs, where CPython's
             # returncode is None.
             return self._abi_call("asyncio", "Process.returncode", [obj], _leaf_type("int"), "ps_aproc_code_of", span)
-        if class_name == "Popen" and name in {"pid", "returncode", "stdout", "stderr", "stdin"}:
+        if class_name in {"Popen", "PopenText"} and name in {"pid", "returncode", "stdout", "stderr", "stdin"}:
             # The sync child handle's surface (issue #1345): the pid is a
             # read into the record, the return code is the tagged
             # `int | None` (None is the child that still runs, CPython's
@@ -1847,7 +1847,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 "subprocess",
                 f"Popen.{name}",
                 [obj, _const_int_node(stream, span)],
-                _class_type("PopenPipe"),
+                _class_type("PopenPipeText" if class_name == "PopenText" else "PopenPipe"),
                 "ps_popen_pipe",
                 span,
             )

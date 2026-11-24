@@ -787,11 +787,11 @@ def test_popen_spawn_failures_raise_like_cpython(tmp_path: Path) -> None:
                 "        subprocess.Popen(['true'], cwd='/pysc/no/such/dir')",
                 "    except FileNotFoundError as e:",
                 "        print('missing cwd', e)",
-                f"    try:",
+                "    try:",
                 f"        subprocess.Popen(['true'], cwd='{blocker}')",
                 "    except NotADirectoryError as e:",
                 "        print('file cwd', e)",
-                f"    try:",
+                "    try:",
                 f"        subprocess.Popen(['{blocker}'])",
                 "    except PermissionError as e:",
                 "        print('not executable', e)",
@@ -897,8 +897,8 @@ def test_popen_start_new_session_computed_fences(tmp_path: Path) -> None:
     assert "PS2003" in got.stderr, got.stderr
 
 
-def test_popen_shell_and_text_keywords_still_fence(tmp_path: Path) -> None:
-    for keyword in ("shell=True", "text=True"):
+def test_popen_shell_and_encoding_keywords_still_fence(tmp_path: Path) -> None:
+    for keyword in ("shell=True", "encoding='utf-8'"):
         path = _popen_case(
             tmp_path,
             f"popen_{keyword.split('=')[0]}.py",
@@ -907,6 +907,74 @@ def test_popen_shell_and_text_keywords_still_fence(tmp_path: Path) -> None:
         got = compile_run(tmp_path, path, "run")
         assert got.returncode != 0
         assert "PS2003" in got.stderr, got.stderr
+
+
+def test_popen_text_mode_reads_and_writes_str(tmp_path: Path) -> None:
+    # text=True: the pipes speak str. The child echoes a line back with a
+    # CRLF ending (translated to \n) and a non-ASCII character.
+    _oracle(
+        tmp_path,
+        "popen_text.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen[str] = subprocess.Popen(",
+                "        ['sh', '-c', 'read a; printf \"got:%s\\\\r\\\\n\" \"$a\"; echo second; echo tail'],",
+                "        stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True,",
+                "    )",
+                "    print(p.stdin.write('h\u00e9llo\\n'))",
+                "    p.stdin.flush()",
+                "    print(repr(p.stdout.readline()))",
+                "    for line in p.stdout:",
+                "        print(repr(line))",
+                "    p.stdin.close()",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_text_mode_read_all_and_inference(tmp_path: Path) -> None:
+    # The unannotated handle takes its type from `text=True`, and the
+    # read-all answers the whole decoded stream.
+    _oracle(
+        tmp_path,
+        "popen_text_all.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p = subprocess.Popen(['printf', 'a\\\\r\\\\nb\\\\nc'], stdout=subprocess.PIPE, text=True)",
+                "    print(repr(p.stdout.read()))",
+                "    print(p.wait())",
+                "    q = subprocess.Popen(['echo', 'x'], stdout=subprocess.PIPE, universal_newlines=True)",
+                "    print(repr(q.stdout.read()))",
+                "    print(q.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_text_mode_counted_read_fences(tmp_path: Path) -> None:
+    path = _popen_case(
+        tmp_path,
+        "popen_text_count.py",
+        [
+            "p: subprocess.Popen[str] = subprocess.Popen(['echo', 'x'], stdout=subprocess.PIPE, text=True)",
+            "print(p.stdout.read(2))",
+            "print(p.wait())",
+        ],
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0
+    assert "PS2003" in got.stderr, got.stderr
 
 
 def test_popen_computed_wait_timeout_fences(tmp_path: Path) -> None:

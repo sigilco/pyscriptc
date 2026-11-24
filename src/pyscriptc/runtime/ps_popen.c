@@ -42,6 +42,11 @@ so two spellings of `proc.stdout` read the same stream.
 #include <unistd.h>
 #endif
 
+/* ps_sub.c's decoder (UTF-8 strict, the newline translation CPython's
+   text mode applies): the text-mode pipe reads run their bytes through
+   it. */
+void ps_sub_decode(int64_t n, const char *p, int enc, int err, PsBuf *out);
+
 /* The stream selector a pipe handle carries: 0 stdout, 1 stderr,
    2 stdin. */
 #define PS_PIPE_OUT 0
@@ -854,4 +859,35 @@ void ps_pipe_close(void *box) {
     *len = 0;
     *pos = 0;
 #endif
+}
+
+/* The text-mode pipe (issue #1344): `Popen(..., text=True)` and
+   `Popen[str]`. The reads pull the bytes the binary helpers do and
+   decode them as UTF-8, translating `\r\n` and `\r` to `\n` the way
+   CPython's universal newlines do; the write encodes nothing (a str is
+   its UTF-8 bytes) and answers the character count. */
+void ps_pipe_text_read(void *box, PsBuf *out) {
+    PsBuf raw;
+    ps_pipe_read(box, -1, &raw);
+    ps_sub_decode(raw.len, raw.data, 0, 0, out);
+    free(raw.data);
+}
+
+void ps_pipe_text_readline(void *box, PsBuf *out) {
+    PsBuf raw;
+    ps_pipe_out_readline(box, &raw);
+    ps_sub_decode(raw.len, raw.data, 0, 0, out);
+    free(raw.data);
+}
+
+int64_t ps_pipe_text_write(void *box, int64_t n, const char *s) {
+    int64_t chars = 0;
+    int64_t i;
+    (void)ps_pipe_write(box, n, s);
+    for (i = 0; i < n; i++) {
+        if (((unsigned char)s[i] & 0xC0) != 0x80) {
+            chars++;
+        }
+    }
+    return chars;
 }

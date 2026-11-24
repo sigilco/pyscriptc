@@ -1246,7 +1246,15 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "pathlib": ("Path", "Stat"),
     "os": ("Stat", "TerminalSize"),
     "shutil": ("TerminalSize",),
-    "subprocess": ("CompletedProcess", "CompletedProcessText", "TimeoutExpired", "Popen", "PopenPipe"),
+    "subprocess": (
+        "CompletedProcess",
+        "CompletedProcessText",
+        "TimeoutExpired",
+        "Popen",
+        "PopenPipe",
+        "PopenText",
+        "PopenPipeText",
+    ),
     "collections": ("Deque",),
     "hmac": ("Hmac",),
     "hashlib": ("Hash",),
@@ -1344,6 +1352,10 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # The pipe handle (issue #1345) is a runtime pointer too: it carries the
     # child record and the stream selector, so the class has no field.
     "PopenPipe": [],
+    # The text-mode variants (issue #1344): the same records with str
+    # reads and writes, selected by `Popen[str]` or `text=True`.
+    "PopenText": [],
+    "PopenPipeText": [],
     "Hmac": [
         ("_key", _BY),
         ("_msg", _BY),
@@ -1484,7 +1496,7 @@ SERVER_CLASSES: frozenset[str] = frozenset({"Server"})
 # The sync child handle and its pipe handles (issue #1345): the child's
 # pid, the reap state and the pipe ends live in the runtime record, so the
 # class values are pointers.
-POPEN_CLASSES: frozenset[str] = frozenset({"Popen", "PopenPipe"})
+POPEN_CLASSES: frozenset[str] = frozenset({"Popen", "PopenPipe", "PopenText", "PopenPipeText"})
 
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.

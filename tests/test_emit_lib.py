@@ -410,6 +410,9 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_pipe_write",
         "ps_pipe_flush",
         "ps_pipe_close",
+        "ps_pipe_text_read",
+        "ps_pipe_text_readline",
+        "ps_pipe_text_write",
     }
 
 

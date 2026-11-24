@@ -235,11 +235,12 @@ class StmtBMixin:
                 "builtins", "dict.keys", [iterable], {"kind": "list", "elem": key_t}, "ps_dict_keys", span
             )
             kind = "list"
-        if kind == "class" and iterable["type"].get("name") == "PopenPipe":
+        if kind == "class" and iterable["type"].get("name") in {"PopenPipe", "PopenPipeText"}:
             # `for line in proc.stdout` reads a line at a time until the
             # empty result; each line keeps its trailing newline like
             # CPython's pipe iteration (issue #1345).
-            elem = {"kind": "bytes"}
+            text_pipe = iterable["type"].get("name") == "PopenPipeText"
+            elem = {"kind": "str" if text_pipe else "bytes"}
             target = stmt.target.id
             fresh = self._bind_loop_target(target, elem, stmt.target)
             fio = self._temp("pipe")
@@ -252,7 +253,7 @@ class StmtBMixin:
                 "PopenPipe.readline",
                 [_name(fio, iterable["type"], span)],
                 elem,
-                "ps_pipe_out_readline",
+                "ps_pipe_text_readline" if text_pipe else "ps_pipe_out_readline",
                 span,
             )
             out = [

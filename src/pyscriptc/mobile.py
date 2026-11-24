@@ -209,6 +209,9 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     "ps_pipe_write": "subprocess",
     "ps_pipe_flush": "subprocess",
     "ps_pipe_close": "subprocess",
+    "ps_pipe_text_read": "subprocess",
+    "ps_pipe_text_readline": "subprocess",
+    "ps_pipe_text_write": "subprocess",
     # os.system shells out, so its helper lives in the same excluded file
     # (issue #503): an app sandbox has no fork/exec either.
     "ps_os_system": "subprocess",

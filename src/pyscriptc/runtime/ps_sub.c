@@ -467,7 +467,7 @@ static void ps_sub_newlines(PsGrow *g) {
     g->len = w;
 }
 
-static void ps_sub_decode(int64_t n, const char *p, int enc, int err, PsBuf *out) {
+void ps_sub_decode(int64_t n, const char *p, int enc, int err, PsBuf *out) {
     PsGrow g;
     int64_t i = 0;
     ps_grow_init(&g);

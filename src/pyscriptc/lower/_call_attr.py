@@ -430,9 +430,9 @@ class CallAttrMixin:
             return _prim_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "AsyncProcess":
             return _proc_method(self, node, span, receiver)
-        if kind == "class" and receiver["type"]["name"] == "Popen":
+        if kind == "class" and receiver["type"]["name"] in {"Popen", "PopenText"}:
             return _popen_method(self, node, span, receiver)
-        if kind == "class" and receiver["type"]["name"] == "PopenPipe":
+        if kind == "class" and receiver["type"]["name"] in {"PopenPipe", "PopenPipeText"}:
             return _pipe_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Queue":
             return _queue_method(self, node, span, receiver)

@@ -45,8 +45,10 @@ from pyscriptc.restlower._shared import (
 from pyscriptc.restlower._subprocess import _cwd
 
 _POPEN = _class("Popen")
+_POPEN_TEXT = _class("PopenText")
 _PIPE = _class("PopenPipe")
 _BYTES = _t_leaf("bytes")
+_STR = _t_leaf("str")
 
 # The pipe mask bits the runtime ABI carries: bit 0 stdout, bit 1 stderr,
 # bit 2 stdin.
@@ -64,7 +66,7 @@ _HAS_ENV = 16
 # (issue #1344): the working directory, the replacement environment and
 # the new session. Every other Popen keyword (shell=, text=, ...) fences.
 _PIPE_KEYWORDS = {"stdout", "stderr", "stdin"}
-_POPEN_KEYWORDS = _PIPE_KEYWORDS | {"cwd", "env", "start_new_session"}
+_POPEN_KEYWORDS = _PIPE_KEYWORDS | {"cwd", "env", "start_new_session", "text", "universal_newlines"}
 
 # The stream selectors the pipe handle carries.
 _STREAM_OUT = 0
@@ -131,7 +133,30 @@ def _popen_new(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         env = _dict_node(_t_dict(_t_leaf("str"), _t_leaf("str")), span)
     else:
         flags |= _HAS_ENV
-    return lo._abi_call("subprocess", "Popen", [argv, _int(flags, span), cwd, env], _POPEN, "ps_popen_new", span)
+    text = _text_mode(lo, node)
+    return lo._abi_call(
+        "subprocess",
+        "Popen",
+        [argv, _int(flags, span), cwd, env],
+        _POPEN_TEXT if text else _POPEN,
+        "ps_popen_new",
+        span,
+    )
+
+
+def _text_mode(lo: Any, node: ast.Call) -> bool:
+    """`text=True` (or its older spelling `universal_newlines=True`) turns
+    the pipe handles into str streams: the reads decode UTF-8 and
+    translate the newlines, the write encodes. A True or False literal
+    only, since the answer picks the handle's static type."""
+    text = False
+    for keyword in node.keywords:
+        if keyword.arg in {"text", "universal_newlines"}:
+            value = keyword.value
+            if not (isinstance(value, ast.Constant) and isinstance(value.value, bool)):
+                lo.fail(value, "PS2003", f"subprocess.Popen {keyword.arg} takes a True or False literal")
+            text = text or value.value
+    return text
 
 
 def _new_session(lo: Any, node: ast.Call) -> bool:
@@ -305,24 +330,37 @@ def _pipe_method(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[s
     def call(what: str, typ: dict[str, Any], symbol: str, args: list[dict[str, Any]] | None = None) -> dict[str, Any]:
         return lo._abi_call("subprocess", what, [receiver, *(args or [])], typ, symbol, span)
 
+    text = receiver["type"]["name"] == "PopenPipeText"
     if attr == "read":
         lo._reject_keywords(node)
         n = _read_n(lo, node)
+        if text:
+            if n >= 0:
+                # A count is characters in text mode, and a byte read
+                # could split a UTF-8 sequence: only the read-all form.
+                lo.fail(node, "PS2003", "the text pipe read takes no count (read-all only)")
+            return call("PopenPipeText.read", _STR, "ps_pipe_text_read")
         return call("PopenPipe.read", _BYTES, "ps_pipe_read", [_int(n, span)])
     if attr == "readline":
         lo._reject_keywords(node)
         if node.args:
             lo.fail(node, "PS2003", "the pipe readline expects 0 argument(s)")
+        if text:
+            return call("PopenPipeText.readline", _STR, "ps_pipe_text_readline")
         return call("PopenPipe.readline", _BYTES, "ps_pipe_out_readline")
     if attr == "write":
         lo._reject_keywords(node)
         if len(node.args) != 1:
             lo.fail(node, "PS2003", "the pipe write expects 1 argument(s)")
         data = lo._expr(node.args[0])
-        if _node_type_kind(data) != "bytes":
-            lo.fail(node.args[0], "PS1003", "the pipe write takes bytes")
-        # The bytes argument reaches the ABI as its length and its
-        # pointer, so the runtime helper takes the two.
+        want = "str" if text else "bytes"
+        if _node_type_kind(data) != want:
+            lo.fail(node.args[0], "PS1003", f"the pipe write takes {want}")
+        # The argument reaches the ABI as its length and its pointer, so
+        # the runtime helper takes the two. A str writes its UTF-8 bytes
+        # and answers its character count, CPython's text write.
+        if text:
+            return call("PopenPipeText.write", _t_leaf("int"), "ps_pipe_text_write", [data])
         return call("PopenPipe.write", _t_leaf("int"), "ps_pipe_write", [data])
     if attr == "flush":
         lo._reject_keywords(node)
