@@ -1081,6 +1081,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         saved_aliases = dict(self.type_aliases)
         saved_declared = set(self.declared)
         saved_typevars = dict(self.typevars)
+        saved_bounds = dict(self.typevar_bounds)
         try:
             body = self._body(list(stmt.body))
         finally:
@@ -1088,6 +1089,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             self.type_aliases = saved_aliases
             self.declared = saved_declared
             self.typevars = saved_typevars
+            self.typevar_bounds = saved_bounds
         if self.caught:
             return None
         if stmt.name == "__init__":
@@ -1426,7 +1428,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         for param in params:
             for tv in _sig_typevars([param["type"]]):
                 if tv not in mapping:
-                    bound = self.typevars.get(tv)
+                    bound = self._typevar_bound(tv, node)
                     if bound is None:
                         self.fail(node, "PS1003", f"cannot infer {tv} for {name}")
                     mapping[tv] = bound
@@ -1579,17 +1581,38 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             self.fail(stmt, "PS2002", f"{target} is already bound")
         if not call.args or _plain_const_kind(call.args[0]) != "str":
             self.fail(call, "PS2003", "TypeVar needs a str name")
-        bound: dict[str, Any] | None = None
+        # The bound resolves lazily (issue #412): a `bound=P` spelling may
+        # name a class the module declares below the TypeVar, so holding the
+        # annotation node and lowering it on first read lets the class
+        # collection that runs before the signature pass fill the table.
+        bound_node: ast.expr | None = None
         for kw in call.keywords:
             if kw.arg == "bound":
-                typ = self._annotation(kw.value)
-                bound = typ if _type_kind(typ) != "typevar" else None
+                bound_node = kw.value
             elif kw.arg in {"covariant", "contravariant", "infer_variance"}:
                 continue
             else:
                 self.fail(kw.value, "PS2003", f"TypeVar keyword {kw.arg} is not lowered")
-        self.typevars[target] = bound
+        self.typevars[target] = None
+        self.typevar_bounds[target] = bound_node
         self.declared.add(target)
+
+    def _typevar_bound(self, tv: str, node: ast.AST) -> dict[str, Any] | None:
+        """The bound type of `tv`, resolved once per module pass.
+
+        The first read lowers the stored annotation node (a class named
+        after the TypeVar resolves then); the resolved type is cached on
+        `typevars[tv]`, the shape every reader already consults."""
+        bound = self.typevars.get(tv)
+        if bound is not None:
+            return bound
+        bound_node = self.typevar_bounds.get(tv)
+        if bound_node is None:
+            return None
+        typ = self._annotation(bound_node)
+        bound = typ if _type_kind(typ) != "typevar" else None
+        self.typevars[tv] = bound
+        return bound
 
     def _is_generic_name(self, node: ast.expr) -> bool:
         if isinstance(node, ast.Name):
@@ -1622,7 +1645,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         for tv, typ in zip(tvars, arg_types, strict=True):
             if _type_kind(typ) == "none":
                 self.fail(node, "PS1003", f"cannot instantiate {base} with none")
-            bound = self.typevars.get(tv)
+            bound = self._typevar_bound(tv, node)
             if bound is not None and not types_equal(typ, bound):
                 self.fail(node, "PS1003", f"{_show(typ)} is outside the bound {_show(bound)} of {tv}")
             mapping[tv] = typ
