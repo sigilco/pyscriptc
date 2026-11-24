@@ -1083,7 +1083,7 @@ class Lowerer(
                 self._boxed_module_fences.append(fence)
                 return
             # boxed:end
-            self._install_class_export(local, item, stmt, fences)
+            self._install_class_export(local, item, stmt, fences, module)
             return
         if _record_kind(item) == "module":
             # A module re-exported by the package (`from . import core` in

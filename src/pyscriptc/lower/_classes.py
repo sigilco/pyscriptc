@@ -301,7 +301,14 @@ _REFUSED_HOOKS: dict[str, str] = {
 
 
 class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
-    def _install_class_export(self, local: str, item: dict[str, Any], stmt: ast.AST, fences: list[Fence]) -> None:
+    def _install_class_export(
+        self,
+        local: str,
+        item: dict[str, Any],
+        stmt: ast.AST,
+        fences: list[Fence],
+        module: str | None = None,
+    ) -> None:
         name = str(item["name"])
         if name in self.classes and not self.classes[name].get("imported"):
             fences.append(Fence("PS2002", f"{local} is already bound", span_of(stmt, self.filename), None))
@@ -314,6 +321,36 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self.known_classes.add(name)
         self.declared.add(local)
         self.declared.add(name)
+        if module is not None:
+            self._install_frame_exports(module, info, stmt, fences)
+
+    def _install_frame_exports(self, module: str, info: dict[str, Any], stmt: ast.AST, fences: list[Fence]) -> None:
+        """Install the frame classes a resumable method's outward type names.
+
+        A generator method returns its frame class (`gen.C.m`), so a
+        consumer that calls the method but never names the frame still has
+        to type the loop local and dispatch `__iter__`/`__next__` on it. The
+        frame class rides the export table next to the owner class (the
+        defining module emits it), and the consumer installs it here, the
+        way `_install_return_class` does for a generator function's frame
+        (issue #441).
+        """
+        methods = info.get("methods")
+        if not isinstance(methods, dict):
+            return
+        for _mname, sig in methods.items():
+            if not isinstance(sig, (list, tuple)) or len(sig) != 2:
+                continue
+            ret = sig[1]
+            if not isinstance(ret, dict) or ret.get("kind") != "class":
+                continue
+            frame = str(ret.get("name", ""))
+            if not frame.startswith(("gen.", "cm.")) or frame in self.classes:
+                continue
+            item = self._export_lookup(module, frame)
+            if item is None or item.get("kind") != "class" or item.get("island"):
+                continue
+            self._install_class_export(frame, item, stmt, fences, module)
 
     def _install_synthetics(self, class_nodes: list[ast.ClassDef], fences: list[Fence]) -> None:
         self.synthetics.update(ALWAYS_CLASSES)

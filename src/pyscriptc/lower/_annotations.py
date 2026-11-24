@@ -706,7 +706,7 @@ class AnnotationMixin:
             # boxed:end
         name = str(item["name"])
         pending: list[Fence] = []
-        self._install_class_export(member, item, node, pending)
+        self._install_class_export(member, item, node, pending, module)
         if pending:
             raise pending[0]
         return _type({"kind": "class", "name": name})

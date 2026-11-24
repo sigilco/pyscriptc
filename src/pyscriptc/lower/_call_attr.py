@@ -243,7 +243,7 @@ class CallAttrMixin:
                     # here the way `_bind_one_export` does for the named form.
                     name = str(item["name"])
                     pending: list[Fence] = []
-                    self._install_class_export(name, item, node, pending)
+                    self._install_class_export(name, item, node, pending, module)
                     if pending:
                         raise pending[0]
                     return self._construct(node, span, name)
