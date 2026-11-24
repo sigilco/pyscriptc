@@ -309,13 +309,7 @@ def test_the_call_form_is_not_a_spelling() -> None:
 def test_a_call_of_the_member_keeps_the_fence() -> None:
     # `cached_property` lowers as a decorator only: a call of it has no
     # meaning in the subset.
-    fences = _fences(
-        "from functools import cached_property\n"
-        "\n"
-        "\n"
-        "def go() -> None:\n"
-        "    cached_property(go)\n"
-    )
+    fences = _fences("from functools import cached_property\n\n\ndef go() -> None:\n    cached_property(go)\n")
     assert any(fence["code"] == "PS2001" for fence in fences), fences
 
 
