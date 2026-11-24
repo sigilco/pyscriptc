@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-23",
-  "commit": "afe85d10c19e693f956b6e73ae8406d727574d30",
+  "generated": "2026-11-24",
+  "commit": "e40815fb22d6533ff7c7725bb2d1e8b5c457362c",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -548,7 +548,7 @@
       "label": "`subprocess`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "getoutput, the Popen environment keywords (issue #1344), Popen.communicate",
+      "missing": "getoutput, Popen shell=, Popen.communicate",
       "codes": [
         "PS2001",
         "PS2003"

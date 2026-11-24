@@ -598,10 +598,12 @@ ROWS: list[dict[str, Any]] = [
         "the subprocess.Popen child handle (issue #1345): the spawn, the pid, the poll, the bounded wait with "
         "its TimeoutExpired, the signals and the incremental pipe reads are byte-identical to the pinned "
         "CPython; a stream that was not piped answers a handle whose read raises ValueError where CPython "
-        "answers None, and the communicate call, the spawn environment keywords and the computed bounds fence",
+        "answers None, and the communicate call, shell=, a counted text-mode read and the computed bounds fence; "
+        "the spawn environment (env=, cwd=, start_new_session=, text=, issue #1344) is byte-identical",
         None,
         docs=f"{DOC}#93",
-        note="the host lane is byte-identical (probes/differential/subprocess_popen.py); the unpiped-stream "
+        note="the host lane is byte-identical (probes/differential/subprocess_popen.py and "
+        "probes/differential/subprocess_popen_env.py); the unpiped-stream "
         "read, the communicate fence (PS2001) and the literal-bound fences (PS2003) are the rest of the entry",
     ),
     _row(
