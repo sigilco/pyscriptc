@@ -189,6 +189,10 @@ class CallsMixin(EmitterBase):
                 # the `_abi_call` shape: the `_math_*` declares carry i64
                 # params, not doubles.
                 return self._emit_math_int(symbol, values)
+            if symbol == "ps_math_fma":
+                self._abi_decl(symbol, "double", ["double"] * len(values))
+                self.needed.add("math")
+                return self._call_ret("double", symbol, [f"double {value}" for value in values])
             if symbol == "ps_path_join":
                 return self._emit_join(values)
             if symbol in {"ps_deque_append", "ps_deque_appendleft"}:

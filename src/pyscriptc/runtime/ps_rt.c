@@ -8,6 +8,8 @@ frame is still live if the body raises. Arithmetic overflow stays an LLVM trap.
 #include "ps_rt.h"
 #include "ps_case.c"
 
+#include <float.h>
+#include <limits.h>
 #include <math.h>
 #include <errno.h>
 #include <setjmp.h>
@@ -3635,4 +3637,303 @@ int64_t ps_bisect_right(PsSeq *s, int64_t key) {
         }
     }
     return lo;
+}
+
+/* The issue #493 math tail. The scalar rows keep CPython 3.14's edge
+   behavior from Modules/mathmodule.c; dist and sumprod take the two list
+   arguments the lowerer passes as PsSeq pointers. */
+
+double ps_math_ulp(double x) {
+    if (isnan(x)) {
+        return x;
+    }
+    x = fabs(x);
+    if (isinf(x)) {
+        return x;
+    }
+    double x2 = nextafter(x, INFINITY);
+    if (isinf(x2)) {
+        x2 = nextafter(x, -INFINITY);
+        return x - x2;
+    }
+    return x2 - x;
+}
+
+double ps_math_nextafter(double x, double y) { return nextafter(x, y); }
+
+double ps_math_modf_first(double x) {
+    if (isinf(x) || isnan(x)) {
+        return isnan(x) ? x : copysign(0.0, x);
+    }
+    double whole;
+    return modf(x, &whole);
+}
+
+double ps_math_modf_second(double x) {
+    if (isinf(x) || isnan(x)) {
+        return x;
+    }
+    double whole;
+    (void)modf(x, &whole);
+    return whole;
+}
+
+double ps_math_frexp_first(double x) {
+    if (!isfinite(x) || x == 0.0) {
+        return x;
+    }
+    int e;
+    return frexp(x, &e);
+}
+
+int64_t ps_math_frexp_second(double x) {
+    if (!isfinite(x) || x == 0.0) {
+        return 0;
+    }
+    int e;
+    (void)frexp(x, &e);
+    return e;
+}
+
+double ps_math_ldexp(double x, int64_t exp) {
+    if (x == 0.0 || !isfinite(x)) {
+        return x;
+    }
+    if (exp > INT_MAX) {
+        ps_raise_cstr(PS_OVERFLOW, "math range error");
+    }
+    if (exp < INT_MIN) {
+        return copysign(0.0, x);
+    }
+    double r = ldexp(x, (int)exp);
+    if (isinf(r)) {
+        ps_raise_cstr(PS_OVERFLOW, "math range error");
+    }
+    return r;
+}
+
+double ps_math_expm1(double x) {
+    if (isnan(x)) {
+        return x;
+    }
+    double r = expm1(x);
+    if (isinf(r)) {
+        ps_raise_cstr(PS_OVERFLOW, "math range error");
+    }
+    return r;
+}
+
+double ps_math_log1p(double x) {
+    if (isnan(x)) {
+        return x;
+    }
+    if (x <= -1.0) {
+        ps_raise_cstr(PS_VALUE, "math domain error");
+    }
+    double r = log1p(x);
+    if (isnan(r)) {
+        ps_raise_cstr(PS_VALUE, "math domain error");
+    }
+    return r;
+}
+
+double ps_math_fma(double x, double y, double z) {
+    double r = fma(x, y, z);
+    if (isnan(r) && !isnan(x) && !isnan(y) && !isnan(z)) {
+        ps_raise_cstr(PS_VALUE, "invalid operation in fma");
+    }
+    if (isinf(r) && isfinite(x) && isfinite(y) && isfinite(z)) {
+        ps_raise_cstr(PS_OVERFLOW, "overflow in fma");
+    }
+    return r;
+}
+
+/* The extended-precision pieces CPython's math.dist and math.sumprod use.
+   DoubleLength and TripleLength follow the Ogita/Rump/Oishi algorithms in
+   Modules/mathmodule.c; dl_mul relies on the C99 fma contract. */
+
+typedef struct {
+    double hi;
+    double lo;
+} PsDoubleLength;
+
+typedef struct {
+    double hi;
+    double lo;
+    double tiny;
+} PsTripleLength;
+
+static PsDoubleLength ps_dl_fast_sum(double a, double b) {
+    double x = a + b;
+    double y = (a - x) + b;
+    return (PsDoubleLength){x, y};
+}
+
+static PsDoubleLength ps_dl_sum(double a, double b) {
+    double x = a + b;
+    double z = x - a;
+    double y = (a - (x - z)) + (b - z);
+    return (PsDoubleLength){x, y};
+}
+
+static PsDoubleLength ps_dl_mul(double x, double y) {
+    double z = x * y;
+    double zz = fma(x, y, -z);
+    return (PsDoubleLength){z, zz};
+}
+
+static PsTripleLength ps_tl_fma(double x, double y, PsTripleLength total) {
+    PsDoubleLength pr = ps_dl_mul(x, y);
+    PsDoubleLength sm = ps_dl_sum(total.hi, pr.hi);
+    PsDoubleLength r1 = ps_dl_sum(total.lo, pr.lo);
+    PsDoubleLength r2 = ps_dl_sum(r1.hi, sm.lo);
+    return (PsTripleLength){sm.hi, r2.hi, total.tiny + r1.lo + r2.lo};
+}
+
+static double ps_tl_to_d(PsTripleLength total) {
+    PsDoubleLength last = ps_dl_sum(total.lo, total.hi);
+    return total.tiny + last.lo + last.hi;
+}
+
+static double ps_vector_norm(int64_t n, double *vec, double max, int found_nan) {
+    if (isinf(max)) {
+        return max;
+    }
+    if (found_nan) {
+        return NAN;
+    }
+    if (max == 0.0 || n <= 1) {
+        return max;
+    }
+    int max_e;
+    (void)frexp(max, &max_e);
+    if (max_e < -1023) {
+        for (int64_t i = 0; i < n; i++) {
+            vec[i] /= DBL_MIN;
+        }
+        return DBL_MIN * ps_vector_norm(n, vec, max / DBL_MIN, found_nan);
+    }
+    double scale = ldexp(1.0, -max_e);
+    double csum = 1.0;
+    double frac1 = 0.0;
+    double frac2 = 0.0;
+    for (int64_t i = 0; i < n; i++) {
+        double x = vec[i] * scale;
+        PsDoubleLength pr = ps_dl_mul(x, x);
+        PsDoubleLength sm = ps_dl_fast_sum(csum, pr.hi);
+        csum = sm.hi;
+        frac1 += pr.lo;
+        frac2 += sm.lo;
+    }
+    double h = sqrt(csum - 1.0 + (frac1 + frac2));
+    PsDoubleLength pr = ps_dl_mul(-h, h);
+    PsDoubleLength sm = ps_dl_fast_sum(csum, pr.hi);
+    csum = sm.hi;
+    frac1 += pr.lo;
+    frac2 += sm.lo;
+    double x = csum - 1.0 + (frac1 + frac2);
+    h += x / (2.0 * h);
+    return h / scale;
+}
+
+static void ps_seq_f64_at(PsSeq *s, int64_t index, double *out) {
+    memcpy(out, (char *)s->data + (size_t)index * (size_t)s->elem, sizeof *out);
+}
+
+double ps_math_dist_f64(PsSeq *p, PsSeq *q) {
+    int64_t n = ps_seq_len(p);
+    if (n != ps_seq_len(q)) {
+        ps_raise_cstr(PS_VALUE, "both points must have the same number of dimensions");
+    }
+    if (n == 0) {
+        return 0.0;
+    }
+    double *diffs = (double *)malloc((size_t)n * sizeof(double));
+    if (diffs == NULL) {
+        abort();
+    }
+    double max = 0.0;
+    int found_nan = 0;
+    for (int64_t i = 0; i < n; i++) {
+        double px;
+        double qx;
+        ps_seq_f64_at(p, i, &px);
+        ps_seq_f64_at(q, i, &qx);
+        double x = fabs(px - qx);
+        diffs[i] = x;
+        found_nan |= (int)isnan(x);
+        if (x > max) {
+            max = x;
+        }
+    }
+    double result = ps_vector_norm(n, diffs, max, found_nan);
+    free(diffs);
+    return result;
+}
+
+double ps_math_dist_i64(PsSeq *p, PsSeq *q) {
+    int64_t n = ps_seq_len(p);
+    if (n != ps_seq_len(q)) {
+        ps_raise_cstr(PS_VALUE, "both points must have the same number of dimensions");
+    }
+    if (n == 0) {
+        return 0.0;
+    }
+    double *diffs = (double *)malloc((size_t)n * sizeof(double));
+    if (diffs == NULL) {
+        abort();
+    }
+    double max = 0.0;
+    int found_nan = 0;
+    for (int64_t i = 0; i < n; i++) {
+        int64_t px;
+        int64_t qx;
+        memcpy(&px, (char *)p->data + (size_t)i * (size_t)p->elem, sizeof px);
+        memcpy(&qx, (char *)q->data + (size_t)i * (size_t)q->elem, sizeof qx);
+        double x = fabs((double)px - (double)qx);
+        diffs[i] = x;
+        if (x > max) {
+            max = x;
+        }
+    }
+    double result = ps_vector_norm(n, diffs, max, found_nan);
+    free(diffs);
+    return result;
+}
+
+int64_t ps_math_sumprod_i64(PsSeq *p, PsSeq *q) {
+    int64_t n = ps_seq_len(p);
+    if (n != ps_seq_len(q)) {
+        ps_raise_cstr(PS_VALUE, "Inputs are not the same length");
+    }
+    int64_t total = 0;
+    for (int64_t i = 0; i < n; i++) {
+        int64_t pi;
+        int64_t qi;
+        memcpy(&pi, (char *)p->data + (size_t)i * (size_t)p->elem, sizeof pi);
+        memcpy(&qi, (char *)q->data + (size_t)i * (size_t)q->elem, sizeof qi);
+        int64_t prod;
+        int64_t step;
+        if (__builtin_mul_overflow(pi, qi, &prod) || __builtin_add_overflow(total, prod, &step)) {
+            ps_raise_cstr(PS_OVERFLOW, "Python int too large to convert to C long");
+        }
+        total = step;
+    }
+    return total;
+}
+
+double ps_math_sumprod_f64(PsSeq *p, PsSeq *q) {
+    int64_t n = ps_seq_len(p);
+    if (n != ps_seq_len(q)) {
+        ps_raise_cstr(PS_VALUE, "Inputs are not the same length");
+    }
+    PsTripleLength total = {0.0, 0.0, 0.0};
+    for (int64_t i = 0; i < n; i++) {
+        double pi;
+        double qi;
+        ps_seq_f64_at(p, i, &pi);
+        ps_seq_f64_at(q, i, &qi);
+        total = ps_tl_fma(pi, qi, total);
+    }
+    return ps_tl_to_d(total);
 }

@@ -84,3 +84,12 @@ def test_wordcount_program_directory_matches_cpython(tmp_path: Path) -> None:
     expected = subprocess.run([sys.executable, "__main__.py"], cwd=source, capture_output=True, text=True, check=True)
     assert got.stdout == expected.stdout
     assert got.stdout == "three 3\n"
+
+
+def test_log_pipeline(tmp_path: Path) -> None:
+    csv_file = EXAMPLES / "access_logs.csv"
+    args = repr([str(csv_file)])
+    got = _run(tmp_path, "log_pipeline.py", "pipeline", args)
+    assert '"total_records": 4000' in got
+    assert '"status_classes":' in got
+    assert '"latencies":' in got

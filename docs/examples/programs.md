@@ -5,7 +5,7 @@ description: Programs in the repository that compile today, with the value each 
 
 # Example programs
 
-The programs below, from [`examples/`](https://github.com/sigilco/pyscriptc/tree/master/examples), are an invoice, an access-log gate, a log token, a release note, a record digest, a URL allow-list, a route label, and a hostname lookup. Each one compiles, and the printed value matches CPython.
+The programs below, from [`examples/`](https://github.com/sigilco/pyscriptc/tree/master/examples), are an invoice, an access-log gate, a log token, a release note, a record digest, a URL allow-list, a route label, a hostname lookup, and a log pipeline. Each one compiles, and the printed value matches CPython.
 
 `--args` passes `int`, `float`, `bool`, and `str`. Lists and bytes are built inside the function.
 
@@ -109,3 +109,20 @@ uv run pyscriptc compile examples/wordcount --run -o /tmp/wordcount
 ```
 
 It prints `three 3`, the word that appears most often in the sentence and how often it appears.
+
+## Log pipeline
+
+`examples/log_pipeline.py` reads a CSV of access logs (`timestamp,method,path,status,bytes,latency_ms`), aggregates by status class and by path, computes percentile latencies, and writes a JSON report. It needs no package outside the standard library: `csv`, `json`, `dataclasses`, `dict`, `list` and `float`.
+
+```bash
+uv run pyscriptc compile examples/log_pipeline.py --run --call pipeline \
+  --args '["examples/access_logs.csv"]' -o /tmp/pipeline
+```
+
+The fixture `examples/access_logs.csv` holds 4000 rows. The run prints the report, which is byte-identical to the one CPython prints:
+
+```text
+{"total_records": 4000, "total_bytes": 65566670, "status_classes": {"2xx": 1579, "3xx": 529, "4xx": 1079, "5xx": 813}, "paths": {"/api/v1/checkout": 424, ...}, "latencies": {"p50": 125.23, "p90": 221.89, "p95": 236.96, "p99": 247.11}}
+```
+
+Pass a second path in `--args` to write the report to a file as well. The same function is the `pipeline` workload of `benchmarks/baseline`, which carries the speed and memory numbers into the nightly gate.

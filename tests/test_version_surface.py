@@ -15,11 +15,11 @@ def test_report_is_stable_across_runs() -> None:
     report = json.loads(first)
     # The ndarray demo (#496) is the 30th example and has no `__main__`
     # guard, so it counts as a module, not a script.
-    assert report["scan"]["examples"]["files"] == 30
-    assert report["scan"]["examples"]["scripts"] == 5
+    assert report["scan"]["examples"]["files"] == 31
+    assert report["scan"]["examples"]["scripts"] == 6
     assert report["scan"]["examples"]["modules"] == 25
     assert report["scan"]["corpus_scripts"]["files"] == 20
-    assert report["scan"]["total_files"] == 50
+    assert report["scan"]["total_files"] == 51
     assert report["versions"] == ["3.10", "3.11", "3.12", "3.13", "3.14"]
 
 

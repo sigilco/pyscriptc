@@ -1344,6 +1344,26 @@
       "status": "unprobed"
     },
     {
+      "id": "D91",
+      "seam": "math.sumprod over int sequences is i64 (divergence 1): a result past the i64 range raises OverflowError where CPython grows a big int",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#91",
+      "probe": "probes/divergences/d91_math_sumprod_int_overflow.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "11\n9223372036854775808\nValueError\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "11\nOverflowError\nValueError\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "D80",
       "seam": "the http.server handler subset (issue #1270): the loopback request is byte-identical; headers.get answers the empty string where CPython answers None, the handler instance persists across the requests of one serve call where CPython builds one per request, and the runtime answers no log_message",
       "listed": true,

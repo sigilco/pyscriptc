@@ -89,6 +89,30 @@ PROBES: list[Probe] = [
     _p("math", "fmod", "math", "print(math.fmod(7.5, 2.0))"),
     _p("math", "factorial", "math", "print(math.factorial(10))"),
     _p("math", "lcm", "math", "print(math.lcm(4, 6))"),
+    _p("math", "ulp", "math", "print(math.ulp(1.0))"),
+    _p("math", "nextafter", "math", "print(math.nextafter(1.0, 2.0))"),
+    _p("math", "modf", "math", "print(math.modf(1.75))"),
+    _p("math", "frexp", "math", "print(math.frexp(8.0))"),
+    _p("math", "ldexp", "math", "print(math.ldexp(1.5, 4))"),
+    _p("math", "expm1", "math", "print(math.expm1(0.5))"),
+    _p("math", "log1p", "math", "print(math.log1p(0.5))"),
+    _p("math", "fma", "math", "print(math.fma(1.0, 2.0, 3.0))"),
+    _p(
+        "math",
+        "dist",
+        "math",
+        "xs_dist: list[float] = [1.0, 2.0]",
+        "ys_dist: list[float] = [4.0, 6.0]",
+        "print(math.dist(xs_dist, ys_dist))",
+    ),
+    _p(
+        "math",
+        "sumprod",
+        "math",
+        "xs_sum: list[float] = [1.0, 2.0]",
+        "ys_sum: list[float] = [3.0, 4.0]",
+        "print(math.sumprod(xs_sum, ys_sum))",
+    ),
     _p("math", "comb", "math", "print(math.comb(5, 2))"),
     _p("math", "perm", "math", "print(math.perm(5, 2))"),
     _p("math", "isqrt", "math", "print(math.isqrt(17))"),
@@ -575,8 +599,17 @@ GROUP_SETUP: dict[str, tuple[str, ...]] = {
 }
 
 
+# The #493 tail lowers through the lowerer's call-site dispatch rather than
+# the fixed-signature table: modf and frexp return tuples, and dist and
+# sumprod take int-or-float lists.
+MATH_REST: frozenset[str] = frozenset(
+    {"ulp", "nextafter", "modf", "frexp", "ldexp", "expm1", "log1p", "fma", "dist", "sumprod"}
+)
+
+
 def _inventory() -> set[tuple[str, str]]:
     rows: set[tuple[str, str]] = {("math", member) for member in MATH_FUNCTIONS}
+    rows.update(("math", member) for member in MATH_REST)
     for module, members in WAVE_FUNCTIONS.items():
         rows.update((module, member) for member in members)
     for module, members in REST_FIXED.items():
@@ -593,8 +626,8 @@ def test_every_table_row_has_a_probe() -> None:
     extra = sorted(probed - inventory)
     assert not missing, f"call-table rows without a differential probe: {missing}"
     assert not extra, f"probes without a call-table row: {extra}"
-    assert len(inventory) == 188
-    assert len(PROBES) == 188
+    assert len(inventory) == 198
+    assert len(PROBES) == 198
 
 
 def _group_source(group: str) -> str:

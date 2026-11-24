@@ -576,6 +576,13 @@ ROWS: list[dict[str, Any]] = [
         "return_exceptions fence and the one-result-type rule (PS2002) are the rest of the entry",
     ),
     _row(
+        "D91",
+        "math.sumprod over int sequences is i64 (divergence 1): a result past the i64 range raises "
+        "OverflowError where CPython grows a big int",
+        "d91_math_sumprod_int_overflow.py",
+        docs=f"{DOC}#91",
+    ),
+    _row(
         "D80",
         "the http.server handler subset (issue #1270): the loopback request is byte-identical; headers.get "
         "answers the empty string where CPython answers None, the handler instance persists across the "

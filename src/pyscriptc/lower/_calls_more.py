@@ -64,6 +64,99 @@ class CallsMoreMixin:
             return args[0]
         return _mod_call("math", attr, args, spec["return"], span)
 
+    def _math_fenced(self, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
+        """The deliberately fenced tail: named for the issue (#493) row."""
+        self.fail(node, "PS2001", f"math.{attr} is not in the lowered subset of math")
+
+    def _math_rest_call(self, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
+        """The #493 tail: the float helpers and the two-sequence rows."""
+        if attr == "dist":
+            return self._math_two_seq(node, span, attr, _t_leaf("float"), f"ps_math_{attr}")
+        if attr == "sumprod":
+            return self._math_sumprod(node, span)
+        if attr in {"modf", "frexp"}:
+            return self._math_pair_call(node, span, attr)
+        if attr in {"ulp", "expm1", "log1p"}:
+            if len(node.args) != 1:
+                self.fail(node, "PS2003", f"math.{attr} expects 1 argument(s)")
+            first = self._expr(node.args[0])
+            if _node_type_kind(first) == "int":
+                first = node_to_dict(_ir.cast("int_to_float", dict_to_node(first), _ir.t_leaf("float"), _mk_span(span)))
+            if _node_type_kind(first) != "float":
+                self.fail(node, "PS1003", f"math.{attr} argument is {_show(first['type'])}, expected float")
+            return self._abi_call("math", attr, [first], _t_leaf("float"), f"ps_math_{attr}", span)
+        want_n = 3 if attr == "fma" else 2
+        if len(node.args) != want_n:
+            self.fail(node, "PS2003", f"math.{attr} expects {want_n} argument(s)")
+        first = self._expr(node.args[0])
+        if _node_type_kind(first) == "int":
+            first = node_to_dict(_ir.cast("int_to_float", dict_to_node(first), _ir.t_leaf("float"), _mk_span(span)))
+        if _node_type_kind(first) != "float":
+            self.fail(node, "PS1003", f"math.{attr} argument is {_show(first['type'])}, expected float")
+        if attr == "ldexp":
+            second = self._expr(node.args[1])
+            if _node_type_kind(second) != "int":
+                self.fail(node, "PS1003", f"math.ldexp argument is {_show(second['type'])}, expected int")
+            return self._abi_call("math", "ldexp", [first, second], _t_leaf("float"), "ps_math_ldexp", span)
+        rest = [first]
+        for arg_node in node.args[1:]:
+            arg = self._expr(arg_node)
+            if _node_type_kind(arg) == "int":
+                arg = node_to_dict(_ir.cast("int_to_float", dict_to_node(arg), _ir.t_leaf("float"), _mk_span(span)))
+            if _node_type_kind(arg) != "float":
+                self.fail(node, "PS1003", f"math.{attr} argument is {_show(arg['type'])}, expected float")
+            rest.append(arg)
+        return self._abi_call("math", attr, rest, _t_leaf("float"), f"ps_math_{attr}", span)
+
+    def _math_pair_call(self, node: ast.Call, span: dict[str, Any], attr: str) -> dict[str, Any]:
+        """`modf`/`frexp`: two scalar runtime halves materialized as a tuple."""
+        if len(node.args) != 1:
+            self.fail(node, "PS2003", f"math.{attr} expects 1 argument(s)")
+        arg = self._expr(node.args[0])
+        if _node_type_kind(arg) == "int":
+            arg = node_to_dict(_ir.cast("int_to_float", dict_to_node(arg), _ir.t_leaf("float"), _mk_span(span)))
+        if _node_type_kind(arg) != "float":
+            self.fail(node, "PS1003", f"math.{attr} argument is {_show(arg['type'])}, expected float")
+        first = self._abi_call("math", f"{attr}.first", [arg], _t_leaf("float"), f"ps_math_{attr}_first", span)
+        second_kind = "int" if attr == "frexp" else "float"
+        second = self._abi_call("math", f"{attr}.second", [arg], _t_leaf(second_kind), f"ps_math_{attr}_second", span)
+        return self._materialize_tuple([first, second], span, node)
+
+    def _math_two_seq(
+        self, node: ast.Call, span: dict[str, Any], attr: str, ret: dict[str, Any], symbol: str
+    ) -> dict[str, Any]:
+        args = []
+        kinds = []
+        for arg_node in node.args:
+            arg = self._expr(arg_node)
+            typ = _node_type(arg)
+            if _type_kind(typ) != "list" or _type_kind(typ.get("elem", {})) not in {"int", "float"}:
+                self.fail(node, "PS2003", f"math.{attr} takes lists of int or float")
+            args.append(arg)
+            kinds.append(_type_kind(typ["elem"]))
+        if kinds[0] != kinds[1]:
+            self.fail(node, "PS2003", f"math.{attr} takes two lists of the same element kind")
+        return self._abi_call("math", attr, args, ret, f"{symbol}_i64" if kinds[0] == "int" else f"{symbol}_f64", span)
+
+    def _math_sumprod(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
+        """`sumprod(p, q)`: extended precision, int path preserved (i64)."""
+        if len(node.args) != 2:
+            self.fail(node, "PS2003", "math.sumprod expects 2 argument(s)")
+        args = []
+        kinds = []
+        for arg_node in node.args:
+            arg = self._expr(arg_node)
+            typ = _node_type(arg)
+            if _type_kind(typ) != "list" or _type_kind(typ.get("elem", {})) not in {"int", "float"}:
+                self.fail(node, "PS2003", "math.sumprod takes lists of int or float")
+            args.append(arg)
+            kinds.append(_type_kind(typ["elem"]))
+        if kinds[0] != kinds[1]:
+            self.fail(node, "PS2003", "math.sumprod takes two lists of the same element kind")
+        if kinds[0] == "int":
+            return self._abi_call("math", "sumprod", args, _t_leaf("int"), "ps_math_sumprod_i64", span)
+        return self._abi_call("math", "sumprod", args, _t_leaf("float"), "ps_math_sumprod_f64", span)
+
     def _math_log_call(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
         """`log(x)` and `log(x, base)`: the base form divides the two logs.
 

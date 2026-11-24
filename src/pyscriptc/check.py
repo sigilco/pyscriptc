@@ -47,6 +47,7 @@ from pathlib import Path
 from typing import Any
 
 from pyscriptc.errors import CheckFailed
+from pyscriptc.target import TARGET_VERSION_INFO
 
 
 def plugin(version: str) -> type:
@@ -696,6 +697,8 @@ def _run_pyrefly(
                     "check",
                     "-c",
                     str(config),
+                    "--python-version",
+                    f"{TARGET_VERSION_INFO[0]}.{TARGET_VERSION_INFO[1]}",
                     "--python-interpreter-path",
                     _active_interpreter(),
                     "--output-format",
@@ -814,7 +817,7 @@ def _run_pyright(
                     *argv,
                     "--outputjson",
                     "--pythonversion",
-                    "3.13",
+                    f"{TARGET_VERSION_INFO[0]}.{TARGET_VERSION_INFO[1]}",
                     "--project",
                     tmp,
                     str(source),

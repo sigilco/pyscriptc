@@ -172,6 +172,78 @@ def test_math_factorial_lcm(tmp_path: Path) -> None:
     )
 
 
+def test_math_issue_493_tail_scalars(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "tail_scalars.py",
+        [
+            "print(math.ulp(0.0), math.ulp(1.0), math.ulp(-1.0), math.ulp(math.inf))",
+            "print(math.ulp(1e308), math.ulp(2.0 ** -52), math.ulp(3))",
+            "print(math.nextafter(1.0, 2.0), math.nextafter(1.0, -2.0), math.nextafter(0.0, 1.0))",
+            "print(math.nextafter(math.inf, 0.0), math.nextafter(math.nan, 1.0), math.nextafter(1, 0.0))",
+            "print(math.modf(3.75), math.modf(-3.75), math.modf(0.0), math.modf(-0.0))",
+            "print(math.modf(math.inf), math.modf(-math.inf), math.modf(math.nan))",
+            "print(math.frexp(0.0), math.frexp(-0.0), math.frexp(8.0), math.frexp(-8.0), math.frexp(0.5))",
+            "print(math.frexp(math.inf), math.frexp(-math.inf), math.frexp(math.nan))",
+            "print(math.ldexp(0.75, 4), math.ldexp(0.75, -4), math.ldexp(1.5, 1023), math.ldexp(1.5, -1074))",
+            "print(math.ldexp(3, 2), math.ldexp(-0.0, 3))",
+            *_raises("math.ldexp(1.5, 1024)"),
+            *_raises("math.ldexp(1.5, 2**64)"),
+            "print(math.expm1(0.0), math.expm1(1e-10), math.expm1(-1e-10), math.expm1(-745.0), math.expm1(1))",
+            *_raises("math.expm1(1000.0)"),
+            "print(math.log1p(0.0), math.log1p(1e-10), math.log1p(-1e-10), math.log1p(math.e - 1.0), math.log1p(1))",
+            "print(math.log1p(math.nan))",
+            *_raises("math.log1p(-1.0)"),
+            *_raises("math.log1p(-2.0)"),
+        ],
+    )
+
+
+def test_math_issue_493_tail_fma(tmp_path: Path) -> None:
+    source = (
+        "import math\n\n"
+        "def run() -> int:\n"
+        "    print(math.fma(1.0, 2.0, 3.0), math.fma(0.1, 0.2, 0.3), math.fma(-1.0, 3.0, 2.0), math.fma(1, 2, 3))\n"
+        "    print(math.fma(math.inf, math.inf, 1.0), math.fma(math.nan, 1.0, 1.0))\n"
+        "    try:\n"
+        "        print(math.fma(math.inf, 0.0, 1.0))\n"
+        "    except ValueError:\n"
+        "        print('ValueError')\n"
+        "    except OverflowError:\n"
+        "        print('OverflowError')\n"
+        "    try:\n"
+        "        print(math.fma(1e308, 1e308, 1.0))\n"
+        "    except ValueError:\n"
+        "        print('ValueError')\n"
+        "    except OverflowError:\n"
+        "        print('OverflowError')\n"
+        "    return 0\n"
+    )
+    path = write_case(tmp_path, "tail_fma.py", source)
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == ("5.0 0.32 -1.0 5.0\ninf nan\nValueError\nOverflowError\n0\n")
+
+
+def test_math_issue_493_tail_sequences(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "tail_sequences.py",
+        [
+            "ys: list[float] = []",
+            "print(math.dist([0.0, 0.0], [3.0, 4.0]), math.dist([1, 1], [4, 5]))",
+            "print(math.dist([1.0], [2.0]), math.dist(ys, ys), math.dist([0.0, 0.0], [0.0, 0.0]))",
+            "print(math.dist([1e308, 1e308], [0.0, 0.0]), math.dist([1e-10, 1e-10], [0.0, 0.0]))",
+            *_raises("math.dist([0.0, 0.0], [1.0])"),
+            "print(math.sumprod([1.0, 2.0, 3.0], [4.0, 5.0, 6.0]), math.sumprod([1, 2], [3, 4]))",
+            "print(math.sumprod([0, 0], [0, 0]), math.sumprod([0.0, 0.0], [0.0, 0.0]))",
+            "print(math.sumprod([0.1, 0.2], [0.3, 0.4]), math.sumprod([-1.0, 2.0], [3.0, -4.0]))",
+            "print(math.sumprod([1e100, 1e-100], [1e-100, 1e100]))",
+            *_raises("math.sumprod([1.0, 2.0], [3.0])"),
+        ],
+    )
+
+
 def test_math_comb_perm_isqrt(tmp_path: Path) -> None:
     _oracle(
         tmp_path,

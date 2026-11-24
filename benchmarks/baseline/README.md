@@ -6,6 +6,8 @@ Reference metric set for the workloads `pyscriptc` compiles today. Each sample i
 
 The kernel geomean is still the original four loops (`sum-squares`, `floor-sum`, `horner`, `repeat-len`). Every other lowered module has its own row. `group_geomeans` holds `stdlib`, `scripting`, and `island`. The island group links libpython, so its RSS speedup sits near 1x CPython. A full `--check` compares each row and each group geomean with this file.
 
+The `pipeline` row is the log pipeline reference app (`examples/log_pipeline.py`, issue #498) over the 4000-row fixture `examples/access_logs.csv`: parse the CSV, aggregate by status class and path, compute percentiles, build the JSON report. First receipt, macOS arm64 (Apple M4), CPython 3.14.10, whole process: 16.0 ms against 86.7 ms for the baseline runner (5.4x CPython, median of 7), and 10 ms against 50 ms by `time` on the app itself. Peak RSS by `/usr/bin/time -l`: 4.6 MB against 23.6 MB, 0.20x CPython. The row has no reference entry until the next `--record` on the reference host, so `--check` does not gate it yet.
+
 Fenced programs stay out of this set. They have no native binary to time.
 
 ```bash
