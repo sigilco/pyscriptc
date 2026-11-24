@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-24",
-  "commit": "38a2e6e6eb6b633ac297729b45a7a370088c32e7",
+  "commit": "5582ae22c5cf226c09ddf2537274b07f6a927a5b",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-24",
-    "commit": "38a2e6e6eb6b633ac297729b45a7a370088c32e7",
+    "commit": "5582ae22c5cf226c09ddf2537274b07f6a927a5b",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3855
+    "fences": 3842
   },
   "builtins": [
     {
@@ -1825,35 +1825,35 @@
         "blocked": 261
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 705,
+      "fences": 696,
       "definitions": 641,
       "fenced_definitions": 244,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 181
+          "count": 186
         },
         {
           "family": "construct-other",
-          "count": 118
+          "count": 116
         },
         {
           "family": "field-lookup",
-          "count": 64
+          "count": 63
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 406
+          "count": 408
         },
         {
           "code": "PS2001",
           "count": 114
         },
         {
-          "code": "PS2003",
-          "count": 44
+          "code": "PS1103",
+          "count": 40
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -1958,25 +1958,25 @@
       "island": "runs",
       "plane": {
         "definitions": 34,
-        "native": 21,
+        "native": 22,
         "island": 0,
-        "blocked": 13
+        "blocked": 12
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 17,
+      "fences": 14,
       "definitions": 34,
-      "fenced_definitions": 10,
+      "fenced_definitions": 9,
       "top_families": [
-        {
-          "family": "call-arity",
-          "count": 4
-        },
         {
           "family": "construct-other",
           "count": 3
         },
         {
           "family": "optional-types",
+          "count": 2
+        },
+        {
+          "family": "local-inference",
           "count": 2
         }
       ],
@@ -1986,11 +1986,11 @@
           "count": 9
         },
         {
-          "code": "PS2003",
-          "count": 4
+          "code": "PS1102",
+          "count": 2
         },
         {
-          "code": "PS1102",
+          "code": "PS1001",
           "count": 2
         }
       ],
@@ -2193,7 +2193,7 @@
         "blocked": 82
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 168,
+      "fences": 167,
       "definitions": 132,
       "fenced_definitions": 73,
       "top_families": [
@@ -2720,7 +2720,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1989,
+      "count": 1991,
       "packages": 19
     },
     {
@@ -2742,16 +2742,16 @@
       "packages": 12
     },
     {
-      "code": "PS2003",
-      "title": "call arguments not supported",
-      "count": 164,
-      "packages": 13
-    },
-    {
       "code": "PS1103",
       "title": "generic alias annotation",
       "count": 158,
       "packages": 11
+    },
+    {
+      "code": "PS2003",
+      "title": "call arguments not supported",
+      "count": 149,
+      "packages": 13
     },
     {
       "code": "PS1003",
@@ -2916,12 +2916,12 @@
     },
     {
       "date": "2026-11-24",
-      "commit": "38a2e6e6eb6b633ac297729b45a7a370088c32e7",
+      "commit": "5582ae22c5cf226c09ddf2537274b07f6a927a5b",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3855
+      "fences": 3842
     }
   ]
 }
