@@ -26,11 +26,13 @@ from __future__ import annotations
 
 import ast
 import copy
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from pyscriptc import boxed as _boxed
+from pyscriptc import depircache as _depir
 from pyscriptc.builtins import USER_EXC_BASE
 from pyscriptc.emit._ir import (
     _has,
@@ -289,6 +291,15 @@ def _lower_units(
     # exports, so it needs the same bridges and the same pin map: a def
     # the checker proved keeps its export instead of being reported as
     # unexported.
+    dep_cache = _open_dep_cache(
+        [u for u in units if u[0] in dep_names],
+        catalog_units or [],
+        target=target,
+        config=config,
+        lanes=dep_lane_report,
+        resource_root=resource_root,
+        ffi=ffi,
+    )
     exports, failed = _catalog(
         [*units, *(catalog_units or [])],
         program,
@@ -299,8 +310,15 @@ def _lower_units(
         island_group=island_group,
         unit_failures=unit_failures,
         roots=root_set,
+        dep_cache=dep_cache,
     )
     _catalog_event(root, units, catalog_units or [], exports, failed)
+    if dep_cache is not None:
+        for name, _path, _is_package in catalog_units or []:
+            if name in dep_cache.cat_hits:
+                dep_cache.hit(name)
+            else:
+                dep_cache.miss(name)
 
     if program:
         fences, owners, _cycles = _program_plan(units, exports, entry=entry, island_group=island_group, root=root)
@@ -310,11 +328,14 @@ def _lower_units(
                 units, root, entry, main_package, path0, staged_data=staged_data or [], package_mode=package_mode
             )
             if island is not None:
+                _finish_dep_cache(dep_cache)
                 return island, []
             # boxed:end
+            _finish_dep_cache(dep_cache)
             return _fenced_module(root, fences), []
     else:
         owners = {}
+    ir_common = _dep_ir_common(dep_cache, program, entry, dep_names, island_group, root_set, exports)
 
     functions: list[dict[str, Any]] = []
     classes: list[dict[str, Any]] = []
@@ -331,34 +352,44 @@ def _lower_units(
     with ffi_modules(ffi or []), dependency_lanes(dep_lane_report or {}), staged_resources(resource_root):
         for name, path, is_package in units:
             try:
-                text = path.read_text(encoding="utf-8")
-                tree = ast.parse(text, filename=str(path))
-                if program:
-                    tree = _inject_inits(tree, owners.get(name, []), exports, name, is_package)
-                lowerer = Lowerer(str(path), text, target=target, config=config)
-                lowerer.module_name = name
-                lowerer.is_package = is_package
-                lowerer.package = exports
-                lowerer.exc_n = exc_n
-                lowerer.program = program
-                lowerer.program_roots = dep_names
-                lowerer.roots = root_set
-                lowerer.module_init = program and name != "__main__" and name != entry
-                lowerer.entry_module = entry is not None and name == entry
-                # The per-module plane split: a program compile keeps the native
-                # lane and the island lane side by side, so a call into another
-                # module's island floor crosses the boundary instead of refusing.
-                lowerer._boxed_plane_split = program and _boxed.definitions_tier()
-                # The island group: this unit rides the island floor whole, so
-                # its seed is its own source and CPython resolves the cycle.
-                lowerer._boxed_island_unit = name in island_group
-                lowerer._boxed_island_group = island_group
-                per_file_bridge = bridge_for(path)
-                lowerer.bridge = per_file_bridge
-                # The package-wide pin map rides the per-file bridge: the
-                # lowerer reads it through the same handle (`pyscriptc infer`).
-                lowerer.call_site_facts = getattr(per_file_bridge, "call_site_facts", None)
-                module = lowerer.module(tree)
+                unit_exc = 0
+                unit_fence_dicts: list[dict[str, Any]] = []
+                module: dict[str, Any] | None = None
+                ir_ctx: dict[str, Any] | None = None
+                if dep_cache is not None and name in dep_names and dep_cache.cacheable(name):
+                    ir_ctx = {
+                        **ir_common,
+                        "kind": "ir",
+                        "pkg": is_package,
+                        "owned": owners.get(name, []),
+                        "exc_base": exc_n,
+                        "island_unit": name in island_group,
+                    }
+                    payload = dep_cache.load("ir", name, ir_ctx)
+                    if payload is not None and _reads_hold(_depir.decode_reads(payload["reads"]), exports):
+                        module = payload["module"]
+                        unit_exc = payload["exc_used"]
+                        unit_fence_dicts = payload["module_fences"]
+                        dep_cache.hit(name)
+                if module is None:
+                    module, unit_exc, unit_fence_dicts = _lower_one_unit(
+                        name,
+                        path,
+                        is_package,
+                        exports=exports,
+                        owners=owners,
+                        exc_n=exc_n,
+                        program=program,
+                        entry=entry,
+                        dep_names=dep_names,
+                        root_set=root_set,
+                        island_group=island_group,
+                        target=target,
+                        config=config,
+                        bridge_for=bridge_for,
+                        dep_cache=dep_cache,
+                        ir_ctx=ir_ctx,
+                    )
                 # boxed:begin
                 needs_island = needs_island or _boxed.unit_needs_island(module)
                 # The per-module island seeds: one fenced unit keeps its own
@@ -382,13 +413,10 @@ def _lower_units(
                 # import of a definition the other module planned for the island)
                 # belong to no definition, so the unit's own island planning
                 # drops them with the module-level fences. The merge keeps them.
-                if lowerer._boxed_module_fences:
-                    module["fences"] = [
-                        *_items(module, "fences"),
-                        *(f.as_dict() for f in lowerer._boxed_module_fences),
-                    ]
+                if unit_fence_dicts:
+                    module["fences"] = [*_items(module, "fences"), *unit_fence_dicts]
                 # boxed:end
-                exc_n = lowerer.exc_n
+                exc_n += unit_exc
                 for fn in _items(module, "functions"):
                     functions.append(fn)
                 for cls in _items(module, "classes"):
@@ -419,6 +447,7 @@ def _lower_units(
             except Exception as exc:
                 if not _note_unit_failure(unit_failures, path, exc):
                     raise
+    _finish_dep_cache(dep_cache)
     # boxed:begin
     if program and (needs_island or fences):
         # The per-module plane split: the entry's own top level decides
@@ -510,6 +539,148 @@ def _lower_units(
         if inits:
             merged["moduleInits"] = inits
     return merged, notes
+
+
+def _open_dep_cache(
+    kept: list[tuple[str, Path, bool]],
+    catalogued: list[tuple[str, Path, bool]],
+    *,
+    target: str | None,
+    config: Any,
+    lanes: dict[str, dict[str, str]] | None,
+    resource_root: str,
+    ffi: list[Any] | None,
+) -> _depir.DepIrCache | None:
+    """The pure-dependency IR cache of this compile, None when it does not apply (issue #416).
+
+    A unit is cacheable when it lives in an unpacked wheel of the deps cache
+    (its sha256 is the key). The store sits beside that cache, so a compile
+    against an overridden cache directory keeps its IR with its wheels. A
+    compile with no wheel-backed unit, an `--ffi` manifest or
+    `PYSC_NO_DEP_IR_CACHE=1` keeps the uncached path.
+    """
+
+    if not _depir.enabled():
+        return None
+    policy = _depir.policy_digest(config, lanes, resource_root, ffi)
+    if policy is None:
+        return None
+    shas: dict[str, str] = {}
+    wheel_root: Path | None = None
+    for name, path, _is_package in [*kept, *catalogued]:
+        found = _depir.wheel_sha(path)
+        if found is not None:
+            shas[name] = found[0]
+            wheel_root = found[1]
+    if not shas or wheel_root is None:
+        return None
+    base = _depir.base_of(wheel_root)
+    return _depir.DepIrCache(base, _depir.target_triple(target), shas, {"policy": policy})
+
+
+def _dep_ir_common(
+    dep_cache: _depir.DepIrCache | None,
+    program: bool,
+    entry: str | None,
+    dep_names: set[str],
+    island_group: set[str],
+    root_set: RootSet,
+    exports: dict[str, dict[str, dict[str, Any]]],
+) -> dict[str, Any]:
+    """The compile-wide part of every real-pass entry's context."""
+
+    if dep_cache is None:
+        return {}
+    return {
+        "program": program,
+        "entry": entry,
+        "deps": _depir.digest_of(sorted(dep_names)),
+        "group": _depir.digest_of(sorted(island_group)),
+        "roots": _depir.roots_digest(root_set),
+        "keys": _depir.digest_of(sorted(exports)),
+    }
+
+
+def _finish_dep_cache(dep_cache: _depir.DepIrCache | None) -> None:
+    """Emit the cache's audit events for this compile (hit or miss per wheel)."""
+
+    if dep_cache is not None:
+        dep_cache.finish()
+
+
+def _lower_one_unit(
+    name: str,
+    path: Path,
+    is_package: bool,
+    *,
+    exports: dict[str, dict[str, dict[str, Any]]],
+    owners: dict[str, list[str]],
+    exc_n: int,
+    program: bool,
+    entry: str | None,
+    dep_names: set[str],
+    root_set: RootSet,
+    island_group: set[str],
+    target: str | None,
+    config: Any,
+    bridge_for: Callable[[Path], Any],
+    dep_cache: _depir.DepIrCache | None,
+    ir_ctx: dict[str, Any] | None,
+) -> tuple[dict[str, Any], int, list[dict[str, Any]]]:
+    """Lower one unit of the real pass: its module, the exception codes it used, its module fences.
+
+    With ``ir_ctx`` the result is stored in the dependency IR cache (issue
+    #416) as a pre-merge snapshot, together with the export entries the unit
+    read, so the next compile that sees the same context skips this call.
+    """
+
+    text = path.read_text(encoding="utf-8")
+    tree = ast.parse(text, filename=str(path))
+    if program:
+        tree = _inject_inits(tree, owners.get(name, []), exports, name, is_package)
+    lowerer = Lowerer(str(path), text, target=target, config=config)
+    lowerer.module_name = name
+    lowerer.is_package = is_package
+    lowerer.package = exports
+    lowerer.exc_n = exc_n
+    lowerer.program = program
+    lowerer.program_roots = dep_names
+    lowerer.roots = root_set
+    lowerer.module_init = program and name != "__main__" and name != entry
+    lowerer.entry_module = entry is not None and name == entry
+    # The per-module plane split: a program compile keeps the native
+    # lane and the island lane side by side, so a call into another
+    # module's island floor crosses the boundary instead of refusing.
+    lowerer._boxed_plane_split = program and _boxed.definitions_tier()
+    # The island group: this unit rides the island floor whole, so
+    # its seed is its own source and CPython resolves the cycle.
+    lowerer._boxed_island_unit = name in island_group
+    lowerer._boxed_island_group = island_group
+    per_file_bridge = bridge_for(path)
+    lowerer.bridge = per_file_bridge
+    # The package-wide pin map rides the per-file bridge: the
+    # lowerer reads it through the same handle (`pyscriptc infer`).
+    lowerer.call_site_facts = getattr(per_file_bridge, "call_site_facts", None)
+    module = lowerer.module(tree)
+
+    exc_used = lowerer.exc_n - exc_n
+    fence_dicts = [f.as_dict() for f in lowerer._boxed_module_fences]
+    if dep_cache is not None and ir_ctx is not None:
+        dep_cache.miss(name)
+        rows = _depir.encode_reads(_export_entries_read(lowerer, exports))
+        if rows is not None and dep_cache.store(
+            "ir",
+            name,
+            ir_ctx,
+            {
+                "reads": rows,
+                "module": module,
+                "exc_used": exc_used,
+                "module_fences": fence_dicts,
+            },
+        ):
+            dep_cache.stored(name)
+    return module, exc_used, fence_dicts
 
 
 def _qualified_plane_name(module: str, name: str) -> str:
@@ -1521,6 +1692,7 @@ def _catalog(
     island_group: set[str] | None = None,
     unit_failures: list[dict[str, Any]] | None = None,
     roots: RootSet | None = None,
+    dep_cache: _depir.DepIrCache | None = None,
 ) -> tuple[dict[str, dict[str, dict[str, Any]]], dict[str, dict[str, dict[str, Any]]]]:
     """Repeat until a subclass can see a base exported by an earlier pass.
 
@@ -1531,6 +1703,12 @@ def _catalog(
     result instead of lowering again. The fixpoint test still runs over
     the whole table, so the rounds stop exactly where they stopped
     before.
+
+    ``dep_cache`` (issue #416) warm-starts the table with the cached
+    catalog result of each dependency unit and stores the units this run
+    lowered once the table stops changing. A cached unit is reused only
+    when the entries it read still hold the values it saw, so the fixpoint
+    test below still decides where the rounds stop.
     """
 
     exports: dict[str, dict[str, dict[str, Any]]] = {}
@@ -1538,6 +1716,37 @@ def _catalog(
     # unit name -> (entries read, the values they held, the exports, the
     # failed definitions, the exception-code counter it consumed).
     memo: dict[str, _CatalogMemo] = {}
+    seeded: dict[str, _CatalogMemo] = {}
+    roots_key = _depir.roots_digest(roots if roots is not None else RootSet()) if dep_cache is not None else ""
+    group = sorted(island_group or set())
+    plane = program and _boxed.definitions_tier()
+
+    def cat_ctx(name: str, is_package: bool) -> dict[str, Any]:
+        return {
+            "kind": "cat",
+            "program": program,
+            "entry": entry,
+            "pkg": is_package,
+            "plane": plane,
+            "island_unit": name in group,
+            "roots": roots_key,
+        }
+
+    if dep_cache is not None:
+        for name, _path, is_package in units:
+            payload = dep_cache.load("cat", name, cat_ctx(name, is_package))
+            if payload is None:
+                continue
+            reads = _depir.decode_reads(payload["reads"])
+            seeded[name] = _CatalogMemo(
+                reads=reads,
+                exports=payload["exports"],
+                failed=payload["failed"],
+                exc_used=payload["exc_used"],
+                exc_base=payload["exc_base"],
+            )
+            exports[name] = payload["exports"]
+        memo = dict(seeded)
     for _ in range(len(units) + 1):
         nxt, nxt_failed, round_memo = _catalog_once(
             units,
@@ -1553,10 +1762,45 @@ def _catalog(
             roots=roots if roots is not None else RootSet(),
         )
         if nxt == exports:
+            if dep_cache is not None:
+                _store_catalog(dep_cache, units, round_memo, seeded, cat_ctx)
             return nxt, nxt_failed
         exports, failed = nxt, nxt_failed
         memo = round_memo
     return exports, failed
+
+
+def _store_catalog(
+    dep_cache: _depir.DepIrCache,
+    units: list[tuple[str, Path, bool]],
+    round_memo: dict[str, _CatalogMemo],
+    seeded: dict[str, _CatalogMemo],
+    cat_ctx: Callable[[str, bool], dict[str, Any]],
+) -> None:
+    """Persist the dependency units the converged catalog lowered this run."""
+
+    for name, _path, is_package in units:
+        done = round_memo.get(name)
+        if done is None or not dep_cache.cacheable(name):
+            continue
+        if seeded.get(name) is done:
+            dep_cache.cat_hits.add(name)
+            continue
+        rows = _depir.encode_reads(done.reads)
+        if rows is None:
+            continue
+        dep_cache.store(
+            "cat",
+            name,
+            cat_ctx(name, is_package),
+            {
+                "reads": rows,
+                "exports": done.exports,
+                "failed": done.failed,
+                "exc_used": done.exc_used,
+                "exc_base": done.exc_base,
+            },
+        )
 
 
 @dataclass
@@ -1694,7 +1938,13 @@ def _export_entries_read(
 def _catalog_entries_unchanged(cached: _CatalogMemo, exports: dict[str, dict[str, dict[str, Any]]]) -> bool:
     """Whether every entry the unit read still holds the value it saw."""
 
-    for key, seen in cached.reads.items():
+    return _reads_hold(cached.reads, exports)
+
+
+def _reads_hold(reads: dict[tuple[str, str | None], Any], exports: dict[str, dict[str, dict[str, Any]]]) -> bool:
+    """Whether every recorded export-table read still holds the value it saw."""
+
+    for key, seen in reads.items():
         module, member = key
         if module == _WHOLE_TABLE:
             if exports != seen:

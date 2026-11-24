@@ -41,6 +41,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Dict
 
+from pyscriptc import depircache
 from pyscriptc.config import ConfigError, read_pep723
 from pyscriptc.errors import SpikeError
 from pyscriptc.log import emit_event
@@ -1245,6 +1246,9 @@ def run_deps(
     report["packages"] = rows
     report["sourceRoots"] = roots
     report["importNames"] = sorted_names
+    # The pure-dependency IR cache (issue #416): its size, hit rate and the
+    # cached state of each pure wheel.
+    depircache.annotate(report, cache.parent)
     return report
 
 
@@ -1335,6 +1339,7 @@ def render_text(report: dict[str, Any]) -> str:
         for k, v in lanes.items():
             summary.append(f"{k} {v}")
         lines.append("lanes: " + ", ".join(summary))
+    lines.extend(depircache.summary_lines(report))
     return "\n".join(lines)
 
 
