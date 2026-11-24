@@ -331,7 +331,7 @@
     },
     {
       "id": "D19",
-      "seam": "generator.send(v) on an unstarted generator ignores v where CPython raises TypeError",
+      "seam": "generator.send(v) on an unstarted generator ignores v where CPython raises TypeError; yield-as-expression compiles only for the single-name targets (`x = yield v`, `x: T = yield v`), the rest stays fenced (PS2002)",
       "listed": true,
       "docs": "docs/reference/divergences.md#19",
       "probe": "probes/divergences/d19_gen_send.py",
@@ -347,7 +347,7 @@
         "stdout": "",
         "stderr": "probes/divergences/d19_gen_send.py:9: error: Object of class `Iterator` has no attribute `send` [missing-attribute]\nnote: this is the checker preflight; `compile --skip-check` bypasses it\n"
       },
-      "status": "fenced"
+      "status": "partial"
     },
     {
       "id": "D20",
