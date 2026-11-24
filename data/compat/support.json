@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "541622ff929bb045fe453702764eea0a5cfbea64",
+  "commit": "e63c3d39727522de5eda3ce3440a9db2de983d08",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -14,8 +14,8 @@
       "red": 23
     },
     "stdlib": {
-      "green": 0,
-      "yellow": 75,
+      "green": 1,
+      "yellow": 74,
       "red": 0
     },
     "operators": {
@@ -191,12 +191,10 @@
   "stdlib": [
     {
       "label": "`math`",
-      "status": "\ud83d\udfe1",
+      "status": "\ud83d\udfe2",
       "count": 1,
-      "missing": "dist, ulp, nextafter, modf, frexp, ldexp, expm1, log1p, fma, sumprod",
-      "codes": [
-        "PS2001"
-      ]
+      "missing": "",
+      "codes": []
     },
     {
       "label": "`re`",
