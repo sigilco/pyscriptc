@@ -657,7 +657,11 @@ class D:
 @@
 one = D()
 one.xs.append(1)
-y: int = len(D().xs)''']
+y: int = len(D().xs)''', '''@dataclasses.dataclass
+class D:
+    a: int = dataclasses.field(default=3)
+@@
+y: int = D().a''']
 no = [["asdict", '''@dataclasses.dataclass
 class D:
     a: int
