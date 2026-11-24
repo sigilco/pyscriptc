@@ -318,14 +318,9 @@ class ClassesMoreMixin:
 
         Both spellings (`@cached_property` after `from functools import
         cached_property` and `@functools.cached_property`) resolve through
-        the same binding tables the synthesis guard reads. The call form
-        (`@cached_property()`) is not a spelling CPython accepts: the
-        descriptor takes the getter as its constructor argument, so the
-        call form raises a `TypeError` there.
+        the same binding tables the synthesis guard reads.
         """
-        if isinstance(dec, ast.Call):
-            return False
-        target = dec
+        target = dec.func if isinstance(dec, ast.Call) else dec
         if isinstance(target, ast.Name):
             binding = self.bindings.get(target.id)
             if binding is not None:
@@ -338,6 +333,19 @@ class ClassesMoreMixin:
                 return False
             return (resolved[1], resolved[2]) in _LOWERING_METHOD_DECORATORS
         return False
+
+    def _is_cached_property_call(self, dec: ast.expr) -> bool:
+        """True when the decorator calls the member: `@cached_property()`.
+
+        CPython raises a `TypeError` there (the descriptor takes the getter
+        as its constructor argument, so the call form is not a spelling it
+        accepts), and pyscriptc refuses it the same way: the name never
+        takes the advisory erase, because erasing it would silently lower
+        a program CPython refuses at class creation.
+        """
+        if not isinstance(dec, ast.Call):
+            return False
+        return self._is_cached_property_deco(dec)
 
     def _method_decorator(self, fn: ast.FunctionDef) -> str:
         # Erased typing decorators (`@abstractmethod`) drop out first, so
@@ -360,6 +368,12 @@ class ClassesMoreMixin:
             # the closed set, and it lowers as a context manager.
             return "method"
         if any(self._is_method_synthesis_deco(d) for d in decos):
+            self.fail(fn, "PS1201", "decorators are not lowered")
+        if any(self._is_cached_property_call(d) for d in decos):
+            # `@cached_property()` is not a spelling CPython accepts: the
+            # descriptor takes the getter as its constructor argument. The
+            # name refuses it instead of erasing the decorator and lowering
+            # a program CPython rejects at class creation.
             self.fail(fn, "PS1201", "decorators are not lowered")
         if any(self._is_cached_property_deco(d) for d in decos):
             # `@cached_property` (issue #440): the compiler lowers the
