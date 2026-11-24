@@ -602,6 +602,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         # hidden value slot and a hidden computed flag in the class's struct
         # layout, so the value survives the first read per instance.
         cached_props: list[str] = []
+        cached_names: set[str] = set()
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
@@ -619,6 +620,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             if _type_kind(typ) not in {"str", "int", "list", "dict"}:
                                 self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
                             if stmt.target.id in seen or stmt.target.id in inherited_types:
+                                self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
+                            if stmt.target.id in cached_names:
                                 self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                             runtime_attrs.append((stmt.target.id, stmt))
                             seen.add(stmt.target.id)
@@ -648,6 +651,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                         const_types[stmt.target.id] = typ
                         continue
                     if stmt.target.id in seen or stmt.target.id in inherited_types:
+                        self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
+                    if stmt.target.id in cached_names:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                     typ = self._annotation(stmt.annotation)
                     if _type_kind(typ) == "func":
@@ -726,10 +731,14 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                         # class constant would shadow the slot protocol.
                         if stmt.name in seen or stmt.name in inherited_types:
                             self.fail(stmt, "PS2002", f"cached property {stmt.name} clashes with a field")
-                        seen.add(stmt.name)
+                        cached_names.add(stmt.name)
                     methods.append((stmt, kind))  # type: ignore[arg-type]
                     continue
                 if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                    if stmt.targets[0].id in cached_names:
+                        # A cached property owns the name (issue #440): a
+                        # class-body assignment of it has no slot protocol.
+                        self.fail(stmt, "PS2002", f"duplicate field {stmt.targets[0].id}")
                     const = self._module_fold(stmt.value)
                     if const is not None and const.get("kind") == "const":
                         class_constants[stmt.targets[0].id] = const
