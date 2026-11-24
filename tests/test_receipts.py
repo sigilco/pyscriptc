@@ -87,6 +87,17 @@ def test_the_committed_receipt_validates() -> None:
     assert validate(document) == []
 
 
+def test_the_committed_receipt_publishes_no_local_path() -> None:
+    # The document is published on the site: the oracle is a version
+    # string, never the measuring machine's path.
+    if not RECEIPTS.exists():
+        pytest.skip(f"receipt data file not built: {RECEIPTS}")
+    document = json.loads(RECEIPTS.read_text(encoding="utf-8"))
+    oracle = document["oracle"]
+    assert "/" not in oracle, oracle
+    assert oracle.startswith("3.14"), oracle
+
+
 def test_the_builder_refuses_a_malformed_document(tmp_path: Path) -> None:
     from scripts.build_receipts_json import validate
 

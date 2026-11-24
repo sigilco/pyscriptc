@@ -56,17 +56,24 @@ run once per target, so the cost is the compile, not the probe count.
 
 The rows are the targets `packaging/zig/smoke.sh` builds:
 
-| target | triple | how it runs |
-| --- | --- | --- |
-| `x86_64-linux-gnu` | `x86_64-linux-gnu.2.39` | compile-only: no sysroot runner for the gnu triple |
-| `aarch64-linux-gnu` | `aarch64-linux-gnu.2.39` | compile-only: no sysroot runner for the gnu triple |
-| `riscv64-linux-gnu` | `riscv64-linux-gnu.2.39` | compile-only by decision (#469) |
-| `x86_64-linux-musl` | `x86_64-linux-musl` | runs natively on an x86_64 host |
-| `aarch64-linux-musl` | `aarch64-linux-musl` | runs under `qemu-aarch64-static` |
-| `riscv64-linux-musl` | `riscv64-linux-musl` | compile-only by decision (#469) |
-| `aarch64-macos` | `aarch64-macos` | runs natively on an aarch64 macOS host |
-| `x86_64-macos` | `x86_64-macos` | compile-only: no runner for a foreign macOS build |
-| `wasm32-wasi` | `wasm32-wasi-musl` | runs under `wasmtime` |
+| target | triple | runner | when it runs |
+| --- | --- | --- | --- |
+| `x86_64-linux-gnu` | `x86_64-linux-gnu.2.39` | native | on an x86_64 Linux host; compile-only elsewhere |
+| `aarch64-linux-gnu` | `aarch64-linux-gnu.2.39` | none | compile-only: the gnu triple needs a sysroot, not just a runner |
+| `riscv64-linux-gnu` | `riscv64-linux-gnu.2.39` | none | compile-only by decision (#469) |
+| `x86_64-linux-musl` | `x86_64-linux-musl` | native | on an x86_64 Linux host; compile-only elsewhere |
+| `aarch64-linux-musl` | `aarch64-linux-musl` | `qemu-aarch64-static` | on a Linux host with qemu-user-static; compile-only without it |
+| `riscv64-linux-musl` | `riscv64-linux-musl` | none | compile-only by decision (#469) |
+| `aarch64-macos` | `aarch64-macos` | native | on an aarch64 macOS host; compile-only elsewhere |
+| `x86_64-macos` | `x86_64-macos` | native | on an x86_64 macOS host; compile-only elsewhere |
+| `wasm32-wasi` | `wasm32-wasi-musl` | `wasmtime` | on any host with wasmtime; compile-only without it |
+
+The runner is a property of the build host, not of the target: a row that
+matches the host's own system and architecture runs natively, a foreign
+Linux architecture runs under a user-mode qemu, and a WASI build runs
+under wasmtime. The receipt names the runner it used and the reason a row
+could not run, so the page shows the host's posture rather than a fixed
+claim per target.
 
 The riscv64 rows stay compile-only. That is the scope line of #469, not
 an omission: the receipt records them as `built: true, ran: false`, with
