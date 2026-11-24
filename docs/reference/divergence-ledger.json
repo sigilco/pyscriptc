@@ -1681,6 +1681,26 @@
       "status": "identical"
     },
     {
+      "id": "D90",
+      "seam": "int / int past 2**53 divides the widened operands, so the quotient rounds before the division; CPython divides the exact integers and rounds once",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#90",
+      "probe": "probes/divergences/d90_int_truediv_wide.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "3002399751580331.0\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "3002399751580330.5\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D11",
       "seam": "json.dumps does not escape non-ASCII (audit D11)",
       "listed": false,

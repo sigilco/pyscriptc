@@ -94,6 +94,8 @@ def _declarations(needed: set[str]) -> list[str]:
         lines.append("declare { i64, i1 } @llvm.smul.with.overflow.i64(i64, i64)")
     if "ffloordiv" in needed:
         lines.append("declare double @llvm.floor.f64(double)")
+    if "fmod" in needed or "ffloordiv" in needed:
+        lines.append("declare double @llvm.copysign.f64(double, double)")
     if "fpow" in needed:
         lines.append("declare double @llvm.pow.f64(double, double)")
     if "strconcat" in needed:
@@ -395,13 +397,15 @@ entry:
   br i1 %z, label %trap, label %ok
 ok:
   %r = frem double %a, %b
-  %rnz = fcmp one double %r, 0.0
+  %rnz = fcmp une double %r, 0.0
   %rneg = fcmp olt double %r, 0.0
   %bneg = fcmp olt double %b, 0.0
   %diff = icmp ne i1 %rneg, %bneg
   %adjust = and i1 %rnz, %diff
   %r2 = fadd double %r, %b
-  %out = select i1 %adjust, double %r2, double %r
+  %mid = select i1 %adjust, double %r2, double %r
+  %zsign = call double @llvm.copysign.f64(double 0.0, double %b)
+  %out = select i1 %rnz, double %mid, double %zsign
   ret double %out
 trap:
   call void @ps_raise_zdi(i32 @ZDI_fmod@) noreturn ; ZeroDivisionError
@@ -416,9 +420,26 @@ entry:
   %z = fcmp oeq double %b, 0.0
   br i1 %z, label %trap, label %ok
 ok:
-  %q = fdiv double %a, %b
-  %f = call double @llvm.floor.f64(double %q)
-  ret double %f
+  %mod0 = frem double %a, %b
+  %sub = fsub double %a, %mod0
+  %div0 = fdiv double %sub, %b
+  %mnz = fcmp une double %mod0, 0.0
+  %wneg = fcmp olt double %b, 0.0
+  %mneg = fcmp olt double %mod0, 0.0
+  %mdiff = icmp ne i1 %wneg, %mneg
+  %fix = and i1 %mnz, %mdiff
+  %div1 = fsub double %div0, 1.0
+  %div = select i1 %fix, double %div1, double %div0
+  %dnz = fcmp une double %div, 0.0
+  %fl = call double @llvm.floor.f64(double %div)
+  %rest = fsub double %div, %fl
+  %up = fcmp ogt double %rest, 0.5
+  %fl1 = fadd double %fl, 1.0
+  %fl2 = select i1 %up, double %fl1, double %fl
+  %quot = fdiv double %a, %b
+  %qzero = call double @llvm.copysign.f64(double 0.0, double %quot)
+  %out = select i1 %dnz, double %fl2, double %qzero
+  ret double %out
 trap:
   call void @ps_raise_zdi(i32 @ZDI_ffloordiv@) noreturn ; ZeroDivisionError
   unreachable
