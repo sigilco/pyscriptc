@@ -720,11 +720,24 @@ def test_unknown_type_is_refused() -> None:
 
 
 def test_dynamic_types_are_refused() -> None:
-    for name in ("Any", "object", "NoneType"):
+    for name in ("Any", "NoneType"):
         fails(
             manifest(f'[[fn]]\nname = "f"\npy = "(x: {name}) -> int"\nc_symbol = "f"\nabi = "ps_f"\n'),
             "PS4006",
         )
+
+
+def test_object_is_the_tagged_dynamic_value() -> None:
+    """`object` is the tagged cell (issue #1343), not an untyped hole.
+
+    The cell carries its own arm (int, float, str, bool, none), so a
+    manifest parameter of that type marshals as the pointer to the cell.
+    """
+    parsed = parse_manifest_text(
+        manifest('[[fn]]\nname = "f"\npy = "(x: object) -> object"\nc_symbol = "f"\nabi = "ps_f"\n')
+    )
+    assert type_ir(parsed.function("f").returns) == {"kind": "dynval"}
+    assert type_ir(parsed.function("f").params[0].type) == {"kind": "dynval"}
 
 
 def test_typed_containers_carry_the_annotation() -> None:

@@ -1669,6 +1669,13 @@ class Lowerer(
             if negated:
                 return tag
             return _unary_not_node(tag, span)
+        if kind == "dynval":
+            # A dynamic value's None arm is the runtime tag (issue #1343):
+            # the tagged cell of a SQL NULL is the none arm, so `v is None`
+            # is the tag test the isinstance narrowing uses. `PS_DYN_NONE`
+            # is arm 0 in ps_rt.h.
+            is_none = self._abi_call("builtins", "dyn.is", [value], {"kind": "bool"}, "ps_dyn_is:0", span)
+            return _unary_not_node(is_none, span) if negated else is_none
         if kind not in {"none", "int", "float", "bool", "str", "bytes"}:
             self.fail(node, "PS2004", f"{_show(value['type'])} cannot compare with None")
         none = _const_none(span)

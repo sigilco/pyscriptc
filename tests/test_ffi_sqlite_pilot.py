@@ -86,17 +86,20 @@ def _build(tmp_path: Path, source: str, *, sanitize: list[str] | None = None, ta
     return binary
 
 
-DEMO = """import pyscriptc_sqlite
+DEMO = """import sqlite3
 
 
 def main() -> None:
-    db: pyscriptc_sqlite.Connection = pyscriptc_sqlite.connect(':memory:')
-    pyscriptc_sqlite.execute(db, 'CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)')
-    pyscriptc_sqlite.execute(db, "INSERT INTO t (name) VALUES ('ada'), ('bo')")
-    rows: list[dict[str, str]] = pyscriptc_sqlite.query(db, 'SELECT id, name FROM t ORDER BY id')
-    for row in rows:
-        print(row['name'])
-    pyscriptc_sqlite.close(db)
+    db: sqlite3.Connection = sqlite3.connect(':memory:')
+    db.execute('CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)')
+    db.execute("INSERT INTO t (name) VALUES ('ada'), ('bo')")
+    cur = db.execute('SELECT id, name FROM t ORDER BY id')
+    while True:
+        row = cur.fetchone()
+        if row is None:
+            break
+        print(row[1])
+    db.close()
 
 
 if __name__ == '__main__':
@@ -104,21 +107,21 @@ if __name__ == '__main__':
 """
 
 
-SURFACE_DEMO = """import pyscriptc_sqlite
+SURFACE_DEMO = """import sqlite3
 
 
 def main() -> None:
-    db: pyscriptc_sqlite.Connection = pyscriptc_sqlite.connect(':memory:')
-    pyscriptc_sqlite.execute(db, 'CREATE TABLE t (id INTEGER PRIMARY KEY)')
+    db: sqlite3.Connection = sqlite3.connect(':memory:')
+    db.execute('CREATE TABLE t (id INTEGER PRIMARY KEY)')
     try:
-        pyscriptc_sqlite.execute(db, 'SELEKT 1')
+        db.execute('SELEKT 1')
     except RuntimeError as exc:
         print('bad_sql: RuntimeError: ' + str(exc))
     try:
-        pyscriptc_sqlite.query(db, 'SELECT 1; SELECT 2')
+        db.execute('SELECT 1; SELECT 2')
     except RuntimeError as exc:
         print('two_statements: RuntimeError: ' + str(exc))
-    pyscriptc_sqlite.close(db)
+    db.close()
 
 
 if __name__ == '__main__':
@@ -147,7 +150,7 @@ def test_sqlite_pilot_matches_the_stdlib_module(tmp_path: Path) -> None:
 def test_sqlite_pilot_surface_matches_the_stdlib_module(tmp_path: Path) -> None:
     """Bad SQL and two-statements-in-one raise like stdlib sqlite3 says.
 
-    The adapter's contract (pyscriptc_sqlite.pyi): a refused statement is
+    The adapter's contract (pyscriptc-sqlite's .pyi): a refused statement is
     `RuntimeError` with "sqlite3: " plus SQLite's own text. The stdlib
     module raises `OperationalError`/`ProgrammingError` there, so the
     comparison is on the message text with the class mapping the adapter
@@ -189,12 +192,12 @@ def test_use_after_close_is_refused_at_compile_time(tmp_path: Path) -> None:
     stricter contract the adapter documents.
     """
     source = (
-        "import pyscriptc_sqlite\n"
+        "import sqlite3\n"
         "\n"
         "def main() -> None:\n"
-        "    db: pyscriptc_sqlite.Connection = pyscriptc_sqlite.connect(':memory:')\n"
-        "    pyscriptc_sqlite.close(db)\n"
-        "    pyscriptc_sqlite.execute(db, 'SELECT 1')\n"
+        "    db: sqlite3.Connection = sqlite3.connect(':memory:')\n"
+        "    db.close()\n"
+        "    db.execute('SELECT 1')\n"
     )
     module, _ = _lower(source)
     assert [fence["code"] for fence in module["fences"]] == ["PS4010"]

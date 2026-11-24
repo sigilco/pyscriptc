@@ -345,7 +345,8 @@ class StdlibDispatchMixin(StdlibBindMixin):
             self.fail(node, "PS2003", f"{handle_name}.{method.name} expects {method.required_arity} argument(s)")
         args: list[dict[str, Any]] = [receiver]
         consumed_locals: list[str] = []
-        for index, arg_node in enumerate(node.args):
+        for index in range(count):
+            arg_node = node.args[index]
             param = method.params[index]
             want = type_ir(param.type, manifest.handle_names)
             arg = self._expr(arg_node, want)
@@ -389,9 +390,37 @@ class StdlibDispatchMixin(StdlibBindMixin):
                     self.fail(node, "PS4011", f"{owner} is consumed twice in one call")
                 consumed_locals.append(owner)
             args.append(arg)
+        # The omitted defaulted arguments materialize at the call site
+        # (issue #1343): an empty list display for a list parameter, the
+        # spelled constant for a scalar one. The ABI call always carries
+        # the full arity, so the thunk's signature never changes.
+        for param in method.params[count:]:
+            args.append(self._ffi_default_arg(param, node, manifest))
         for owner in consumed_locals:
             del self.handle_locals[owner]
             self.consumed_handles.add(owner)
+        if method.consumes_receiver:
+            # The method takes its own receiver's life (issue #1343): the
+            # receiver is dead after the call, so a later use is the PS4010
+            # fence the ownership rule asks for.
+            owner = receiver.get("id") if receiver["kind"] == "name" else None
+            if owner is not None:
+                if owner in self.borrowed_handles:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{owner} is borrowed here (it is a handle parameter or an alias of one), so this "
+                        f"function cannot consume it; the caller still owns the value",
+                    )
+                if owner not in self.handle_locals:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{handle_name}.{method.name} consumes its receiver; the receiver must be a handle "
+                        "variable this function owns, so the compiler can prove it is dead afterwards",
+                    )
+                del self.handle_locals[owner]
+                self.consumed_handles.add(owner)
         # A method whose return is the receiving handle's own type returns
         # the receiver (a fluent shape); anything else is a fresh value.
         want = self._ffi_want(method.returns, manifest, node)
@@ -412,6 +441,39 @@ class StdlibDispatchMixin(StdlibBindMixin):
         if want.get("optional"):
             return self._opt_type(want["elem"], node)
         return want
+
+    def _ffi_empty_list(self, elem: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """The empty list display of the element type, the shape `_expr`
+        builds for `[]` under an annotation."""
+        made = node_to_dict(_ir.list_lit([], _mk_type({"kind": "list", "elem": elem}), _mk_span(span)))
+        return made
+
+    def _ffi_default_arg(self, param: Any, node: ast.AST, manifest: FfiManifest) -> dict[str, Any]:
+        """The materialized default of one omitted FFI argument (issue #1343).
+
+        The manifest spells a default as the literal the ABI expects. The
+        list shape is the common one (`execute(sql)` with no params runs
+        an empty bind), so it needs no spelling in the manifest: the empty
+        display of the parameter's element type. A scalar default rides
+        the manifest's `= <literal>` tail.
+        """
+        want = type_ir(param.type, manifest.handle_names)
+        if want.get("optional"):
+            want = self._opt_type(want["elem"], node)
+        span = span_of(node, self.filename)
+        if want.get("kind") == "list":
+            # The `...` default on a container parameter is the empty
+            # display (issue #1343): `execute(sql)` runs an empty bind.
+            return self._ffi_empty_list(want["elem"], span)
+        if want["kind"] == "int" and param.default is not None:
+            return _const_int(int(param.default), span)
+        if want["kind"] == "float" and param.default is not None:
+            return _const_float(float(param.default), span)
+        if want["kind"] == "bool" and param.default is not None:
+            return _const_bool(param.default in ("True", "true", "1"), span)
+        if want["kind"] == "str" and param.default is not None:
+            return _const_str(param.default, span)
+        self.fail(node, "PS2003", f"the default of {param.name} is not a lowered literal")
 
     def _ffi_optional_call(
         self,

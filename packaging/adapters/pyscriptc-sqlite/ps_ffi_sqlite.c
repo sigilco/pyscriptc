@@ -165,14 +165,6 @@ void ps_ffi_sqlite_close(void *handle) {
     sqlite3_close_v2(db);
 }
 
-/* The tagged cell a bound parameter or a returned column carries. The cell is
-   the runtime's own PsDyn, so the compiler's `object` slot (a pointer to the
-   cell) and the C side agree on one representation. */
-static PsDyn *ps_sqlite_cell_of(const void *slot) {
-    const PsDyn *cell = *(const PsDyn *const *)slot;
-    return (PsDyn *)cell;
-}
-
 /* Bind one tagged cell to the next `?` placeholder. The arm names the SQLite
    storage class: an int and a float are numbers, a str is text, the none arm
    is a SQL NULL. A bool cell binds as an integer, the way sqlite3 does. */
@@ -400,39 +392,40 @@ typedef struct ps_sqlite_cursor {
     int64_t lastrowid;  /* 0 until an INSERT ran on the connection */
     int ncols;          /* the prepared statement's column count */
     int stepped;        /* the statement has run at least once */
+    int done;           /* the statement is exhausted; stepping it again would restart it */
 } ps_sqlite_cursor;
-
-/* True when the statement's first run says DML: sqlite3_step returns DONE
-   for INSERT/UPDATE/DELETE without ever producing a row. A SELECT's first
-   run is SQLITE_ROW (or DONE for the empty set), which is the read arm. */
-static int ps_sqlite_is_dml_run(int rc) {
-    return rc == SQLITE_DONE;
-}
 
 /* Step the cursor's statement once and build the row, or report done. */
 static int ps_sqlite_cur_step(ps_sqlite_cursor *cur) {
-    if (cur == NULL || cur->db == NULL || cur->stmt == NULL) {
+    if (cur == NULL || cur->db == NULL || cur->stmt == NULL || cur->done) {
         return SQLITE_DONE;
     }
     int rc = sqlite3_step(cur->stmt);
-    if (rc == SQLITE_ROW || rc == SQLITE_DONE) {
+    if (rc == SQLITE_ROW) {
         cur->stepped = 1;
         return rc;
+    }
+    if (rc == SQLITE_DONE) {
+        cur->stepped = 1;
+        /* The statement is spent. Stepping it again would restart it from
+           the first row, so the cursor remembers that it is done. */
+        cur->done = 1;
+        return SQLITE_DONE;
     }
     char msg[256];
     snprintf(msg, sizeof msg, "sqlite3: %s", sqlite3_errmsg(cur->db));
     ps_raise_cstr(PS_RUNTIMEERROR, msg);
 }
 
-/* One row off the statement's current position, keyed by column name. */
-static PsMap *ps_sqlite_row_of(ps_sqlite_cursor *cur) {
-    PsMap *row = ps_map_new(2, (int64_t)sizeof(PsBuf), (int64_t)sizeof(void *), cur->ncols);
+/* One row off the statement's current position: the column values in
+   column order, each the tagged cell of its own type. The row is
+   positional, CPython's tuple shape: the column's name rides
+   cur.description, the value's slot is row[i]. */
+static PsSeq *ps_sqlite_row_of(ps_sqlite_cursor *cur) {
+    PsSeq *row = ps_seq_new((int64_t)sizeof(void *), cur->ncols);
     for (int i = 0; i < cur->ncols; i++) {
-        PsBuf key;
-        const char *name = sqlite3_column_name(cur->stmt, i);
-        ps_buf_copy(&key, name != NULL ? name : "", name != NULL ? (int64_t)strlen(name) : 0);
         PsDyn *cell = ps_sqlite_cell_of_column(cur->stmt, i);
-        ps_map_put(row, &key, &cell);
+        ps_seq_set(row, i, &cell);
     }
     return row;
 }
@@ -451,6 +444,7 @@ void *ps_ffi_sqlite_conn_execute(void *handle, int64_t n, const char *sql, void 
     cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
     cur->ncols = stmt != NULL ? sqlite3_column_count(stmt) : 0;
     cur->stepped = 0;
+    cur->done = 0;
     if (stmt == NULL) {
         /* An empty or comment-only statement: CPython reports rowcount -1. */
         return cur;
@@ -502,6 +496,7 @@ void *ps_ffi_sqlite_conn_executemany(void *handle, int64_t n, const char *sql, v
     cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
     cur->ncols = 0;
     cur->stepped = 0;
+    cur->done = 0;
     int64_t count = ps_seq_len(seq);
     if (count == 0) {
         /* CPython: executemany over an empty sequence leaves rowcount -1. */
@@ -569,7 +564,7 @@ int32_t ps_ffi_sqlite_cur_row_hit(void *handle) {
     return ps_sqlite_cur_step(cur) == SQLITE_ROW ? 1 : 0;
 }
 
-PsMap *ps_ffi_sqlite_cur_row_make(void *handle) {
+PsSeq *ps_ffi_sqlite_cur_row_make(void *handle) {
     ps_sqlite_cursor *cur = handle;
     if (cur == NULL || cur->db == NULL) {
         ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
@@ -582,9 +577,9 @@ PsSeq *ps_ffi_sqlite_cur_rows(void *handle) {
     if (cur == NULL || cur->db == NULL) {
         ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
     }
-    PsSeq *rows = ps_seq_new((int64_t)sizeof(PsMap *), 0);
+    PsSeq *rows = ps_seq_new((int64_t)sizeof(PsSeq *), 0);
     while (ps_sqlite_cur_step(cur) == SQLITE_ROW) {
-        PsMap *row = ps_sqlite_row_of(cur);
+        PsSeq *row = ps_sqlite_row_of(cur);
         ps_seq_push(rows, &row);
     }
     return rows;

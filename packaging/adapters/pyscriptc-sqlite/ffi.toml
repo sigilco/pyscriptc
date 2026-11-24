@@ -78,7 +78,7 @@ consumes = ["db"]
 [[method]]
 name = "execute"
 handle = "Connection"
-py = "(sql: str, params: list[object]) -> Cursor"
+py = "(sql: str, params: list[object] = ...) -> Cursor"
 c_symbol = "sqlite3_prepare_v2 + sqlite3_bind_* + sqlite3_step"
 abi = "ps_ffi_sqlite_conn_execute"
 
@@ -109,7 +109,7 @@ consumes_receiver = true
 [[method]]
 name = "fetchone"
 handle = "Cursor"
-py = "() -> dict[str, object] | None"
+py = "() -> list[object] | None"
 c_symbol = "sqlite3_step"
 abi = "ps_ffi_sqlite_cur_row_make"
 probe = "ps_ffi_sqlite_cur_row_hit"
@@ -117,7 +117,7 @@ probe = "ps_ffi_sqlite_cur_row_hit"
 [[method]]
 name = "fetchall"
 handle = "Cursor"
-py = "() -> list[dict[str, object]]"
+py = "() -> list[list[object]]"
 c_symbol = "sqlite3_step"
 abi = "ps_ffi_sqlite_cur_rows"
 
