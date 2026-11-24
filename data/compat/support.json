@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-23",
-  "commit": "30575a11e3c4e57f2c45a4269fc24e10251eff55",
+  "generated": "2026-11-24",
+  "commit": "38a2e6e6eb6b633ac297729b45a7a370088c32e7",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -14,8 +14,13 @@
       "red": 23
     },
     "stdlib": {
-      "green": 0,
-      "yellow": 75,
+      "green": 1,
+      "yellow": 74,
+      "red": 0
+    },
+    "operators": {
+      "green": 12,
+      "yellow": 10,
       "red": 0
     },
     "packages": {
@@ -131,8 +136,9 @@
       "label": "`open`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "keywords other than encoding=",
+      "missing": "encoding= other than utf-8, ascii, latin-1, encoding= on a binary mode, keywords other than encoding=",
       "codes": [
+        "PS2001",
         "PS2003"
       ]
     },
@@ -185,12 +191,10 @@
   "stdlib": [
     {
       "label": "`math`",
-      "status": "\ud83d\udfe1",
+      "status": "\ud83d\udfe2",
       "count": 1,
-      "missing": "dist, ulp, nextafter, modf, frexp, ldexp, expm1, log1p, fma, sumprod",
-      "codes": [
-        "PS2001"
-      ]
+      "missing": "",
+      "codes": []
     },
     {
       "label": "`re`",
@@ -399,7 +403,7 @@
       "label": "`signal`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "handler registration (signal.signal), getsignal, alarm, the Signals enum, SIG_DFL",
+      "missing": "getsignal, alarm, the Signals enum, raise_signal",
       "codes": [
         "PS2001"
       ]
@@ -544,9 +548,10 @@
       "label": "`subprocess`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "Popen, getoutput",
+      "missing": "getoutput, Popen shell=, Popen.communicate",
       "codes": [
-        "PS2001"
+        "PS2001",
+        "PS2003"
       ]
     },
     {
@@ -786,7 +791,7 @@
       "label": "`argparse`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "subparsers, nargs=, choices=",
+      "missing": "choices=, mutually exclusive groups",
       "codes": [
         "PS2003"
       ]
@@ -876,6 +881,54 @@
       ]
     }
   ],
+  "operators": [
+    {
+      "label": "true division `/` and `/=`",
+      "status": "\ud83d\udfe2",
+      "count": 2,
+      "missing": "",
+      "codes": []
+    },
+    {
+      "label": "modulo and floor division `%` and `//`, int and float",
+      "status": "\ud83d\udfe2",
+      "count": 2,
+      "missing": "",
+      "codes": []
+    },
+    {
+      "label": "mixed int and float comparison",
+      "status": "\ud83d\udfe2",
+      "count": 6,
+      "missing": "",
+      "codes": []
+    },
+    {
+      "label": "repetition `*` and `*=`, str, bytes and list",
+      "status": "\ud83d\udfe2",
+      "count": 2,
+      "missing": "",
+      "codes": []
+    },
+    {
+      "label": "set algebra `|`, `&`, `-`, `^` and their in-place forms",
+      "status": "\ud83d\udfe1",
+      "count": 8,
+      "missing": "subset ordering on sets",
+      "codes": [
+        "PS2004"
+      ]
+    },
+    {
+      "label": "container equality `==` and `!=`",
+      "status": "\ud83d\udfe1",
+      "count": 2,
+      "missing": "tuple of mixed element types",
+      "codes": [
+        "PS2004"
+      ]
+    }
+  ],
   "packages": [
     {
       "name": "certifi",
@@ -890,8 +943,8 @@
       "version": "3.5.2",
       "status": "\ud83d\udfe1",
       "ratio": "52/148",
-      "blocking": "name-resolution (39), construct-other (27), local-inference (20)",
-      "codes": "PS2002, PS2001, PS1001"
+      "blocking": "name-resolution (42), construct-other (27), type-mismatch (20)",
+      "codes": "PS2002, PS2001, PS1003"
     },
     {
       "name": "colorama",
@@ -905,23 +958,23 @@
       "name": "python-dotenv",
       "version": "1.2.4",
       "status": "\ud83d\udd34",
-      "ratio": "45/75",
-      "blocking": "unlowered-call (25), name-resolution (24), construct-other (24)",
+      "ratio": "44/75",
+      "blocking": "name-resolution (24), unlowered-call (24), construct-other (24)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "248/641",
-      "blocking": "name-resolution (184), construct-other (119), field-lookup (64)",
+      "ratio": "244/641",
+      "blocking": "name-resolution (181), construct-other (118), field-lookup (64)",
       "codes": "PS2002, PS2001, PS2003"
     },
     {
       "name": "h11",
       "version": "0.16.0",
       "status": "\ud83d\udd34",
-      "ratio": "71/133",
+      "ratio": "70/133",
       "blocking": "unlowered-type-name (20), reflection (17), generic-alias (14)",
       "codes": "PS2002, PS1106, PS1203"
     },
@@ -970,7 +1023,7 @@
       "version": "26.3",
       "status": "\ud83d\udfe1",
       "ratio": "278/558",
-      "blocking": "name-resolution (104), unlowered-type-name (98), field-lookup (83)",
+      "blocking": "name-resolution (101), unlowered-type-name (94), field-lookup (77)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
@@ -978,7 +1031,7 @@
       "version": "1.1.1",
       "status": "\ud83d\udd34",
       "ratio": "73/132",
-      "blocking": "name-resolution (27), unlowered-type-name (21), construct-other (15)",
+      "blocking": "name-resolution (27), unlowered-type-name (20), construct-other (15)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
@@ -1002,7 +1055,7 @@
       "version": "2.34.2",
       "status": "\ud83d\udfe1",
       "ratio": "123/319",
-      "blocking": "name-resolution (45), unlowered-type-name (43), construct-other (23)",
+      "blocking": "name-resolution (45), unlowered-type-name (42), construct-other (23)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {

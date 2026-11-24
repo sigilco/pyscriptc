@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "4ca3f985d5f3977250cd81c794526f9c6c001578",
+  "commit": "38a2e6e6eb6b633ac297729b45a7a370088c32e7",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
