@@ -49,7 +49,7 @@ from pyscriptc.reflection import annotation_note, metaclass_note
 from pyscriptc.reprspec import type_spec
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower import path_attr, rest_call
-from pyscriptc.restlower._dataclasses import container_factory, factory_ast
+from pyscriptc.restlower._dataclasses import container_factory, factory_ast, marker_flags
 from pyscriptc.restlower._popen import _reaped_fill
 from pyscriptc.restlower._uuid import uuid_hex_attr
 from pyscriptc.sigrec import T, type_to_dict
@@ -702,6 +702,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     if _type_kind(typ) == "func":
                         self.fail(stmt, "PS2002", "callable fields are not lowered")
                     field: dict[str, Any] = {"name": stmt.target.id, "type": typ}
+                    field_flags: dict[str, bool] = {}
+
                     if stmt.value is not None:
                         saved_prelude = self.prelude
                         self.prelude = []
@@ -721,6 +723,10 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                                 # lowers right here, against the annotation,
                                 # the same rule the bare spelling follows.
                                 default = self._field_default(stmt.value, typ)
+                                # The `repr=`/`compare=` flags (issue #452)
+                                # ride the marker and name whether the field
+                                # joins the synthesized `__repr__` and `__eq__`.
+                                field_flags.update(marker_flags(default))
                                 if _record_kind(default) == "field-const-default":
                                     default = self._field_const_default(default, typ, stmt)
                             elif self._is_tuple_annotation(typ):
@@ -728,8 +734,9 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             else:
                                 default = self._expr(stmt.value, None if typ.get("optional") else typ)
                         finally:
-                            self.prelude = saved_prelude
+                            saved_prelude = self.prelude
                         if _record_kind(default) == "factory-default":
+
                             # The factory default: the field takes the
                             # factory's value per construction, so the
                             # annotation drives the factory's result type.
@@ -745,6 +752,10 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             self._expect(stmt, default["type"], typ, stmt.target.id)
                         if _record_kind(default) != "factory-default":
                             field["default"] = default
+                        if field_flags:
+                            # The `repr=`/`compare=` flags (issue #452): the
+                            # generated `__repr__`/`__eq__` read them.
+                            field["flags"] = field_flags
                         seen_default = True
                     elif seen_default:
                         self.fail(stmt, "PS2002", "a non-default field follows a default")
@@ -944,13 +955,19 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             if (
                 "__eq__" not in method_sigs
                 and fields
-                and all(self._eq_comparable_field(field["type"], current=node.name) for field in fields)
+                and all(
+                    self._eq_comparable_field(field["type"], current=node.name)
+                    for field in fields
+                    if field.get("flags", {}).get("compare", True)
+                )
             ):
                 # The dataclass `__eq__` (issue #1279): CPython synthesizes
                 # it, so the signature is registered here, in the collect
                 # pass, and the compare sites find it before the body pass
                 # lowers the method. A written `__eq__` wins. A field the
-                # chain cannot spell keeps the identity fallback.
+                # chain cannot spell keeps the identity fallback. A field
+                # spelled `field(compare=False)` (issue #452) drops out of
+                # the chain, so it needs no compare.
                 eq_params = [
                     _self_param(node.name),
                     {"name": "other", "type": _class_type(node.name)},
@@ -1855,11 +1872,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         repr rows for list/dict/set); a field whose repr is outside the
         printable set keeps the `print` fence instead of emitting a wrong
         string. A written `__repr__` or `__str__` wins, as in CPython.
+        A field spelled `field(repr=False)` (issue #452) drops out of the
+        body, the way CPython's `repr` flag drops it.
         """
         mode = info.get("generated_init")
         if mode != "dataclass" or "__repr__" in info["methods"] or "__str__" in info["methods"]:
             return None
-        fields = info["own_fields"]
+        fields = [field for field in info["own_fields"] if field.get("flags", {}).get("repr", True)]
         if any(not self._reprable_field(field["type"]) for field in fields):
             return None
         span = span_of(node, self.filename)
@@ -1894,11 +1913,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         so a container or nested-dataclass field compares by value. A
         written `__eq__` wins, as in CPython; `eq=False` on the decorator
         is a different decorator spelling and never reaches this class
-        lowering.
+        lowering. A field spelled `field(compare=False)` (issue #452)
+        drops out of the chain, the way CPython's `compare` flag drops it.
         """
         if not info.get("generated_eq"):
             return None
-        fields = info["own_fields"]
+        fields = [field for field in info["own_fields"] if field.get("flags", {}).get("compare", True)]
         if any(not self._eq_comparable_field(field["type"], current=node.name) for field in fields):
             return None
         span = span_of(node, self.filename)

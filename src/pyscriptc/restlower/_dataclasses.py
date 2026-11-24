@@ -13,8 +13,10 @@ the callable value and is called per construction.
 assignment default: the construction site that omits the argument plays
 the constant, exactly the rule the equivalent `x: T = const` spelling
 follows. `default=None` on an `Optional` field rides the same marker and
-the construction site boxes the None. Other keyword names (`repr=`,
-`compare=`, `kw_only=`, `init=`, `metadata=`, `hash=`) keep the fence.
+the construction site boxes the None. `repr=<bool>` and `compare=<bool>`
+(issue #452) name whether the field rides the synthesized `__repr__` and
+`__eq__`: the flags ride the marker and the two generated bodies honor
+them. Other keyword names (`kw_only=`, `init=`, `hash=`) keep the fence.
 
 The handler returns the `factory-default` marker record: it is not an IR
 node, the construction site that omits the argument replays the factory,
@@ -38,6 +40,24 @@ CONTAINER_FACTORIES = frozenset({"list", "dict", "set"})
 #: accepts and drops it.
 IGNORED_KEYWORDS = frozenset({"metadata"})
 
+#: The boolean flags that name whether the field rides the synthesized
+#: `__repr__` and `__eq__` (issue #452). CPython reads them off the
+#: field spec and drops the field from the matching body; the lowered
+#: subset does the same.
+FLAG_KEYWORDS = frozenset({"repr", "compare"})
+
+
+def _flag_value(lo: Any, kw: ast.keyword) -> bool:
+    """The boolean value of a `repr=`/`compare=` keyword.
+
+    CPython takes any truthy object, but the lowered subset reads a
+    literal `True` or `False`: a name or a call would need a runtime
+    value, and the flags decide the generated body at compile time.
+    """
+    if not isinstance(kw.value, ast.Constant) or not isinstance(kw.value.value, bool):
+        lo.fail(kw, "PS2002", f"field({kw.arg}=...) takes True or False")
+    return bool(kw.value.value)
+
 
 def _dataclass_field(
     lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None, attr: str
@@ -59,9 +79,15 @@ def _dataclass_field(
     constant AST stashed: the class body pass folds it against the
     annotation, the same rule the equivalent `x: T = const` spelling
     follows.
+
+    The `repr=` and `compare=` flags (issue #452) ride every marker as
+    `repr` and `compare` keys, so the generated `__repr__` and `__eq__`
+    bodies read the field's flag and drop the field the way CPython
+    does.
     """
     if node.args:
         lo.fail(node, "PS2002", "field takes keyword arguments only")
+    flags: dict[str, bool] = {}
     for kw in node.keywords:
         if kw.arg is None:
             lo.fail(kw, "PS2002", "**kwargs are not lowered")
@@ -72,6 +98,9 @@ def _dataclass_field(
             # instance, the repr, the compare and the constructor never
             # see it. The lowered subset has no metadata surface, so the
             # keyword is accepted and dropped.
+            continue
+        if kw.arg in FLAG_KEYWORDS:
+            flags[kw.arg] = _flag_value(lo, kw)
             continue
         if kw.arg not in {"default_factory", "default"}:
             lo.fail(kw, "PS2002", f"field({kw.arg}=...) is not lowered; use default or default_factory")
@@ -84,15 +113,23 @@ def _dataclass_field(
     if factory_kw is None:
         # `field(default=...)`: the constant form of the bare assignment
         # default (issue #444). The marker defers to the class body pass,
-        # which folds the AST against the field's annotation.
+        # which folds the AST against the annotation.
         assert default_kw is not None
-        return {"kind": "field-const-default", "default_ast": default_kw.value, "type": expect or {}}
+        return {"kind": "field-const-default", "default_ast": default_kw.value, "type": expect or {}, **flags}
     factory = factory_kw.value
     if isinstance(factory, ast.Name) and factory.id in CONTAINER_FACTORIES:
         # The container factories ride by name: the construction site
         # builds the empty container of the field's type.
-        return {"kind": "factory-default", "factory": None, "name": factory.id, "type": expect or {}}
-    return {"kind": "factory-default", "factory": None, "name": None, "factory_ast": factory, "type": expect or {}}
+        return {"kind": "factory-default", "factory": None, "name": factory.id, "type": expect or {}, **flags}
+    return {
+        "kind": "factory-default",
+        "factory": None,
+        "name": None,
+        "factory_ast": factory,
+        "type": expect or {},
+        **flags,
+    }
+
 
 
 def container_factory(marker: dict[str, Any]) -> str | None:
@@ -134,3 +171,14 @@ def marker_type(marker: dict[str, Any]) -> dict[str, Any]:
 
     typ: dict[str, Any] = marker["type"]
     return typ
+
+
+def marker_flags(marker: dict[str, Any]) -> dict[str, bool]:
+    """The `repr=`/`compare=` flags the marker carries (issue #452).
+
+    A flag the call did not spell is absent, and the caller reads the
+    CPython default: the field rides the synthesized `__repr__` and
+    `__eq__` unless the call says otherwise.
+    """
+
+    return {name: bool(marker[name]) for name in FLAG_KEYWORDS if name in marker}
