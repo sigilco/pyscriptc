@@ -879,8 +879,44 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                     got = param["default"]
             if not types_equal(got["type"], param["type"]) and not self._accepts_protocol(param["type"], got["type"]):
                 self.fail(node, "PS1003", f"argument {param['name']} of {what} has the wrong type")
+            self._check_iterator_arg(node, param, got, what)
             args.append(got)
         return args
+
+    def _check_iterator_arg(self, node: ast.Call, param: dict[str, Any], got: dict[str, Any], what: str) -> None:
+        """A generator frame may not flow into an iterator-cursor parameter.
+
+        `_accepts_protocol` proves the frame's element against the
+        annotation, but the callee's own slot still carries the synthetic
+        `iter_` cursor layout ({seq, idx}): a frame pointer read as that
+        record dereferences the frame's fields as a list cell and
+        segfaults (issue #441). Passing the frame through a call boundary
+        needs the callee specialized on the frame parameter, which is not
+        lowered yet, so the boundary fences instead of emitting the
+        mismatched layout. A frame bound to a local keeps the frame type
+        (`_narrows_to_generator`) and iterates fine.
+        """
+        want = param["type"]
+        got_t = got["type"]
+        want_name = want.get("name") if _type_kind(want) == "class" else None
+        got_name = got_t.get("name") if _type_kind(got_t) == "class" else None
+        if not isinstance(want_name, str) or not isinstance(got_name, str):
+            return
+        if not self.classes.get(want_name, {}).get("iterator"):
+            return
+        if not got_name.startswith(("gen.", "coro.")):
+            return
+        if not self.classes.get(got_name, {}).get("coro"):
+            return
+        if types_equal(got_t, want):
+            return
+        self.fail(
+            node,
+            "PS2002",
+            f"a generator frame as {what} argument {param['name']} is not lowered yet: "
+            "an Iterator[T]/Generator[T] parameter keeps the cursor layout, so the frame "
+            "cannot cross the call boundary (bind it to a local and pass the local)",
+        )
 
     def _factory_default(self, marker: dict[str, Any], typ: dict[str, Any], node: ast.Call) -> dict[str, Any]:
         """The value one factory-default marker produces at this construction
