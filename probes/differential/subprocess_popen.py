@@ -77,9 +77,7 @@ print("echo-rc", echo.wait())
 
 # The stderr pipe alongside the stdout one: the two streams are read
 # separately.
-both = subprocess.Popen(
-    ["sh", "-c", "echo to-out; echo to-err >&2"], stdout=subprocess.PIPE, stderr=subprocess.PIPE
-)
+both = subprocess.Popen(["sh", "-c", "echo to-out; echo to-err >&2"], stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 print("both-out", both.stdout.readline())
 print("both-err", both.stderr.readline())
 print("both-rc", both.wait())

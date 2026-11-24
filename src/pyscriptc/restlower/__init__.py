@@ -85,7 +85,7 @@ from pyscriptc.restlower._operator import _bisect, _join, _operator
 from pyscriptc.restlower._orjson import _orjson_call
 from pyscriptc.restlower._ospath import _os_dup, _os_dup2, _os_open, _os_pipe, _os_read, _relpath, _walk
 from pyscriptc.restlower._pathlib import _buffer, _one
-from pyscriptc.restlower._popen import _pipe_method, _popen_method, _popen_new
+from pyscriptc.restlower._popen import _popen_new
 from pyscriptc.restlower._queue import _queue_call, _queue_method
 from pyscriptc.restlower._random import _random_call
 from pyscriptc.restlower._secrets import _secrets_call

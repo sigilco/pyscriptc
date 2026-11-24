@@ -298,13 +298,18 @@ int64_t ps_popen_code_of(void *box) {
 }
 
 /* send_signal(sig): the signal to the pid, CPython's implementation
-   without the Popen surface around it. A signal to an exited and
-   reaped child raises ProcessLookupError there; the runtime raises the
-   same family. */
+   without the Popen surface around it. A signal to a pid that no longer
+   exists lands on errno ESRCH; CPython swallows ESRCH (its
+   `if retcode is not None: return` shortcut answers a reaped child
+   before the kill and a recycled pid races past), so the runtime does
+   the same: only an unexpected errno raises. */
 void ps_popen_signal(void *box, int64_t sig) {
 #ifndef _WIN32
     PsPopen *proc = ps_popen_check(box);
-    if (kill((pid_t)proc->pid, (int)sig) != 0 && !proc->reaped) {
+    if (proc->reaped) {
+        return;
+    }
+    if (kill((pid_t)proc->pid, (int)sig) != 0 && errno != ESRCH) {
         ps_raise_cstr(PS_PROCESSLOOKUPERROR, "process not found");
     }
 #else
@@ -316,15 +321,21 @@ void ps_popen_signal(void *box, int64_t sig) {
 
 /* terminate(): SIGTERM, CPython's default. */
 void ps_popen_terminate(void *box) {
-#ifndef __wasi__
+#if !defined(_WIN32) && !defined(__wasi__)
     ps_popen_signal(box, SIGTERM);
+#else
+    (void)box;
+    ps_raise_cstr(PS_RUNTIME, "Popen.terminate is not available on this platform");
 #endif
 }
 
 /* kill(): SIGKILL, CPython's hard stop. */
 void ps_popen_kill(void *box) {
-#ifndef __wasi__
+#if !defined(_WIN32) && !defined(__wasi__)
     ps_popen_signal(box, SIGKILL);
+#else
+    (void)box;
+    ps_raise_cstr(PS_RUNTIME, "Popen.kill is not available on this platform");
 #endif
 }
 
@@ -447,12 +458,17 @@ static int64_t ps_pipe_fill(int32_t *fd, char *buf) {
 /* proc.stdout.read(n) / proc.stderr.read(n): the pipe's bytes. The
    read blocks until the child writes (or closes the pipe); n <= 0
    reads to EOF; a positive n reads exactly up to n bytes, parking the
-   surplus in the buffer for the next call. */
+   surplus in the buffer for the next call. A read on a stream that was
+   not piped raises ValueError, the closed-file family (CPython answers
+   None for the stream and the read raises on the None). */
 void ps_pipe_read(void *box, int64_t n, PsBuf *out) {
 #ifndef _WIN32
     PsPipe *pipe = (PsPipe *)box;
     if (pipe == NULL || pipe->proc == NULL || pipe->stream == PS_PIPE_IN) {
         ps_raise_cstr(PS_VALUE, "stdin is a write pipe: write() it, do not read() it");
+    }
+    if (*ps_pipe_fd(pipe) < 0) {
+        ps_raise_cstr(PS_VALUE, "the stream was not piped");
     }
     int32_t *fd = ps_pipe_fd(pipe);
     char *buf = ps_pipe_buf(pipe);
@@ -544,6 +560,9 @@ void ps_pipe_out_readline(void *box, PsBuf *out) {
     PsPipe *pipe = (PsPipe *)box;
     if (pipe == NULL || pipe->proc == NULL || pipe->stream == PS_PIPE_IN) {
         ps_raise_cstr(PS_RUNTIME, "the pipe handle is not initialized");
+    }
+    if (*ps_pipe_fd(pipe) < 0) {
+        ps_raise_cstr(PS_VALUE, "the stream was not piped");
     }
     ps_pipe_readline_impl(pipe, out);
 }

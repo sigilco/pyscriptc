@@ -1,6 +1,8 @@
 """`subprocess.DEVNULL` is the int constant CPython stores.
 
-`run`, `Popen`, and `call` stay fenced. `PIPE` and `STDOUT` are int constants.
+`run` and `call` stay fenced (#1345 lowers `Popen`, so a bare `Popen` read
+answers `PS2002` as a function value, not the subset fence).
+`PIPE` and `STDOUT` are int constants.
 """
 
 from __future__ import annotations
@@ -30,7 +32,6 @@ def test_devnull_matches_cpython(tmp_path: Path) -> None:
 def test_other_subprocess_names_stay_fenced(tmp_path: Path) -> None:
     cases = [
         ("run.py", "subprocess.run", "subprocess.run is not in the lowered subset of subprocess"),
-        ("popen.py", "subprocess.Popen", "subprocess.Popen is not in the lowered subset of subprocess"),
         ("call.py", "subprocess.call", "subprocess.call is not in the lowered subset of subprocess"),
     ]
     for name, expr, text in cases:

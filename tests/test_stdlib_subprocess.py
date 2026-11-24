@@ -9,6 +9,8 @@ probe diffs stdout against the CPython oracle.
 
 from __future__ import annotations
 
+import subprocess
+import sys
 from pathlib import Path
 
 from tests.test_gates import compile_run, oracle, write_case
@@ -355,3 +357,418 @@ def test_subprocess_run_timeout_is_not_the_builtin_timeout_error(tmp_path: Path)
     got = compile_run(tmp_path, path, "run")
     assert got.returncode != 0, got.stdout
     assert "TimeoutExpired" in got.stderr, got.stderr
+
+
+# --- subprocess.Popen: the child-handle surface (issue #1345) ---------------
+
+
+def test_popen_spawn_and_exit_code(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "popen_run.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(['true'])",
+                "    print(p.pid > 0)",
+                "    print(p.wait())",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_exit_code_matches_oracle(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "popen_rc.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(['sh', '-c', 'exit 3'])",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_poll_and_returncode_are_none_while_running(tmp_path: Path) -> None:
+    # CPython's poll() and returncode answer None while the child runs.
+    _oracle(
+        tmp_path,
+        "popen_poll.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(['sleep', '5'])",
+                "    print(p.poll() is None)",
+                "    print(p.returncode is None)",
+                "    p.kill()",
+                "    print(p.wait())",
+                "    print(str(p.returncode))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_kill_and_terminate(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "popen_kill.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    a: subprocess.Popen = subprocess.Popen(['sleep', '5'])",
+                "    a.kill()",
+                "    print(a.wait(timeout=5))",
+                "    b: subprocess.Popen = subprocess.Popen(['sleep', '5'])",
+                "    b.terminate()",
+                "    print(b.wait(timeout=5))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_send_signal(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "popen_signal.py",
+        "\n".join(
+            [
+                "import signal",
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(['sleep', '5'])",
+                "    p.send_signal(signal.SIGKILL)",
+                "    print(p.wait(timeout=5))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_wait_timeout_expires(tmp_path: Path) -> None:
+    # The bound passes: TimeoutExpired, the child stays alive, the caller
+    # kills it, and the wait reads the killed code.
+    _oracle(
+        tmp_path,
+        "popen_timeout.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(['sleep', '5'])",
+                "    try:",
+                "        p.wait(timeout=0.3)",
+                "        print('no timeout')",
+                "    except subprocess.TimeoutExpired as exc:",
+                "        print('expired', str(exc))",
+                "    p.kill()",
+                "    print(p.wait(timeout=5))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_wait_timeout_is_not_the_builtin_timeout_error(tmp_path: Path) -> None:
+    # CPython's TimeoutExpired derives from SubprocessError, not from the
+    # builtin TimeoutError: `except TimeoutError` does not catch it.
+    path = write_case(
+        tmp_path,
+        "popen_timeout_wrong_class.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(['sleep', '5'])",
+                "    try:",
+                "        p.wait(timeout=0.3)",
+                "    except TimeoutError:",
+                "        print('caught the builtin TimeoutError')",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0, got.stdout
+    assert "TimeoutExpired" in got.stderr, got.stderr
+
+
+def test_popen_pipe_roundtrip(tmp_path: Path) -> None:
+    # The stdin write / stdout read pair: the interactive protocol shape.
+    _oracle(
+        tmp_path,
+        "popen_pipe.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(",
+                "        ['cat'], stdin=subprocess.PIPE, stdout=subprocess.PIPE",
+                "    )",
+                "    p.stdin.write(b'ping\\n')",
+                "    p.stdin.flush()",
+                "    print(p.stdout.readline())",
+                "    p.stdin.close()",
+                "    print(p.stdout.read())",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_stdout_iteration(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "popen_lines.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(",
+                "        ['sh', '-c', 'echo one; echo two'], stdout=subprocess.PIPE",
+                "    )",
+                "    for line in p.stdout:",
+                "        print('line', line)",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_stderr_pipe(tmp_path: Path) -> None:
+    _oracle(
+        tmp_path,
+        "popen_err.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(",
+                "        ['sh', '-c', 'echo o; echo e >&2'],",
+                "        stdout=subprocess.PIPE, stderr=subprocess.PIPE,",
+                "    )",
+                "    print(p.stdout.readline())",
+                "    print(p.stderr.readline())",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_read_n_keeps_the_surplus(tmp_path: Path) -> None:
+    # read(n) parks the surplus in the buffer: the next read carries on.
+    _oracle(
+        tmp_path,
+        "popen_readn.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(",
+                "        ['printf', 'abcdefgh'], stdout=subprocess.PIPE",
+                "    )",
+                "    print(p.stdout.read(3))",
+                "    print(p.stdout.read(3))",
+                "    print(p.stdout.read())",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+
+
+def test_popen_unpiped_stream_read_fences(tmp_path: Path) -> None:
+    # The lowered handle always answers a handle; the read on a stream
+    # that was not piped raises ValueError at run time. CPython answers
+    # None for the stream and the read on the None raises AttributeError,
+    # so the reference run is expected to fail with that AttributeError
+    # (the divergence the probe records).
+    path = write_case(
+        tmp_path,
+        "popen_unpiped.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(['true'])",
+                "    try:",
+                "        p.stdout.read()",
+                "    except ValueError:",
+                "        print('no pipe')",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode == 0, got.stderr
+    assert got.stdout == "no pipe\n0\n0\n", got.stdout
+    runner = (
+        "import importlib.util\n"
+        f"spec = importlib.util.spec_from_file_location('mod', r'{path}')\n"
+        "mod = importlib.util.module_from_spec(spec)\n"
+        "spec.loader.exec_module(mod)\n"
+        "mod.run()\n"
+    )
+    ref = subprocess.run([sys.executable, "-c", runner], capture_output=True, text=True, encoding="latin-1")
+    assert ref.returncode != 0
+    assert "AttributeError: 'NoneType' object has no attribute 'read'" in ref.stderr
+
+
+def test_popen_environment_keywords_fence(tmp_path: Path) -> None:
+    # The spawn environment is issue #1344's surface: it fences with
+    # PS2003 naming the issue.
+    path = write_case(
+        tmp_path,
+        "popen_env.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(['true'], env={})",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0
+    assert "PS2003" in got.stderr, got.stderr
+    assert "#1344" in got.stderr, got.stderr
+
+
+def test_popen_computed_wait_timeout_fences(tmp_path: Path) -> None:
+    # The bound is a literal: a computed bound has no lowering.
+    path = write_case(
+        tmp_path,
+        "popen_timeout_computed.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    bound: float = 1.0",
+                "    p: subprocess.Popen = subprocess.Popen(['sleep', '5'])",
+                "    print(p.wait(timeout=bound))",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0
+    assert "PS2003" in got.stderr, got.stderr
+
+
+def test_popen_computed_read_n_fences(tmp_path: Path) -> None:
+    path = write_case(
+        tmp_path,
+        "popen_readn_computed.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    n: int = 3",
+                "    p: subprocess.Popen = subprocess.Popen(",
+                "        ['printf', 'abc'], stdout=subprocess.PIPE",
+                "    )",
+                "    print(p.stdout.read(n))",
+                "    print(p.wait())",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0
+    assert "PS2003" in got.stderr, got.stderr
+
+
+def test_popen_computed_signal_fences(tmp_path: Path) -> None:
+    # The signal is a signal.SIG* constant; a bare int fences.
+    path = write_case(
+        tmp_path,
+        "popen_signal_computed.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    sig: int = 9",
+                "    p: subprocess.Popen = subprocess.Popen(['sleep', '5'])",
+                "    p.send_signal(sig)",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0
+    assert "PS2003" in got.stderr, got.stderr
+
+
+def test_popen_communicate_fences(tmp_path: Path) -> None:
+    # communicate() drains both pipes to EOF: outside the incremental
+    # surface, refused by name.
+    path = write_case(
+        tmp_path,
+        "popen_communicate.py",
+        "\n".join(
+            [
+                "import subprocess",
+                "",
+                "def run() -> int:",
+                "    p: subprocess.Popen = subprocess.Popen(",
+                "        ['true'], stdout=subprocess.PIPE",
+                "    )",
+                "    out: bytes",
+                "    err: bytes",
+                "    out, err = p.communicate()",
+                "    return 0",
+                "",
+            ]
+        ),
+    )
+    got = compile_run(tmp_path, path, "run")
+    assert got.returncode != 0
+    assert "PS2001" in got.stderr, got.stderr

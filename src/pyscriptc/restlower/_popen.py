@@ -31,7 +31,6 @@ from typing import Any
 
 from pyscriptc.restlower._shared import (
     _class,
-    _const_int,
     _flag,
     _int,
     _node_type,
@@ -172,7 +171,7 @@ def _signal_number(lo: Any, node: ast.expr) -> dict[str, Any]:
     The constant lowers to the kernel number the host read, so the
     runtime's ABI takes it whole.
     """
-    if not (isinstance(node, ast.Attribute) and node.attr == "SIG"):
+    if not (isinstance(node, ast.Attribute) and node.attr.startswith("SIG")):
         lo.fail(node, "PS2003", "Popen.send_signal takes a signal.SIG* constant")
     number = lo._expr(node)
     if _node_type_kind(number) != "int":

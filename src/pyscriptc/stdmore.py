@@ -91,9 +91,6 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
     # The asyncio subprocess capture constants (issue #1266): PIPE is -1,
     # the value CPython uses, and the runtime's pipe mask reads it whole.
     "asyncio.subprocess": ("PIPE",),
-    # The Popen pipe constants (issue #1345): PIPE and STDOUT are CPython's
-    # numbers, -1 and -2, and the spawn's pipe mask reads them whole.
-    "subprocess": ("PIPE",),
     # The POSIX signal constants the watchdog surface carries (issue #1244).
     # Values are read from the host interpreter; they are the kernel numbers,
     # so the CPython 3.14 oracle and the binary agree on every platform.
@@ -1119,6 +1116,9 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
         "UF_SETTABLE",
         "UF_TRACKED",
     ),
+    # The subprocess pipe constants: PIPE is -1 and STDOUT is -2,
+    # CPython's numbers. The Popen spawn (issue #1345) reads PIPE whole
+    # to decide which stream to pipe.
     "subprocess": (
         "PIPE",
         "STDOUT",

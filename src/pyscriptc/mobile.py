@@ -37,7 +37,9 @@ ANDROID_API_DEFAULT = 24
 # The runtime files a mobile build does not carry. `ps_sub.c` forks and execs,
 # `ps_osfd.c` opens raw file descriptors: neither has a meaning inside an app
 # sandbox, and both pull in headers a phone SDK does not ship. `ps_aproc.c`
-# is the async subprocess (issue #1224): it forks and execs too. `ps_sock.c`
+# is the async subprocess (issue #1224): it forks and execs too. `ps_popen.c`
+# is the sync child handle (issue #1345): it forks and execs as well.
+# `ps_sock.c`
 # is the TCP socket surface (issue #1270): an app sandbox does not open
 # listening sockets either. `ps_http_server.c` is the http.server surface
 # (issue #1270, slice 2): it sits on the listening socket, so the sandbox
@@ -48,6 +50,7 @@ MOBILE_EXCLUDED_SOURCES: list[str] = [
     "ps_osfd.c",
     "ps_sub.c",
     "ps_aproc.c",
+    "ps_popen.c",
     "ps_sock.c",
     "ps_http_server.c",
     "ps_stream.c",
@@ -189,6 +192,23 @@ MOBILE_EXCLUDED_SYMBOLS: dict[str, str] = {
     # excluded file owns the spawn and the two capture reads.
     "ps_aproc_stdout": "subprocess",
     "ps_aproc_stderr": "subprocess",
+    # The sync child handle (issue #1345): the spawn, the process surface
+    # and the pipe helpers live in the same excluded file, and an app
+    # sandbox has no fork/exec either.
+    "ps_popen_new": "subprocess",
+    "ps_popen_pid": "subprocess",
+    "ps_popen_poll": "subprocess",
+    "ps_popen_reaped": "subprocess",
+    "ps_popen_wait": "subprocess",
+    "ps_popen_signal": "subprocess",
+    "ps_popen_terminate": "subprocess",
+    "ps_popen_kill": "subprocess",
+    "ps_popen_pipe": "subprocess",
+    "ps_pipe_read": "subprocess",
+    "ps_pipe_out_readline": "subprocess",
+    "ps_pipe_write": "subprocess",
+    "ps_pipe_flush": "subprocess",
+    "ps_pipe_close": "subprocess",
     # os.system shells out, so its helper lives in the same excluded file
     # (issue #503): an app sandbox has no fork/exec either.
     "ps_os_system": "subprocess",

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "7c761464b14615e5a752e715e3ba23d632009c31",
+  "commit": "b8286d9c316e34265b3d027f510f2d0df5ca3fb3",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
@@ -51,12 +51,6 @@
           "construct": "`p.is_file`",
           "code": "PS2001",
           "diagnostic": "p.is_file is not in the lowered subset of pathlib"
-        },
-        {
-          "module": "subprocess",
-          "construct": "`subprocess.Popen`",
-          "code": "PS2001",
-          "diagnostic": "subprocess.Popen is not in the lowered subset of subprocess"
         }
       ]
     },
@@ -195,6 +189,12 @@
       "fences": [
         {
           "module": "builtins",
+          "construct": "Popen.communicate",
+          "code": "PS2001",
+          "diagnostic": "Popen.communicate is not lowered; the incremental reads replace it (issue #1345)"
+        },
+        {
+          "module": "builtins",
           "construct": "`data.sort()`",
           "code": "PS2001",
           "diagnostic": "call of attribute is not lowered (data.sort)"
@@ -314,7 +314,7 @@
           "module": "subprocess",
           "construct": "type annotation mismatch",
           "code": "PS1003",
-          "diagnostic": "subprocess takes a list of str"
+          "diagnostic": "subprocess.Popen takes a list of str"
         }
       ]
     },

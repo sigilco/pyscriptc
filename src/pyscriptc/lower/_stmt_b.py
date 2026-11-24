@@ -248,7 +248,12 @@ class StmtBMixin:
             self.locals[line] = elem
             body = self._loop_body(stmt)
             readline = self._abi_call(
-                "subprocess", "PopenPipe.readline", [_name(fio, iterable["type"], span)], elem, "ps_pipe_out_readline", span
+                "subprocess",
+                "PopenPipe.readline",
+                [_name(fio, iterable["type"], span)],
+                elem,
+                "ps_pipe_out_readline",
+                span,
             )
             out = [
                 _assign(fio, iterable, span),

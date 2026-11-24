@@ -394,6 +394,22 @@ def test_excluded_symbols_cover_both_excluded_files() -> None:
         "ps_httpreq_headers",
         "ps_httpreq_rfile",
         "ps_httpreq_rfile_read",
+        # The sync Popen child handle (issue #1345), same fence: the app
+        # sandbox has no fork/exec.
+        "ps_popen_new",
+        "ps_popen_pid",
+        "ps_popen_poll",
+        "ps_popen_reaped",
+        "ps_popen_wait",
+        "ps_popen_signal",
+        "ps_popen_terminate",
+        "ps_popen_kill",
+        "ps_popen_pipe",
+        "ps_pipe_read",
+        "ps_pipe_out_readline",
+        "ps_pipe_write",
+        "ps_pipe_flush",
+        "ps_pipe_close",
     }
 
 

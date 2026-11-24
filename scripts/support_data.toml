@@ -534,8 +534,8 @@ no = [["a non-PIPE stdout value", '''async def work() -> None:
 
 [[stdlib]]
 names = ["subprocess"]
-ok = ['y: bytes = subprocess.check_output(ss)', 'subprocess.run(ss)', 'y: int = subprocess.run(ss).returncode', 'y: bytes = subprocess.run(ss, capture_output=True).stdout', 'y: int = subprocess.DEVNULL', 'subprocess.run(ss, timeout=5)']
-no = [["Popen, getoutput", 'y: int = subprocess.Popen(ss)', "PS2001"]]
+ok = ['y: bytes = subprocess.check_output(ss)', 'subprocess.run(ss)', 'y: int = subprocess.run(ss).returncode', 'y: bytes = subprocess.run(ss, capture_output=True).stdout', 'y: int = subprocess.DEVNULL', 'subprocess.run(ss, timeout=5)', 'y: int = subprocess.Popen(ss).wait()', 'y: int | None = subprocess.Popen(ss).poll()']
+no = [["getoutput", 'y: str = subprocess.getoutput(s)', "PS2001"], ["the Popen environment keywords (issue #1344)", 'y: int = subprocess.Popen(ss, env=d).wait()', "PS2003"], ["Popen.communicate", 'y: bytes = subprocess.Popen(ss, stdout=subprocess.PIPE).communicate()', "PS2001"]]
 
 [[stdlib]]
 names = ["socket"]

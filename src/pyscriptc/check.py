@@ -358,7 +358,11 @@ def _patch_subprocess(subprocess_stub: Path) -> None:
             raise CheckFailed("vendored typeshed subprocess.pyi no longer matches the subset patch anchors")
     for name in ("stdin", "stdout", "stderr"):
         text = text.replace(
-            _SUBPROCESS_STDIN_ROW if name == "stdin" else _SUBPROCESS_STDOUT_ROW if name == "stdout" else _SUBPROCESS_STDERR_ROW,
+            _SUBPROCESS_STDIN_ROW
+            if name == "stdin"
+            else _SUBPROCESS_STDOUT_ROW
+            if name == "stdout"
+            else _SUBPROCESS_STDERR_ROW,
             _SUBPROCESS_PIPE_ROW.format(name=name),
             1,
         )
