@@ -1334,7 +1334,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         own = emit_name or node.name
         info = self.classes[own]
         if info.get("enum"):
-            return None
+            return self._lower_enum(node, own, info)
         self._lower_factories(info)
         own_names = {field["name"] for field in info.get("own_fields", info["fields"])}
         methods: list[dict[str, Any]] = []
@@ -1393,6 +1393,36 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             record["exc_parent"] = info.get("exc_parent", EXCEPTIONS["Exception"])
         return record
 
+    def _lower_enum(self, node: ast.ClassDef, own: str, info: dict[str, Any]) -> dict[str, Any] | None:
+        """The class record an enum's methods emit (issue #451).
+
+        CPython attaches an enum's methods to the enum class, so every
+        member answers them. The enum class has no instance layout (the
+        member is the value itself), so the record carries only the
+        methods: the emitter spells each one `cls.{Enum}.{method}`, the
+        same shape a normal class method takes.
+        """
+        own_names: set[str] = set()
+        methods: list[dict[str, Any]] = []
+        for stmt in node.body:
+            if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            if info["method_owner"].get(stmt.name) != own:
+                continue
+            emitted = self._emit_class_method(own, stmt, info, own_names)
+            if emitted is not None:
+                methods.append(emitted)
+        if self.caught:
+            return None
+        if not methods:
+            return None
+        return {
+            "name": own,
+            "fields": [],
+            "methods": methods,
+            "span": span_of(node, self.filename),
+        }
+
     def _emit_class_method(
         self, class_name: str, stmt: ast.FunctionDef, info: dict[str, Any], own_names: set[str]
     ) -> dict[str, Any] | None:
@@ -1412,10 +1442,16 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self.fn_globals = self._globals_for(stmt.body)
         params, ret = info["methods"][stmt.name]
         kind = info["method_kind"].get(stmt.name, "method")
+        is_enum = bool(info.get("enum"))
         if kind == "class":
             # The cls row rides the emitted signature; the body reads the id
             # through `self.cls_class`, not through a local (issue #447).
             params = [{"name": "cls", "type": _leaf_type("int")}, *params]
+        elif is_enum:
+            # An enum method's `self` is the member (issue #451), and the
+            # lowered member is the value itself, so the row keeps the value
+            # kind the signature pass gave it.
+            pass
         elif params and params[0]["name"] == "self":
             params = [_self_param(class_name), *params[1:]]
         # A generator method's body lowers under the None-returning resume
@@ -1424,7 +1460,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self.locals = {param["name"]: param["type"] for param in params}
         self.frozen_names = set()
         self.fn_body = list(stmt.body)
-        if kind in {"method", "property"}:
+        if kind in {"method", "property"} and not is_enum:
             self.locals["self"] = _class_type(class_name)
         # A classmethod body lowers with the receiver class named: `cls`
         # reads the compile-time class id (issue #447, divergence 10).

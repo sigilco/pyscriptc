@@ -311,9 +311,14 @@ class AnnotationMixin:
             name = self.class_aliases.get(node.id, node.id)
             # An IntEnum class is an int at the type level (issue #1314):
             # CPython's IntEnum members are ints, so a slot or a parameter
-            # the annotation names takes an int and answers an int.
-            if self.classes.get(name, {}).get("enum") and self.classes.get(name, {}).get("base") == "IntEnum":
+            # the annotation names takes an int and answers an int. StrEnum
+            # and IntFlag answer the same way (issue #451): StrEnum members
+            # are strs, IntFlag members are ints (the `|`/`&` subset).
+            base = self.classes.get(name, {}).get("base") if self.classes.get(name, {}).get("enum") else None
+            if base == "IntEnum" or base == "IntFlag":
                 return _type({"kind": "int"})
+            if base == "StrEnum":
+                return _type({"kind": "str"})
             return _type({"kind": "class", "name": name})
         handle = self._handle_annotation(node)
         if handle is not None:

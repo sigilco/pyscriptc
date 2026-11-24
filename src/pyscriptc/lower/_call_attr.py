@@ -201,6 +201,9 @@ def _opt_fill(dest: str, opt_t: dict[str, Any], got: dict[str, Any], span: dict[
 class CallAttrMixin:
     def _call_attr(self, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
         assert isinstance(node.func, ast.Attribute)
+        enum_call = self._enum_member_call(node, span)
+        if enum_call is not None:
+            return enum_call
         if (
             isinstance(node.func.value, ast.Call)
             and isinstance(node.func.value.func, ast.Name)
