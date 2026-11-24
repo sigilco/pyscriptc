@@ -247,6 +247,30 @@ def _run_bench(
     }
 
 
+def _typing_section(target: Path, target_files: list[str]) -> dict[str, Any]:
+    """The typing section of the assessment (issue #1315).
+
+    The section names the project mode, the level every file ended up at
+    and the typing findings those levels surface. It is a quality report:
+    it never changes what compiles, what lowers or the exit code.
+    """
+
+    from pyscriptc import typinglevels
+    from pyscriptc.config import load_config
+
+    try:
+        policy = load_config(target).typing_policy()
+    except Exception:
+        policy = typinglevels.TypingPolicy()
+    files: list[Path] = []
+    for f in target_files:
+        files.append(Path(f))
+    findings: list[typinglevels.Finding] = []
+    for path in files:
+        findings.extend(typinglevels.scan_file(path))
+    return typinglevels.typing_report(policy, files, findings)
+
+
 def assess(
     target: Path,
     *,
@@ -846,12 +870,15 @@ def assess(
 
     micro_mismatch = (oracle.version != verify.TARGET_CPYTHON) if oracle is not None else False
 
+    typing_section = _typing_section(target, target_files)
+
     return {
         "schemaVersion": SCHEMA_VERSION,
         "target": str(target),
         "targetVersion": verify.TARGET_CPYTHON,
         "microMismatch": micro_mismatch,
         "summary": summary,
+        "typing": typing_section,
         "planeMap": overall_plane_map,
         "fallback": overall_plane_map,
         "islandImports": [i["name"] for i in assessed_imports if i["routing"] == "island"],
@@ -1030,6 +1057,23 @@ def render_text(
         lines.append(f"  ... and {files_overflow} more file(s) (use --all for full list)")
 
     lines.append("")
+
+    typing_section: dict[str, Any] | None = report.get("typing")
+    if typing_section is not None:
+        typing_summary: dict[str, Any] = typing_section["summary"]
+        shown = typing_summary["errors"] + typing_summary["warnings"]
+        lines.append(f"Typing (mode {typing_section['mode']}): {shown} finding(s)")
+        typing_findings: list[dict[str, Any]] = typing_section["findings"]
+        if not typing_findings:
+            lines.append("  (no typing findings)")
+        for finding in typing_findings:
+            f_file: str = finding["file"]
+            f_line: int = finding["line"]
+            f_severity: str = finding["severity"]
+            f_code: str = finding["code"]
+            f_message: str = finding["message"]
+            lines.append(f"  {f_severity}: {f_file}:{f_line}: {f_code} {f_message}")
+        lines.append("")
 
     plane_map: dict[str, Any] = report["planeMap"]
     functions_map: dict[str, str] = _str_map(plane_map, "functions")

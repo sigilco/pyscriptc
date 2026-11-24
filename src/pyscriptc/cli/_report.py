@@ -15,6 +15,7 @@ from typing import TYPE_CHECKING, Any
 
 from pyscriptc.config import entry_points, load_config
 from pyscriptc.log import get_logger, tail
+from pyscriptc.typinglevels import TypingPolicy
 
 if TYPE_CHECKING:
     import argparse
@@ -83,6 +84,28 @@ def _fence_deltas(base: dict[str, int], inferred: dict[str, int]) -> dict[str, d
     return deltas
 
 
+def _typing_policy(source: Path) -> TypingPolicy:
+    """The typing policy of the project above a source (issue #1315).
+
+    The policy is the `[tool.pyscriptc.typing]` table: the project mode
+    and the per-level glob lists. A project without the table gets the
+    default policy, so the report is unchanged for a project that
+    configures nothing. A malformed table falls back to the default
+    policy rather than failing the report: the table is validated where
+    it is read (`config.typing_policy`), and the report lanes read the
+    default config when no project config exists.
+    """
+
+    try:
+        config = load_config(source)
+    except Exception:
+        return TypingPolicy()
+    try:
+        return config.typing_policy()
+    except Exception:
+        return TypingPolicy()
+
+
 def infer_cmd(args: argparse.Namespace) -> int:
     """`pyscriptc infer`: what the checker proves for a package, and what lowering gains.
 
@@ -116,7 +139,7 @@ def infer_cmd(args: argparse.Namespace) -> int:
         # instrument, so it stays cheap enough to run on a big tree.
         from pyscriptc.infercoverage import coverage_report, render_coverage_text
 
-        report = coverage_report(source, facts)
+        report = coverage_report(source, facts, policy=_typing_policy(source))
         print(json.dumps(report, indent=2) if args.json else render_coverage_text(report))
         return 0
 
@@ -345,6 +368,7 @@ def config_cmd(args: argparse.Namespace) -> int:
         "ffi": list(config.ffi),
         "dependency-lanes": config.dependency_lanes(),
         "imports": {name: config.lane_for(name)[0] for name in sorted(config.imports)},
+        "typing": config.typing_policy(),
         "scripts": scripts,
     }
     if args.json:
@@ -367,6 +391,10 @@ def config_cmd(args: argparse.Namespace) -> int:
             print(f"  {req}: {lane}")
     for name, lane in data["imports"].items():
         print(f"import {name}: {lane}")
+    typing: Any = data["typing"]
+    print(f"typing mode: {typing.mode}")
+    for level, patterns in sorted(typing.globs.items()):
+        print(f"typing {level}: {', '.join(patterns)}")
     if data["scripts"]:
         print("scripts:")
         for name, target in data["scripts"].items():
