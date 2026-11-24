@@ -1732,6 +1732,26 @@
       "status": "divergent"
     },
     {
+      "id": "D92",
+      "seam": "argparse subparsers share one namespace: an unchosen subcommand's attribute reads its default (CPython raises AttributeError) and an absent optional subcommand dest reads the empty string (CPython reads None)",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#92",
+      "probe": "probes/divergences/d92_argparse_subparser_namespace.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "'go'\n5\nNone\nAttributeError\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "'go'\n5\n''\n2\n",
+        "stderr": ""
+      },
+      "status": "divergent"
+    },
+    {
       "id": "AUDIT-D11",
       "seam": "json.dumps does not escape non-ASCII (audit D11)",
       "listed": false,

@@ -751,6 +751,14 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#90",
     ),
     _row(
+        "D94",
+        "argparse subparsers share one namespace: an unchosen subcommand's attribute reads its default "
+        "(CPython raises AttributeError) and an absent optional subcommand dest reads the empty string "
+        "(CPython reads None)",
+        "d94_argparse_subparser_namespace.py",
+        docs=f"{DOC}#94",
+    ),
+    _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT
     ),
     _row(
