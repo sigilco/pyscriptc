@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-23",
-  "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
+  "commit": "fc5bf7686e201fa075461d301ae64bb651fc18b2",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,15 +18,15 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-23",
-    "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
+    "commit": "fc5bf7686e201fa075461d301ae64bb651fc18b2",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
     "builtins_full": 3,
     "builtins_partial": 14,
     "builtins_none": 1,
-    "stdlib_full": 0,
-    "stdlib_partial": 72,
+    "stdlib_full": 1,
+    "stdlib_partial": 71,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 11,
@@ -390,14 +390,10 @@
       "names": [
         "math"
       ],
-      "status": "partial",
+      "status": "full",
       "count": 1,
-      "unsupported": [
-        "dist, ulp, nextafter, modf, frexp, ldexp, expm1, log1p, fma, sumprod"
-      ],
-      "fences": [
-        "PS2001"
-      ],
+      "unsupported": [],
+      "fences": [],
       "note": ""
     },
     {
@@ -2909,7 +2905,7 @@
     },
     {
       "date": "2026-11-23",
-      "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
+      "commit": "fc5bf7686e201fa075461d301ae64bb651fc18b2",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
