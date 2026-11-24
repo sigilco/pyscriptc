@@ -1814,7 +1814,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # ABI, and reading a field would be a wild access (issue #224).
             # A manifest may declare read-only getters for a handle
             # (issue #1343): the read is one thunk call over the pointer.
-            attr = self._ffi_handle_attr(obj, class_name, name, span)
+            attr = self._ffi_handle_attr(obj, class_name, name, span, node)
             if attr is not None:
                 return attr
             self.fail(node, "PS4015", f"{class_name} is an opaque ffi handle and has no attributes")

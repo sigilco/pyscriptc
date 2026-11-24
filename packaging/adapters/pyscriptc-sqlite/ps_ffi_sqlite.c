@@ -165,8 +165,6 @@ void ps_ffi_sqlite_close(void *handle) {
     sqlite3_close_v2(db);
 }
 
-/* The v2 surface (issue #1343). */
-
 /* The tagged cell a bound parameter or a returned column carries. The cell is
    the runtime's own PsDyn, so the compiler's `object` slot (a pointer to the
    cell) and the C side agree on one representation. */
@@ -377,3 +375,265 @@ void *ps_ffi_sqlite_connect2(int64_t n, const char *path, double timeout_s) {
     return handle;
 }
 
+/* The v3 surface: the sqlite3 connection/cursor shape (issue #1343). */
+
+/* The v3 surface: the sqlite3 connection/cursor shape (issue #1343).
+
+The cursor is one prepared statement plus the count fields CPython's Cursor
+carries. `execute` runs the statement like CPython's Connection.execute
+does (it steps a DML statement to its first DONE), but keeps the statement
+open when it returned rows, so `fetchone` reads them. The counts follow
+CPython's rules exactly:
+
+  rowcount is -1 (no statement run, or the statement is a read); for a
+  DML run it is sqlite3_changes(); for executemany it is the sum of the
+  runs' changes (CPython sums, not the last run's).
+  lastrowid is 0 until an INSERT ran, then sqlite3_last_insert_rowid().
+  description is NULL on a cursor that has run no statement with columns
+  (CPython: None after a DML execute), otherwise the column names.
+*/
+
+typedef struct ps_sqlite_cursor {
+    sqlite3 *db;        /* the owning connection's sqlite3, NULL once closed */
+    sqlite3_stmt *stmt; /* the statement the cursor steps; NULL when spent */
+    int64_t rowcount;   /* CPython's rule: -1 for reads, changes for writes */
+    int64_t lastrowid;  /* 0 until an INSERT ran on the connection */
+    int ncols;          /* the prepared statement's column count */
+    int stepped;        /* the statement has run at least once */
+} ps_sqlite_cursor;
+
+/* True when the statement's first run says DML: sqlite3_step returns DONE
+   for INSERT/UPDATE/DELETE without ever producing a row. A SELECT's first
+   run is SQLITE_ROW (or DONE for the empty set), which is the read arm. */
+static int ps_sqlite_is_dml_run(int rc) {
+    return rc == SQLITE_DONE;
+}
+
+/* Step the cursor's statement once and build the row, or report done. */
+static int ps_sqlite_cur_step(ps_sqlite_cursor *cur) {
+    if (cur == NULL || cur->db == NULL || cur->stmt == NULL) {
+        return SQLITE_DONE;
+    }
+    int rc = sqlite3_step(cur->stmt);
+    if (rc == SQLITE_ROW || rc == SQLITE_DONE) {
+        cur->stepped = 1;
+        return rc;
+    }
+    char msg[256];
+    snprintf(msg, sizeof msg, "sqlite3: %s", sqlite3_errmsg(cur->db));
+    ps_raise_cstr(PS_RUNTIMEERROR, msg);
+}
+
+/* One row off the statement's current position, keyed by column name. */
+static PsMap *ps_sqlite_row_of(ps_sqlite_cursor *cur) {
+    PsMap *row = ps_map_new(2, (int64_t)sizeof(PsBuf), (int64_t)sizeof(void *), cur->ncols);
+    for (int i = 0; i < cur->ncols; i++) {
+        PsBuf key;
+        const char *name = sqlite3_column_name(cur->stmt, i);
+        ps_buf_copy(&key, name != NULL ? name : "", name != NULL ? (int64_t)strlen(name) : 0);
+        PsDyn *cell = ps_sqlite_cell_of_column(cur->stmt, i);
+        ps_map_put(row, &key, &cell);
+    }
+    return row;
+}
+
+/* The one execute: prepare, bind, run. A DML statement runs to DONE here
+   (CPython's Connection.execute does the same, so the counts are decided
+   at the call); a SELECT stops at the first ROW so the cursor's fetch
+   methods read the rows. */
+void *ps_ffi_sqlite_conn_execute(void *handle, int64_t n, const char *sql, void *params) {
+    sqlite3 *db = ps_sqlite_live(handle);
+    sqlite3_stmt *stmt = ps_sqlite_prepare(db, n, sql);
+    ps_sqlite_cursor *cur = ps_alloc((int64_t)sizeof *cur);
+    cur->db = db;
+    cur->stmt = stmt;
+    cur->rowcount = -1;
+    cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
+    cur->ncols = stmt != NULL ? sqlite3_column_count(stmt) : 0;
+    cur->stepped = 0;
+    if (stmt == NULL) {
+        /* An empty or comment-only statement: CPython reports rowcount -1. */
+        return cur;
+    }
+    ps_sqlite_bind_all(stmt, (const PsSeq *)params);
+    if (cur->ncols > 0) {
+        /* The read arm: a statement with result columns keeps its rows for
+           fetchone, so the cursor does not step it here. CPython's
+           Connection.execute does step it, but its Cursor keeps the
+           pending row and hands it to the first fetchone, which is the
+           same row the first fetchone sees here. */
+        return cur;
+    }
+    int rc = sqlite3_step(stmt);
+    cur->stepped = 1;
+    if (rc == SQLITE_DONE) {
+        /* The DML arm: the row count is the changes of this run. */
+        cur->rowcount = (int64_t)sqlite3_changes(db);
+        cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
+        sqlite3_finalize(stmt);
+        cur->stmt = NULL;
+        return cur;
+    }
+    if (rc == SQLITE_ROW) {
+        /* A statement with no result columns that produced a row (a
+           RETURNING clause): the row stays for the fetch methods. */
+        return cur;
+    }
+    char msg[256];
+    snprintf(msg, sizeof msg, "sqlite3: %s", sqlite3_errmsg(db));
+    sqlite3_finalize(stmt);
+    cur->stmt = NULL;
+    ps_raise_cstr(PS_RUNTIMEERROR, msg);
+}
+
+/* executemany(sql, rows): the statement runs once per parameter row. The
+   row count is the sum of the runs' changes, CPython's rule. The cursor
+   keeps the statement only when rows were produced (a SELECT with the
+   reset-and-restep shape executemany has no use for); CPython's
+   executemany cursor never offers rows, so the statement finalizes and
+   the fetches report done. */
+void *ps_ffi_sqlite_conn_executemany(void *handle, int64_t n, const char *sql, void *rows) {
+    sqlite3 *db = ps_sqlite_live(handle);
+    PsSeq *seq = (PsSeq *)rows;
+    ps_sqlite_cursor *cur = ps_alloc((int64_t)sizeof *cur);
+    cur->db = db;
+    cur->stmt = NULL;
+    cur->rowcount = -1;
+    cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
+    cur->ncols = 0;
+    cur->stepped = 0;
+    int64_t count = ps_seq_len(seq);
+    if (count == 0) {
+        /* CPython: executemany over an empty sequence leaves rowcount -1. */
+        return cur;
+    }
+    sqlite3_stmt *stmt = ps_sqlite_prepare(db, n, sql);
+    if (stmt == NULL) {
+        return cur;
+    }
+    int64_t total = 0;
+    for (int64_t i = 0; i < count; i++) {
+        PsSeq *row = NULL;
+        ps_seq_get(seq, i, &row);
+        sqlite3_reset(stmt);
+        sqlite3_clear_bindings(stmt);
+        ps_sqlite_bind_all(stmt, row);
+        int rc = sqlite3_step(stmt);
+        if (rc != SQLITE_DONE && rc != SQLITE_ROW) {
+            char msg[256];
+            snprintf(msg, sizeof msg, "sqlite3: %s", sqlite3_errmsg(db));
+            sqlite3_finalize(stmt);
+            ps_raise_cstr(PS_RUNTIMEERROR, msg);
+        }
+        total += (int64_t)sqlite3_changes(db);
+    }
+    cur->rowcount = total;
+    cur->lastrowid = (int64_t)sqlite3_last_insert_rowid(db);
+    sqlite3_finalize(stmt);
+    return cur;
+}
+
+void *ps_ffi_sqlite_conn_connect(int64_t n, const char *path) {
+    return ps_ffi_sqlite_connect(n, path);
+}
+
+int64_t ps_ffi_sqlite_conn_commit(void *handle) {
+    return ps_ffi_sqlite_commit(handle);
+}
+
+void ps_ffi_sqlite_conn_close(void *handle) {
+    ps_sqlite_conn *conn = handle;
+    if (conn != NULL && conn->db != NULL) {
+        sqlite3_close_v2(conn->db);
+        conn->db = NULL;
+    }
+}
+
+void ps_ffi_sqlite_cur_close(void *handle) {
+    ps_sqlite_cursor *cur = handle;
+    if (cur != NULL && cur->stmt != NULL) {
+        sqlite3_finalize(cur->stmt);
+        cur->stmt = NULL;
+    }
+    cur->db = NULL;
+}
+
+/* The fetchone pair: the probe says whether a row is there, the make call
+   builds the row off the statement the probe left on a ROW. */
+
+int32_t ps_ffi_sqlite_cur_row_hit(void *handle) {
+    ps_sqlite_cursor *cur = handle;
+    if (cur == NULL || cur->db == NULL) {
+        ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
+    }
+    return ps_sqlite_cur_step(cur) == SQLITE_ROW ? 1 : 0;
+}
+
+PsMap *ps_ffi_sqlite_cur_row_make(void *handle) {
+    ps_sqlite_cursor *cur = handle;
+    if (cur == NULL || cur->db == NULL) {
+        ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
+    }
+    return ps_sqlite_row_of(cur);
+}
+
+PsSeq *ps_ffi_sqlite_cur_rows(void *handle) {
+    ps_sqlite_cursor *cur = handle;
+    if (cur == NULL || cur->db == NULL) {
+        ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
+    }
+    PsSeq *rows = ps_seq_new((int64_t)sizeof(PsMap *), 0);
+    while (ps_sqlite_cur_step(cur) == SQLITE_ROW) {
+        PsMap *row = ps_sqlite_row_of(cur);
+        ps_seq_push(rows, &row);
+    }
+    return rows;
+}
+
+int64_t ps_ffi_sqlite_cur_rowcount(void *handle) {
+    ps_sqlite_cursor *cur = handle;
+    if (cur == NULL || cur->db == NULL) {
+        ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
+    }
+    return cur->rowcount;
+}
+
+int64_t ps_ffi_sqlite_cur_lastrowid(void *handle) {
+    ps_sqlite_cursor *cur = handle;
+    if (cur == NULL || cur->db == NULL) {
+        ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
+    }
+    return cur->lastrowid;
+}
+
+/* cur.description -> list[str] | NULL: the column names in column order,
+   or NULL (CPython's None) when the statement has no result columns. The
+   manifest spells the return `list[str] | None`, so the pair follows the
+   fetchone shape: the probe says whether columns exist, the make call
+   builds the names. */
+
+int32_t ps_ffi_sqlite_cur_description_hit(void *handle) {
+    ps_sqlite_cursor *cur = handle;
+    if (cur == NULL || cur->db == NULL) {
+        ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
+    }
+    /* CPython's description is None when the statement has no result
+       columns, which is the DML arm: the columns are the statement's
+       result columns, not the table's. */
+    return cur->ncols > 0 ? 1 : 0;
+}
+
+PsSeq *ps_ffi_sqlite_cur_description_make(void *handle) {
+    ps_sqlite_cursor *cur = handle;
+    if (cur == NULL || cur->db == NULL) {
+        ps_raise_cstr(PS_VALUEERROR, "Cannot operate on a closed database.");
+    }
+    PsSeq *names = ps_seq_new((int64_t)sizeof(PsBuf), cur->ncols);
+    for (int i = 0; i < cur->ncols; i++) {
+        const char *name = sqlite3_column_name(cur->stmt, i);
+        PsBuf buf;
+        ps_buf_copy(&buf, name != NULL ? name : "", name != NULL ? (int64_t)strlen(name) : 0);
+        ps_seq_set(names, i, &buf);
+    }
+    return names;
+}

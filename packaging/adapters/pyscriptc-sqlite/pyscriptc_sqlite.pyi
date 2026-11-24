@@ -23,6 +23,23 @@ v2 (issue #1343): parameter binding and typed rows.
 - `connect2(path, timeout)` opens with a busy timeout in seconds, the
   spelling of CPython's `sqlite3.connect(timeout=...)` default of 5.0.
 
+v3 (issue #1343): the sqlite3 connection/cursor shape.
+
+- `connect(path)` returns the connection. The statement runs through the
+  connection's methods: `execute(sql, params)` prepares the statement,
+  binds the params and returns the cursor; `executemany(sql, rows)` runs
+  the statement once per params list; `commit()` commits; `close()` closes.
+- The cursor's `fetchone()` returns the next row or None, `fetchall()`
+  returns the remaining rows. A row is a `dict[str, object]`: the column
+  name is the key and the column value keeps its own type, so an INTEGER
+  column reads back an int, a REAL a float, TEXT a str and a SQL NULL the
+  None arm. The dict preserves the column order.
+- `cur.rowcount` is the row count of the last run: -1 for a read, the
+  changed rows for a write, the sum of the changed rows for an
+  executemany. `cur.lastrowid` is the rowid of the last insert (0 before
+  any insert). `cur.description` is the list of column names, or None
+  when the statement has no result columns.
+
 Narrowing a typed cell: `isinstance(v, int)` / float / str inside the
 taken branch gives the native value; the branch none of the arms took is
 the NULL cell. The JSON keys use (`cli.py` reading `cur.description`)
@@ -53,7 +70,6 @@ def execute(db: Connection, sql: str) -> int: ...
 def query(db: Connection, sql: str) -> list[dict[str, str]]: ...
 def commit(db: Connection) -> int: ...
 def close(db: Connection) -> None: ...
-
 def connect2(path: str, timeout: float) -> Connection: ...
 def execute2(db: Connection, sql: str, params: list[object]) -> int: ...
 def executemany(db: Connection, sql: str, rows: list[list[object]]) -> int: ...

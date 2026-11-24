@@ -307,11 +307,12 @@ class StdlibDispatchMixin(StdlibBindMixin):
             # with PS4010 before the IR ever emits.
             del self.handle_locals[owner]
             self.consumed_handles.add(owner)
-        return self._abi_call(module, attr, args, type_ir(fn.returns, manifest.handle_names), fn.abi, span)
+        want = self._ffi_want(fn.returns, manifest, node)
+        if want.get("optional"):
+            return self._ffi_optional_call(module, manifest, attr, args, want, fn.abi, span, fn.probe)
+        return self._abi_call(module, attr, args, want, fn.abi, span)
 
-    def _ffi_method_call(
-        self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]
-    ) -> dict[str, Any]:
+    def _ffi_method_call(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
         """Lower a method call on a `--ffi` handle against its `[[method]]` row.
 
         The receiver rides the ABI as argument 0; the declared arguments
@@ -325,9 +326,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
         manifest = None
         module = ""
         for name, candidate in ffi_manifests().items():
-            if handle_name in candidate.handle_names and handle_name in {
-                method.handle for method in candidate.methods
-            }:
+            if handle_name in candidate.handle_names and handle_name in {method.handle for method in candidate.methods}:
                 manifest = candidate
                 module = name
                 break
@@ -395,18 +394,78 @@ class StdlibDispatchMixin(StdlibBindMixin):
             self.consumed_handles.add(owner)
         # A method whose return is the receiving handle's own type returns
         # the receiver (a fluent shape); anything else is a fresh value.
-        want = type_ir(method.returns, manifest.handle_names)
+        want = self._ffi_want(method.returns, manifest, node)
         if method.returns_handle() == handle_name:
             want = receiver["type"]
+        if want.get("optional"):
+            return self._ffi_optional_call(module, manifest, method.name, args, want, method.abi, span, method.probe)
         return self._abi_call(module, method.name, args, want, method.abi, span)
 
+    def _ffi_want(self, type_name: str, manifest: FfiManifest, node: ast.AST) -> dict[str, Any]:
+        """The IR type of a manifest type name, with the optional re-formed.
+
+        The manifest spells an optional as `T | None`; the lowerer owns the
+        opt_ cell's declaration, so the marked type dict is re-formed here
+        through `_opt_type` (issue #1343).
+        """
+        want = type_ir(type_name, manifest.handle_names)
+        if want.get("optional"):
+            return self._opt_type(want["elem"], node)
+        return want
+
+    def _ffi_optional_call(
+        self,
+        module: str,
+        manifest: Any,
+        name: str,
+        args: list[dict[str, Any]],
+        want: dict[str, Any],
+        symbol: str,
+        span: dict[str, Any],
+        probe_symbol: str = "",
+    ) -> dict[str, Any]:
+        """An FFI call whose return may be absent (issue #1343).
+
+        The `T | None` return rides two thunks: a bool probe that says
+        whether a value is there, and the make call that produces it. The
+        lowerer boxes the result into the tagged optional cell the same way
+        `re.search` does (a probe, then the make call fills the cell only
+        when the probe hit), so the read site sees the ordinary
+        `T | None` shape.
+
+        The probe thunk is the manifest row's own `probe` symbol: the row
+        names it, so the make call and the probe are one pair the manifest
+        declares rather than two names the lowerer guesses.
+        """
+        elem = want["elem"]
+        probe = probe_symbol or f"{symbol}_hit"
+        opt = want
+        res = self._opt_box(None, opt, span)
+        dest = res["id"]
+        hit = self._abi_call(module, name, args, {"kind": "bool"}, probe, span)
+        made = self._abi_call(module, name, args, elem, symbol, span)
+        tag = node_to_dict(
+            _ir.setattr_stmt(
+                dict_to_node(_name(dest, opt, span)), "_tag", dict_to_node(_const_bool(True, span)), _mk_span(span)
+            )
+        )
+        val = node_to_dict(
+            _ir.setattr_stmt(dict_to_node(_name(dest, opt, span)), "_val", dict_to_node(made), _mk_span(span))
+        )
+        self.prelude.append(
+            node_to_dict(_ir.if_stmt(dict_to_node(hit), [dict_to_node(tag), dict_to_node(val)], [], _mk_span(span)))
+        )
+        return res
+
     def _ffi_handle_attr(
-        self, obj: dict[str, Any], handle_name: str, attr_name: str, span: dict[str, Any]
+        self, obj: dict[str, Any], handle_name: str, attr_name: str, span: dict[str, Any], node: ast.AST
     ) -> dict[str, Any] | None:
         """The manifest getter of one handle attribute, or None.
 
         The `[[attr]]` row names the type and the abi thunk; the read is
-        one call whose only argument is the receiver (issue #1343).
+        one call whose only argument is the receiver (issue #1343). An
+        attribute whose type is optional rides the probe/make pair, the
+        same shape the optional return uses.
         """
         for name, manifest in ffi_manifests().items():
             if handle_name not in manifest.handle_names:
@@ -414,7 +473,10 @@ class StdlibDispatchMixin(StdlibBindMixin):
             attr = manifest.attrs_of(handle_name).get(attr_name)
             if attr is None:
                 return None
-            return self._abi_call(name, attr_name, [obj], type_ir(attr.type, manifest.handle_names), attr.abi, span)
+            want = self._ffi_want(attr.type, manifest, node)
+            if want.get("optional"):
+                return self._ffi_optional_call(name, manifest, attr_name, [obj], want, attr.abi, span, attr.probe)
+            return self._abi_call(name, attr_name, [obj], want, attr.abi, span)
         return None
 
     def _is_contextmanager_deco(self, fn: ast.FunctionDef) -> bool:
@@ -510,11 +572,20 @@ class StdlibDispatchMixin(StdlibBindMixin):
         return self._abi_call(module, fn.name, [arg], {"kind": "none"}, fn.abi, span)
 
     def _consuming_fn(self, handle: str) -> tuple[str, Any] | None:
-        """The manifest function that consumes this handle type, if one exists."""
+        """The manifest function that consumes this handle type, if one exists.
+
+        A handle method may consume too: the `[[method]]` that declares the
+        receiving handle in `consumes` is the free (issue #1343), the shape
+        `Cursor.close` owns. A module `[[fn]]` wins when both declare it.
+        """
         for module, manifest in ffi_manifests().items():
             for fn in manifest.functions:
                 if any(ref.handle == handle for ref in fn.consumes):
                     return module, fn
+        for module, manifest in ffi_manifests().items():
+            for method in manifest.methods:
+                if method.handles_consumption(handle):
+                    return module, method
         return None
 
     def _scope_exit_frees(self, body: list[dict[str, Any]], span: dict[str, Any]) -> list[dict[str, Any]]:

@@ -100,14 +100,16 @@ _MANIFEST_KEYS = frozenset({"module", "ps_abi", "format", "libs", "lib_dirs", "i
 _SOURCE_KEYS = frozenset({"path", "objects"})
 _HANDLE_KEYS = frozenset({"name", "c_type", "frees"})
 _CONST_KEYS = frozenset({"name", "type", "value"})
-_FN_KEYS = frozenset({"name", "py", "c_symbol", "abi", "borrows", "consumes"})
+_FN_KEYS = frozenset({"name", "py", "c_symbol", "abi", "borrows", "consumes", "probe"})
 # A method on a handle (issue #1343): the same row as a `[[fn]]` plus the
 # handle the method hangs off. The receiver rides the ABI as argument 0,
 # so the `py` signature spells the declared arguments only.
-_METHOD_KEYS = frozenset({"name", "handle", "py", "c_symbol", "abi", "borrows", "consumes"})
+_METHOD_KEYS = frozenset(
+    {"name", "handle", "py", "c_symbol", "abi", "borrows", "consumes", "consumes_receiver", "probe"}
+)
 # An attribute of a handle (issue #1343): the value is a getter thunk's
 # return, so the row names the handle, the attribute's type and the abi.
-_ATTR_KEYS = frozenset({"name", "handle", "type", "abi"})
+_ATTR_KEYS = frozenset({"name", "handle", "type", "abi", "probe"})
 # A Python identifier, the only name shape the manifest accepts.
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -212,6 +214,8 @@ class ManifestMethod:
     borrows: tuple[HandleRef, ...]
     consumes: tuple[HandleRef, ...]
     handle_names: set[str]
+    consumes_receiver: bool = False
+    probe: str = ""
 
     @property
     def arity(self) -> int:
@@ -233,6 +237,16 @@ class ManifestMethod:
         """The handle type this method returns, if the return is a handle."""
         return self.returns if self.returns in self.handle_names else None
 
+    def handles_consumption(self, handle: str) -> bool:
+        """Whether consuming the receiving handle rides this method.
+
+        The receiver is not a declared parameter, so the ownership
+        annotations cannot name it. The `consumes_receiver` row key says
+        the receiver dies at this method (issue #1343 spells it `close`),
+        and the handle's `frees` symbol is what the free thunk calls.
+        """
+        return self.consumes_receiver and self.handle == handle
+
 
 @dataclass(frozen=True)
 class ManifestAttr:
@@ -247,6 +261,7 @@ class ManifestAttr:
     handle: str
     type: str
     abi: str
+    probe: str = ""
 
 
 @dataclass(frozen=True)
@@ -297,6 +312,7 @@ class ManifestFunction:
     borrows: tuple[HandleRef, ...]
     consumes: tuple[HandleRef, ...]
     handle_names: set[str]
+    probe: str = ""
 
     @property
     def arity(self) -> int:
@@ -806,6 +822,14 @@ def _build_functions(
                     path,
                     where,
                 )
+        probe = _optional_str(entry, "probe", path=path, where=where) or ""
+        if probe and not _C_SYMBOL.match(probe):
+            raise FfiManifestError(
+                "PS4005",
+                f"the probe thunk {probe!r} is not a C identifier",
+                path,
+                where,
+            )
         functions.append(
             ManifestFunction(
                 name,
@@ -817,6 +841,7 @@ def _build_functions(
                 resolved_borrows,
                 resolved_consumes,
                 handle_names,
+                probe,
             )
         )
     return tuple(functions)
@@ -899,6 +924,22 @@ def _build_methods(
                     path,
                     where,
                 )
+        consumes_receiver = bool(entry.get("consumes_receiver", False))
+        probe = _optional_str(entry, "probe", path=path, where=where) or ""
+        if probe and not _C_SYMBOL.match(probe):
+            raise FfiManifestError(
+                "PS4005",
+                f"the probe thunk {probe!r} is not a C identifier",
+                path,
+                where,
+            )
+        if consumes_receiver and not handle_frees.get(handle):
+            raise FfiManifestError(
+                "PS4008",
+                f"the method {name!r} consumes its receiver but the handle {handle!r} declares no frees symbol",
+                path,
+                where,
+            )
         methods.append(
             ManifestMethod(
                 name,
@@ -911,6 +952,8 @@ def _build_methods(
                 resolved_borrows,
                 resolved_consumes,
                 handle_names,
+                consumes_receiver,
+                probe,
             )
         )
     return tuple(methods)
@@ -956,11 +999,20 @@ def _build_attrs(
             )
         seen.add(key)
         type_name = _require_str(entry, "type", path=path, where=where)
-        _check_type(type_name, path=path, where=where, handle_names=handle_names)
+        # An attr read is a return position: an optional type is fine there.
+        _check_type(type_name, path=path, where=where, handle_names=handle_names, allow_none=True)
         abi = _require_str(entry, "abi", path=path, where=where)
         if not _C_SYMBOL.match(abi):
             raise FfiManifestError("PS4005", f"the abi thunk {abi!r} is not a C identifier", path, where)
-        attrs.append(ManifestAttr(name, handle, type_name, abi))
+        probe = _optional_str(entry, "probe", path=path, where=where) or ""
+        if probe and not _C_SYMBOL.match(probe):
+            raise FfiManifestError(
+                "PS4005",
+                f"the probe thunk {probe!r} is not a C identifier",
+                path,
+                where,
+            )
+        attrs.append(ManifestAttr(name, handle, type_name, abi, probe))
     return tuple(attrs)
 
 
@@ -1203,6 +1255,27 @@ def _inside_brackets(text: str) -> bool:
     return False
 
 
+def _split_optional(type_name: str) -> tuple[str, bool] | None:
+    """The payload and the optional flag of a `T | None` spelling.
+
+    The split walks the bracket depth: a `|` inside `dict[str, object]` is
+    part of the type, not a union arm.
+    """
+    text = type_name.strip()
+    depth = 0
+    for index, char in enumerate(text):
+        if char in "[(":
+            depth += 1
+        elif char in "])":
+            depth -= 1
+        elif char == "|" and depth == 0:
+            rest = text[index + 1 :].strip()
+            if rest == "None":
+                return text[:index].strip(), True
+            return None
+    return None
+
+
 def type_ir(type_name: str, handle_names: set[str] | None = None) -> dict[str, Any]:
     """The IR type dict for a manifest type name.
 
@@ -1220,6 +1293,13 @@ def type_ir(type_name: str, handle_names: set[str] | None = None) -> dict[str, A
     if handle_names is not None:
         names = handle_names
     name = type_name.strip()
+    optional = _split_optional(name)
+    if optional is not None:
+        # `T | None` (issue #1343): the fetchone shape. The type dict keeps
+        # the payload under `elem` with the `optional` mark; the lowerer
+        # re-forms it into its own opt_ cell through `_opt_type`, which
+        # owns the cell's declaration and layout.
+        return {"optional": True, "elem": type_ir(optional[0], names)}
     if name in names:
         return handle_type(name)
     if name == "int":
@@ -1336,6 +1416,19 @@ def _check_type(
     if name in ALLOWED_TYPE_NAMES:
         return
     if name in handle_names:
+        return
+    optional = _split_optional(name)
+    if optional is not None:
+        # `T | None` (issue #1343): the fetchone shape. Only a return may be
+        # optional; a parameter of that spelling is refused below.
+        if not allow_none:
+            raise FfiManifestError(
+                "PS4006",
+                f"the optional type {name!r} is only a return type, never a parameter type",
+                path,
+                where,
+            )
+        _check_type(optional[0], path=path, where=where, handle_names=handle_names)
         return
     if name == "None":
         if allow_none:
