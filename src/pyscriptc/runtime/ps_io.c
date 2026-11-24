@@ -26,7 +26,17 @@ typedef struct PsIO {
        it, so a `read(n)` after a `readline()` continues where the last
        read stopped (CPython's position semantics). */
     int64_t tell;
+    /* The text codec of a file handle: 0 UTF-8 (the default, PEP 686), 1
+       ASCII, 2 Latin-1. The file bytes are decoded to UTF-8 str bytes on
+       the way up and str bytes are encoded on the way down. */
+    int32_t enc;
 } PsIO;
+
+/* The mode word `open` hands over: the low nibble is the mode code and the
+   next nibble the text codec (`encoding=`). */
+#define PS_ENC_SHIFT 4
+#define PS_ENC_ASCII 1
+#define PS_ENC_LATIN1 2
 
 static PsIO *ps_blank(int kind) {
     PsIO *io = calloc(1, sizeof(PsIO));
@@ -120,7 +130,10 @@ PsIO *ps_io_take_fd(int fd, const char *path, int64_t mode, int64_t keep) {
 }
 
 PsIO *ps_io_open(int64_t n, const char *path, int64_t mode) {
-    const char *how = ps_open_how(mode);
+    int32_t enc = (int32_t)(mode >> PS_ENC_SHIFT);
+    const char *how;
+    mode &= (1 << PS_ENC_SHIFT) - 1;
+    how = ps_open_how(mode);
     int kind;
     char *text;
     FILE *fp;
@@ -145,6 +158,7 @@ PsIO *ps_io_open(int64_t n, const char *path, int64_t mode) {
     io = ps_blank(kind);
     io->fp = fp;
     io->how = how;
+    io->enc = enc;
     return io;
 }
 
@@ -159,6 +173,75 @@ static int ps_can_read(PsIO *io) {
    no `how` (StringIO, a taken fd) is text by construction. */
 static const char *ps_io_mode_of(PsIO *io) {
     return io->how != NULL ? io->how : "r";
+}
+
+/* The text decode on the way up: a text file handle's bytes become the
+   UTF-8 bytes a str holds. UTF-8 (the default) validates strictly and
+   raises UnicodeDecodeError on a bad sequence, as CPython's strict errors
+   do; ASCII rejects a byte above 0x7f; Latin-1 lifts each byte to its code
+   point. A binary handle and a memory handle pass through. */
+static void ps_io_decode(PsIO *io, PsBuf *buf) {
+    if (io->fp == NULL || strchr(ps_io_mode_of(io), 'b') != NULL || buf->len == 0) {
+        return;
+    }
+    if (io->enc == PS_ENC_LATIN1) {
+        PsBuf lifted;
+        ps_latin1_decode(buf->len, buf->data, &lifted);
+        free(buf->data);
+        *buf = lifted;
+        return;
+    }
+    if (io->enc == PS_ENC_ASCII) {
+        for (int64_t i = 0; i < buf->len; i++) {
+            if ((unsigned char)buf->data[i] >= 0x80) {
+                char msg[160];
+                snprintf(msg, sizeof msg, "'ascii' codec can't decode byte 0x%02x in position %lld: ordinal not in range(128)",
+                         (unsigned)(unsigned char)buf->data[i], (long long)i);
+                ps_raise_cstr(PS_UNICODEDECODE, msg);
+            }
+        }
+        return;
+    }
+    ps_utf8_require(buf->len, buf->data, NULL);
+}
+
+/* The text encode on the way down for a non-UTF-8 handle: the str bytes
+   (UTF-8) become one byte per code point. `limit` is 0x80 for ASCII and
+   0x100 for Latin-1; a code point at or above it is UnicodeEncodeError. */
+static void ps_io_encode(int64_t n, const char *s, unsigned int limit, PsBuf *out) {
+    PsGrow grow;
+    int64_t at = 0;
+    int64_t pos = 0;
+    ps_grow_init(&grow);
+    while (at < n) {
+        unsigned char c = (unsigned char)s[at];
+        unsigned int cp = c;
+        int w = 1;
+        if (c >= 0xF0) {
+            w = 4;
+            cp = c & 0x07;
+        } else if (c >= 0xE0) {
+            w = 3;
+            cp = c & 0x0F;
+        } else if (c >= 0xC0) {
+            w = 2;
+            cp = c & 0x1F;
+        }
+        for (int k = 1; k < w && at + k < n; k++) {
+            cp = (cp << 6) | ((unsigned char)s[at + k] & 0x3F);
+        }
+        if (cp >= limit) {
+            char msg[160];
+            free(grow.data);
+            snprintf(msg, sizeof msg, "'%s' codec can't encode character '\\u%04x' in position %lld: ordinal not in range(%u)",
+                     limit == 0x80 ? "ascii" : "latin-1", cp, (long long)pos, limit);
+            ps_raise_cstr(PS_UNICODEENCODE, msg);
+        }
+        ps_grow_byte(&grow, (unsigned char)cp);
+        at += w;
+        pos++;
+    }
+    ps_grow_finish(&grow, out);
 }
 
 /* CPython's universal newlines: in text mode a `\r\n` pair and a lone `\r`
@@ -225,6 +308,7 @@ void ps_io_read(PsIO *io, PsBuf *out) {
             out->len = left;
         }
         out->data = buf;
+        ps_io_decode(io, out);
         return;
     }
     if (io->pos > io->mem.len) {
@@ -304,6 +388,11 @@ void ps_io_read_n(PsIO *io, int64_t n, PsBuf *out) {
                     continue;
                 }
                 ps_grow_byte(&grow, (unsigned char)ch);
+                if (io->enc != 0) {
+                    /* ASCII and Latin-1: one byte is one code point. */
+                    chars++;
+                    continue;
+                }
                 if (((unsigned char)ch & 0xC0) != 0x80) {
                     chars++;
                     if (chars >= n) {
@@ -332,6 +421,7 @@ void ps_io_read_n(PsIO *io, int64_t n, PsBuf *out) {
             }
             ps_grow_finish(&grow, out);
             io->tell += bytes;
+            ps_io_decode(io, out);
             return;
         }
     }
@@ -371,20 +461,54 @@ void ps_io_read_n(PsIO *io, int64_t n, PsBuf *out) {
     }
 }
 
+/* The code points in `n` bytes of UTF-8: what a text `write` returns (the
+   length of the str, not its byte count). */
+static int64_t ps_cp_count(int64_t n, const char *s) {
+    int64_t count = 0;
+    for (int64_t i = 0; i < n; i++) {
+        if (((unsigned char)s[i] & 0xC0) != 0x80) {
+            count++;
+        }
+    }
+    return count;
+}
+
+/* A text handle (a file opened without `b`, or a StringIO) returns the
+   code points written; a binary handle returns bytes. */
+static int64_t ps_io_written(PsIO *io, int64_t n, const char *s) {
+    if (io->kind == 2 || (io->fp != NULL && strchr(ps_io_mode_of(io), 'b') != NULL)) {
+        return n;
+    }
+    return ps_cp_count(n, s);
+}
+
 int64_t ps_io_write(PsIO *io, int64_t n, const char *s) {
     ps_open_check(io);
     if (n < 0) {
         ps_raise_code(PS_VALUE);
     }
     if (io->fp != NULL) {
-        if (n > 0 && fwrite(s, 1, (size_t)n, io->fp) != (size_t)n) {
+        PsBuf coded;
+        int64_t m = n;
+        const char *bytes = s;
+        coded.data = NULL;
+        if (io->enc != 0 && strchr(ps_io_mode_of(io), 'b') == NULL) {
+            /* The text encode on the way down: ASCII refuses a code point
+               above 0x7f, Latin-1 above 0xff, both with UnicodeEncodeError. */
+            ps_io_encode(n, s, io->enc == PS_ENC_LATIN1 ? 0x100u : 0x80u, &coded);
+            bytes = coded.data;
+            m = coded.len;
+        }
+        if (m > 0 && fwrite(bytes, 1, (size_t)m, io->fp) != (size_t)m) {
+            free(coded.data);
             ps_raise_cstr(PS_RUNTIME, "write failed");
         }
+        free(coded.data);
         if (fflush(io->fp) != 0) {
             ps_raise_cstr(PS_RUNTIME, "write failed");
         }
-        io->tell += n;
-        return n;
+        io->tell += m;
+        return ps_io_written(io, n, s);
     }
     if (io->pos > io->mem.len) {
         while (io->mem.len < io->pos) {
@@ -394,7 +518,7 @@ int64_t ps_io_write(PsIO *io, int64_t n, const char *s) {
     if (io->pos == io->mem.len) {
         ps_grow_add(&io->mem, s, n);
         io->pos = io->mem.len;
-        return n;
+        return ps_io_written(io, n, s);
     }
     if (io->mem.cap < io->pos + n + 1) {
         ps_grow_add(&io->mem, "", 0);
@@ -411,7 +535,7 @@ int64_t ps_io_write(PsIO *io, int64_t n, const char *s) {
         io->mem.data[io->mem.len] = '\0';
     }
     io->pos += n;
-    return n;
+    return ps_io_written(io, n, s);
 }
 
 void ps_io_readline(PsIO *io, PsBuf *out) {
@@ -455,6 +579,7 @@ void ps_io_readline(PsIO *io, PsBuf *out) {
         }
         ps_grow_finish(&line, out);
         io->tell += bytes;
+        ps_io_decode(io, out);
         return;
     }
     if (io->pos > io->mem.len) {
@@ -517,7 +642,7 @@ int64_t ps_stdout_write(int64_t n, const char *s) {
     if (n > 0 && fwrite(s, 1, (size_t)n, stdout) != (size_t)n) {
         ps_raise_cstr(PS_RUNTIME, "write failed");
     }
-    return n;
+    return ps_cp_count(n, s);
 }
 
 int64_t ps_stderr_write(int64_t n, const char *s) {
@@ -527,7 +652,7 @@ int64_t ps_stderr_write(int64_t n, const char *s) {
     if (n > 0 && fwrite(s, 1, (size_t)n, stderr) != (size_t)n) {
         ps_raise_cstr(PS_RUNTIME, "write failed");
     }
-    return n;
+    return ps_cp_count(n, s);
 }
 
 /* `sys.stdin.readline()` reads one line, like CPython. On POSIX CPython
@@ -547,6 +672,7 @@ void ps_stdin_readline(PsBuf *out) {
         ch = fgetc(stdin);
     }
     ps_grow_finish(&grow, out);
+    ps_utf8_require(out->len, out->data, NULL);
 }
 
 /* `sys.stdout.flush()` and `sys.stderr.flush()` push the buffered bytes out
@@ -576,4 +702,5 @@ void ps_input_line(PsBuf *out) {
         ps_raise_cstr(PS_RUNTIME, "EOF when reading a line");
     }
     ps_grow_finish(&grow, out);
+    ps_utf8_require(out->len, out->data, NULL);
 }

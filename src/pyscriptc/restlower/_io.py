@@ -30,10 +30,35 @@ from pyscriptc.restlower._shared import (
 
 _OPEN = {"r": 1, "w": 2, "rb": 3, "wb": 4, "a": 5, "ab": 6}
 
-# `encoding=` is accepted as a str constant and rides the same read path for
-# every value: text reads decode the file bytes exactly as the no-encoding
-# call does. Named after the subsets text handles meet: Path.read_text.
-_OPEN_ENCODINGS = {"utf-8", "utf8", "ascii", "latin-1", "latin1"}
+# The text I/O default is UTF-8 (PEP 540, PEP 686): `open(path)` decodes and
+# encodes UTF-8 whatever the host locale says. `encoding=` is honored for a
+# named codec, a str constant from the three below (CPython's normalized
+# spellings: case folded, `_` read as `-`); the value rides the open call as
+# a codec nibble above the mode code (UTF-8 0, ASCII 1, Latin-1 2) and the
+# runtime decodes on the way up and encodes on the way down. Any other
+# codec is a PS2001 fence naming the supported three.
+_OPEN_ENCODINGS = {
+    "utf-8": 0,
+    "utf8": 0,
+    "u8": 0,
+    "ascii": 1,
+    "us-ascii": 1,
+    "latin-1": 2,
+    "latin1": 2,
+    "iso-8859-1": 2,
+    "iso8859-1": 2,
+    "l1": 2,
+}
+_ENC_SHIFT = 4
+
+
+def _open_encoding(value: Any) -> int | None:
+    """The codec nibble of an `encoding=` constant, or None when not lowered."""
+    if value is None:
+        return 0
+    if not isinstance(value, str):
+        return None
+    return _OPEN_ENCODINGS.get(value.lower().replace("_", "-"))
 
 
 # NamedTemporaryFile adds the read/write `+` modes; `open` keeps _OPEN only.
@@ -235,10 +260,14 @@ def _open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     ]
     if any(kw.arg is None for kw in node.keywords):
         lo.fail(node, "PS2002", "**kwargs are not lowered")
+    codec = 0
     for kw in node.keywords:
         if kw.arg == "encoding":
-            if len(node.args) > 2 or not isinstance(kw.value, ast.Constant) or kw.value.value not in _OPEN_ENCODINGS:
+            found = _open_encoding(kw.value.value) if isinstance(kw.value, ast.Constant) else None
+            if len(node.args) > 2 or found is None:
                 lo.fail(kw, "PS2001", "open encoding= is utf-8, ascii, or latin-1")
+            else:
+                codec = found
         elif kw.arg == "mode":
             if slots[1] is not None:
                 lo.fail(kw, "PS2003", "mode given more than once")
@@ -259,5 +288,7 @@ def _open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if mode not in _OPEN:
         lo.fail(node, "PS2001", "open mode is not lowered")
     cls = "BytesIO" if "b" in mode else "TextIO"
-    code = _const_int(_OPEN[mode], span)
+    if codec and "b" in mode:
+        lo.fail(node, "PS2001", "binary mode doesn't take an encoding argument")
+    code = _const_int(_OPEN[mode] | (codec << _ENC_SHIFT), span)
     return lo._abi_call("io", "open", [path, code], _class(cls), "ps_io_open", span)
