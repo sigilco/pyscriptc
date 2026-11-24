@@ -100,6 +100,21 @@ def _type_dict_of(node: Any) -> dict[str, Any]:
     return out
 
 
+_FLIP = {"<": ">", "<=": ">=", ">": "<", ">=": "<=", "==": "==", "!=": "!="}
+
+
+def _int_float_operands(node: Any) -> tuple[Any, Any, bool] | None:
+    """The int operand, the float operand and whether the int is on the left,
+    when a compare is an int against a float. The lowerer spells the int side
+    as an `int_to_float` cast of the int, so that cast marks the pair."""
+    left, right = node.left, node.right
+    if left.kind == "cast" and left.op == "int_to_float" and _type_kind_of(right) == "float":
+        return left.value, right, True
+    if right.kind == "cast" and right.op == "int_to_float" and _type_kind_of(left) == "float":
+        return right.value, left, False
+    return None
+
+
 def _type_kind_of(node: Any) -> str:
     """The type kind of a typed node's `T` record (`any` when it has none)."""
     if isinstance(node, dict):
@@ -234,6 +249,9 @@ class ExprsMixin(EmitterBase):
         left_kind: str = _type_kind_of(node.left)
         right_kind: str = _type_kind_of(node.right)
         op: str = node.op
+        mixed = _int_float_operands(node)
+        if mixed is not None:
+            return self._emit_int_float_compare(node, op, *mixed)
         if left_kind == "none" or right_kind == "none":
             if op not in {"==", "!="}:
                 raise IRError(f"cannot compare None with {op}")
@@ -267,6 +285,57 @@ class ExprsMixin(EmitterBase):
         if kind == "class":
             return self._emit_class_cmp(expr, left, right)
         raise IRError(f"cannot compare {kind}")
+
+    def _emit_int_float_compare(self, node: Any, op: str, int_node: Any, float_node: Any, int_left: bool) -> str:
+        """An int against a float, compared exactly the way CPython does.
+
+        The lowerer widens the int side with `int_to_float`, which rounds
+        past 2**53, so `2**53 + 1 == 2.0**53` would answer True. Here `g` is
+        the widened int and `f` the float. When `g != f` the rounding is
+        monotone, so the ordering of `a` and `f` is the ordering of `g` and
+        `f` (an equality is False). When `g == f` the two values are within
+        one rounding step: the float is then integral, and an int64 compare
+        against `fptosi(f)` decides it. A float at or past 2**63 sits above
+        every int64. NaN compares unordered, so `!=` is the only True.
+        """
+        if int_left:
+            a = self.emit_expr(dict_to_dict(int_node))
+            f = self.emit_expr(dict_to_dict(float_node))
+            cmp_op = op
+        else:
+            f = self.emit_expr(dict_to_dict(float_node))
+            a = self.emit_expr(dict_to_dict(int_node))
+            cmp_op = _FLIP.get(op, op)
+        g = self.tmp()
+        self.line(f"{g} = sitofp i64 {a} to double")
+        ne = self.tmp()
+        self.line(f"{ne} = fcmp une double {f}, {g}")
+        if cmp_op in {"<", "<="}:
+            ne_out = self.tmp()
+            self.line(f"{ne_out} = fcmp olt double {g}, {f}")
+        elif cmp_op in {">", ">="}:
+            ne_out = self.tmp()
+            self.line(f"{ne_out} = fcmp ogt double {g}, {f}")
+        else:
+            ne_out = "true" if cmp_op == "!=" else "false"
+        lo = self.tmp()
+        self.line(f"{lo} = fcmp oge double {f}, 0xC3E0000000000000")
+        hi = self.tmp()
+        self.line(f"{hi} = fcmp olt double {f}, 0x43E0000000000000")
+        inr = self.tmp()
+        self.line(f"{inr} = and i1 {lo}, {hi}")
+        safe = self.tmp()
+        self.line(f"{safe} = select i1 {inr}, double {f}, double 0.0")
+        truncated = self.tmp()
+        self.line(f"{truncated} = fptosi double {safe} to i64")
+        tie = self.tmp()
+        self.line(f"{tie} = icmp {_ICMP[cmp_op]} i64 {a}, {truncated}")
+        above = "true" if cmp_op in {"<", "<=", "!="} else "false"
+        tie_out = self.tmp()
+        self.line(f"{tie_out} = select i1 {inr}, i1 {tie}, i1 {above}")
+        reg = self.tmp()
+        self.line(f"{reg} = select i1 {ne}, i1 {ne_out}, i1 {tie_out}")
+        return reg
 
     def _emit_identity(self, op: str, kind: str, left: str, right: str) -> str:
         """`is`/`is not`: pointer identity for heap values, backing-pointer

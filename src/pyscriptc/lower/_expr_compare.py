@@ -53,9 +53,34 @@ class ExprCompareMixin:
         op = _CMP.get(type(node.ops[0]))
         if op is None:
             self.fail(node, "PS2004", f"{_op_text(node.ops[0])} is not lowered")
-        left = self._expr(node.left)
-        right = self._expr(node.comparators[0])
+        if _is_empty_display(node.left) and not _is_empty_display(node.comparators[0]):
+            # An empty display has no effects, so it may lower second.
+            right = self._expr(node.comparators[0])
+            left = self._empty_display_like(node.left, right, span) or self._expr(node.left)
+        else:
+            left = self._expr(node.left)
+            right = self._empty_display_like(node.comparators[0], left, span) or self._expr(node.comparators[0])
         return self._compare_values(node, op, left, right, span)
+
+    def _empty_display_like(
+        self, display: ast.expr, like: dict[str, Any], span: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """`xs == []` and `d == {}`: an empty display takes the other side's type.
+
+        CPython needs no annotation for an empty display in a comparison, and
+        the value's type is the other operand's, so the display is lowered
+        with that type as its expectation. A display that is not empty, or
+        whose other side is not a plain list or dict, returns None so the
+        caller lowers the node the usual way.
+        """
+        typ = like["type"]
+        if typ.get("optional") or typ.get("set"):
+            return None
+        if isinstance(display, ast.List) and not display.elts and typ["kind"] == "list":
+            return self._list(display, span, typ)
+        if isinstance(display, ast.Dict) and not display.keys and typ["kind"] == "dict":
+            return self._dict(display, span, typ)
+        return None
 
     def _compare_values(
         self,
@@ -105,6 +130,10 @@ class ExprCompareMixin:
                     return self._seq_eq(node, left, right, span, negated=op == "!=")
                 if left["type"]["kind"] == "dict":
                     return self._dict_eq(node, left, right, span, negated=op == "!=")
+            if _numeric_lists(left["type"], right["type"]):
+                # `list[float] == list[int]` compares element-wise; each pair
+                # goes through the int/float compare, which is exact.
+                return self._seq_eq(node, left, right, span, negated=op == "!=")
         if left_kind != right_kind or left_kind not in {
             "int",
             "float",
@@ -244,7 +273,7 @@ class ExprCompareMixin:
             pair: dict[str, Any] = _contains_node(b_n, sub_a, span, negated=False)
             inner: list[dict[str, Any]] = []
         else:
-            sub_b = _subscript_node(b_n, idx_n, elem, span)
+            sub_b = _subscript_node(b_n, idx_n, right["type"]["elem"], span)
             saved = self.prelude
             self.prelude = []
             try:
@@ -631,6 +660,22 @@ class ExprCompareMixin:
 
 
 _NUMERIC = {"int", "float"}
+
+
+def _is_empty_display(node: ast.expr) -> bool:
+    """`[]` or `{}`: a display with no elements, which carries no type of its own."""
+    return (isinstance(node, ast.List) and not node.elts) or (isinstance(node, ast.Dict) and not node.keys)
+
+
+def _numeric_lists(left: dict[str, Any], right: dict[str, Any]) -> bool:
+    """Two plain lists whose elements are int and float (either way round)."""
+    if left.get("kind") != "list" or right.get("kind") != "list":
+        return False
+    if left.get("set") or right.get("set") or left.get("optional") or right.get("optional"):
+        return False
+    lk = left["elem"]["kind"]
+    rk = right["elem"]["kind"]
+    return lk in _NUMERIC and rk in _NUMERIC and lk != rk
 
 
 def _mk_span(span: dict[str, Any]) -> _ir.Span:

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "1669605a48f64ada0551f0be163f31e6b06a940a",
+  "commit": "541622ff929bb045fe453702764eea0a5cfbea64",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -14,8 +14,13 @@
       "red": 23
     },
     "stdlib": {
-      "green": 1,
-      "yellow": 74,
+      "green": 0,
+      "yellow": 75,
+      "red": 0
+    },
+    "operators": {
+      "green": 12,
+      "yellow": 10,
       "red": 0
     },
     "packages": {
@@ -186,10 +191,12 @@
   "stdlib": [
     {
       "label": "`math`",
-      "status": "\ud83d\udfe2",
+      "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "",
-      "codes": []
+      "missing": "dist, ulp, nextafter, modf, frexp, ldexp, expm1, log1p, fma, sumprod",
+      "codes": [
+        "PS2001"
+      ]
     },
     {
       "label": "`re`",
@@ -872,6 +879,54 @@
       "codes": [
         "PS2001",
         "PS2002"
+      ]
+    }
+  ],
+  "operators": [
+    {
+      "label": "true division `/` and `/=`",
+      "status": "\ud83d\udfe2",
+      "count": 2,
+      "missing": "",
+      "codes": []
+    },
+    {
+      "label": "modulo and floor division `%` and `//`, int and float",
+      "status": "\ud83d\udfe2",
+      "count": 2,
+      "missing": "",
+      "codes": []
+    },
+    {
+      "label": "mixed int and float comparison",
+      "status": "\ud83d\udfe2",
+      "count": 6,
+      "missing": "",
+      "codes": []
+    },
+    {
+      "label": "repetition `*` and `*=`, str, bytes and list",
+      "status": "\ud83d\udfe2",
+      "count": 2,
+      "missing": "",
+      "codes": []
+    },
+    {
+      "label": "set algebra `|`, `&`, `-`, `^` and their in-place forms",
+      "status": "\ud83d\udfe1",
+      "count": 8,
+      "missing": "subset ordering on sets",
+      "codes": [
+        "PS2004"
+      ]
+    },
+    {
+      "label": "container equality `==` and `!=`",
+      "status": "\ud83d\udfe1",
+      "count": 2,
+      "missing": "tuple of mixed element types",
+      "codes": [
+        "PS2004"
       ]
     }
   ],

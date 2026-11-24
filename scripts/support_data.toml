@@ -982,3 +982,42 @@ no = [
   ["name as a value", 'y: int = len(str(collections.abc.Sized))', "PS2002"],
   ["isinstance with an abstract base", 'y: bool = isinstance(xs, collections.abc.Sequence)', "PS2001"],
 ]
+
+# ---------------------------------------------------------------- operators
+
+# The numeric tower and the container algebra (issue #504). Each row is one
+# operator family; the snippets run inside the typed function. The `no`
+# entries are the forms that stay fenced: set ordering (subset) is outside
+# the algebra, and a tuple of mixed element types is not a list compare.
+
+[[operator]]
+label = "true division `/` and `/=`"
+names = ["/", "/="]
+ok = ['y: float = n / 2', 'y: float = x / n', 'y: float = x / 2.0', 'y: float = 7 / 2', 'x /= 2']
+
+[[operator]]
+label = "modulo and floor division `%` and `//`, int and float"
+names = ["%", "//"]
+ok = ['y: int = n % 3', 'y: int = -n // 2', 'y: float = x % 2.0', 'y: float = x // 0.1']
+
+[[operator]]
+label = "mixed int and float comparison"
+names = ["<", "<=", ">", ">=", "==", "!="]
+ok = ['y: bool = n < x', 'y: bool = n == 2.0', 'y: bool = x >= n', 'y: bool = 1 <= 1.5']
+
+[[operator]]
+label = "repetition `*` and `*=`, str, bytes and list"
+names = ["*", "*="]
+ok = ['y: str = s * n', 'y: str = 3 * s', 'y: bytes = b * n', 'y: list[int] = xs * n', 'y: list[int] = n * xs', 'xs *= 2', 's *= 2']
+
+[[operator]]
+label = "set algebra `|`, `&`, `-`, `^` and their in-place forms"
+names = ["|", "&", "-", "^", "|=", "&=", "-=", "^="]
+ok = ['y: set[int] = st | st', 'y: set[int] = st & st', 'y: set[int] = st - st', 'y: set[int] = st ^ st', 'st |= st', 'st -= st']
+no = [["subset ordering on sets", 'y: bool = st <= st', "PS2004"]]
+
+[[operator]]
+label = "container equality `==` and `!=`"
+names = ["==", "!="]
+ok = ['y: bool = xs == xs', 'y: bool = xs != [1]', 'y: bool = xs == []', 'y: bool = d == {}', 'y: bool = st == st', 'y: bool = xs == [1.0]']
+no = [["tuple of mixed element types", 'y: bool = (n, s) == (x, s)', "PS2004"]]
