@@ -97,8 +97,9 @@ class CoreMixin(EmitterBase):
         # The native handler surface (issue #1347): set when the program
         # installs a signal handler. The safepoint poll only rides along when
         # a handler is installed, so a program without one emits the same
-        # bytes it always did.
+        # bytes it always did. `signal_n` names the wrappers.
         self.signal_handlers = False
+        self.signal_n = 0
         self.abi_decls: dict[str, tuple[str, list[str]]] = {}
         # Function names that need a lazy env-first `name.clo` wrapper because
         # they are referenced as values.

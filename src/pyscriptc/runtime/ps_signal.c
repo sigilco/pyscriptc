@@ -24,8 +24,9 @@ heap-allocates it), so the handler keeps working after the install returns.
 #include <signal.h>
 #endif
 
-/* The handler the emitter passes: `impl(env, signum)`, env-first like every
-   other compiled callable pair. */
+/* The handler the emitter passes: the wrapper is `wrap(env, signum)`, the
+   env-first shape every compiled callable pair uses. The wrapper loads the
+   handler's own pair out of that env and calls the handler. */
 typedef void (*ps_signal_fn)(void *env, int64_t signum);
 
 /* The pending slot: the C handler writes the signal number here, the poll
@@ -34,10 +35,12 @@ typedef void (*ps_signal_fn)(void *env, int64_t signum);
 static volatile sig_atomic_t ps_signal_pending;
 
 /* The installed handlers, one slot per signal number the surface covers.
-   The pair is `{impl, env}`: the impl pointer first, the env second, the
-   shape every other runtime callable pair uses. */
+   Each entry is the `{wrapper, pair}` pair the emitter hands over: the
+   wrapper is the fixed-shape entry the poll calls, and the pair is the
+   handler's `{impl, env}` cell. */
 #define PS_SIGNAL_MAX 64
 static void *ps_signal_handlers[PS_SIGNAL_MAX];
+static void *ps_signal_pairs[PS_SIGNAL_MAX];
 static int32_t ps_signal_installed[PS_SIGNAL_MAX];
 
 /* The C handler: record the number, nothing else. It runs in the signal
@@ -46,34 +49,37 @@ static void ps_signal_capture(int signum) {
     ps_signal_pending = (sig_atomic_t)signum;
 }
 
-/* `ps_signal_install(signum, pair)`: install the handler for `signum`.
+/* `ps_signal_install(signum, wrapper, pair)`: install the handler for `signum`.
 
-   The pair is `{impl, env}`; the poll loads the impl out of it and calls it
-   with the env and the signal number. The pair is heap-allocated by the
-   emitter, so the runtime only borrows it. */
-void ps_signal_install(int64_t signum, void *pair) {
+   The wrapper is the fixed-shape entry the poll calls (`wrap(env, signum)`);
+   the pair is the handler's `{impl, env}` cell, which becomes the wrapper's
+   env. Both are heap-allocated by the emitter, so the runtime only borrows
+   them. */
+void ps_signal_install(int64_t signum, void *wrapper, void *pair) {
 #ifndef _WIN32
     if (signum <= 0 || signum >= PS_SIGNAL_MAX) {
         ps_raise_cstr(PS_VALUE, "signal number out of range");
     }
-    if (pair == NULL) {
+    if (wrapper == NULL || pair == NULL) {
         ps_raise_cstr(PS_VALUE, "signal handler is not a callable");
     }
-    ps_signal_handlers[signum] = pair;
+    ps_signal_handlers[signum] = wrapper;
+    ps_signal_pairs[signum] = pair;
     ps_signal_installed[signum] = 1;
     struct sigaction action;
     memset(&action, 0, sizeof(action));
     action.sa_handler = ps_signal_capture;
     sigemptyset(&action.sa_mask);
     /* The handler runs on its own stack, so the flag must not block the
-       signal that set it: SA_NODEFER keeps a second SIGTERM from being
-       dropped while the first one is still being recorded. */
+       signal that set it: SA_RESTART keeps a blocking read from failing
+       with EINTR when a signal the program ignores arrives. */
     action.sa_flags = SA_RESTART;
     if (sigaction((int)signum, &action, NULL) != 0) {
         ps_raise_cstr(PS_RUNTIME, "sigaction failed");
     }
 #else
     (void)signum;
+    (void)wrapper;
     (void)pair;
     ps_raise_cstr(PS_RUNTIME, "signals are not available on this target");
 #endif
@@ -86,6 +92,7 @@ void ps_signal_reset(int64_t signum) {
         ps_raise_cstr(PS_VALUE, "signal number out of range");
     }
     ps_signal_handlers[signum] = NULL;
+    ps_signal_pairs[signum] = NULL;
     ps_signal_installed[signum] = 0;
     struct sigaction action;
     memset(&action, 0, sizeof(action));
@@ -108,6 +115,7 @@ void ps_signal_ignore(int64_t signum) {
         ps_raise_cstr(PS_VALUE, "signal number out of range");
     }
     ps_signal_handlers[signum] = NULL;
+    ps_signal_pairs[signum] = NULL;
     ps_signal_installed[signum] = 0;
     struct sigaction action;
     memset(&action, 0, sizeof(action));
@@ -140,13 +148,13 @@ void ps_signal_poll(void) {
         return;
     }
     ps_signal_pending = 0;
-    void *pair = ps_signal_handlers[signum];
-    if (pair == NULL) {
+    void *wrapper = ps_signal_handlers[signum];
+    void *pair = ps_signal_pairs[signum];
+    if (wrapper == NULL || pair == NULL) {
         return;
     }
-    void **slots = (void **)pair;
-    ps_signal_fn impl = (ps_signal_fn)slots[0];
-    impl(slots[1], (int64_t)signum);
+    ps_signal_fn wrap = (ps_signal_fn)wrapper;
+    wrap(pair, (int64_t)signum);
 }
 
 /* True while a signal is waiting for its safepoint. */

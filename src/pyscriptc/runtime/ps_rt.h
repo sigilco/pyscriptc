@@ -702,7 +702,7 @@ int32_t ps_threads_pending(void);
    C-level `sigaction` handler, which only records the number; the compiled
    handler runs at the safepoint the poll names, outside the signal context,
    the deferred delivery CPython uses. */
-void ps_signal_install(int64_t signum, void *pair);
+void ps_signal_install(int64_t signum, void *wrapper, void *pair);
 void ps_signal_reset(int64_t signum);
 void ps_signal_ignore(int64_t signum);
 void ps_signal_default(int64_t signum);

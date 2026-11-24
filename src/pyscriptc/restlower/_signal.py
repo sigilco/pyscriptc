@@ -126,10 +126,8 @@ def _signal_install(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, 
         lo.fail(node.args[1], "PS1003", "signal.signal takes a callable handler or SIG_IGN/SIG_DFL")
     ftype = _node_type(handler)
     params = ftype.get("params", [])
-    if len(params) != 1:
-        lo.fail(node.args[1], "PS1003", "signal.signal takes a handler with one parameter")
-    if params[0].get("kind") != "int":
-        lo.fail(node.args[1], "PS1003", "signal.signal takes a handler with an int parameter")
+    if not params or params[0].get("kind") != "int":
+        lo.fail(node.args[1], "PS1003", "signal.signal takes a handler with an int signal-number parameter")
     if ftype.get("return", {}).get("kind") != "none":
         lo.fail(node.args[1], "PS1003", "signal.signal takes a handler that returns None")
     return lo._abi_call("signal", "signal", [signum, handler], _t_leaf("none"), "ps_signal_install", span)

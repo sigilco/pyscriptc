@@ -1000,23 +1000,48 @@ class AbiMixin(EmitterBase):
         """`signal.signal(signum, handler)` and the two dispositions (issue #1347).
 
         The install form carries the handler as a closure node: `emit_closure`
-        builds the `{impl, env}` pair, the impl env-first (a plain function
-        gets the lazy `name.clo` wrapper), and the runtime stores the pair so
-        `ps_signal_poll` can call `impl(env, signum)` at a safepoint, outside
-        the signal context. The disposition forms lower to their own runtime
-        calls so the disposition never collides with a signal number.
+        builds the `{impl, env}` pair for the handler, and the runtime stores
+        the wrapper and that pair so `ps_signal_poll` can call
+        `wrapper(env, signum)` at a safepoint, outside the signal context.
+        The wrapper has the fixed `(env, signum)` shape the runtime calls, and
+        it calls the handler with the signal number only (a native binary has
+        no frame to pass).
         """
         self.signal_handlers = True
         if symbol == "ps_signal_install":
             all_args: list[dict[str, Any]] = _node_args(expr)
-            pair = self.emit_closure(dict_to_dict(all_args[1]))
-            self._abi_decl("ps_signal_install", "void", ["i64", "ptr"])
-            self._call_void("ps_signal_install", [f"i64 {values[0]}", f"ptr {pair}"])
+            handler = dict_to_dict(all_args[1])
+            pair = self.emit_closure(handler)
+            wrap = f"ps.signal.{self.signal_n}"
+            self.signal_n = self.signal_n + 1
+            self._emit_signal_wrapper(wrap)
+            self._abi_decl("ps_signal_install", "void", ["i64", "ptr", "ptr"])
+            self._call_void("ps_signal_install", [f"i64 {values[0]}", f"ptr @{wrap}", f"ptr {pair}"])
             return ""
         decl = "ps_signal_ignore" if symbol == "ps_signal_ignore" else "ps_signal_default"
         self._abi_decl(decl, "void", ["i64"])
         self._call_void(decl, [f"i64 {values[0]}"])
         return ""
+
+    def _emit_signal_wrapper(self, symbol: str) -> None:
+        """`ps.signal.N(env, signum)`: the fixed-shape entry the runtime calls.
+
+        The env is the handler's `{impl, env}` pair: the first slot is the
+        handler's implementation (env-first, so the call is
+        `impl(handler_env, signum)`) and the second is the handler's own
+        environment. A handler that takes the CPython frame as a second
+        parameter keeps its default: a native binary has no frame.
+        """
+        out_lines = self.outline_lines
+        out_lines.append(f"define internal void @{symbol}(ptr %env, i64 %signum) {{")
+        out_lines.append("entry:")
+        out_lines.append("  %impl = load ptr, ptr %env")
+        out_lines.append("  %ip = getelementptr ptr, ptr %env, i64 1")
+        out_lines.append("  %henv = load ptr, ptr %ip")
+        out_lines.append("  call void %impl(ptr %henv, i64 %signum)")
+        out_lines.append("  ret void")
+        out_lines.append("}")
+        out_lines.append("")
 
     def _emit_exit(self, value: str) -> str:
         self._abi_decl("exit", "void", ["i32"])
