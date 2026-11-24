@@ -664,7 +664,12 @@ def _add_subparsers(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dic
     expr = lo._abi_call(
         "argparse",
         "add_subparsers",
-        [receiver, _const_int(slot, span), _const_int(1 if required else 0, span), _const_text(dest or "", "str", span)],
+        [
+            receiver,
+            _const_int(slot, span),
+            _const_int(1 if required else 0, span),
+            _const_text(dest or "", "str", span),
+        ],
         _class("SubParsers"),
         "ps_argparse_subs",
         span,

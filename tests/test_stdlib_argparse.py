@@ -826,7 +826,9 @@ def test_argparse_subparsers_match_cpython_bytes(tmp_path: Path) -> None:
     for argv in _SUB_ARGVS:
         native = subprocess.run([str(binary), *argv], capture_output=True, text=True, timeout=60)
         oracle = subprocess.run([sys.executable, str(path), *argv], capture_output=True, text=True, timeout=60)
-        assert (native.stdout, native.stderr, native.returncode) == (oracle.stdout, oracle.stderr, oracle.returncode), argv
+        assert (native.stdout, native.stderr, native.returncode) == (oracle.stdout, oracle.stderr, oracle.returncode), (
+            argv
+        )
 
 
 def test_argparse_subparsers_without_a_dest_label_the_choices(tmp_path: Path) -> None:
@@ -856,7 +858,9 @@ def test_argparse_subparsers_without_a_dest_label_the_choices(tmp_path: Path) ->
     for argv in ([], ["z"], ["a", "--x", "3"], ["b"]):
         native = subprocess.run([str(binary), *argv], capture_output=True, text=True, timeout=60)
         oracle = subprocess.run([sys.executable, str(path), *argv], capture_output=True, text=True, timeout=60)
-        assert (native.stdout, native.stderr, native.returncode) == (oracle.stdout, oracle.stderr, oracle.returncode), argv
+        assert (native.stdout, native.stderr, native.returncode) == (oracle.stdout, oracle.stderr, oracle.returncode), (
+            argv
+        )
 
 
 def test_argparse_optional_subcommand_reads_empty_dest(tmp_path: Path) -> None:
