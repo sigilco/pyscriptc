@@ -20,7 +20,11 @@ heap-allocates it), so the handler keeps working after the install returns.
 #include <stdlib.h>
 #include <string.h>
 
-#ifndef _WIN32
+/* POSIX sigaction exists on unix hosts only: Windows has no sigaction and
+   WASI/wasm has no signals at all (wasi-libc's signal.h is a hard #error).
+   Both stub targets raise "signals are not available on this target". */
+#if !defined(_WIN32) && !defined(__wasi__) && !defined(__wasm__) && !defined(__wasm32__)
+#define PS_HAVE_SIGACTION 1
 #include <signal.h>
 #endif
 
@@ -31,8 +35,13 @@ typedef void (*ps_signal_fn)(void *env, int64_t signum);
 
 /* The pending slot: the C handler writes the signal number here, the poll
    reads it. `volatile sig_atomic_t` is the only object a signal handler may
-   touch, so the number travels through it. */
+   touch, so the number travels through it. Stub targets have no signal
+   handler, so a plain volatile word carries the slot there. */
+#ifdef PS_HAVE_SIGACTION
 static volatile sig_atomic_t ps_signal_pending;
+#else
+static volatile int32_t ps_signal_pending;
+#endif
 
 /* The installed handlers, one slot per signal number the surface covers.
    Each entry is the `{wrapper, pair}` pair the emitter hands over: the
@@ -44,10 +53,13 @@ static void *ps_signal_pairs[PS_SIGNAL_MAX];
 static int32_t ps_signal_installed[PS_SIGNAL_MAX];
 
 /* The C handler: record the number, nothing else. It runs in the signal
-   context, so it may only touch the `sig_atomic_t` slot. */
+   context, so it may only touch the `sig_atomic_t` slot. Stub targets have
+   no signal context, so the handler is compiled out there. */
+#ifdef PS_HAVE_SIGACTION
 static void ps_signal_capture(int signum) {
     ps_signal_pending = (sig_atomic_t)signum;
 }
+#endif
 
 /* `ps_signal_install(signum, wrapper, pair)`: install the handler for `signum`.
 
@@ -56,7 +68,7 @@ static void ps_signal_capture(int signum) {
    env. Both are heap-allocated by the emitter, so the runtime only borrows
    them. */
 void ps_signal_install(int64_t signum, void *wrapper, void *pair) {
-#ifndef _WIN32
+#ifdef PS_HAVE_SIGACTION
     if (signum <= 0 || signum >= PS_SIGNAL_MAX) {
         ps_raise_cstr(PS_VALUE, "signal number out of range");
     }
@@ -87,7 +99,7 @@ void ps_signal_install(int64_t signum, void *wrapper, void *pair) {
 
 /* `ps_signal_reset(signum)`: put the default disposition back. */
 void ps_signal_reset(int64_t signum) {
-#ifndef _WIN32
+#ifdef PS_HAVE_SIGACTION
     if (signum <= 0 || signum >= PS_SIGNAL_MAX) {
         ps_raise_cstr(PS_VALUE, "signal number out of range");
     }
@@ -110,7 +122,7 @@ void ps_signal_reset(int64_t signum) {
 /* `ps_signal_ignore(signum)`: install `SIG_IGN` (the disposition CPython
    spells `Handlers.SIG_IGN`, value 1). */
 void ps_signal_ignore(int64_t signum) {
-#ifndef _WIN32
+#ifdef PS_HAVE_SIGACTION
     if (signum <= 0 || signum >= PS_SIGNAL_MAX) {
         ps_raise_cstr(PS_VALUE, "signal number out of range");
     }
