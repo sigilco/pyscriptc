@@ -341,7 +341,10 @@ def test_self_census_ballpark() -> None:
     # at 94k.
     # The class-field lifts (#444 O2b): the tuple-default and marker-kind
     # helpers in lower/_classes.py add about 20 lines, taking the census
-    # to 94,019, so the ceiling moves to 96k.
+    # to 94,019; the protocol dispatch (O3a, #445): the compare/hash/bool/
+    # format dispatch in lower/_classes.py and the call-site hooks add
+    # about 750 lines, taking the census to 94,071, so the ceiling moves
+    # to 96k.
     assert 11_000 <= census["lines"] <= 96_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
