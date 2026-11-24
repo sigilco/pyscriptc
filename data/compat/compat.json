@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-24",
-  "commit": "38a2e6e6eb6b633ac297729b45a7a370088c32e7",
+  "commit": "07fb3e9046a8cf0230a79ef7f3f5ccfd8cfd2f8f",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-24",
-    "commit": "38a2e6e6eb6b633ac297729b45a7a370088c32e7",
+    "commit": "07fb3e9046a8cf0230a79ef7f3f5ccfd8cfd2f8f",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -1391,10 +1391,11 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "Flag, str-valued members, methods on the enum"
+        "member lookup `Color(1)`, iteration `for m in Color`"
       ],
       "fences": [
-        "PS2002"
+        "PS2002",
+        "PS2003"
       ],
       "note": ""
     },
@@ -2916,7 +2917,7 @@
     },
     {
       "date": "2026-11-24",
-      "commit": "38a2e6e6eb6b633ac297729b45a7a370088c32e7",
+      "commit": "07fb3e9046a8cf0230a79ef7f3f5ccfd8cfd2f8f",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,

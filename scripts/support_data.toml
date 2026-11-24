@@ -634,11 +634,33 @@ no = [["make_archive, disk_usage, chown", 'shutil.disk_usage(s)', "PS2001"]]
 
 [[stdlib]]
 names = ["enum"]
-ok = ['pass']
-no = [["Flag, str-valued members, methods on the enum", '''class Fl(enum.Flag):
+ok = ['''class Color(enum.Enum):
+    RED = 1
+@@
+y: int = Color.RED.value''', '''class Name(enum.StrEnum):
+    FIRST = "first"
+@@
+y: str = Name.FIRST.value''', '''class Fl(enum.Flag):
     A = 1
 @@
-y: int = 1''', "PS2002"]]
+y: int = Fl.A.value''', '''class Perm(enum.IntFlag):
+    READ = 1
+    WRITE = 2
+@@
+y: int = Perm.READ | Perm.WRITE''', '''class Color(enum.Enum):
+    RED = 1
+    def label(self) -> str:
+        return "lamp"
+@@
+y: str = Color.RED.label()''']
+no = [["member lookup `Color(1)`", '''class Color(enum.Enum):
+    RED = 1
+@@
+y: int = Color(1).value''', "PS2003"], ["iteration `for m in Color`", '''class Color(enum.Enum):
+    RED = 1
+@@
+for _m in Color:
+    pass''', "PS2002"]]
 
 [[stdlib]]
 names = ["dataclasses"]
