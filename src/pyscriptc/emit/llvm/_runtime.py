@@ -60,7 +60,7 @@ def _prebaked_declarations() -> list[str]:
     return found
 
 
-def _declarations(needed: set[str]) -> list[str]:
+def _declarations(needed: set[str], wasm: bool = False) -> list[str]:
     lines: list[str] = []
     if "printf" in needed:
         lines.append("declare i32 @printf(ptr, ...)")
@@ -99,7 +99,12 @@ def _declarations(needed: set[str]) -> list[str]:
     if "fpow" in needed:
         lines.append("declare double @llvm.pow.f64(double, double)")
     if "strconcat" in needed:
-        lines.append("declare ptr @malloc(i64)")
+        # `malloc` takes a `size_t`, and on wasm32 that is 32 bits. The
+        # wrong width is a signature mismatch: wasi-libc's `malloc` is
+        # never found and the call traps at run time (the receipt for
+        # #469 found this on every str concat).
+        size = "i32" if wasm else "i64"
+        lines.append(f"declare ptr @malloc({size})")
         lines.append("declare void @llvm.memcpy.p0.p0.i64(ptr, ptr, i64, i1)")
     if "dbg" in needed:
         lines.append("declare void @llvm.dbg.value(metadata, metadata, metadata)")
@@ -240,7 +245,7 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
     return lines
 
 
-def _helpers(needed: set[str]) -> list[str]:
+def _helpers(needed: set[str], wasm: bool = False) -> list[str]:
     chunks: list[str] = []
     if "iadd" in needed:
         chunks.append(_overflow_helper("iadd", "sadd"))
@@ -464,6 +469,18 @@ trap:
 """
         )
     if "strconcat" in needed:
+        # The `malloc` argument is a `size_t`, so its width is the
+        # target's: 32 bits on wasm32, 64 everywhere else. The declared
+        # signature in `_declarations` uses the same width, so the two
+        # never disagree. The wrong width is a signature mismatch:
+        # wasi-libc's `malloc` is never found and the call traps at run
+        # time, which is what the target receipt for #469 measured.
+        if wasm:
+            max_len = "2147483647"
+            alloc = "  %n1 = add i64 %n, 1\n  %n1t = trunc i64 %n1 to i32\n  %mem = call ptr @malloc(i32 %n1t)\n"
+        else:
+            max_len = "9223372036854775807"
+            alloc = "  %n1 = add i64 %n, 1\n  %mem = call ptr @malloc(i64 %n1)\n"
         chunks.append(
             """define internal %ps.str @ps.strconcat(%ps.str %a, %ps.str %b) {
 entry:
@@ -480,11 +497,10 @@ entry:
   br i1 %ov, label %trap, label %sized
 sized:
   %n = extractvalue { i64, i1 } %sum, 0
-  %atmax = icmp eq i64 %n, 9223372036854775807
+  %atmax = icmp eq i64 %n, @MAXLEN@
   br i1 %atmax, label %trap, label %alloc
 alloc:
-  %n1 = add i64 %n, 1
-  %mem = call ptr @malloc(i64 %n1)
+@ALLOC@
   %null = icmp eq ptr %mem, null
   br i1 %null, label %nomem, label %copy
 copy:
@@ -511,7 +527,7 @@ nomem:
   call void @ps_raise_code(i32 @RUN@) noreturn ; RuntimeError
   unreachable
 }
-"""
+""".replace("@MAXLEN@", max_len).replace("@ALLOC@", alloc)
         )
     return [_exc_codes(chunk) for chunk in chunks]
 

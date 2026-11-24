@@ -63,6 +63,11 @@ class CoreMixin(EmitterBase):
         # undefined_weak and the wasi crt calls a null stub. This is a wasm-ABI
         # fact, not a zig workaround: it stays when the zig 0.18 flags go.
         self.entry_symbol = "__main_argc_argv" if wasm else "main"
+        # The wasm32 C ABI: `size_t` is 32-bit, so the `malloc` declaration
+        # and every call to it use `i32`. The declaration and the helper
+        # body read this flag together (`_declarations`, `_helpers`), so
+        # the two can never disagree on the width.
+        self.wasm = wasm
         # Off by default: without `--debug-info` the emitted text is byte-identical
         # to the historical output, so the frozen gates and IR hashes do not move.
         self.dwarf = dwarf
@@ -208,7 +213,7 @@ class CoreMixin(EmitterBase):
         header.extend(self.globals)
         if self.globals:
             header.append("")
-        decls = _declarations(self.needed)
+        decls = _declarations(self.needed, self.wasm)
         decls.extend(self._abi_lines())
         header.extend(decls)
         if decls:
@@ -219,7 +224,7 @@ class CoreMixin(EmitterBase):
             header.extend(metadata)
             header.append("")
         # boxed:end
-        header.extend(_helpers(self.needed))
+        header.extend(_helpers(self.needed, self.wasm))
         body = header + self.out
         if self.dwarf is not None:
             # The debug metadata goes last: the named-metadata block and the

@@ -16,6 +16,7 @@ from pyscriptc.dwarf import DwarfEmitter
 class EmitterBase:
     module: dict[str, Any]
     entry_symbol: str
+    wasm: bool
     dwarf: DwarfEmitter | None
     functions: dict[str, dict[str, Any]]
     out: list[str]
