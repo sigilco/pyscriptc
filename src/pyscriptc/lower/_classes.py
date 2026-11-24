@@ -395,6 +395,35 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         """
         return rest_call(self, node, span_of(node, self.filename), "dataclasses", "field", typ)
 
+    def _field_const_default(self, marker: dict[str, Any], typ: dict[str, Any], stmt: ast.AnnAssign) -> dict[str, Any]:
+        """Lower one `field(default=<constant>)` into a plain default.
+
+        The marker holds the default's AST node (the rest handler cannot
+        lower it: the class-body collect pass runs before the module's
+        function signatures are known). The value lowers here, against the
+        annotation, the same rule the bare `x: T = <constant>` spelling
+        follows: a constant, an `Optional` that takes `None`, or a
+        fixed-shape tuple whose elements are constants.
+        """
+        node = marker.get("default_ast")
+        assert isinstance(node, ast.expr)
+        if _maybe_type_kind(typ) == "class" and self.classes.get(typ["name"], {}).get("tuple"):
+            field_rows = self.classes[typ["name"]]["fields"]
+            if not isinstance(node, ast.Tuple) or len(node.elts) != len(field_rows):
+                self.fail(stmt, "PS2002", "a tuple default must match the annotation's shape")
+            elems = []
+            for elt, frow in zip(node.elts, field_rows, strict=True):
+                ev = self._expr(elt, frow["type"])
+                self._expect(elt, ev["type"], frow["type"], stmt.target.id)
+                if _node_kind(ev) != "const":
+                    self.fail(elt, "PS2002", "a tuple default element must be a constant")
+                elems.append(ev)
+            return _tuple_default(elems, typ)
+        value = self._expr(node, None if typ.get("optional") else typ)
+        if _node_kind(value) != "const":
+            self.fail(node, "PS2002", "a field default must be a constant")
+        return value
+
     def _check_factory_default(self, stmt: ast.AnnAssign, marker: dict[str, Any], typ: dict[str, Any]) -> None:
         """Type-check one factory default against the annotation.
 
@@ -513,6 +542,17 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             ancestor_constants = self.classes.get(ancestor, {}).get("constants")
             if ancestor_constants:
                 class_constants.update(ancestor_constants)
+        # The annotated types of the class body's constant attributes
+        # (`x: T = <const>`). The constant is a class attribute in
+        # CPython, and the annotation still names the type of the value
+        # an instance may carry: a written `__init__` that assigns
+        # `self.x` proves an instance field of that type, and the
+        # instance field shadows the class attribute (issue #444).
+        const_types: dict[str, dict[str, Any]] = {}
+        for ancestor in reversed(mro[1:]):
+            ancestor_types = self.classes.get(ancestor, {}).get("const_types")
+            if ancestor_types:
+                const_types.update(ancestor_types)
         # Class-body assignments with a runtime value (`x = f()`, a
         # comprehension, a container of computed elements): the value lowers
         # after the signature pass into the class's initializer, and the
@@ -542,6 +582,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                         else:
                             self._expect(stmt, const["type"], typ, stmt.target.id)
                         class_constants[stmt.target.id] = const
+                        const_types[stmt.target.id] = typ
                         continue
                     if stmt.target.id in seen or stmt.target.id in inherited_types:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
@@ -574,8 +615,14 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                                 # `field(default_factory=...)` (issue #1279): the
                                 # per-instance default. The marker carries the
                                 # factory, not a value, so the construction
-                                # site replays it.
+                                # site replays it. `field(default=<constant>)`
+                                # (issue #444) rides the same call with a
+                                # marker that defers to this pass: the value
+                                # lowers right here, against the annotation,
+                                # the same rule the bare spelling follows.
                                 default = self._field_default(stmt.value, typ)
+                                if _record_kind(default) == "field-const-default":
+                                    default = self._field_const_default(default, typ, stmt)
                             else:
                                 default = self._expr(stmt.value, None if typ.get("optional") else typ)
                         finally:
@@ -694,6 +741,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                         init_fn,
                         method_sigs.get("__init__"),
                         {field["name"] for field in fields} | set(inherited_types),
+                        const_types,
                     )
                 )
         generated: str | None = None
@@ -779,6 +827,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             "fields": [*inherited, *fields],
             "own_fields": fields,
             "constants": class_constants,
+            "const_types": const_types,
             "methods": method_sigs,
             "method_kind": kinds,
             "method_owner": owners,
@@ -817,6 +866,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         fn: ast.FunctionDef,
         sig: tuple[list[dict[str, Any]], dict[str, Any]] | None,
         taken: set[str],
+        const_types: dict[str, dict[str, Any]] | None = None,
     ) -> list[dict[str, Any]]:
         """Fields a written `__init__` proves by `self.<name>` targets.
 
@@ -825,9 +875,18 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         in the body pass). Names the class body or a base already
         declared are skipped: the declared type wins and a mismatch
         fences at the write.
+
+        `self.x = <value>` (a literal, a call, any value that is not a
+        parameter) takes the type of the class body's `x: T` declaration
+        when the class body has one (issue #444): a plain class's
+        `x: T = <constant>` is a class attribute in CPython, and the
+        annotation still names the type the instance field carries. The
+        write then shadows the class attribute, the same rule CPython's
+        instance dictionary follows.
         """
         found: list[dict[str, Any]] = []
         seen = set(taken)
+        const_types = const_types or {}
         if sig is None:
             return found
         params = sig[0]
@@ -845,14 +904,14 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     typ = self._annotation(stmt.annotation)
                 except Fence:
                     continue
-            elif (
-                isinstance(stmt, ast.Assign)
-                and len(stmt.targets) == 1
-                and isinstance(stmt.targets[0], ast.Attribute)
-                and isinstance(stmt.value, ast.Name)
-            ):
+            elif isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Attribute):
                 target = stmt.targets[0]
-                typ = arg_types.get(stmt.value.id)
+                if isinstance(stmt.value, ast.Name):
+                    typ = arg_types.get(stmt.value.id)
+                else:
+                    # A value that is not a parameter: the class body's
+                    # annotation is the only type the field has.
+                    typ = const_types.get(target.attr)
                 if typ is None:
                     continue
             else:
@@ -1108,9 +1167,36 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             missing = sorted(own_names - assigned)
             if missing:
                 self.fail(stmt, "PS1001", f"__init__ does not assign {', '.join(missing)}")
+            body = self._seed_const_fields(class_name, info, body, span_of(stmt, self.filename))
         if _type_kind(ret) != "none" and not _always_returns(body):
             self.fail(stmt, "PS1004", f"{stmt.name} can fall off the end and return None")
         return self._method_ir(stmt.name, params, ret, body, span_of(stmt, self.filename))
+
+    def _seed_const_fields(
+        self, class_name: str, info: dict[str, Any], body: list[dict[str, Any]], span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """Seed the instance fields whose class body spells a constant.
+
+        `class C: x: int = 1` is a class attribute in CPython, and an
+        instance read of `x` falls back to it until the instance writes
+        its own. The lowered class is a struct, so the fallback is a
+        store: the `__init__` prologue writes the constant into the field
+        slot, and the body's `self.x = ...` overwrites it (issue #444).
+        Only the fields the body proves (every own field must be
+        assigned) take a seed, so a class attribute nothing writes keeps
+        its compile-time read.
+        """
+        constants = info.get("constants") or {}
+        self_type = _class_type(class_name)
+        seeds: list[dict[str, Any]] = []
+        for field in info.get("own_fields", []):
+            const = constants.get(field["name"])
+            if const is None or const.get("kind") != "const":
+                continue
+            seeds.append(_setattr_node(_name("self", self_type, span), field["name"], {**const, "span": span}, span))
+        if not seeds:
+            return body
+        return [*seeds, *body]
 
     def _method_ir(
         self,

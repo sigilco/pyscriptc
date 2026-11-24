@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""`dataclasses.field` (issue #1279).
+"""`dataclasses.field` (issue #1279, #444).
 
 `@dataclass` is the closed dataclass form; `field` is its one lowered
 companion. `default_factory=list|dict|set` names the per-instance default:
@@ -8,6 +8,13 @@ one shared object (CPython raises ValueError for a plain mutable default,
 so the factory spelling is the only mutable one supported source can
 carry). A callable factory (`default_factory=make` or a lambda) lowers to
 the callable value and is called per construction.
+
+`default=<constant>` (issue #444) is the spelled-out form of the bare
+assignment default: the construction site that omits the argument plays
+the constant, exactly the rule the equivalent `x: T = const` spelling
+follows. `default=None` on an `Optional` field rides the same marker and
+the construction site boxes the None. Other keyword names (`repr=`,
+`compare=`, `kw_only=`, `init=`, `metadata=`, `hash=`) keep the fence.
 
 The handler returns the `factory-default` marker record: it is not an IR
 node, the construction site that omits the argument replays the factory,
@@ -24,11 +31,18 @@ from typing import Any
 #: value is lowered.
 CONTAINER_FACTORIES = frozenset({"list", "dict", "set"})
 
+#: The keywords that name the field in the dataclass metadata and not in
+#: the class's own value semantics (issue #444). CPython stores them for
+#: the serializer libraries to read; the instance, the repr, the compare
+#: and the constructor never see them, so the lowered subset accepts and
+#: drops them.
+IGNORED_KEYWORDS = frozenset({"alias", "metadata"})
+
 
 def _dataclass_field(
     lo: Any, node: ast.Call, span: dict[str, Any], expect: dict[str, Any] | None, attr: str
 ) -> dict[str, Any]:
-    """The `field(default_factory=...)` marker record.
+    """The `field(default_factory=...)` / `field(default=...)` marker record.
 
     `expect` is the annotation's field type when the assignment carries
     one. The factory must leave a fresh value per construction, so the
@@ -40,17 +54,37 @@ def _dataclass_field(
     runs before the module's function signatures are known, so the
     callable value is lowered in the class body pass, where the module
     functions are in scope.
+
+    A `default=<constant>` (issue #444) rides the same marker with the
+    constant AST stashed: the class body pass folds it against the
+    annotation, the same rule the equivalent `x: T = const` spelling
+    follows.
     """
     if node.args:
         lo.fail(node, "PS2002", "field takes keyword arguments only")
     for kw in node.keywords:
         if kw.arg is None:
             lo.fail(kw, "PS2002", "**kwargs are not lowered")
-        if kw.arg != "default_factory":
-            lo.fail(kw, "PS2002", f"field({kw.arg}=...) is not lowered; use default_factory")
+        if kw.arg in IGNORED_KEYWORDS:
+            # `alias=` and `metadata=` name the field in the dataclass
+            # metadata, not in the class's own value semantics: CPython
+            # stores them for the serializer libraries to read, and the
+            # instance, the repr, the compare and the constructor never
+            # see them. The lowered subset has no metadata surface, so
+            # the keywords are accepted and dropped.
+            continue
+        if kw.arg not in {"default_factory", "default"}:
+            lo.fail(kw, "PS2002", f"field({kw.arg}=...) is not lowered; use default or default_factory")
+    default_kw = next((kw for kw in node.keywords if kw.arg == "default"), None)
     factory_kw = next((kw for kw in node.keywords if kw.arg == "default_factory"), None)
+    if default_kw is not None and factory_kw is not None:
+        lo.fail(node, "PS2002", "field takes default or default_factory, not both")
     if factory_kw is None:
-        lo.fail(node, "PS2002", "field lowers default_factory only; a plain default is spelled without field")
+        # `field(default=...)`: the constant form of the bare assignment
+        # default (issue #444). The marker defers to the class body pass,
+        # which folds the AST against the field's annotation.
+        assert default_kw is not None
+        return {"kind": "field-const-default", "default_ast": default_kw.value, "type": expect or {}}
     factory = factory_kw.value
     if isinstance(factory, ast.Name) and factory.id in CONTAINER_FACTORIES:
         # The container factories ride by name: the construction site
