@@ -569,6 +569,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         for base_node in node.bases:
             if self._is_builtin_object(base_node):
                 continue
+            if self._namedtuple_base_name(base_node) is not None:
+                # `class C(NamedTuple)`: the body declares the fields, and
+                # the class lowers as a tuple record.
+                if len(node.bases) > 1:
+                    self.fail(node, "PS2002", "a NamedTuple class has no other base")
+                self._collect_namedtuple_class(node)
+                return
             generic_params = self._generic_base(base_node)
             if generic_params is not None:
                 # `class C(Generic[T])` erases: the parameter list records
@@ -2424,6 +2431,78 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self.class_aliases[target] = typename
         self.declared.add(target)
 
+    def _collect_namedtuple_class(self, node: ast.ClassDef) -> None:
+        """`class P(NamedTuple):` declares the synthetic tuple class `P`.
+
+        The class body is the field declaration: each `name: T` is a
+        positional field of that type, and `name: T = v` gives it a default.
+        Unlike `collections.namedtuple`, whose field types the first
+        construction fixes, the annotations here are the field types.
+
+        Subset: a docstring is allowed; methods, class constants and every
+        other class-body statement fence.
+        """
+        if node.name in self.declared or node.name in self.bindings or node.name in self.sigs:
+            self.fail(node, "PS2002", f"{node.name} is already bound")
+        names: list[str] = []
+        fields: list[dict[str, Any]] = []
+        seen_default = False
+        for stmt in node.body:
+            if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
+                continue
+            if not (isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name)):
+                self.fail(stmt, "PS1204", f"{type(stmt).__name__} in a NamedTuple body is not lowered")
+            name = stmt.target.id
+            if name in names:
+                self.fail(stmt, "PS2002", f"duplicate field {name}")
+            if not name.isidentifier() or name.startswith("_"):
+                self.fail(stmt, "PS2003", f"NamedTuple field {name} is not an allowed name")
+            typ = self._annotation(stmt.annotation)
+            if _type_kind(typ) == "bool":
+                self.fail(stmt, "PS2002", "bool fields are not lowered")
+            if _type_kind(typ) == "func":
+                self.fail(stmt, "PS2002", "callable fields are not lowered")
+            field: dict[str, Any] = {"name": name, "type": typ}
+            if stmt.value is not None:
+                if seen_default:
+                    self.fail(stmt, "PS2002", "a non-default field follows a default")
+                saved_prelude = self.prelude
+                self.prelude = []
+                try:
+                    default = self._expr(stmt.value, None if typ.get("optional") else typ)
+                finally:
+                    self.prelude = saved_prelude
+                if _node_kind(default) != "const":
+                    self.fail(stmt, "PS2002", "a NamedTuple default must be a constant")
+                if typ.get("optional"):
+                    if _type_kind(default["type"]) != "none" and not types_equal(default["type"], typ["elem"]):
+                        self.fail(stmt, "PS1003", f"{name} default is not {_show(typ)}")
+                    field["optdefault"] = True
+                else:
+                    self._expect(stmt, default["type"], typ, name)
+                field["default"] = default
+                seen_default = True
+            elif seen_default:
+                self.fail(stmt, "PS2002", "a non-default field follows a default")
+            names.append(name)
+            fields.append(field)
+        if not names:
+            self.fail(node, "PS2003", "a NamedTuple class declares at least one field")
+        self.declared.add(node.name)
+        self.classes[node.name] = {
+            "fields": fields,
+            "own_fields": list(fields),
+            "constants": {},
+            "methods": {},
+            "method_kind": {},
+            "method_owner": {},
+            "synthetic": True,
+            "tuple": True,
+            "namedtuple": True,
+            "nt_fields": names,
+            "nt_defaults": {field["name"]: field["default"] for field in fields if "default" in field},
+        }
+
     def _construct_namedtuple(
         self, node: ast.Call, span: dict[str, Any], name: str, info: dict[str, Any]
     ) -> dict[str, Any]:
@@ -2446,10 +2525,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             if kw.arg in values:
                 self.fail(node, "PS2003", f"{name}() field {kw.arg} is given twice")
             values[kw.arg] = self._expr(kw.value)
-        missing = [field for field in fields if field not in values]
+        defaults = info.get("nt_defaults") or {}
+        missing = [field for field in fields if field not in values and field not in defaults]
         if missing:
             self.fail(node, "PS2003", f"{name}() is missing field {missing[0]}")
-        args = [values[field] for field in fields]
+        args = [values[field] if field in values else copy.deepcopy(defaults[field]) for field in fields]
         if not info["fields"]:
             built: list[dict[str, Any]] = []
             for field, arg in zip(fields, args, strict=True):

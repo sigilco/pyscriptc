@@ -107,6 +107,9 @@ def _bare_leaf(kind: str) -> dict[str, Any]:
 
 _ERASED_BASES = frozenset({"ABC", "ABCMeta", "Protocol"})
 _ERASED_DECORATORS = frozenset({"abstractmethod", "overload"})
+# `typing.NamedTuple` as a class base: the class body declares the fields,
+# so the base is not erased — it selects the tuple-record lowering.
+_NAMEDTUPLE_BASES = frozenset({"NamedTuple"})
 # The `pyscriptc._annotations` shadow module's decorators (issue #1306):
 # both are the identity, so the compiler erases them with no PS3099 note.
 _SHADOW_DECORATORS = frozenset({"island", "specialize"})
@@ -455,6 +458,21 @@ class ClassesMoreMixin:
             if resolved is not None and resolved[3] == "erased":
                 member = resolved[2]
         return member if member in _ERASED_BASES else None
+
+    def _namedtuple_base_name(self, node: ast.expr) -> str | None:
+        """`typing.NamedTuple` used as a class base, or None.
+
+        The name arrives through an erased import (`from typing import
+        NamedTuple`) or through the qualified spelling (`typing.NamedTuple`).
+        """
+        member: str | None = None
+        if isinstance(node, ast.Name):
+            member = self.type_aliases.get(node.id)
+        elif isinstance(node, ast.Attribute):
+            resolved = self._resolve_module(node)
+            if resolved is not None and resolved[3] == "erased":
+                member = resolved[2]
+        return member if member in _NAMEDTUPLE_BASES else None
 
     def _is_abcmeta_keyword(self, kw: ast.keyword) -> bool:
         """`metaclass=ABCMeta` — erased like the `ABC` base it is sugar for."""
