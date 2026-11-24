@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-24",
-  "commit": "1f8d01499bc4c44b2b0000b1bb5408d3e20205b5",
+  "commit": "073240dbee9edbe9d9e543df18debde976df2225",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -734,9 +734,10 @@
       "label": "`enum`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "Flag, str-valued members, methods on the enum",
+      "missing": "member lookup `Color(1)`, iteration `for m in Color`",
       "codes": [
-        "PS2002"
+        "PS2002",
+        "PS2003"
       ]
     },
     {

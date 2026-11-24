@@ -26,11 +26,24 @@ from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
 from pyscriptc.coro import enabled
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._annotations import _const_int_index
+from pyscriptc.lower._call_attr import _function_call_node
 from pyscriptc.lower._core import Fence, _any_accepts, _mk_type
+from pyscriptc.lower._expr import _const_of
 from pyscriptc.lower._stmt import _is_docstring
 from pyscriptc.restlower import alias_name
 from pyscriptc.restlower._httpserver import HANDLER_BASE
 from pyscriptc.tirserde import dict_to_type, node_to_dict
+
+# The enum bases the subset lowers (issue #451): the plain and integer
+# ones the subset always carried, plus StrEnum and the two flag bases.
+ENUM_BASE_NAMES = frozenset({"Enum", "IntEnum", "StrEnum", "Flag", "IntFlag"})
+
+
+def _const_str_value(node: ast.expr) -> str | None:
+    """The string a constant expression spells, or None."""
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return node.value
+    return None
 
 
 def _type_rt(typ: dict[str, Any]) -> dict[str, Any]:
@@ -520,8 +533,9 @@ class ClassesMoreMixin:
                 # An enum base lowers only in CPython's own shape: the base
                 # enum carries no member yet, so the subclass is the first
                 # one to fill it (issue #1314). A base with members keeps
-                # the fence: CPython refuses that subclass outright.
-                if info["base"] not in {"IntEnum", "int"} or info["members"]:
+                # the fence: CPython refuses that subclass outright. The
+                # integer and flag bases carry the same shape (issue #451).
+                if info["base"] not in {"IntEnum", "int", "StrEnum", "Flag", "IntFlag"} or info["members"]:
                     self.fail_base(node, "PS2002", "an enum is not a base", node)
                 if node.id in self.enum_subclasses:
                     self.fail_base(node, "PS2002", f"duplicate enum subclass {node.id}", node)
@@ -574,43 +588,82 @@ class ClassesMoreMixin:
     def _enum_base_name(self, node: ast.expr) -> str | None:
         if isinstance(node, ast.Name):
             binding = self.bindings.get(node.id)
-            if binding is not None and binding.module == "enum" and binding.attr in {"Enum", "IntEnum"}:
+            if binding is not None and binding.module == "enum" and binding.attr in ENUM_BASE_NAMES:
                 return binding.attr
             return None
         if isinstance(node, ast.Attribute):
             resolved = self._resolve_module(node)
-            if resolved is not None and resolved[1] == "enum" and resolved[2] in {"Enum", "IntEnum"}:
+            if resolved is not None and resolved[1] == "enum" and resolved[2] in ENUM_BASE_NAMES:
                 return resolved[2]
         return None
 
     def _collect_enum(self, node: ast.ClassDef, which: str) -> None:
         self.declared.add(node.name)
-        members: dict[str, int] = {}
+        str_members = which == "StrEnum"
+        members: dict[str, int | str] = {}
         # An enum subclass (issue #1314) starts from the base's members and
         # adds its own: the members of the base stay reachable through the
         # subclass, the way CPython's enum inheritance keeps them.
         inherited = self.enum_base_members.get(node.name, {})
         members.update(inherited)
-        next_value = max(inherited.values(), default=0) + 1
+        next_value = max((v for v in inherited.values() if isinstance(v, int)), default=0) + 1
         next_auto = next_value
+        # The values spelled so far, the ones the `auto()` counter reads:
+        # CPython's `auto()` takes the largest value the body has spelled
+        # plus one, so `A = 5` then `auto()` gives 6 and a later `C = 2`
+        # then `auto()` gives 7, not 3.
+        spelled: list[int] = [v for v in inherited.values() if isinstance(v, int)]
+        methods: list[tuple[ast.FunctionDef, str]] = []
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
+                continue
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                # An enum method or property (issue #451): CPython attaches
+                # it to the enum class, so every member answers it. The
+                # signature pass below takes the same shape a normal class
+                # method takes; the emitted body runs on the member's value.
+                try:
+                    kind = self._method_decorator(stmt)  # type: ignore[arg-type]
+                    methods.append((stmt, kind))  # type: ignore[arg-type]
+                except Fence as exc:
+                    self.caught.append(exc)
                 continue
             try:
                 target, value = self._enum_assign(stmt)
                 auto = self._enum_auto(value)
+                member_value: int | str
                 if auto is None:
-                    number = _const_int_index(value)
-                    if number is None:
-                        self.fail(stmt, "PS2002", "an enum member is an integer constant")
+                    if str_members:
+                        # A StrEnum member is a string constant (issue #451):
+                        # CPython's StrEnum members are strs, so the member
+                        # value is the text the body spells.
+                        text = _const_str_value(value)
+                        if text is None:
+                            self.fail(stmt, "PS2002", "a StrEnum member is a string constant")
+                            raise AssertionError("unreachable")
+                        member_value = text
+                    else:
+                        number = _const_int_index(value)
+                        if number is None:
+                            self.fail(stmt, "PS2002", "an enum member is an integer constant")
+                            raise AssertionError("unreachable")
+                        member_value = number
                 else:
                     if not auto:
                         self.fail(stmt, "PS2003", "enum.auto takes no arguments")
-                    number = next_auto
-                next_auto = number + 1
+                        raise AssertionError("unreachable")
+                    if str_members:
+                        # CPython's StrEnum `auto()` spells the member's
+                        # name in lower case as the value (issue #451).
+                        member_value = target.lower()
+                    else:
+                        member_value = next_auto
+                if isinstance(member_value, int):
+                    spelled.append(member_value)
+                    next_auto = max(spelled) + 1
                 if target in members:
                     self.fail(stmt, "PS2002", f"duplicate enum member {target}")
-                members[target] = number
+                members[target] = member_value
             except Fence as exc:
                 self.caught.append(exc)
         if self.caught:
@@ -631,6 +684,123 @@ class ClassesMoreMixin:
             "members": members,
             "node": node,
         }
+        self._enum_methods[node.name] = methods
+        if methods:
+            self._enum_method_sigs(node, methods)
+
+    def _enum_method_sigs(self, node: ast.ClassDef, methods: list[tuple[ast.FunctionDef, str]]) -> None:
+        """The signatures of the methods an enum class body spells (issue #451).
+
+        CPython attaches an enum's methods to the enum class, so every
+        member answers them. The signature pass is the class one, with one
+        retyping: `self` takes the member value kind (the int or str the
+        members carry), not the enum class type, because the lowered
+        member is the value itself. A method whose signature does not
+        prove drops out and the enum keeps the rest.
+        """
+        info = self.classes[node.name]
+        value_kind = self._enum_value_kind(node.name)
+        for stmt, kind in methods:
+            try:
+                sig = self._signature(stmt, node.name, kind)
+                if kind in {"method", "property"} and sig[0] and sig[0][0]["name"] == "self":
+                    sig = ([{"name": "self", "type": {"kind": value_kind}}, *sig[0][1:]], sig[1])
+            except Fence as exc:
+                self.caught.append(exc)
+                continue
+            if sig is None:
+                continue
+            info["methods"][stmt.name] = sig
+            info["method_kind"][stmt.name] = kind
+            info["method_owner"][stmt.name] = node.name
+
+    def _enum_member_of(self, node: ast.expr) -> tuple[str, str, int | str] | None:
+        """The enum member a node spells, as (enum class, member name, value).
+
+        The node is the member read itself (`Color.RED`), either the class
+        name or a class alias. None means the node is not an enum member
+        read, so the caller keeps the ordinary path.
+        """
+        if not isinstance(node, ast.Attribute):
+            return None
+        class_name = self.class_aliases.get(node.value.id, node.value.id) if isinstance(node.value, ast.Name) else None
+        if class_name is None or class_name not in self.classes:
+            return None
+        info = self.classes[class_name]
+        if not info.get("enum"):
+            return None
+        value = info["members"].get(node.attr)
+        if value is None:
+            return None
+        return class_name, node.attr, value
+
+    def _enum_member_attr(self, node: ast.Attribute, span: dict[str, Any]) -> dict[str, Any] | None:
+        """The `.value` and `.name` reads of an enum member (issue #451).
+
+        CPython gives every member its value and its name. The lowered
+        member is a compile-time constant, so both reads answer from the
+        member's own record: the value the body spelled and the name the
+        body spelled it under. A member of a plain `Enum` answers its
+        value as the integer the body spelled; a `StrEnum` member answers
+        the text.
+        """
+        found = self._enum_member_of(node.value)
+        if found is None:
+            return None
+        class_name, member_name, value = found
+        if node.attr == "value":
+            return _const_of(str(value), self._enum_value_kind(class_name), span)
+        if node.attr == "name":
+            return _const_of(member_name, "str", span)
+        info = self.classes[class_name]
+        if info["method_kind"].get(node.attr) == "property":
+            # A property on the enum class (issue #451): CPython reads it off
+            # the member, and the lowered member is the value, so the
+            # property's getter runs with the member bound as `self`.
+            sig = info["methods"][node.attr]
+            owner = info.get("method_owner", {}).get(node.attr, class_name)
+            self_arg = _const_of(str(value), self._enum_value_kind(class_name), span)
+            return _function_call_node(f"cls.{owner}.{node.attr}", [self_arg], sig[1], span)
+        return None
+
+    def _enum_value_kind(self, class_name: str) -> str:
+        """The kind an enum class's member values answer: int or str."""
+        base = self.classes.get(class_name, {}).get("base")
+        return "str" if base == "StrEnum" else "int"
+
+    def _enum_member_call(self, node: ast.Call, span: dict[str, Any]) -> dict[str, Any] | None:
+        """The call of a method on an enum member (issue #451).
+
+        CPython attaches an enum's methods to the enum class, so every
+        member answers them with the member bound as `self`. The lowered
+        member is the value itself, so the call binds the member's value
+        to `self` and calls the enum class's emitted method.
+        """
+        found = self._enum_member_of(node.func.value) if isinstance(node.func, ast.Attribute) else None
+        if found is None:
+            return None
+        class_name, _member_name, value = found
+        info = self.classes[class_name]
+        method = node.func.attr
+        sig = info["methods"].get(method)
+        if sig is None:
+            self.fail(node, "PS2001", f"{class_name}.{method} is not a method")
+        kind = info["method_kind"].get(method, "method")
+        if kind == "property":
+            self.fail(node, "PS2002", "a property is not called")
+        if kind not in {"method", "static", "class"}:
+            self.fail(node, "PS2001", f"{class_name}.{method} is not a method")
+        params = list(sig[0])
+        if kind == "method":
+            # The receiver is the member: the value rides as the `self`
+            # argument the emitted method takes.
+            self_arg = _const_of(str(value), self._enum_value_kind(class_name), span)
+            params = [param for param in params if param["name"] != "self"]
+            args = [self_arg, *self._fill_args(node, params, f"{class_name}.{method}")]
+        else:
+            args = self._fill_args(node, params, f"{class_name}.{method}")
+        owner = info.get("method_owner", {}).get(method, class_name)
+        return _function_call_node(f"cls.{owner}.{method}", args, sig[1], span)
 
     def _enum_auto(self, value: ast.expr) -> bool | None:
         """True when the value is a bare `auto()` call with no arguments.

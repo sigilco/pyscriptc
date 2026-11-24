@@ -332,10 +332,13 @@ class Lowerer(
         # map holds each subclass's base members, so the subclass keeps
         # the members the base spelled.
         self.enum_subclasses: set[str] = set()
-        self.enum_base_members: dict[str, dict[str, int]] = {}
+        self.enum_base_members: dict[str, dict[str, int | str]] = {}
         # The enum class each enum subclass extends, keyed by the subclass
         # name: the subclass starts from the base's members.
         self.enum_parent_of: dict[str, str] = {}
+        # The methods and properties each enum class body spells (issue
+        # #451): the collected defs, keyed by the enum class name.
+        self._enum_methods: dict[str, list[tuple[ast.FunctionDef, str]]] = {}
         self.declared: set[str] = set()
         self.known_classes: set[str] = set()
         self.synthetics: set[str] = set()

@@ -947,6 +947,9 @@ class ExprMixin(ExprCompareMixin):
     def _attribute(
         self, node: ast.Attribute, span: dict[str, Any], expect: dict[str, Any] | None = None
     ) -> dict[str, Any]:
+        member = self._enum_member_attr(node, span)
+        if member is not None:
+            return member
         if (
             isinstance(node.value, ast.Call)
             and node.attr == "name"
@@ -1020,7 +1023,12 @@ class ExprMixin(ExprCompareMixin):
                 member = info["members"].get(node.attr)
                 if member is None:
                     self.fail(node, "PS2001", f"{node.value.id}.{node.attr} is not an enum member")
-                return _const_of(str(member), "int", span)
+                # A StrEnum member is a str (issue #451): CPython's StrEnum
+                # members are strs, so the member reads as the text the body
+                # spelled. Every other enum in the subset reads as the
+                # integer it spelled.
+                kind = self._enum_value_kind(class_name)
+                return _const_of(str(member), kind, span)
             const = self._class_const(class_name, node.attr)
             if const is not None:
                 if const.get("kind") == "tuple-const":
