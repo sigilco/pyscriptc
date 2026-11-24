@@ -658,10 +658,8 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
                 lo.fail(node, "PS2003", "argparse nargs='?' needs a default")
             if not is_positional and not has_const:
                 lo.fail(node, "PS2003", "argparse nargs='?' option needs a const")
-        if is_positional and nargs in {"?", "R"}:
+        if is_positional and nargs in {"?", "*", "R"}:
             required = False
-        elif is_positional and nargs == "*":
-            required = True
     if has_const and action != "store_const" and nargs != "?":
         lo.fail(node, "PS2003", "argparse const takes the store_const action or nargs='?'")
     if action == "store_const" and raw_const is not None and not isinstance(raw_const, str):
@@ -786,7 +784,8 @@ def _add_subparsers(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dic
             state.kinds.append(_KIND_STR)
             lo.classes["Namespace"]["fields"] = list(state.fields)
             lo.classes["Namespace"]["own_fields"] = list(state.fields)
-    state.groups[group].holder = {"pos": key, "dest": dest, "required": required, **texts}
+    after = len(state.groups[group].args) if holder is None else holder["after"]
+    state.groups[group].holder = {"pos": key, "dest": dest, "required": required, "after": after, **texts}
     _bind_group(lo, node, group)
     expr = lo._abi_call(
         "argparse",
@@ -967,9 +966,20 @@ def _replay(hp: Any, args: list[dict[str, Any]]) -> None:
 def _build_levels(state: ArgparseState, index: int, hp: Any, parsers: dict[int, Any]) -> None:
     """Replay one level's arguments and its subcommand tree into the CPython parser `hp`."""
     group = state.groups[index]
-    _replay(hp, group.args)
     if group.holder is None:
+        _replay(hp, group.args)
         return
+    # The subcommand action sits among the arguments where add_subparsers was
+    # called: the usage line lists positionals in registration order.
+    before = group.holder["after"]
+    _replay(hp, group.args[:before])
+    _add_holder(state, index, hp, parsers)
+    _replay(hp, group.args[before:])
+
+
+def _add_holder(state: ArgparseState, index: int, hp: Any, parsers: dict[int, Any]) -> None:
+    group = state.groups[index]
+    assert group.holder is not None
     holder_kwargs: dict[str, Any] = {}
     for key in ("dest", "title", "description", "metavar", "help"):
         if group.holder.get(key):
