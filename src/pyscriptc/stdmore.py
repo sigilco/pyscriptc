@@ -1249,7 +1249,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "hashlib": ("Hash",),
     "importlib.resources": ("Path",),
     "csv": ("CsvWriter", "CsvDictWriter"),
-    "argparse": ("ArgParser", "Namespace"),
+    "argparse": ("ArgParser", "Namespace", "SubParsers"),
     "logging": ("Logger",),
     "urllib.request": ("HttpRequest", "HttpResponse"),
     "urllib.error": ("HTTPError", "URLError"),
@@ -1345,7 +1345,10 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     "Hash": [],
     # The parser holds the encoded spec rows; the namespace fields are
     # declared as the options are registered, so they start empty here.
-    "ArgParser": [("_specs", _STR_LIST)],
+    "ArgParser": [("_specs", _STR_LIST), ("_subs", _STR_LIST)],
+    # The subcommand holder: the parent parser, the namespace slot the chosen
+    # name lands in (-1 without a dest) and the required flag.
+    "SubParsers": [("_parent", _STR_LIST), ("_dest", _I), ("_required", _I)],
     # The selector record is an opaque runtime pointer; the key record carries
     # the fd and the event bits, the two fields the int-fd surface exposes.
     # CPython's SelectorKey also carries `fileobj` and `data`: the typed
@@ -1479,6 +1482,7 @@ PTR_CLASSES: frozenset[str] = (
     | SERVER_CLASSES
     | {
         "ArgParser",
+        "SubParsers",
         "DefaultSelector",
         "Hash",
         "TarFile",

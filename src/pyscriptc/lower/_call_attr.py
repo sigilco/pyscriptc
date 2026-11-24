@@ -55,7 +55,7 @@ from pyscriptc.restlower import (
     _thread_method,
 )
 from pyscriptc.restlower import method_spec as synth_method
-from pyscriptc.restlower._argparse import _add_argument, _parse_args
+from pyscriptc.restlower._argparse import _add_argument, _add_parser, _add_subparsers, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
 from pyscriptc.restlower._asyncio_proc import _proc_method
 from pyscriptc.restlower._asyncio_server import _server_method
@@ -294,7 +294,13 @@ class CallAttrMixin:
                 return _add_argument(self, node, span, receiver)
             if node.func.attr == "parse_args":
                 return _parse_args(self, node, span, receiver)
+            if node.func.attr == "add_subparsers":
+                return _add_subparsers(self, node, span, receiver)
             self.fail(node, "PS2003", f"ArgParser.{node.func.attr} is not lowered")
+        if receiver["type"]["kind"] == "class" and receiver["type"].get("name") == "SubParsers":
+            if node.func.attr == "add_parser":
+                return _add_parser(self, node, span, receiver)
+            self.fail(node, "PS2003", f"SubParsers.{node.func.attr} is not lowered")
         if receiver["type"]["kind"] == "class" and receiver["type"].get("name") == "Path":
             if node.func.attr in {"__enter__", "__exit__"}:
                 return self._path_context(node, span, receiver)
