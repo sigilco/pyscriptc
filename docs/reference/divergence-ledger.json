@@ -1775,12 +1775,12 @@
         "stderr": ""
       },
       "pyscriptc": {
-        "stage": "compile",
-        "exit": 3,
-        "stdout": "",
-        "stderr": "probes/divergences/d95_argparse_nargs_absent.py:10:26: PS1001: an empty list needs a list annotation\n  args = parser.parse_args([])\n                           ^\n(and 2 more fences that follow from it)\n"
+        "stage": "run",
+        "exit": 0,
+        "stdout": "[]\n[]\n",
+        "stderr": ""
       },
-      "status": "fenced"
+      "status": "divergent"
     },
     {
       "id": "AUDIT-D11",

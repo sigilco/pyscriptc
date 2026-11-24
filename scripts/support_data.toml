@@ -692,8 +692,8 @@ no = [["copy of a user class", 'y: P = copy.copy(p)', "PS2001"]]
 names = ["argparse"]
 ok = ['''ap: argparse.ArgumentParser = argparse.ArgumentParser()
 ap.add_argument("--x")''']
-no = [["subparsers, nargs=, choices=", '''ap: argparse.ArgumentParser = argparse.ArgumentParser()
-ap.add_argument("--x", nargs="+")''', "PS2003"]]
+no = [["choices=, mutually exclusive groups", '''ap: argparse.ArgumentParser = argparse.ArgumentParser()
+ap.add_argument("--x", choices=["a", "b"])''', "PS2003"]]
 
 [[stdlib]]
 names = ["platform"]
