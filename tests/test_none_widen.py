@@ -18,8 +18,9 @@ import subprocess
 import sys
 from pathlib import Path
 
-from pyscriptc.lower import lower_source
 from tests.test_gates import run_cli, write_case
+
+from pyscriptc.lower import lower_source
 
 PROBE = Path(__file__).resolve().parents[1] / "probes" / "differential" / "none_widened_local.py"
 
