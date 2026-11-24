@@ -1812,6 +1812,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if obj["type"].get("handle"):
             # An opaque handle has no fields: it is a bare pointer at the
             # ABI, and reading a field would be a wild access (issue #224).
+            # A manifest may declare read-only getters for a handle
+            # (issue #1343): the read is one thunk call over the pointer.
+            attr = self._ffi_handle_attr(obj, class_name, name, span)
+            if attr is not None:
+                return attr
             self.fail(node, "PS4015", f"{class_name} is an opaque ffi handle and has no attributes")
         if class_name == "ndarray" and not obj["type"].get("handle"):
             # The ndarray attribute surface (issue #496): the metadata reads

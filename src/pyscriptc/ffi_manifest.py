@@ -101,6 +101,13 @@ _SOURCE_KEYS = frozenset({"path", "objects"})
 _HANDLE_KEYS = frozenset({"name", "c_type", "frees"})
 _CONST_KEYS = frozenset({"name", "type", "value"})
 _FN_KEYS = frozenset({"name", "py", "c_symbol", "abi", "borrows", "consumes"})
+# A method on a handle (issue #1343): the same row as a `[[fn]]` plus the
+# handle the method hangs off. The receiver rides the ABI as argument 0,
+# so the `py` signature spells the declared arguments only.
+_METHOD_KEYS = frozenset({"name", "handle", "py", "c_symbol", "abi", "borrows", "consumes"})
+# An attribute of a handle (issue #1343): the value is a getter thunk's
+# return, so the row names the handle, the attribute's type and the abi.
+_ATTR_KEYS = frozenset({"name", "handle", "type", "abi"})
 # A Python identifier, the only name shape the manifest accepts.
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -183,6 +190,63 @@ class ManifestHandle:
     name: str
     c_type: str
     frees: str = ""
+
+
+@dataclass(frozen=True)
+class ManifestMethod:
+    """A method on a handle (issue #1343).
+
+    The receiver is the handle the method hangs off; it rides the ABI as
+    argument 0, so the `py` signature spells the declared arguments only.
+    The ownership annotations name the declared parameters, exactly as a
+    `[[fn]]`'s do.
+    """
+
+    name: str
+    handle: str
+    py: str
+    c_symbol: str
+    abi: str
+    params: tuple[ManifestParam, ...]
+    returns: str
+    borrows: tuple[HandleRef, ...]
+    consumes: tuple[HandleRef, ...]
+    handle_names: set[str]
+
+    @property
+    def arity(self) -> int:
+        return len(self.params)
+
+    @property
+    def required_arity(self) -> int:
+        return sum(1 for param in self.params if param.required)
+
+    def borrowed_params(self) -> set[str]:
+        """The parameter names this call borrows: the handle stays alive."""
+        return {ref.param for ref in self.borrows}
+
+    def consumed_params(self) -> set[str]:
+        """The parameter names this call consumes: the handle dies here."""
+        return {ref.param for ref in self.consumes}
+
+    def returns_handle(self) -> str | None:
+        """The handle type this method returns, if the return is a handle."""
+        return self.returns if self.returns in self.handle_names else None
+
+
+@dataclass(frozen=True)
+class ManifestAttr:
+    """A read-only attribute of a handle (issue #1343).
+
+    The read is one getter thunk call whose only argument is the receiver:
+    `abi(receiver) -> type`. The type is a manifest type name, so it may
+    spell a container or another handle as well as a scalar.
+    """
+
+    name: str
+    handle: str
+    type: str
+    abi: str
 
 
 @dataclass(frozen=True)
@@ -288,6 +352,8 @@ class FfiManifest:
     libs: tuple[str, ...]
     lib_dirs: tuple[str, ...]
     include_dirs: tuple[str, ...] = ()
+    methods: tuple[ManifestMethod, ...] = ()
+    attrs: tuple[ManifestAttr, ...] = ()
 
     def function(self, name: str) -> ManifestFunction | None:
         """The function bound to a Python-visible name, if any."""
@@ -295,6 +361,27 @@ class FfiManifest:
             if fn.name == name:
                 return fn
         return None
+
+    def attrs_of(self, handle: str) -> dict[str, ManifestAttr]:
+        """The attribute table of one handle, keyed by the attribute name."""
+        table: dict[str, ManifestAttr] = {}
+        for attr in self.attrs:
+            if attr.handle == handle:
+                table[attr.name] = attr
+        return table
+
+    def methods_of(self, handle: str) -> dict[str, ManifestMethod]:
+        """The method table of one handle, keyed by the method name.
+
+        Two handles may carry methods of the same name (a Connection and a
+        Cursor both spell `execute`), so the table is per handle, and a
+        name declared twice on one handle is a manifest error.
+        """
+        table: dict[str, ManifestMethod] = {}
+        for method in self.methods:
+            if method.handle == handle:
+                table[method.name] = method
+        return table
 
     def handle(self, name: str) -> ManifestHandle | None:
         """The handle bound to a Python-visible name, if any."""
@@ -480,6 +567,13 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
         handle_names=handle_names,
         handle_frees={handle.name: handle.frees for handle in handles},
     )
+    methods = _build_methods(
+        data,
+        path=path,
+        handle_names=handle_names,
+        handle_frees={handle.name: handle.frees for handle in handles},
+    )
+    attrs = _build_attrs(data, path=path, handle_names=handle_names)
     _reject_name_collisions(handles, consts, functions, path=path)
 
     return FfiManifest(
@@ -495,6 +589,8 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
         libs,
         lib_dirs,
         include_dirs,
+        methods,
+        attrs,
     )
 
 
@@ -724,6 +820,148 @@ def _build_functions(
             )
         )
     return tuple(functions)
+
+
+def _build_methods(
+    data: dict[str, Any],
+    *,
+    path: Path | None,
+    handle_names: set[str],
+    handle_frees: dict[str, str],
+) -> tuple[ManifestMethod, ...]:
+    """The `[[method]]` rows: a method on a handle (issue #1343).
+
+    The row shape is the `[[fn]]` shape plus the `handle` the method hangs
+    off. The receiver is not a declared parameter: it rides the ABI as
+    argument 0, so the `py` signature spells the declared arguments only
+    and the ownership annotations name the declared parameters.
+    """
+    entries = _table_list(data, "method")
+    if not isinstance(entries, list):
+        raise FfiManifestError("PS4005", "[[method]] is not an array of tables", path, "[[method]]")
+    methods: list[ManifestMethod] = []
+    seen: set[tuple[str, str]] = set()
+    index: int = 0
+    for entry in entries:
+        where = f"[[method]] #{index + 1}"
+        index += 1
+        if not isinstance(entry, dict):
+            raise FfiManifestError("PS4005", "a method entry is not a table", path, where)
+        _reject_unknown_keys(entry, _METHOD_KEYS, path=path, where=where)
+        name = _require_str(entry, "name", path=path, where=where)
+        if not _IDENT.match(name):
+            raise FfiManifestError("PS4005", f"the method name {name!r} is not an identifier", path, where)
+        handle = _require_str(entry, "handle", path=path, where=where)
+        if handle not in handle_names:
+            raise FfiManifestError(
+                "PS4008",
+                f"the method {name!r} hangs off the handle {handle!r}, which is not declared",
+                path,
+                where,
+            )
+        key = (handle, name)
+        if key in seen:
+            raise FfiManifestError(
+                "PS4007",
+                f"the method {name!r} is declared twice on the handle {handle!r}",
+                path,
+                where,
+            )
+        seen.add(key)
+        py = _require_str(entry, "py", path=path, where=where)
+        c_symbol = _require_str(entry, "c_symbol", path=path, where=where)
+        abi = _require_str(entry, "abi", path=path, where=where)
+        if not _C_SYMBOL.match(abi):
+            raise FfiManifestError(
+                "PS4005",
+                f"the abi thunk {abi!r} is not a C identifier",
+                path,
+                where,
+            )
+        params, returns = _parse_signature(py, path=path, where=where, handle_names=handle_names)
+        borrows = _optional_str_list(entry, "borrows", path=path, where=where)
+        consumes = _optional_str_list(entry, "consumes", path=path, where=where)
+        resolved_borrows = _resolve_handle_refs(borrows, params, handle_names, path=path, where=where, key="borrows")
+        resolved_consumes = _resolve_handle_refs(consumes, params, handle_names, path=path, where=where, key="consumes")
+        overlap = sorted({ref.param for ref in resolved_borrows} & {ref.param for ref in resolved_consumes})
+        if overlap:
+            raise FfiManifestError(
+                "PS4008",
+                f"the argument {overlap[0]} is both borrowed and consumed",
+                path,
+                where,
+            )
+        for owner in resolved_consumes:
+            if not handle_frees.get(owner.handle):
+                raise FfiManifestError(
+                    "PS4008",
+                    f"the handle {owner.handle} is consumed but declares no frees symbol",
+                    path,
+                    where,
+                )
+        methods.append(
+            ManifestMethod(
+                name,
+                handle,
+                py,
+                c_symbol,
+                abi,
+                params,
+                returns,
+                resolved_borrows,
+                resolved_consumes,
+                handle_names,
+            )
+        )
+    return tuple(methods)
+
+
+def _build_attrs(
+    data: dict[str, Any],
+    *,
+    path: Path | None,
+    handle_names: set[str],
+) -> tuple[ManifestAttr, ...]:
+    """The `[[attr]]` rows: a read-only getter on a handle (issue #1343)."""
+    entries = _table_list(data, "attr")
+    if not isinstance(entries, list):
+        raise FfiManifestError("PS4005", "[[attr]] is not an array of tables", path, "[[attr]]")
+    attrs: list[ManifestAttr] = []
+    seen: set[tuple[str, str]] = set()
+    index: int = 0
+    for entry in entries:
+        where = f"[[attr]] #{index + 1}"
+        index += 1
+        if not isinstance(entry, dict):
+            raise FfiManifestError("PS4005", "an attr entry is not a table", path, where)
+        _reject_unknown_keys(entry, _ATTR_KEYS, path=path, where=where)
+        name = _require_str(entry, "name", path=path, where=where)
+        if not _IDENT.match(name):
+            raise FfiManifestError("PS4005", f"the attribute name {name!r} is not an identifier", path, where)
+        handle = _require_str(entry, "handle", path=path, where=where)
+        if handle not in handle_names:
+            raise FfiManifestError(
+                "PS4008",
+                f"the attribute {name!r} hangs off the handle {handle!r}, which is not declared",
+                path,
+                where,
+            )
+        key = (handle, name)
+        if key in seen:
+            raise FfiManifestError(
+                "PS4007",
+                f"the attribute {name!r} is declared twice on the handle {handle!r}",
+                path,
+                where,
+            )
+        seen.add(key)
+        type_name = _require_str(entry, "type", path=path, where=where)
+        _check_type(type_name, path=path, where=where, handle_names=handle_names)
+        abi = _require_str(entry, "abi", path=path, where=where)
+        if not _C_SYMBOL.match(abi):
+            raise FfiManifestError("PS4005", f"the abi thunk {abi!r} is not a C identifier", path, where)
+        attrs.append(ManifestAttr(name, handle, type_name, abi))
+    return tuple(attrs)
 
 
 def _resolve_handle_refs(

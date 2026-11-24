@@ -288,6 +288,10 @@ class CallAttrMixin:
         if receiver["type"].get("island"):
             return self._island_method_call(node, span, receiver, expect)
         # boxed:end
+        if receiver["type"].get("handle"):
+            # A handle method (issue #1343): the manifest's `[[method]]` row
+            # for the receiver's handle names the thunk and the signature.
+            return self._ffi_method_call(node, span, receiver)
         if receiver["type"]["kind"] == "class" and receiver["type"].get("name") == "ArgParser":
             # argparse parser methods need the lowerer state, so they have a
             # handler instead of a fixed method row.

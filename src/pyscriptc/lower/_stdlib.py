@@ -309,6 +309,114 @@ class StdlibDispatchMixin(StdlibBindMixin):
             self.consumed_handles.add(owner)
         return self._abi_call(module, attr, args, type_ir(fn.returns, manifest.handle_names), fn.abi, span)
 
+    def _ffi_method_call(
+        self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]
+    ) -> dict[str, Any]:
+        """Lower a method call on a `--ffi` handle against its `[[method]]` row.
+
+        The receiver rides the ABI as argument 0; the declared arguments
+        follow, typed and checked exactly like a module function's. The
+        receiving handle is borrowed by the call: a method never consumes
+        its receiver (a `consumes` row names a declared parameter, and the
+        receiver is not one), so the caller keeps owning it.
+        """
+        assert isinstance(node.func, ast.Attribute)
+        handle_name = str(receiver["type"].get("name"))
+        manifest = None
+        module = ""
+        for name, candidate in ffi_manifests().items():
+            if handle_name in candidate.handle_names and handle_name in {
+                method.handle for method in candidate.methods
+            }:
+                manifest = candidate
+                module = name
+                break
+        if manifest is None:
+            self.fail(node, "PS2001", f"{handle_name}.{node.func.attr} has no FFI manifest to lower against")
+        method = manifest.methods_of(handle_name).get(node.func.attr)
+        if method is None:
+            self.fail(
+                node,
+                "PS2001",
+                f"{handle_name}.{node.func.attr} is not in the FFI manifest of {module}",
+            )
+        self._reject_keywords(node)
+        count = len(node.args)
+        if count < method.required_arity or count > method.arity:
+            self.fail(node, "PS2003", f"{handle_name}.{method.name} expects {method.required_arity} argument(s)")
+        args: list[dict[str, Any]] = [receiver]
+        consumed_locals: list[str] = []
+        for index, arg_node in enumerate(node.args):
+            param = method.params[index]
+            want = type_ir(param.type, manifest.handle_names)
+            arg = self._expr(arg_node, want)
+            if not types_equal(arg["type"], want):
+                if is_handle_type(arg["type"]) and is_handle_type(want):
+                    self.fail(
+                        node,
+                        "PS4012",
+                        f"{handle_name}.{method.name} argument {param.name} expects the handle {want['name']}, "
+                        f"not {_show(arg['type'])}",
+                    )
+                self.fail(
+                    node,
+                    "PS1003",
+                    f"{handle_name}.{method.name} argument {param.name} is {_show(arg['type'])}",
+                )
+            if param.name in method.consumed_params():
+                owner = arg.get("id") if arg["kind"] == "name" else None
+                if owner is None:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{handle_name}.{method.name} consumes {param.name}; the argument must be a handle "
+                        "variable this function owns, so the compiler can prove it is dead afterwards",
+                    )
+                if owner in self.borrowed_handles:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{owner} is borrowed here (it is a handle parameter or an alias of one), so this "
+                        f"function cannot consume it; the caller still owns the value",
+                    )
+                if owner not in self.handle_locals:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{handle_name}.{method.name} consumes {param.name}; the argument must be a handle "
+                        "variable this function owns, so the compiler can prove it is dead afterwards",
+                    )
+                if owner in consumed_locals:
+                    self.fail(node, "PS4011", f"{owner} is consumed twice in one call")
+                consumed_locals.append(owner)
+            args.append(arg)
+        for owner in consumed_locals:
+            del self.handle_locals[owner]
+            self.consumed_handles.add(owner)
+        # A method whose return is the receiving handle's own type returns
+        # the receiver (a fluent shape); anything else is a fresh value.
+        want = type_ir(method.returns, manifest.handle_names)
+        if method.returns_handle() == handle_name:
+            want = receiver["type"]
+        return self._abi_call(module, method.name, args, want, method.abi, span)
+
+    def _ffi_handle_attr(
+        self, obj: dict[str, Any], handle_name: str, attr_name: str, span: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """The manifest getter of one handle attribute, or None.
+
+        The `[[attr]]` row names the type and the abi thunk; the read is
+        one call whose only argument is the receiver (issue #1343).
+        """
+        for name, manifest in ffi_manifests().items():
+            if handle_name not in manifest.handle_names:
+                continue
+            attr = manifest.attrs_of(handle_name).get(attr_name)
+            if attr is None:
+                return None
+            return self._abi_call(name, attr_name, [obj], type_ir(attr.type, manifest.handle_names), attr.abi, span)
+        return None
+
     def _is_contextmanager_deco(self, fn: ast.FunctionDef) -> bool:
         """True when the function carries `contextlib.contextmanager`.
 
