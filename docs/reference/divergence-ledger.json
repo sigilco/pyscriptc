@@ -1858,24 +1858,24 @@
     },
     {
       "id": "D101",
-      "seam": "the enum member is the value itself, not a member object (issue #451): print(Color.RED) prints the value where CPython prints the member spelling, an identity compare over the same member twice compares two values where CPython compares one object, and a flag combination is the integer sum where CPython answers a member (whose .name has no lowered answer)",
+      "seam": "a typing.NamedTuple class lowers as a tuple record: construction, field reads, subscripts and unpack work, but _fields, _asdict and _replace are not lowered and the class object itself is not a value, so those reads stop the compile",
       "listed": true,
       "docs": "docs/reference/divergences.md#101",
-      "probe": "probes/divergences/d101_enum_member_value_identity.py",
-      "note": "the resolved member surface is the differential probe (probes/differential/enum_members.py); the value/name reads, the enum methods and properties and the StrEnum and flag bases are byte-identical",
+      "probe": "probes/divergences/d101_namedtuple_fields.py",
+      "note": "the construction, field reads, subscripts and unpack are the differential probe (probes/differential/namedtuple_class_base.py) and are byte-identical",
       "cpython": {
         "stage": "run",
         "exit": 0,
-        "stdout": "Color.RED\nTrue\n3\nBits.A|B\n",
+        "stdout": "('x', 'y')\n{'x': 1, 'y': 'a'}\nPoint(x=1, y='z')\n",
         "stderr": ""
       },
       "pyscriptc": {
-        "stage": "run",
-        "exit": 0,
-        "stdout": "1\nTrue\n3\n3\n",
-        "stderr": ""
+        "stage": "compile",
+        "exit": 3,
+        "stdout": "",
+        "stderr": "probes/divergences/d101_namedtuple_fields.py:10:7: PS2001: Point._fields is not a field\n  print(p._fields)\n        ^\nprobes/divergences/d101_namedtuple_fields.py:11:7: PS2001: Point._asdict is not a method\n  print(p._asdict())\n        ^\nprobes/divergences/d101_namedtuple_fields.py:12:7: PS2001: Point._replace is not a method\n  print(p._replace(y=\"z\"))\n        ^\n"
       },
-      "status": "divergent"
+      "status": "fenced"
     },
     {
       "id": "D102",

@@ -883,6 +883,16 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#104",
     ),
     _row(
+        "D105",
+        "a typing.NamedTuple class lowers as a tuple record: construction, field reads, subscripts and unpack "
+        "work, but _fields, _asdict and _replace are not lowered and the class object itself is not a value, "
+        "so those reads stop the compile",
+        "d105_namedtuple_fields.py",
+        docs=f"{DOC}#105",
+        note="the construction, field reads, subscripts and unpack are the differential probe "
+        "(probes/differential/namedtuple_class_base.py) and are byte-identical",
+    ),
+    _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT
     ),
     _row(
