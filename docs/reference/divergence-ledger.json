@@ -1794,6 +1794,27 @@
       "status": "unprobed"
     },
     {
+      "id": "D97",
+      "seam": "a fixed-shape tuple default and a fixed-shape tuple class attribute (issue #444) materialize a fresh record per read, where CPython holds one tuple object: C.pair is C.pair is True in CPython and False in the lowered program, and a dataclass field's tuple default is one shared tuple there and a fresh record per construction here",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#97",
+      "probe": "probes/divergences/d97_tuple_default_identity.py",
+      "note": "the values are element for element equal, so only an identity comparison tells the two apart",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "True\nTrue\nTrue\nTrue True\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "False\nFalse\nFalse\nTrue True\n",
+        "stderr": ""
+      },
+      "status": "differs"
+    },
+    {
       "id": "AUDIT-D11",
       "seam": "json.dumps does not escape non-ASCII (audit D11)",
       "listed": false,

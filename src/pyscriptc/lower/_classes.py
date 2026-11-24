@@ -621,6 +621,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             # class attribute holds the tuple, and the
                             # annotation must name the same shape.
                             if not self._is_tuple_annotation(typ):
+                                # The annotation does not name a tuple: the
+                                # value still has to match it (an `int`
+                                # annotation over a tuple is the type
+                                # mismatch the fence names).
+                                self._expect(stmt, const["type"], typ, stmt.target.id)
                                 self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
                             if len(const["elems"]) != len(self.classes[typ["name"]]["fields"]):
                                 self.fail(stmt, "PS2002", "a tuple default must match the annotation's shape")
