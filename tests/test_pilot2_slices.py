@@ -113,3 +113,18 @@ def test_pilot2_slices_run_matches_cpython(tmp_path: Path) -> None:
     assert got.returncode == 0, got.stderr
     want = subprocess.run([sys.executable, "-I", str(path)], capture_output=True, text=True, check=True)  # noqa: S603
     assert got.stdout == want.stdout
+
+
+def test_bare_final_in_a_plain_class_is_a_class_constant() -> None:
+    source = (
+        "from typing import Final\n\nclass Flags:\n    FROZEN: Final = 0\n    NEST: Final = 1\n\n"
+        "def f() -> int:\n    return Flags.FROZEN + Flags.NEST\n"
+    )
+    assert _fences(source) == []
+
+
+def test_bare_final_in_a_dataclass_keeps_its_annotation() -> None:
+    # A dataclass reads `x: Final = 3` as a field with a default; the rewrite
+    # must not turn it into a class attribute.
+    source = "from dataclasses import dataclass\nfrom typing import Final\n\n@dataclass\nclass P:\n    x: Final = 3\n"
+    assert any("Final" in msg for _, msg in _fences(source))

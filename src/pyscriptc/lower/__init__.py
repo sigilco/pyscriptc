@@ -211,8 +211,9 @@ def _erase_bare_final(tree: ast.Module) -> None:
 
     Issue #417: PEP 591's bare `Final` asks the checker to infer the type
     from the value, so the annotation names no type the IR could carry. The
-    rewrite covers module and function scopes; a class body keeps its
-    annotation, since a dataclass reads a bare `Final` as a field. Only the
+    rewrite covers module and function scopes and the body of a plain class
+    (no decorator, base or keyword); any other class body keeps its
+    annotation, since a dataclass or a NamedTuple reads it as a field. Only the
     `typing`/`typing_extensions` spellings match: a local class named
     `Final` is not the qualifier.
     """
@@ -247,6 +248,10 @@ def _erase_bare_final(tree: ast.Module) -> None:
             elif isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 rewrite(stmt.body)
             elif isinstance(stmt, ast.ClassDef):
+                if not stmt.decorator_list and not stmt.bases and not stmt.keywords:
+                    # A plain class: `FROZEN: Final = 0` is a class constant.
+                    rewrite(stmt.body)
+                    continue
                 for inner in stmt.body:
                     if isinstance(inner, (ast.FunctionDef, ast.AsyncFunctionDef)):
                         rewrite(inner.body)
