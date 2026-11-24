@@ -1231,3 +1231,129 @@ def test_iterator_send_form_recv_is_the_none_singleton() -> None:
     )
     assert module["fences"] == []
     validate_module(module)
+
+
+# --- G2a: the send receipt, end to end ---------------------------------------
+
+SEND_PUMP = """\
+from typing import Generator, Optional
+
+
+def echo() -> Generator[int, Optional[str], None]:
+    total: int = 0
+    while True:
+        word: Optional[str] = yield total
+        if word is None:
+            break
+        total = total + len(word)
+    return None
+
+
+def go() -> str:
+    g: Generator[int, Optional[str], None] = echo()
+    out: str = ""
+    out += str(g.send(None))
+    out += " " + str(g.send("ab"))
+    out += " " + str(g.send("cde"))
+    try:
+        g.send(None)
+    except StopIteration:
+        out += " done"
+    return out
+
+
+print(go())
+"""
+
+
+def test_send_pump_matches_cpython(tmp_path: Path) -> None:
+    """The receipt: a consumer pumping a generator with send matches CPython."""
+    got, expected = _run_both(tmp_path, "sendpump", SEND_PUMP)
+    assert expected == "0 2 5 done\n"
+    assert got == expected
+
+
+def test_none_return_value_stays_out_of_the_frame(tmp_path: Path) -> None:
+    """`return None` with a None return type: no field store, no PS0001.
+
+    The frame field holds the singleton, so a None-typed marker argument
+    has no runtime value to emit; the pass skips the store and the finish
+    alone completes the frame.
+    """
+    source = """\
+from typing import Generator
+
+
+def g() -> Generator[int, None, None]:
+    yield 1
+    yield 2
+    return None
+
+
+def go() -> str:
+    it: Generator[int, None, None] = g()
+    return str(next(it)) + str(next(it))
+
+
+print(go())
+"""
+    got, expected = _run_both(tmp_path, "noneret", source)
+    assert expected == "12\n"
+    assert got == expected
+    module = lower_source(source, "noneret.py")
+    for cls in module["classes"]:
+        if cls["name"].startswith("gen."):
+            assert not any(f["name"] == STOP for f in cls["fields"])
+
+
+def test_none_return_value_in_a_send_generator(tmp_path: Path) -> None:
+    """The same None return inside a send-type generator pumps and drains."""
+    source = """\
+from typing import Generator, Optional
+
+
+def g() -> Generator[int, Optional[str], None]:
+    got: Optional[str] = yield 1
+    yield len(got) if got else 0
+    return None
+
+
+def go() -> str:
+    it: Generator[int, Optional[str], None] = g()
+    out: str = str(it.send(None))
+    out += "," + str(it.send("abcd"))
+    try:
+        it.send(None)
+    except StopIteration:
+        out += ",end"
+    return out
+
+
+print(go())
+"""
+    got, expected = _run_both(tmp_path, "sendnoneret", source)
+    assert expected == "1,4,end\n"
+    assert got == expected
+
+
+def test_send_frame_carries_send_field_and_method() -> None:
+    module = lower_source(SEND_PUMP, "sendpump.py")
+    assert module["fences"] == []
+    frame = next(cls for cls in module["classes"] if cls["name"] == "gen.echo")
+    assert any(f["name"] == ".ps_send" for f in frame["fields"])
+    assert "send" in {m["name"] for m in frame["methods"]}
+    validate_module(module)
+
+
+def test_differential_generator_send_probe_matches_cpython(tmp_path: Path) -> None:
+    """`probes/differential/generator_send.py` is the AGENTS.md differential
+    probe for the send path: the compiled program prints what CPython
+    prints, byte for byte, on stdout, stderr and the exit code."""
+    from tests.test_gates import ROOT
+    from tests.test_runtime_divergences import compile_and_run, oracle_run
+
+    source = (ROOT / "probes" / "differential" / "generator_send.py").read_text(encoding="utf-8")
+    got = compile_and_run(tmp_path, "gen_send", source)
+    want = oracle_run(tmp_path, "gen_send", source)
+    assert got == want
+    assert got[0] == b"0 2 5 done\n"

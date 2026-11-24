@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-23",
-  "commit": "767fa182c5f0323f8e95e616e8db1480701b7081",
+  "generated": "2026-11-24",
+  "commit": "47308b773507ce0a1604eec21678551140a71ad1",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -403,7 +403,7 @@
       "label": "`signal`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "handler registration (signal.signal), getsignal, alarm, the Signals enum, SIG_DFL",
+      "missing": "getsignal, alarm, the Signals enum, raise_signal",
       "codes": [
         "PS2001"
       ]
@@ -548,9 +548,10 @@
       "label": "`subprocess`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "Popen, getoutput",
+      "missing": "getoutput, Popen shell=, Popen.communicate",
       "codes": [
-        "PS2001"
+        "PS2001",
+        "PS2003"
       ]
     },
     {
@@ -790,7 +791,7 @@
       "label": "`argparse`",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "subparsers, nargs=, choices=",
+      "missing": "choices=, mutually exclusive groups",
       "codes": [
         "PS2003"
       ]

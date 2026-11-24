@@ -1,7 +1,7 @@
 {
   "schema": "2",
-  "generated": "2026-11-23",
-  "commit": "41571bd5072ecff6f538b76b1b1b09ab9e55b204",
+  "generated": "2026-11-24",
+  "commit": "47308b773507ce0a1604eec21678551140a71ad1",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -17,8 +17,8 @@
     "measured": 18,
     "packages": 18,
     "runs": 18,
-    "date": "2026-11-23",
-    "commit": "41571bd5072ecff6f538b76b1b1b09ab9e55b204",
+    "date": "2026-11-24",
+    "commit": "47308b773507ce0a1604eec21678551140a71ad1",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3907
+    "fences": 3904
   },
   "builtins": [
     {
@@ -780,7 +780,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "handler registration (signal.signal), getsignal, alarm, the Signals enum, SIG_DFL"
+        "getsignal, alarm, the Signals enum, raise_signal"
       ],
       "fences": [
         "PS2001"
@@ -1045,10 +1045,11 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "Popen, getoutput"
+        "getoutput, Popen shell=, Popen.communicate"
       ],
       "fences": [
-        "PS2001"
+        "PS2001",
+        "PS2003"
       ],
       "note": ""
     },
@@ -1495,7 +1496,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "subparsers, nargs=, choices="
+        "choices=, mutually exclusive groups"
       ],
       "fences": [
         "PS2003"
@@ -1916,7 +1917,7 @@
         "blocked": 36
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 143,
+      "fences": 140,
       "definitions": 56,
       "fenced_definitions": 35,
       "top_families": [
@@ -1936,7 +1937,7 @@
       "codes": [
         {
           "code": "PS2003",
-          "count": 58
+          "count": 57
         },
         {
           "code": "PS2002",
@@ -2725,7 +2726,7 @@
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 428,
+      "count": 426,
       "packages": 17
     },
     {
@@ -2749,7 +2750,7 @@
     {
       "code": "PS2003",
       "title": "call arguments not supported",
-      "count": 163,
+      "count": 162,
       "packages": 13
     },
     {
@@ -2834,12 +2835,21 @@
   "history": [
     {
       "date": "2026-11-23",
-      "commit": "41571bd5072ecff6f538b76b1b1b09ab9e55b204",
+      "commit": "41459c8918b27d6fb07257f9c1f70030d5f50ef7",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3907
+      "fences": 3925
+    },
+    {
+      "date": "2026-11-24",
+      "commit": "47308b773507ce0a1604eec21678551140a71ad1",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 11,
+      "packages_none": 8,
+      "fences": 3904
     }
   ]
 }

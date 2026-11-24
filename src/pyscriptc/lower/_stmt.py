@@ -377,7 +377,11 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                         # it and the scope-exit free releases it (issue #553).
                         shape = "island"
                     # boxed:end
-                    elif _node_type_kind(value) == "class" and value["type"].get("name") in {"ArgParser", "Namespace"}:
+                    elif _node_type_kind(value) == "class" and value["type"].get("name") in {
+                        "ArgParser",
+                        "Namespace",
+                        "SubParsers",
+                    }:
                         shape = "argparse"
                     if shape:
                         self.prelude = [*saved_prelude, *self.prelude]

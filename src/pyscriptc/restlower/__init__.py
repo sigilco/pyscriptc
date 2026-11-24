@@ -85,6 +85,7 @@ from pyscriptc.restlower._operator import _bisect, _join, _operator
 from pyscriptc.restlower._orjson import _orjson_call
 from pyscriptc.restlower._ospath import _os_dup, _os_dup2, _os_open, _os_pipe, _os_read, _relpath, _walk
 from pyscriptc.restlower._pathlib import _buffer, _one
+from pyscriptc.restlower._popen import _popen_new
 from pyscriptc.restlower._queue import _queue_call, _queue_method
 from pyscriptc.restlower._random import _random_call
 from pyscriptc.restlower._secrets import _secrets_call
@@ -257,6 +258,10 @@ _BEFORE_KEYWORDS: dict[tuple[str, str], Handler] = {
     ("subprocess", "run"): lambda lo, node, span, expect, attr: _sub_run(lo, node, span),
     ("subprocess", "call"): lambda lo, node, span, expect, attr: _sub_call(lo, node, span),
     ("subprocess", "check_call"): lambda lo, node, span, expect, attr: _sub_check_call(lo, node, span),
+    # The sync child handle (issue #1345): the constructor takes the argv
+    # list and the pipe keywords, so it answers before the keyword
+    # rejection.
+    ("subprocess", "Popen"): lambda lo, node, span, expect, attr: _popen_new(lo, node, span),
     ("argparse", "ArgumentParser"): lambda lo, node, span, expect, attr: _parser(lo, node, span),
 }
 

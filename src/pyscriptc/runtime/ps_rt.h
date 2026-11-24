@@ -698,6 +698,17 @@ void ps_to_thread_pump(void);
 void ps_to_thread_park(void *box);
 int32_t ps_threads_pending(void);
 
+/* ps_signal.c: the native handler surface (issue #1347). `install` hooks the
+   C-level `sigaction` handler, which only records the number; the compiled
+   handler runs at the safepoint the poll names, outside the signal context,
+   the deferred delivery CPython uses. */
+void ps_signal_install(int64_t signum, void *wrapper, void *pair);
+void ps_signal_reset(int64_t signum);
+void ps_signal_ignore(int64_t signum);
+void ps_signal_default(int64_t signum);
+void ps_signal_poll(void);
+int32_t ps_signal_pending_p(void);
+
 /* ps_aproc.c: the async subprocess (issue #1224). The record owns the
    child; `wait` parks the task until the child exits and the loop's pump
    wakes it. The pipe form (issue #1266): pipe_mask bit 0 pipes stdout,

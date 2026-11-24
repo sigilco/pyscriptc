@@ -481,7 +481,13 @@ def link_binary(
         # Lock/RLock primitives are real mutexes and work on the one thread a
         # WASI program has (Thread/Condition/Event/Semaphore stay fenced by
         # the lowerer), and a 0.2 component has no thread world to spawn into.
-        refused = sorted({symbol for symbol in ("ps_sub_", "ps_mix_", "ps_island_", "ps_aproc_") if symbol in text})
+        refused = sorted(
+            {
+                symbol
+                for symbol in ("ps_sub_", "ps_mix_", "ps_island_", "ps_aproc_", "ps_popen_", "ps_pipe_")
+                if symbol in text
+            }
+        )
         if refused:
             what = ", ".join([f"{symbol[:-1]}*" for symbol in refused])
             raise IRError(
@@ -537,7 +543,7 @@ def link_binary(
         sources = [
             source
             for source in sources
-            if not source.endswith(("ps_sub.c", "ps_mix.c", "ps_aproc.c", "ps_sock.c", "ps_stream.c"))
+            if not source.endswith(("ps_sub.c", "ps_mix.c", "ps_aproc.c", "ps_popen.c", "ps_sock.c", "ps_stream.c"))
         ]
         sources.append(str(runtime / "wasm" / "rt_wasm.c"))
     # The `--ffi` manifest units join the same per-unit compile loop as the

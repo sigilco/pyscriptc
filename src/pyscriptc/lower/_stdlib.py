@@ -68,7 +68,7 @@ from pyscriptc.stdmore import (
     member_callable,
     module_constant,
 )
-from pyscriptc.tirserde import dict_to_node, node_to_dict
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
 
 # boxed:begin
@@ -251,14 +251,17 @@ class StdlibDispatchMixin(StdlibBindMixin):
         fn = manifest.function(attr) if manifest is not None else None
         if fn is None:
             self.fail(node, "PS2001", f"{module}.{attr} is not in the FFI manifest of {module}")
-        self._reject_keywords(node)
-        count = len(node.args)
-        if count < fn.required_arity or count > fn.arity:
-            self.fail(node, "PS2003", f"{module}.{attr} expects {fn.required_arity} argument(s)")
+        slots = self._ffi_arg_slots(node, fn.params, f"{module}.{attr}")
         args: list[dict[str, Any]] = []
         consumed_locals: list[str] = []
-        for index, arg_node in enumerate(node.args):
-            param = fn.params[index]
+        for index, param in enumerate(fn.params):
+            arg_node = slots[index]
+            if arg_node is None:
+                # The omitted argument materializes its default at the call
+                # site (issue #1343): the ABI call always carries the full
+                # arity, so the thunk's signature never changes.
+                args.append(self._ffi_default_arg(param, node, manifest))
+                continue
             want = type_ir(param.type, manifest.handle_names)
             arg = self._expr(arg_node, want)
             if not types_equal(arg["type"], want):
@@ -289,7 +292,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
                         node,
                         "PS4011",
                         f"{owner} is borrowed here (it is a handle parameter or an alias of one), so this "
-                        f"function cannot consume it; the caller still owns the value",
+                        "function cannot consume it; the caller still owns the value",
                     )
                 if owner not in self.handle_locals:
                     self.fail(
@@ -307,7 +310,281 @@ class StdlibDispatchMixin(StdlibBindMixin):
             # with PS4010 before the IR ever emits.
             del self.handle_locals[owner]
             self.consumed_handles.add(owner)
-        return self._abi_call(module, attr, args, type_ir(fn.returns, manifest.handle_names), fn.abi, span)
+        want = self._ffi_want(fn.returns, manifest, node)
+        if want.get("optional"):
+            return self._ffi_optional_call(module, manifest, attr, args, want, fn.abi, span, fn.probe)
+        return self._abi_call(module, attr, args, want, fn.abi, span)
+
+    def _ffi_arg_slots(self, node: ast.Call, params: tuple[Any, ...], what: str) -> list[ast.expr | None]:
+        """The call's arguments against the declared parameters, by slot.
+
+        A keyword argument names a declared parameter (issue #1343): the
+        slot fills from the keyword, a positional argument fills the next
+        free slot, and an omitted parameter keeps its default. A keyword
+        that names no parameter, a duplicate, or a `**kwargs` spread is
+        refused: the manifest's signature is the whole contract.
+        """
+        slots: list[ast.expr | None] = [None] * len(params)
+        names = [param.name for param in params]
+        for index, arg_node in enumerate(node.args):
+            if index >= len(params):
+                self.fail(node, "PS2003", f"{what} expects {len(params)} argument(s)")
+            slots[index] = arg_node
+        for kw in node.keywords:
+            if kw.arg is None:
+                self.fail(node, "PS2002", "a keyword spread is not lowered in an FFI call")
+            if kw.arg not in names:
+                self.fail(node, "PS2003", f"{what} got an unexpected keyword argument {kw.arg}")
+            index = names.index(kw.arg)
+            if slots[index] is not None:
+                self.fail(node, "PS2003", f"{what} got {kw.arg} more than once")
+            slots[index] = kw.value
+        for index, param in enumerate(params):
+            if slots[index] is None and param.required:
+                self.fail(node, "PS1003", f"{what} expects {len(params)} argument(s)")
+        return slots
+
+    def _ffi_method_call(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+        """Lower a method call on a `--ffi` handle against its `[[method]]` row.
+
+        The receiver rides the ABI as argument 0; the declared arguments
+        follow, typed and checked exactly like a module function's. The
+        receiving handle is borrowed by the call: a method never consumes
+        its receiver (a `consumes` row names a declared parameter, and the
+        receiver is not one), so the caller keeps owning it.
+        """
+        assert isinstance(node.func, ast.Attribute)
+        handle_name = str(receiver["type"].get("name"))
+        manifest = None
+        module = ""
+        for name, candidate in ffi_manifests().items():
+            if handle_name in candidate.handle_names and handle_name in {method.handle for method in candidate.methods}:
+                manifest = candidate
+                module = name
+                break
+        if manifest is None:
+            self.fail(node, "PS2001", f"{handle_name}.{node.func.attr} has no FFI manifest to lower against")
+        method = manifest.methods_of(handle_name).get(node.func.attr)
+        if method is None:
+            self.fail(
+                node,
+                "PS2001",
+                f"{handle_name}.{node.func.attr} is not in the FFI manifest of {module}",
+            )
+        self._reject_starred_kwargs(node)
+        slots = self._ffi_arg_slots(node, method.params, f"{handle_name}.{method.name}")
+        args: list[dict[str, Any]] = [receiver]
+        consumed_locals: list[str] = []
+        for index, param in enumerate(method.params):
+            arg_node = slots[index]
+            if arg_node is None:
+                # The omitted defaulted argument materializes at the call
+                # site (issue #1343): an empty list display for a list
+                # parameter, the spelled constant for a scalar one. The
+                # ABI call always carries the full arity, so the thunk's
+                # signature never changes.
+                args.append(self._ffi_default_arg(param, node, manifest))
+                continue
+            want = type_ir(param.type, manifest.handle_names)
+            arg = self._expr(arg_node, want)
+            if not types_equal(arg["type"], want):
+                if is_handle_type(arg["type"]) and is_handle_type(want):
+                    self.fail(
+                        node,
+                        "PS4012",
+                        f"{handle_name}.{method.name} argument {param.name} expects the handle {want['name']}, "
+                        f"not {_show(arg['type'])}",
+                    )
+                self.fail(
+                    node,
+                    "PS1003",
+                    f"{handle_name}.{method.name} argument {param.name} is {_show(arg['type'])}",
+                )
+            if param.name in method.consumed_params():
+                owner = arg.get("id") if arg["kind"] == "name" else None
+                if owner is None:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{handle_name}.{method.name} consumes {param.name}; the argument must be a handle "
+                        "variable this function owns, so the compiler can prove it is dead afterwards",
+                    )
+                if owner in self.borrowed_handles:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{owner} is borrowed here (it is a handle parameter or an alias of one), so this "
+                        f"function cannot consume it; the caller still owns the value",
+                    )
+                if owner not in self.handle_locals:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{handle_name}.{method.name} consumes {param.name}; the argument must be a handle "
+                        "variable this function owns, so the compiler can prove it is dead afterwards",
+                    )
+                if owner in consumed_locals:
+                    self.fail(node, "PS4011", f"{owner} is consumed twice in one call")
+                consumed_locals.append(owner)
+            args.append(arg)
+        for owner in consumed_locals:
+            del self.handle_locals[owner]
+            self.consumed_handles.add(owner)
+        if method.consumes_receiver:
+            # The method takes its own receiver's life (issue #1343): the
+            # receiver is dead after the call, so a later use is the PS4010
+            # fence the ownership rule asks for.
+            owner = receiver.get("id") if receiver["kind"] == "name" else None
+            if owner is not None:
+                if owner in self.borrowed_handles:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{owner} is borrowed here (it is a handle parameter or an alias of one), so this "
+                        f"function cannot consume it; the caller still owns the value",
+                    )
+                if owner not in self.handle_locals:
+                    self.fail(
+                        node,
+                        "PS4011",
+                        f"{handle_name}.{method.name} consumes its receiver; the receiver must be a handle "
+                        "variable this function owns, so the compiler can prove it is dead afterwards",
+                    )
+                del self.handle_locals[owner]
+                self.consumed_handles.add(owner)
+        # A method whose return is the receiving handle's own type returns
+        # the receiver (a fluent shape); anything else is a fresh value.
+        want = self._ffi_want(method.returns, manifest, node)
+        if method.returns_handle() == handle_name:
+            want = receiver["type"]
+        if want.get("optional"):
+            return self._ffi_optional_call(module, manifest, method.name, args, want, method.abi, span, method.probe)
+        return self._abi_call(module, method.name, args, want, method.abi, span)
+
+    def _ffi_want(self, type_name: str, manifest: FfiManifest, node: ast.AST) -> dict[str, Any]:
+        """The IR type of a manifest type name, with the optional re-formed.
+
+        The manifest spells an optional as `T | None`; the lowerer owns the
+        opt_ cell's declaration, so the marked type dict is re-formed here
+        through `_opt_type` (issue #1343).
+        """
+        want = type_ir(type_name, manifest.handle_names)
+        if want.get("optional"):
+            return self._opt_type(want["elem"], node)
+        return want
+
+    def _ffi_empty_list(self, elem: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+        """The empty list display of the element type, the shape `_expr`
+        builds for `[]` under an annotation."""
+        made = node_to_dict(_ir.list_lit([], _mk_type({"kind": "list", "elem": elem}), _mk_span(span)))
+        return made
+
+    def _ffi_default_arg(self, param: Any, node: ast.AST, manifest: FfiManifest) -> dict[str, Any]:
+        """The materialized default of one omitted FFI argument (issue #1343).
+
+        The manifest spells a default as the literal the ABI expects. The
+        list shape is the common one (`execute(sql)` with no params runs
+        an empty bind), so it needs no spelling in the manifest: the empty
+        display of the parameter's element type. A scalar default rides
+        the manifest's `= <literal>` tail.
+        """
+        want = type_ir(param.type, manifest.handle_names)
+        if want.get("optional"):
+            want = self._opt_type(want["elem"], node)
+        span = span_of(node, self.filename)
+        if want.get("kind") == "list":
+            # The `...` default on a container parameter is the empty
+            # display (issue #1343): `execute(sql)` runs an empty bind.
+            return self._ffi_empty_list(want["elem"], span)
+        if want["kind"] == "int" and param.default is not None:
+            return _const_int(int(param.default), span)
+        if want["kind"] == "float" and param.default is not None:
+            return _const_float(float(param.default), span)
+        if want["kind"] == "bool" and param.default is not None:
+            return _const_bool(param.default in ("True", "true", "1"), span)
+        if want["kind"] == "str" and param.default is not None:
+            return _const_str(param.default, span)
+        if want["kind"] == "dynval" and param.default == "None":
+            # The `object` arm's None default (issue #1343): the None arm
+            # of the tagged dynamic value, the runtime's own call.
+            return node_to_dict(
+                _ir.call(
+                    _ir.module_callee("builtins", "dyn.new"),
+                    [],
+                    dict_to_type(want),
+                    _mk_span(span),
+                    "ps_dyn_new_none",
+                    "",
+                    -1,
+                )
+            )
+        self.fail(node, "PS2003", f"the default of {param.name} is not a lowered literal")
+
+    def _ffi_optional_call(
+        self,
+        module: str,
+        manifest: Any,
+        name: str,
+        args: list[dict[str, Any]],
+        want: dict[str, Any],
+        symbol: str,
+        span: dict[str, Any],
+        probe_symbol: str = "",
+    ) -> dict[str, Any]:
+        """An FFI call whose return may be absent (issue #1343).
+
+        The `T | None` return rides two thunks: a bool probe that says
+        whether a value is there, and the make call that produces it. The
+        lowerer boxes the result into the tagged optional cell the same way
+        `re.search` does (a probe, then the make call fills the cell only
+        when the probe hit), so the read site sees the ordinary
+        `T | None` shape.
+
+        The probe thunk is the manifest row's own `probe` symbol: the row
+        names it, so the make call and the probe are one pair the manifest
+        declares rather than two names the lowerer guesses.
+        """
+        elem = want["elem"]
+        probe = probe_symbol or f"{symbol}_hit"
+        opt = want
+        res = self._opt_box(None, opt, span)
+        dest = res["id"]
+        hit = self._abi_call(module, name, args, {"kind": "bool"}, probe, span)
+        made = self._abi_call(module, name, args, elem, symbol, span)
+        tag = node_to_dict(
+            _ir.setattr_stmt(
+                dict_to_node(_name(dest, opt, span)), "_tag", dict_to_node(_const_bool(True, span)), _mk_span(span)
+            )
+        )
+        val = node_to_dict(
+            _ir.setattr_stmt(dict_to_node(_name(dest, opt, span)), "_val", dict_to_node(made), _mk_span(span))
+        )
+        self.prelude.append(
+            node_to_dict(_ir.if_stmt(dict_to_node(hit), [dict_to_node(tag), dict_to_node(val)], [], _mk_span(span)))
+        )
+        return res
+
+    def _ffi_handle_attr(
+        self, obj: dict[str, Any], handle_name: str, attr_name: str, span: dict[str, Any], node: ast.AST
+    ) -> dict[str, Any] | None:
+        """The manifest getter of one handle attribute, or None.
+
+        The `[[attr]]` row names the type and the abi thunk; the read is
+        one call whose only argument is the receiver (issue #1343). An
+        attribute whose type is optional rides the probe/make pair, the
+        same shape the optional return uses.
+        """
+        for name, manifest in ffi_manifests().items():
+            if handle_name not in manifest.handle_names:
+                continue
+            attr = manifest.attrs_of(handle_name).get(attr_name)
+            if attr is None:
+                return None
+            want = self._ffi_want(attr.type, manifest, node)
+            if want.get("optional"):
+                return self._ffi_optional_call(name, manifest, attr_name, [obj], want, attr.abi, span, attr.probe)
+            return self._abi_call(name, attr_name, [obj], want, attr.abi, span)
+        return None
 
     def _is_contextmanager_deco(self, fn: ast.FunctionDef) -> bool:
         """True when the function carries `contextlib.contextmanager`.
@@ -402,11 +679,20 @@ class StdlibDispatchMixin(StdlibBindMixin):
         return self._abi_call(module, fn.name, [arg], {"kind": "none"}, fn.abi, span)
 
     def _consuming_fn(self, handle: str) -> tuple[str, Any] | None:
-        """The manifest function that consumes this handle type, if one exists."""
+        """The manifest function that consumes this handle type, if one exists.
+
+        A handle method may consume too: the `[[method]]` that declares the
+        receiving handle in `consumes` is the free (issue #1343), the shape
+        `Cursor.close` owns. A module `[[fn]]` wins when both declare it.
+        """
         for module, manifest in ffi_manifests().items():
             for fn in manifest.functions:
                 if any(ref.handle == handle for ref in fn.consumes):
                     return module, fn
+        for module, manifest in ffi_manifests().items():
+            for method in manifest.methods:
+                if method.handles_consumption(handle):
+                    return module, method
         return None
 
     def _scope_exit_frees(self, body: list[dict[str, Any]], span: dict[str, Any]) -> list[dict[str, Any]]:

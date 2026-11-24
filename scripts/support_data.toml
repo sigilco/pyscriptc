@@ -383,10 +383,10 @@ no = [["scandir, urandom, cpu_count, rmdir, getuid", 'os.scandir(s)', "PS2001"],
 [[stdlib]]
 names = ["signal"]
 imports = ["os"]
-ok = ['os.kill(n, signal.SIGTERM)', 'y: int = signal.SIGKILL', 'y: int = signal.SIGCONT', 'y: int = signal.SIGUSR1']
-no = [["handler registration (signal.signal)", '''def h(n: int, f: int) -> None:
+ok = ['os.kill(n, signal.SIGTERM)', 'y: int = signal.SIGKILL', 'y: int = signal.SIGCONT', 'y: int = signal.SIGUSR1', 'y: int = signal.SIG_DFL', 'y: int = signal.SIG_IGN', '''def h(n: int) -> None:
     pass
-signal.signal(signal.SIGINT, h)''', "PS2001"], ["getsignal", 'y: int = signal.getsignal(signal.SIGINT)', "PS2001"], ["alarm", 'signal.alarm(5)', "PS2001"], ["the Signals enum", 'y: int = signal.Signals.SIGKILL', "PS2001"], ["SIG_DFL", 'y: int = signal.SIG_DFL', "PS2001"]]
+signal.signal(signal.SIGTERM, h)''', 'signal.signal(signal.SIGTERM, signal.SIG_IGN)']
+no = [["getsignal", 'y: int = signal.getsignal(signal.SIGINT)', "PS2001"], ["alarm", 'signal.alarm(5)', "PS2001"], ["the Signals enum", 'y: int = signal.Signals.SIGKILL', "PS2001"], ["raise_signal", 'signal.raise_signal(signal.SIGCONT)', "PS2001"]]
 
 [[stdlib]]
 names = ["posixpath"]
@@ -534,8 +534,8 @@ no = [["a non-PIPE stdout value", '''async def work() -> None:
 
 [[stdlib]]
 names = ["subprocess"]
-ok = ['y: bytes = subprocess.check_output(ss)', 'subprocess.run(ss)', 'y: int = subprocess.run(ss).returncode', 'y: bytes = subprocess.run(ss, capture_output=True).stdout', 'y: int = subprocess.DEVNULL', 'subprocess.run(ss, timeout=5)']
-no = [["Popen, getoutput", 'y: int = subprocess.Popen(ss)', "PS2001"]]
+ok = ['y: bytes = subprocess.check_output(ss)', 'subprocess.run(ss)', 'y: int = subprocess.run(ss).returncode', 'y: bytes = subprocess.run(ss, capture_output=True).stdout', 'y: int = subprocess.DEVNULL', 'subprocess.run(ss, timeout=5)', 'y: int = subprocess.Popen(ss).wait()', 'y: int | None = subprocess.Popen(ss).poll()', 'y: int = subprocess.Popen(ss, cwd=s, start_new_session=True).wait()']
+no = [["getoutput", 'y: str = subprocess.getoutput(s)', "PS2001"], ["Popen shell=", 'y: int = subprocess.Popen(ss, shell=True).wait()', "PS2003"], ["Popen.communicate", 'y: bytes = subprocess.Popen(ss, stdout=subprocess.PIPE).communicate()', "PS2001"]]
 
 [[stdlib]]
 names = ["socket"]
@@ -692,8 +692,8 @@ no = [["copy of a user class", 'y: P = copy.copy(p)', "PS2001"]]
 names = ["argparse"]
 ok = ['''ap: argparse.ArgumentParser = argparse.ArgumentParser()
 ap.add_argument("--x")''']
-no = [["subparsers, nargs=, choices=", '''ap: argparse.ArgumentParser = argparse.ArgumentParser()
-ap.add_argument("--x", nargs="+")''', "PS2003"]]
+no = [["choices=, mutually exclusive groups", '''ap: argparse.ArgumentParser = argparse.ArgumentParser()
+ap.add_argument("--x", choices=["a", "b"])''', "PS2003"]]
 
 [[stdlib]]
 names = ["platform"]

@@ -519,9 +519,19 @@ class FuncsMixin(EmitterBase):
 
     def emit_body(self, body: list[Any]) -> None:
         dwarf = self.dwarf
+        poll = self.signal_handlers
         for stmt in body:
             if self.terminated:
                 break
+            # The signal safepoint (issue #1347): a handler installed through
+            # `signal.signal` only records the signal in the signal context;
+            # the compiled handler runs here, between statements, outside the
+            # signal context. The poll is free when nothing is pending (one
+            # volatile load), so a poll per statement bounds the delivery
+            # delay at one statement.
+            if poll:
+                self._abi_decl("ps_signal_poll", "void", [])
+                self._call_void("ps_signal_poll", [])
             saved: dict[str, Any] | None = self.span
             stmt_dict: dict[str, Any] = dict_to_dict(stmt)
             stmt_span: dict[str, Any] | None = _opt_span(stmt_dict)

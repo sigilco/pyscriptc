@@ -86,18 +86,30 @@ CONTAINER_TYPES = frozenset({"list", "dict"})
 
 # The type names a manifest may use in a `py` signature. Everything else is
 # refused: the vocabulary is the lowered subset's, so the emitter never has
-# to inspect a value at runtime.
-ALLOWED_TYPE_NAMES = frozenset({"int", "float", "bool", "str", "bytes", "list", "dict"})
+# to inspect a value at runtime. `object` is the tagged dynamic value
+# (issue #1343): the C side marshals int/float/str/None arms through the
+# `PsDyn` cell the JSON codec and the `Any` floor already use, so a
+# parameter or a returned cell can hold one arm of that sum.
+ALLOWED_TYPE_NAMES = frozenset({"int", "float", "bool", "str", "bytes", "list", "dict", "object"})
 
 # The C types a `[[const]]` may hold.
 CONST_TYPES = frozenset({"int", "float", "str"})
 
 # The keys each section accepts. Anything else is `PS4005`.
-_MANIFEST_KEYS = frozenset({"module", "ps_abi", "format", "libs", "lib_dirs", "include_dirs"})
+_MANIFEST_KEYS = frozenset({"module", "aliases", "ps_abi", "format", "libs", "lib_dirs", "include_dirs"})
 _SOURCE_KEYS = frozenset({"path", "objects"})
 _HANDLE_KEYS = frozenset({"name", "c_type", "frees"})
 _CONST_KEYS = frozenset({"name", "type", "value"})
-_FN_KEYS = frozenset({"name", "py", "c_symbol", "abi", "borrows", "consumes"})
+_FN_KEYS = frozenset({"name", "py", "c_symbol", "abi", "borrows", "consumes", "probe"})
+# A method on a handle (issue #1343): the same row as a `[[fn]]` plus the
+# handle the method hangs off. The receiver rides the ABI as argument 0,
+# so the `py` signature spells the declared arguments only.
+_METHOD_KEYS = frozenset(
+    {"name", "handle", "py", "c_symbol", "abi", "borrows", "consumes", "consumes_receiver", "probe"}
+)
+# An attribute of a handle (issue #1343): the value is a getter thunk's
+# return, so the row names the handle, the attribute's type and the abi.
+_ATTR_KEYS = frozenset({"name", "handle", "type", "abi", "probe"})
 # A Python identifier, the only name shape the manifest accepts.
 _IDENT = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -126,8 +138,11 @@ _SIGNATURE = re.compile(r"^\((?P<params>[^()]*)\)\s*(?:->\s*(?P<ret>[^()]+))?$")
 
 # A parameter inside a signature: `name: type`, with an optional default.
 # Numbered groups: `Match.group("name")` does not lower (the group order is
-# fixed by the pattern above).
-_PARAM = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*([^=,]+)(?:\s*=\s*(.+))?$")
+# fixed by the pattern above). The type body stops at a top-level `,` or `=`
+# only: a comma inside `dict[str, object]` or a `=` inside brackets is part
+# of the type, so the scan walks the bracket depth instead of a character
+# class (issue #1343's `dict[str, object]` row shape needs the depth walk).
+_PARAM = re.compile(r"^([A-Za-z_][A-Za-z0-9_]*)\s*:\s*(.+)$")
 
 
 class FfiManifestError(SpikeError):
@@ -180,6 +195,76 @@ class ManifestHandle:
 
 
 @dataclass(frozen=True)
+class ManifestMethod:
+    """A method on a handle (issue #1343).
+
+    The receiver is the handle the method hangs off; it rides the ABI as
+    argument 0, so the `py` signature spells the declared arguments only.
+    The ownership annotations name the declared parameters, exactly as a
+    `[[fn]]`'s do.
+    """
+
+    name: str
+    handle: str
+    py: str
+    c_symbol: str
+    abi: str
+    params: tuple[ManifestParam, ...]
+    returns: str
+    borrows: tuple[HandleRef, ...]
+    consumes: tuple[HandleRef, ...]
+    handle_names: set[str]
+    consumes_receiver: bool = False
+    probe: str = ""
+
+    @property
+    def arity(self) -> int:
+        return len(self.params)
+
+    @property
+    def required_arity(self) -> int:
+        return sum(1 for param in self.params if param.required)
+
+    def borrowed_params(self) -> set[str]:
+        """The parameter names this call borrows: the handle stays alive."""
+        return {ref.param for ref in self.borrows}
+
+    def consumed_params(self) -> set[str]:
+        """The parameter names this call consumes: the handle dies here."""
+        return {ref.param for ref in self.consumes}
+
+    def returns_handle(self) -> str | None:
+        """The handle type this method returns, if the return is a handle."""
+        return self.returns if self.returns in self.handle_names else None
+
+    def handles_consumption(self, handle: str) -> bool:
+        """Whether consuming the receiving handle rides this method.
+
+        The receiver is not a declared parameter, so the ownership
+        annotations cannot name it. The `consumes_receiver` row key says
+        the receiver dies at this method (issue #1343 spells it `close`),
+        and the handle's `frees` symbol is what the free thunk calls.
+        """
+        return self.consumes_receiver and self.handle == handle
+
+
+@dataclass(frozen=True)
+class ManifestAttr:
+    """A read-only attribute of a handle (issue #1343).
+
+    The read is one getter thunk call whose only argument is the receiver:
+    `abi(receiver) -> type`. The type is a manifest type name, so it may
+    spell a container or another handle as well as a scalar.
+    """
+
+    name: str
+    handle: str
+    type: str
+    abi: str
+    probe: str = ""
+
+
+@dataclass(frozen=True)
 class ManifestConst:
     """A compile-time constant exposed on the module."""
 
@@ -227,6 +312,7 @@ class ManifestFunction:
     borrows: tuple[HandleRef, ...]
     consumes: tuple[HandleRef, ...]
     handle_names: set[str]
+    probe: str = ""
 
     @property
     def arity(self) -> int:
@@ -282,6 +368,19 @@ class FfiManifest:
     libs: tuple[str, ...]
     lib_dirs: tuple[str, ...]
     include_dirs: tuple[str, ...] = ()
+    methods: tuple[ManifestMethod, ...] = ()
+    attrs: tuple[ManifestAttr, ...] = ()
+    aliases: tuple[str, ...] = ()
+
+    def claims(self, module: str) -> bool:
+        """Whether this manifest answers to the import name `module`.
+
+        The claimed name and the declared aliases both bind the same
+        surface (issue #1343): the sqlite3 manifest claims `sqlite3` and
+        keeps `pyscriptc_sqlite` as an alias, so a v1 program compiles
+        unchanged.
+        """
+        return module == self.module or module in self.aliases
 
     def function(self, name: str) -> ManifestFunction | None:
         """The function bound to a Python-visible name, if any."""
@@ -289,6 +388,27 @@ class FfiManifest:
             if fn.name == name:
                 return fn
         return None
+
+    def attrs_of(self, handle: str) -> dict[str, ManifestAttr]:
+        """The attribute table of one handle, keyed by the attribute name."""
+        table: dict[str, ManifestAttr] = {}
+        for attr in self.attrs:
+            if attr.handle == handle:
+                table[attr.name] = attr
+        return table
+
+    def methods_of(self, handle: str) -> dict[str, ManifestMethod]:
+        """The method table of one handle, keyed by the method name.
+
+        Two handles may carry methods of the same name (a Connection and a
+        Cursor both spell `execute`), so the table is per handle, and a
+        name declared twice on one handle is a manifest error.
+        """
+        table: dict[str, ManifestMethod] = {}
+        for method in self.methods:
+            if method.handle == handle:
+                table[method.name] = method
+        return table
 
     def handle(self, name: str) -> ManifestHandle | None:
         """The handle bound to a Python-visible name, if any."""
@@ -408,15 +528,16 @@ def load_manifests(paths: list[Path | str], *, ps_abi: int = CURRENT_PS_ABI) -> 
     manifests = [load_manifest(path, ps_abi=ps_abi) for path in paths]
     claimed: dict[str, Path] = {}
     for manifest in manifests:
-        owner = claimed.get(manifest.module)
-        if owner is not None:
-            raise FfiManifestError(
-                "PS4007",
-                f"the module {manifest.module} is already claimed by {owner}",
-                manifest.path,
-                "",
-            )
-        claimed[manifest.module] = manifest.path
+        for name in [manifest.module, *manifest.aliases]:
+            owner = claimed.get(name)
+            if owner is not None:
+                raise FfiManifestError(
+                    "PS4007",
+                    f"the module {name} is already claimed by {owner}",
+                    manifest.path,
+                    "",
+                )
+            claimed[name] = manifest.path
     return manifests
 
 
@@ -457,6 +578,22 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
     libs = _optional_str_list(header, "libs", path=path, where=where)
     lib_dirs = _optional_str_list(header, "lib_dirs", path=path, where=where)
     include_dirs = _optional_str_list(header, "include_dirs", path=path, where=where)
+    aliases = _optional_str_list(header, "aliases", path=path, where=where)
+    for alias in aliases:
+        if not _IDENT.match(alias) and "." not in alias:
+            raise FfiManifestError(
+                "PS4005",
+                f"the alias {alias!r} is not a module name",
+                path,
+                where,
+            )
+        if alias == module:
+            raise FfiManifestError(
+                "PS4007",
+                f"the alias {alias!r} repeats the claimed module name",
+                path,
+                where,
+            )
     for library in libs:
         _check_link_name(library, key="libs", path=path, where=where)
     for directory in lib_dirs:
@@ -474,6 +611,13 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
         handle_names=handle_names,
         handle_frees={handle.name: handle.frees for handle in handles},
     )
+    methods = _build_methods(
+        data,
+        path=path,
+        handle_names=handle_names,
+        handle_frees={handle.name: handle.frees for handle in handles},
+    )
+    attrs = _build_attrs(data, path=path, handle_names=handle_names)
     _reject_name_collisions(handles, consts, functions, path=path)
 
     return FfiManifest(
@@ -489,6 +633,9 @@ def _build(data: dict[str, Any], *, path: Path | None, ps_abi: int) -> FfiManife
         libs,
         lib_dirs,
         include_dirs,
+        methods,
+        attrs,
+        tuple(aliases),
     )
 
 
@@ -704,6 +851,14 @@ def _build_functions(
                     path,
                     where,
                 )
+        probe = _optional_str(entry, "probe", path=path, where=where) or ""
+        if probe and not _C_SYMBOL.match(probe):
+            raise FfiManifestError(
+                "PS4005",
+                f"the probe thunk {probe!r} is not a C identifier",
+                path,
+                where,
+            )
         functions.append(
             ManifestFunction(
                 name,
@@ -715,9 +870,179 @@ def _build_functions(
                 resolved_borrows,
                 resolved_consumes,
                 handle_names,
+                probe,
             )
         )
     return tuple(functions)
+
+
+def _build_methods(
+    data: dict[str, Any],
+    *,
+    path: Path | None,
+    handle_names: set[str],
+    handle_frees: dict[str, str],
+) -> tuple[ManifestMethod, ...]:
+    """The `[[method]]` rows: a method on a handle (issue #1343).
+
+    The row shape is the `[[fn]]` shape plus the `handle` the method hangs
+    off. The receiver is not a declared parameter: it rides the ABI as
+    argument 0, so the `py` signature spells the declared arguments only
+    and the ownership annotations name the declared parameters.
+    """
+    entries = _table_list(data, "method")
+    if not isinstance(entries, list):
+        raise FfiManifestError("PS4005", "[[method]] is not an array of tables", path, "[[method]]")
+    methods: list[ManifestMethod] = []
+    seen: set[tuple[str, str]] = set()
+    index: int = 0
+    for entry in entries:
+        where = f"[[method]] #{index + 1}"
+        index += 1
+        if not isinstance(entry, dict):
+            raise FfiManifestError("PS4005", "a method entry is not a table", path, where)
+        _reject_unknown_keys(entry, _METHOD_KEYS, path=path, where=where)
+        name = _require_str(entry, "name", path=path, where=where)
+        if not _IDENT.match(name):
+            raise FfiManifestError("PS4005", f"the method name {name!r} is not an identifier", path, where)
+        handle = _require_str(entry, "handle", path=path, where=where)
+        if handle not in handle_names:
+            raise FfiManifestError(
+                "PS4008",
+                f"the method {name!r} hangs off the handle {handle!r}, which is not declared",
+                path,
+                where,
+            )
+        key = (handle, name)
+        if key in seen:
+            raise FfiManifestError(
+                "PS4007",
+                f"the method {name!r} is declared twice on the handle {handle!r}",
+                path,
+                where,
+            )
+        seen.add(key)
+        py = _require_str(entry, "py", path=path, where=where)
+        c_symbol = _require_str(entry, "c_symbol", path=path, where=where)
+        abi = _require_str(entry, "abi", path=path, where=where)
+        if not _C_SYMBOL.match(abi):
+            raise FfiManifestError(
+                "PS4005",
+                f"the abi thunk {abi!r} is not a C identifier",
+                path,
+                where,
+            )
+        params, returns = _parse_signature(py, path=path, where=where, handle_names=handle_names)
+        borrows = _optional_str_list(entry, "borrows", path=path, where=where)
+        consumes = _optional_str_list(entry, "consumes", path=path, where=where)
+        resolved_borrows = _resolve_handle_refs(borrows, params, handle_names, path=path, where=where, key="borrows")
+        resolved_consumes = _resolve_handle_refs(consumes, params, handle_names, path=path, where=where, key="consumes")
+        overlap = sorted({ref.param for ref in resolved_borrows} & {ref.param for ref in resolved_consumes})
+        if overlap:
+            raise FfiManifestError(
+                "PS4008",
+                f"the argument {overlap[0]} is both borrowed and consumed",
+                path,
+                where,
+            )
+        for owner in resolved_consumes:
+            if not handle_frees.get(owner.handle):
+                raise FfiManifestError(
+                    "PS4008",
+                    f"the handle {owner.handle} is consumed but declares no frees symbol",
+                    path,
+                    where,
+                )
+        consumes_receiver = bool(entry.get("consumes_receiver", False))
+        probe = _optional_str(entry, "probe", path=path, where=where) or ""
+        if probe and not _C_SYMBOL.match(probe):
+            raise FfiManifestError(
+                "PS4005",
+                f"the probe thunk {probe!r} is not a C identifier",
+                path,
+                where,
+            )
+        if consumes_receiver and not handle_frees.get(handle):
+            raise FfiManifestError(
+                "PS4008",
+                f"the method {name!r} consumes its receiver but the handle {handle!r} declares no frees symbol",
+                path,
+                where,
+            )
+        methods.append(
+            ManifestMethod(
+                name,
+                handle,
+                py,
+                c_symbol,
+                abi,
+                params,
+                returns,
+                resolved_borrows,
+                resolved_consumes,
+                handle_names,
+                consumes_receiver,
+                probe,
+            )
+        )
+    return tuple(methods)
+
+
+def _build_attrs(
+    data: dict[str, Any],
+    *,
+    path: Path | None,
+    handle_names: set[str],
+) -> tuple[ManifestAttr, ...]:
+    """The `[[attr]]` rows: a read-only getter on a handle (issue #1343)."""
+    entries = _table_list(data, "attr")
+    if not isinstance(entries, list):
+        raise FfiManifestError("PS4005", "[[attr]] is not an array of tables", path, "[[attr]]")
+    attrs: list[ManifestAttr] = []
+    seen: set[tuple[str, str]] = set()
+    index: int = 0
+    for entry in entries:
+        where = f"[[attr]] #{index + 1}"
+        index += 1
+        if not isinstance(entry, dict):
+            raise FfiManifestError("PS4005", "an attr entry is not a table", path, where)
+        _reject_unknown_keys(entry, _ATTR_KEYS, path=path, where=where)
+        name = _require_str(entry, "name", path=path, where=where)
+        if not _IDENT.match(name):
+            raise FfiManifestError("PS4005", f"the attribute name {name!r} is not an identifier", path, where)
+        handle = _require_str(entry, "handle", path=path, where=where)
+        if handle not in handle_names:
+            raise FfiManifestError(
+                "PS4008",
+                f"the attribute {name!r} hangs off the handle {handle!r}, which is not declared",
+                path,
+                where,
+            )
+        key = (handle, name)
+        if key in seen:
+            raise FfiManifestError(
+                "PS4007",
+                f"the attribute {name!r} is declared twice on the handle {handle!r}",
+                path,
+                where,
+            )
+        seen.add(key)
+        type_name = _require_str(entry, "type", path=path, where=where)
+        # An attr read is a return position: an optional type is fine there.
+        _check_type(type_name, path=path, where=where, handle_names=handle_names, allow_none=True)
+        abi = _require_str(entry, "abi", path=path, where=where)
+        if not _C_SYMBOL.match(abi):
+            raise FfiManifestError("PS4005", f"the abi thunk {abi!r} is not a C identifier", path, where)
+        probe = _optional_str(entry, "probe", path=path, where=where) or ""
+        if probe and not _C_SYMBOL.match(probe):
+            raise FfiManifestError(
+                "PS4005",
+                f"the probe thunk {probe!r} is not a C identifier",
+                path,
+                where,
+            )
+        attrs.append(ManifestAttr(name, handle, type_name, abi, probe))
+    return tuple(attrs)
 
 
 def _resolve_handle_refs(
@@ -823,9 +1148,8 @@ def _parse_signature(
                     where,
                 )
             names.add(name)
-            type_name = declared.strip()
+            type_name, default = _split_type_default(declared)
             _check_type(type_name, path=path, where=where, handle_names=handle_names)
-            default = param_match.group(3)
             params.append(ManifestParam(name, type_name, default.strip() if default else None))
     ret = match.group(2)
     if ret is None:
@@ -871,11 +1195,17 @@ def _check_container(
     if head == "list":
         nested = _CONTAINER.match(inner)
         if nested is not None:
-            # The one allowed nesting: `list[dict[K, V]]`. A list of lists
-            # has no subset element type (a list value is a pointer, not a
-            # scalar the runtime slot can hold).
+            # The allowed nestings: `list[dict[K, V]]` and `list[list[object]]`.
+            # A list of records is the sqlite row shape; a list of parameter
+            # rows is the batch shape (issue #1343's executemany). A list of
+            # lists of scalars has no subset element type (a list value is a
+            # pointer, not a scalar the runtime slot can hold).
             if nested.group(1) == "dict":
                 _check_type(inner, path=path, where=where, handle_names=handle_names)
+                return
+            if nested.group(1) == "list" and nested.group(2).strip() == "object":
+                # The batch rows: a list of tagged cells. The inner list's
+                # element type is the object sum, so the leaf is one cell.
                 return
             raise FfiManifestError(
                 "PS4006",
@@ -954,6 +1284,27 @@ def _inside_brackets(text: str) -> bool:
     return False
 
 
+def _split_optional(type_name: str) -> tuple[str, bool] | None:
+    """The payload and the optional flag of a `T | None` spelling.
+
+    The split walks the bracket depth: a `|` inside `dict[str, object]` is
+    part of the type, not a union arm.
+    """
+    text = type_name.strip()
+    depth = 0
+    for index, char in enumerate(text):
+        if char in "[(":
+            depth += 1
+        elif char in "])":
+            depth -= 1
+        elif char == "|" and depth == 0:
+            rest = text[index + 1 :].strip()
+            if rest == "None":
+                return text[:index].strip(), True
+            return None
+    return None
+
+
 def type_ir(type_name: str, handle_names: set[str] | None = None) -> dict[str, Any]:
     """The IR type dict for a manifest type name.
 
@@ -971,6 +1322,13 @@ def type_ir(type_name: str, handle_names: set[str] | None = None) -> dict[str, A
     if handle_names is not None:
         names = handle_names
     name = type_name.strip()
+    optional = _split_optional(name)
+    if optional is not None:
+        # `T | None` (issue #1343): the fetchone shape. The type dict keeps
+        # the payload under `elem` with the `optional` mark; the lowerer
+        # re-forms it into its own opt_ cell through `_opt_type`, which
+        # owns the cell's declaration and layout.
+        return {"optional": True, "elem": type_ir(optional[0], names)}
     if name in names:
         return handle_type(name)
     if name == "int":
@@ -1005,6 +1363,12 @@ def type_ir(type_name: str, handle_names: set[str] | None = None) -> dict[str, A
         return ir
     if name == "None":
         return {"kind": "none"}
+    if name == "object":
+        # The tagged dynamic value (issue #1343): the same sum the `Any`
+        # floor erases to (issue #1226), so a manifest parameter or return
+        # can hold an int, a float, a str or None and the read site picks
+        # the arm the tag names.
+        return {"kind": "dynval"}
     raise FfiManifestError("PS4006", f"the type {name!r} has no IR type in the FFI vocabulary", None, "")
 
 
@@ -1027,6 +1391,24 @@ def is_handle_type(typ: dict[str, Any]) -> bool:
     kind: str = typ["kind"]
     handle: bool = typ["handle"]
     return kind == "class" and bool(handle)
+
+
+def _split_type_default(declared: str) -> tuple[str, str | None]:
+    """The type and the optional default of one declared parameter.
+
+    The split walks the bracket depth: a comma inside `dict[str, object]`
+    and an `=` inside a bracketed type are part of the type, not the
+    parameter's own punctuation (issue #1343's row shape needs this).
+    """
+    depth = 0
+    for index, char in enumerate(declared):
+        if char in "[(":
+            depth += 1
+        elif char in "])":
+            depth -= 1
+        elif char == "=" and depth == 0:
+            return declared[:index].strip(), declared[index + 1 :].strip()
+    return declared.strip(), None
 
 
 def _split_params(raw: str) -> list[str]:
@@ -1063,6 +1445,19 @@ def _check_type(
     if name in ALLOWED_TYPE_NAMES:
         return
     if name in handle_names:
+        return
+    optional = _split_optional(name)
+    if optional is not None:
+        # `T | None` (issue #1343): the fetchone shape. Only a return may be
+        # optional; a parameter of that spelling is refused below.
+        if not allow_none:
+            raise FfiManifestError(
+                "PS4006",
+                f"the optional type {name!r} is only a return type, never a parameter type",
+                path,
+                where,
+            )
+        _check_type(optional[0], path=path, where=where, handle_names=handle_names)
         return
     if name == "None":
         if allow_none:

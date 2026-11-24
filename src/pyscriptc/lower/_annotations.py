@@ -599,6 +599,16 @@ class AnnotationMixin:
             )
             self._reject_banned_type(node, typ)
             return typ
+        if alias == "Popen":
+            # `subprocess.Popen[str]` is the text-mode handle (issue #1344):
+            # its pipes read and write str. `Popen[bytes]` is the bare
+            # handle; any other argument has no lowering.
+            arg = node.slice
+            if isinstance(arg, ast.Name) and arg.id == "str":
+                return _type({"kind": "class", "name": "PopenText"})
+            if isinstance(arg, ast.Name) and arg.id == "bytes":
+                return _type({"kind": "class", "name": "Popen"})
+            self.fail(node, "PS1103", f"the generic annotation {ast.unparse(node)} is not lowered")
         if alias == "Queue":
             # The queue record holds element-sized slots, so the annotation
             # carries the element type the way a deque annotation does.
@@ -730,6 +740,8 @@ class AnnotationMixin:
                 return "defaultdict"
             if resolved[1] == "queue" and resolved[2] in {"Queue", "LifoQueue", "SimpleQueue"}:
                 return "Queue"
+            if resolved[1] == "subprocess" and resolved[2] == "Popen":
+                return "Popen"
             if resolved[1] == "asyncio" and resolved[2] == "Task":
                 return "Task"
             if resolved[1] == "asyncio" and resolved[2] in {"Lock", "Event", "Semaphore"}:

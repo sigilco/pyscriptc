@@ -43,13 +43,24 @@ def test_vendor_pin_is_complete() -> None:
 def test_manifest_validates_under_load_manifest() -> None:
     ffi_manifest = pytest.importorskip("pyscriptc.ffi_manifest", reason="F0 parser (#182) not on this base yet")
     manifest = ffi_manifest.load_manifest(ADAPTER / "ffi.toml")
-    assert manifest.module == "pyscriptc_sqlite"
-    assert {fn.name for fn in manifest.functions} == {"connect", "execute", "query", "commit", "close"}
-    assert {h.name for h in manifest.handles} == {"Connection"}
+    # The v3 surface (issue #1343) claims the stdlib module name, so
+    # `import sqlite3` lowers through this manifest.
+    assert manifest.module == "sqlite3"
+    assert {fn.name for fn in manifest.functions} == {"connect", "close"}
+    assert {h.name for h in manifest.handles} == {"Connection", "Cursor"}
     assert {c.name: c.value for c in manifest.consts} == {"OK": 0, "ROW": 100, "DONE": 101}
     close = manifest.function("close")
     assert close is not None and [ref.param for ref in close.consumes] == ["db"]
     assert [p.name for p in manifest.unit_paths()] == ["sqlite3.c", "ps_ffi_sqlite.c"]
+    # The connection's methods and the cursor's methods (issue #1343).
+    assert set(manifest.methods_of("Connection")) == {"execute", "executemany", "commit", "close"}
+    assert set(manifest.methods_of("Cursor")) == {"fetchone", "fetchall", "close"}
+    assert set(manifest.attrs_of("Cursor")) == {"rowcount", "lastrowid", "description"}
+    # The optional return rides the probe/make pair the manifest names.
+    fetchone = manifest.methods_of("Cursor")["fetchone"]
+    assert fetchone.returns == "list[object] | None"
+    assert fetchone.probe == "ps_ffi_sqlite_cur_row_hit"
+    assert fetchone.abi == "ps_ffi_sqlite_cur_row_make"
 
 
 def test_pyi_matches_manifest_surface() -> None:
@@ -59,7 +70,15 @@ def test_pyi_matches_manifest_surface() -> None:
     assert set(funcs) == {fn["name"] for fn in manifest["fn"]}
     for fn in manifest["fn"]:
         node = funcs[fn["name"]]
-        signature = "(" + ", ".join(f"{a.arg}: {ast.unparse(a.annotation)}" for a in node.args.args) + ")"
+        pieces: list[str] = []
+        defaults = node.args.defaults
+        first_default = len(node.args.args) - len(defaults)
+        for index, arg in enumerate(node.args.args):
+            text = f"{arg.arg}: {ast.unparse(arg.annotation)}"
+            if index >= first_default:
+                text += f" = {ast.unparse(defaults[index - first_default])}"
+            pieces.append(text)
+        signature = "(" + ", ".join(pieces) + ")"
         signature += f" -> {ast.unparse(node.returns)}"
         assert signature == fn["py"], fn["name"]
     annotated = {n.target.id for n in tree.body if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name)}

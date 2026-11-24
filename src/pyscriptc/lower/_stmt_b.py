@@ -235,6 +235,43 @@ class StmtBMixin:
                 "builtins", "dict.keys", [iterable], {"kind": "list", "elem": key_t}, "ps_dict_keys", span
             )
             kind = "list"
+        if kind == "class" and iterable["type"].get("name") in {"PopenPipe", "PopenPipeText"}:
+            # `for line in proc.stdout` reads a line at a time until the
+            # empty result; each line keeps its trailing newline like
+            # CPython's pipe iteration (issue #1345).
+            text_pipe = iterable["type"].get("name") == "PopenPipeText"
+            elem = {"kind": "str" if text_pipe else "bytes"}
+            target = stmt.target.id
+            fresh = self._bind_loop_target(target, elem, stmt.target)
+            fio = self._temp("pipe")
+            line = self._temp("line")
+            self.locals[fio] = iterable["type"]
+            self.locals[line] = elem
+            body = self._loop_body(stmt)
+            readline = self._abi_call(
+                "subprocess",
+                "PopenPipe.readline",
+                [_name(fio, iterable["type"], span)],
+                elem,
+                "ps_pipe_text_readline" if text_pipe else "ps_pipe_out_readline",
+                span,
+            )
+            out = [
+                _assign(fio, iterable, span),
+                _assign(line, readline, span),
+                *self._user_while(
+                    _compare("!=", _len_call(_name(line, elem, span), span), _const_int(0, span), span),
+                    [
+                        _assign(target, _name(line, elem, span), span),
+                        *body,
+                        *self._skip_on_break([_assign(line, readline, span)], span),
+                    ],
+                    span,
+                ),
+            ]
+            if fresh:
+                out.insert(0, _assign(target, _zero(elem, span), span))
+            return out
         if kind == "class" and iterable["type"].get("name") in {"TextIO", "BytesIO"}:
             # `for line in f` reads a line at a time until the empty result;
             # each line keeps its trailing newline like CPython file iteration.

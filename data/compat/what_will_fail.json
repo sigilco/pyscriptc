@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-09",
-  "commit": "c0c588d1d77bfc1ae5cc903ae0b1b9801ceeee25",
+  "commit": "4ca3f985d5f3977250cd81c794526f9c6c001578",
   "sources": {
     "corpus": "benchmarks/real_scripts/scripts",
     "report": "benchmarks/real_scripts/REPORT.md"
@@ -51,12 +51,6 @@
           "construct": "`p.is_file`",
           "code": "PS2001",
           "diagnostic": "p.is_file is not in the lowered subset of pathlib"
-        },
-        {
-          "module": "subprocess",
-          "construct": "`subprocess.Popen`",
-          "code": "PS2001",
-          "diagnostic": "subprocess.Popen is not in the lowered subset of subprocess"
         }
       ]
     },
@@ -69,7 +63,7 @@
           "module": "argparse",
           "construct": "`argparse` option/default",
           "code": "PS2003",
-          "diagnostic": "argparse.add_argument keyword nargs is not lowered"
+          "diagnostic": "argparse.ArgumentParser description is a str constant"
         },
         {
           "module": "argparse",
@@ -148,7 +142,7 @@
           "module": "builtins",
           "construct": "name read after unannotated assignment",
           "code": "PS2002",
-          "diagnostic": "had_error is not a local or parameter"
+          "diagnostic": "parser is not a local or parameter"
         },
         {
           "module": "builtins",
@@ -193,6 +187,12 @@
       "title": "Statements and language constructs",
       "description": "Statement forms, unpack patterns, and language constructs that have not yet been lowered.",
       "fences": [
+        {
+          "module": "builtins",
+          "construct": "Popen.communicate",
+          "code": "PS2001",
+          "diagnostic": "Popen.communicate is not lowered; the incremental reads replace it (issue #1345)"
+        },
         {
           "module": "builtins",
           "construct": "`data.sort()`",
@@ -270,7 +270,7 @@
           "module": "builtins",
           "construct": "class attribute access",
           "code": "PS2001",
-          "diagnostic": "Namespace.files is not a field"
+          "diagnostic": "Scheduling.j is not a field"
         }
       ]
     },
@@ -314,7 +314,7 @@
           "module": "subprocess",
           "construct": "type annotation mismatch",
           "code": "PS1003",
-          "diagnostic": "subprocess takes a list of str"
+          "diagnostic": "subprocess.Popen takes a list of str"
         }
       ]
     },

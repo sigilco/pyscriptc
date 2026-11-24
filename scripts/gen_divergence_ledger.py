@@ -108,9 +108,7 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D10",
-        "a classmethod body's cls is the compile-time class id of the defining class (an int), not a "
-        "class object: cls.attr resolves against that class (a subclass's own-name override is not "
-        "seen), cls.method(...) and cls(...) are static calls against it, cls as a value fences",
+        "Class.method(...) on classmethod/staticmethod does not pass the class object",
         "d10_classmethod.py",
         docs=f"{DOC}#10",
     ),
@@ -578,11 +576,35 @@ ROWS: list[dict[str, Any]] = [
         "return_exceptions fence and the one-result-type rule (PS2002) are the rest of the entry",
     ),
     _row(
+        "D92",
+        "the native signal handler surface (issue #1347): signal.signal installs a sigaction handler "
+        "whose compiled function runs at a safepoint with the signal number only, where CPython calls "
+        "the handler with the frame too and returns the previous handler",
+        None,
+        docs=f"{DOC}#92",
+        note="the probe is the differential one (probes/differential/signal_handler.py); the lane's "
+        "bytes are identical, the seams are the handler arity, the delivery point and the lost "
+        "return value",
+    ),
+    _row(
         "D91",
         "math.sumprod over int sequences is i64 (divergence 1): a result past the i64 range raises "
         "OverflowError where CPython grows a big int",
         "d91_math_sumprod_int_overflow.py",
         docs=f"{DOC}#91",
+    ),
+    _row(
+        "D93",
+        "the subprocess.Popen child handle (issue #1345): the spawn, the pid, the poll, the bounded wait with "
+        "its TimeoutExpired, the signals and the incremental pipe reads are byte-identical to the pinned "
+        "CPython; a stream that was not piped answers a handle whose read raises ValueError where CPython "
+        "answers None, and the communicate call, shell=, a counted text-mode read and the computed bounds fence; "
+        "the spawn environment (env=, cwd=, start_new_session=, text=, issue #1344) is byte-identical",
+        None,
+        docs=f"{DOC}#93",
+        note="the host lane is byte-identical (probes/differential/subprocess_popen.py and "
+        "probes/differential/subprocess_popen_env.py); the unpiped-stream "
+        "read, the communicate fence (PS2001) and the literal-bound fences (PS2003) are the rest of the entry",
     ),
     _row(
         "D80",
@@ -740,6 +762,37 @@ ROWS: list[dict[str, Any]] = [
         "CPython divides the exact integers and rounds once",
         "d90_int_truediv_wide.py",
         docs=f"{DOC}#90",
+    ),
+    _row(
+        "D94",
+        "argparse subparsers share one namespace: an unchosen subcommand's attribute reads its default "
+        "(CPython raises AttributeError) and an absent optional subcommand dest reads the empty string "
+        "(CPython reads None)",
+        "d94_argparse_subparser_namespace.py",
+        docs=f"{DOC}#94",
+    ),
+    _row(
+        "D95",
+        "argparse nargs: a list-valued option that does not appear reads an empty list (CPython None), and a "
+        "nargs='?' argument needs a default (an absent value would be None)",
+        "d95_argparse_nargs_absent.py",
+        docs=f"{DOC}#95",
+    ),
+    _row(
+        "D96",
+        "the sqlite3 subset (issue #1343): the row is a list[object] in column order where CPython's cursor "
+        "row is a tuple, cur.description answers the list of names where CPython answers a tuple of 7-tuples, "
+        "cur.lastrowid answers 0 where CPython answers None on a cursor no execute ran on, connect accepts the "
+        "path, the timeout and only isolation_level=None (no row_factory), the refused statement is RuntimeError "
+        "where CPython raises the sqlite3.Error subclasses, and db.close() consumes the handle so a later "
+        "statement is the PS4010 compile fence",
+        None,
+        docs=f"{DOC}#96",
+        note="the host lane is byte-identical on the ? binding of an int, a float, a str and a None, the NULL "
+        "round trip, cur.rowcount, cur.lastrowid and the description's presence and count "
+        "(probes/differential/sqlite3_params.py); the row shape, the description element shape, the lastrowid "
+        "None arm, the connect keywords, the exception class and the ownership fences are the rest of the "
+        "entry",
     ),
     _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT

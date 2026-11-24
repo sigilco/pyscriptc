@@ -328,10 +328,20 @@ def ffi_manifests() -> dict[str, FfiManifest]:
 
 @contextmanager
 def ffi_modules(manifests: Iterable[FfiManifest]) -> _Iterator[None]:
-    """Install `--ffi` manifests for the duration of one lowering pass."""
+    """Install `--ffi` manifests for the duration of one lowering pass.
+
+    A manifest registers under its claimed module name and under each
+    declared alias (issue #1343): the sqlite3 manifest keeps
+    `pyscriptc_sqlite` as an alias, so both import spellings bind the
+    same surface.
+    """
     global _FFI_MANIFESTS
     saved = _FFI_MANIFESTS
-    _FFI_MANIFESTS = {manifest.module: manifest for manifest in manifests}
+    table: dict[str, FfiManifest] = {}
+    for manifest in manifests:
+        for name in [manifest.module, *manifest.aliases]:
+            table[name] = manifest
+    _FFI_MANIFESTS = table
     try:
         yield
     finally:

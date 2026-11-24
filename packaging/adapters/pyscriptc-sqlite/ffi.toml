@@ -1,9 +1,35 @@
 # pyscriptc-sqlite: the F3 pilot manifest (.agents/docs/ffi/ffi-manifest.md section 5).
 # The vendored SQLite amalgamation is fetched at build time into vendor/
 # (see vendor/VENDOR.toml); only the pin is committed.
+#
+# The surface (issue #1343) is the sqlite3 connection/cursor shape over the
+# vendored amalgamation:
+#
+#   connect(path, timeout=, isolation_level=None)
+#                                 the connection; the busy timeout rides
+#                                 the open (isolation_level is accepted and
+#                                 pinned to None, the adapter's autocommit)
+#   conn.execute(sql, params)    the statement, bound; returns the cursor
+#   conn.executemany(sql, rows)  the statement per row of params
+#   conn.commit()                the commit
+#   conn.close()                 the close
+#   cur.fetchone()               the next row, or None
+#   cur.fetchall()               the remaining rows
+#   cur.rowcount                 the row count of the last run
+#   cur.lastrowid                the rowid of the last insert
+#   cur.description              the column names of the statement
+#
+# A bound parameter and a returned column are the runtime's tagged dynamic
+# value, so an int, a float, a str and a SQL NULL each keep their own arm.
+# The row is a dict from the column name to the column's value, so the
+# column order is the dict's key order.
 
 [manifest]
-module = "pyscriptc_sqlite"
+module = "sqlite3"
+# The v1 spelling stays an alias (issue #1343): the surface moved under
+# the stdlib module name, and a v1 program that spells `pyscriptc_sqlite`
+# compiles unchanged against the same surface.
+aliases = ["pyscriptc_sqlite"]
 ps_abi = 1
 format = 1
 
@@ -19,6 +45,12 @@ path = "ps_ffi_sqlite.c"
 name = "Connection"
 c_type = "ps_sqlite_conn *"
 frees = "sqlite3_close_v2"
+
+# The cursor is the step state over one prepared statement.
+[[handle]]
+name = "Cursor"
+c_type = "ps_sqlite_cursor *"
+frees = "sqlite3_finalize"
 
 [[const]]
 name = "OK"
@@ -37,30 +69,9 @@ value = 101
 
 [[fn]]
 name = "connect"
-py = "(path: str) -> Connection"
+py = "(path: str, timeout: float = 5.0, isolation_level: object = None) -> Connection"
 c_symbol = "sqlite3_open_v2"
-abi = "ps_ffi_sqlite_connect"
-
-[[fn]]
-name = "execute"
-py = "(db: Connection, sql: str) -> int"
-c_symbol = "sqlite3_exec"
-abi = "ps_ffi_sqlite_execute"
-borrows = ["db"]
-
-[[fn]]
-name = "query"
-py = "(db: Connection, sql: str) -> list[dict[str, str]]"
-c_symbol = "sqlite3_prepare_v2 + sqlite3_step + sqlite3_finalize"
-abi = "ps_ffi_sqlite_query"
-borrows = ["db"]
-
-[[fn]]
-name = "commit"
-py = "(db: Connection) -> int"
-c_symbol = "sqlite3_exec COMMIT"
-abi = "ps_ffi_sqlite_commit"
-borrows = ["db"]
+abi = "ps_ffi_sqlite_conn_connect"
 
 [[fn]]
 name = "close"
@@ -68,3 +79,78 @@ py = "(db: Connection) -> None"
 c_symbol = "sqlite3_close_v2"
 abi = "ps_ffi_sqlite_close"
 consumes = ["db"]
+
+# The connection's methods.
+
+[[method]]
+name = "execute"
+handle = "Connection"
+py = "(sql: str, params: list[object] = ...) -> Cursor"
+c_symbol = "sqlite3_prepare_v2 + sqlite3_bind_* + sqlite3_step"
+abi = "ps_ffi_sqlite_conn_execute"
+
+[[method]]
+name = "executemany"
+handle = "Connection"
+py = "(sql: str, rows: list[list[object]]) -> Cursor"
+c_symbol = "sqlite3_prepare_v2 + sqlite3_bind_* + sqlite3_step"
+abi = "ps_ffi_sqlite_conn_executemany"
+
+[[method]]
+name = "commit"
+handle = "Connection"
+py = "() -> int"
+c_symbol = "sqlite3_exec COMMIT"
+abi = "ps_ffi_sqlite_conn_commit"
+
+[[method]]
+name = "close"
+handle = "Connection"
+py = "() -> None"
+c_symbol = "sqlite3_close_v2"
+abi = "ps_ffi_sqlite_conn_close"
+consumes_receiver = true
+
+# The cursor's methods and attributes.
+
+[[method]]
+name = "fetchone"
+handle = "Cursor"
+py = "() -> list[object] | None"
+c_symbol = "sqlite3_step"
+abi = "ps_ffi_sqlite_cur_row_make"
+probe = "ps_ffi_sqlite_cur_row_hit"
+
+[[method]]
+name = "fetchall"
+handle = "Cursor"
+py = "() -> list[list[object]]"
+c_symbol = "sqlite3_step"
+abi = "ps_ffi_sqlite_cur_rows"
+
+[[method]]
+name = "close"
+handle = "Cursor"
+py = "() -> None"
+c_symbol = "sqlite3_finalize"
+abi = "ps_ffi_sqlite_cur_close"
+consumes_receiver = true
+
+[[attr]]
+name = "rowcount"
+handle = "Cursor"
+type = "int"
+abi = "ps_ffi_sqlite_cur_rowcount"
+
+[[attr]]
+name = "lastrowid"
+handle = "Cursor"
+type = "int"
+abi = "ps_ffi_sqlite_cur_lastrowid"
+
+[[attr]]
+name = "description"
+handle = "Cursor"
+type = "list[str] | None"
+abi = "ps_ffi_sqlite_cur_description_make"
+probe = "ps_ffi_sqlite_cur_description_hit"

@@ -27,6 +27,33 @@ from pyscriptc.emit.llvm._runtime import _declarations, _helpers
 from pyscriptc.errors import IRError
 from pyscriptc.tirserde import dict_to_type
 
+# The runtime symbols the native handler surface lowers onto (issue #1347).
+# A program that calls one of them gets the safepoint poll in its bodies.
+_SIGNAL_SYMBOLS = frozenset({"ps_signal_install", "ps_signal_ignore", "ps_signal_default"})
+
+
+def _installs_signal(module: dict[str, Any]) -> bool:
+    """True when the module installs a signal handler somewhere.
+
+    The walk is generic: it looks for a call node whose symbol is one of the
+    signal helpers, anywhere in the module's functions and classes. A shape
+    it does not recognize contributes nothing, so a new IR kind is a missed
+    slot rather than a wrong answer.
+    """
+    stack: list[Any] = [_items(module, "functions"), _items(module, "classes")]
+    while stack:
+        node = stack.pop()
+        if isinstance(node, list):
+            stack.extend(node)
+            continue
+        if not isinstance(node, dict):
+            continue
+        symbol = node.get("symbol")
+        if isinstance(symbol, str) and symbol in _SIGNAL_SYMBOLS:
+            return True
+        stack.extend(node.values())
+    return False
+
 
 class CoreMixin(EmitterBase):
     def __init__(self, module: dict[str, Any], dwarf: DwarfEmitter | None = None, wasm: bool = False) -> None:
@@ -67,6 +94,12 @@ class CoreMixin(EmitterBase):
         self.json_n = 0
         self.copy_n = 0
         self.atexit_n = 0
+        # The native handler surface (issue #1347): set when the program
+        # installs a signal handler. The safepoint poll only rides along when
+        # a handler is installed, so a program without one emits the same
+        # bytes it always did. `signal_n` names the wrappers.
+        self.signal_handlers = False
+        self.signal_n = 0
         self.abi_decls: dict[str, tuple[str, list[str]]] = {}
         # Function names that need a lazy env-first `name.clo` wrapper because
         # they are referenced as values.
@@ -103,6 +136,12 @@ class CoreMixin(EmitterBase):
         self.class_index = {_opt_str(cls, "name"): cls for cls in _items(self.module, "classes")}
         self.library = library
         self.binding = binding
+        # The native handler surface (issue #1347): the safepoint poll rides
+        # along only when the program installs a handler, so a program without
+        # one emits the same bytes it always did. The scan runs before any
+        # function emits, so a handler installed in any function still puts
+        # the poll in every body.
+        self.signal_handlers = _installs_signal(self.module)
         for cls in _items(self.module, "classes"):
             cls_name: str = _opt_str(cls, "name")
             fields: list[dict[str, Any]] = _items(cls, "fields")

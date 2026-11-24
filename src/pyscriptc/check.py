@@ -271,6 +271,19 @@ _GATHER_LIST_RETURN = "-> Future[list["
 _HTTPSERVER_HEADERS_ANCHOR = "    headers: email.message.Message\n"
 _HTTPSERVER_HEADERS_ROW = "    headers: _HttpHeaders\n"
 
+# The subprocess.Popen subset (issue #1345). The lowered handle answers a
+# pipe handle for every stream (never None), reads -1 where CPython's
+# `poll()` answers None while the child runs, and takes no `timeout`
+# other than the literal number the runtime helper takes. The vendored
+# `subprocess.pyi` carries the rows; a refresh that drops an anchor is a
+# hard error.
+_SUBPROCESS_STDIN_ROW = "    stdin: IO[AnyStr] | None\n"
+_SUBPROCESS_STDOUT_ROW = "    stdout: IO[AnyStr] | None\n"
+_SUBPROCESS_STDERR_ROW = "    stderr: IO[AnyStr] | None\n"
+_SUBPROCESS_PIPE_ROW = "    {name}: IO[AnyStr]\n"
+_SUBPROCESS_RETURNCODE_ROW = "    returncode: int | MaybeNone\n"
+_SUBPROCESS_RETURNCODE_PATCHED = "    returncode: int | None\n"
+
 
 def _patched_typeshed(dest: Path) -> Path:
     """Copy the vendored typeshed stdlib and realign it with the lowered contract.
@@ -301,6 +314,7 @@ def _patched_typeshed(dest: Path) -> Path:
     builtins.write_text(text[:start] + block + tail[rel:])
     _patch_gather(dest / "stdlib" / "asyncio" / "tasks.pyi")
     _patch_httpserver(dest / "stdlib" / "http" / "server.pyi")
+    _patch_subprocess(dest / "stdlib" / "subprocess.pyi")
     return dest
 
 
@@ -320,6 +334,40 @@ def _patch_httpserver(server: Path) -> None:
     anchor = "class HTTPServer(socketserver.TCPServer):"
     text = text.replace(anchor, protocol + anchor, 1)
     server.write_text(text, encoding="utf-8")
+
+
+def _patch_subprocess(subprocess_stub: Path) -> None:
+    """Realign the `subprocess.Popen` rows with the lowered handle.
+
+    The lowered handle always answers a pipe handle for the three
+    streams (CPython answers None for a stream that was not piped, and
+    the subset reads the unpiped stream as a ValueError at run time), and
+    `poll()` answers -1 while the child runs (CPython answers None, the
+    closed-subset spelling the async process's `returncode` already
+    uses). The rows live in the vendored `subprocess.pyi`; a refresh
+    that drops an anchor is a hard error.
+    """
+    text = subprocess_stub.read_text(encoding="utf-8")
+    for anchor in (
+        _SUBPROCESS_STDIN_ROW,
+        _SUBPROCESS_STDOUT_ROW,
+        _SUBPROCESS_STDERR_ROW,
+        _SUBPROCESS_RETURNCODE_ROW,
+    ):
+        if anchor not in text:
+            raise CheckFailed("vendored typeshed subprocess.pyi no longer matches the subset patch anchors")
+    for name in ("stdin", "stdout", "stderr"):
+        text = text.replace(
+            _SUBPROCESS_STDIN_ROW
+            if name == "stdin"
+            else _SUBPROCESS_STDOUT_ROW
+            if name == "stdout"
+            else _SUBPROCESS_STDERR_ROW,
+            _SUBPROCESS_PIPE_ROW.format(name=name),
+            1,
+        )
+    text = text.replace(_SUBPROCESS_RETURNCODE_ROW, _SUBPROCESS_RETURNCODE_PATCHED, 1)
+    subprocess_stub.write_text(text, encoding="utf-8")
 
 
 def _patch_gather(tasks: Path) -> None:
@@ -347,12 +395,14 @@ def _patch_gather(tasks: Path) -> None:
 _TYPESHED_COMPLETE = ".pysc-complete"
 
 _TYPESHED_PATCH_KEY_PARTS = (
-    "v4",
+    "v5",
     _BUILTINS_FROZENSET,
     "class frozenset(set[_T_co]):",
     "-> list[int]:",
     _GATHER_LIST_RETURN,
     _HTTPSERVER_HEADERS_ROW.strip(),
+    _SUBPROCESS_PIPE_ROW.strip(),
+    _SUBPROCESS_RETURNCODE_PATCHED.strip(),
 )
 
 

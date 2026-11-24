@@ -94,6 +94,10 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
     # The POSIX signal constants the watchdog surface carries (issue #1244).
     # Values are read from the host interpreter; they are the kernel numbers,
     # so the CPython 3.14 oracle and the binary agree on every platform.
+    # The two dispositions join them for issue #1347: `SIG_DFL` is 0 and
+    # `SIG_IGN` is 1, the values CPython's `Handlers` enum spells, and the
+    # `signal.signal` lowering reads the spelling so the disposition does not
+    # collide with the `SIGHUP` number.
     "signal": (
         "SIGKILL",
         "SIGTERM",
@@ -101,6 +105,8 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
         "SIGCONT",
         "SIGUSR1",
         "SIGUSR2",
+        "SIG_DFL",
+        "SIG_IGN",
     ),
     "calendar": (
         "MONDAY",
@@ -1110,6 +1116,9 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
         "UF_SETTABLE",
         "UF_TRACKED",
     ),
+    # The subprocess pipe constants: PIPE is -1 and STDOUT is -2,
+    # CPython's numbers. The Popen spawn (issue #1345) reads PIPE whole
+    # to decide which stream to pipe.
     "subprocess": (
         "PIPE",
         "STDOUT",
@@ -1237,13 +1246,21 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "pathlib": ("Path", "Stat"),
     "os": ("Stat", "TerminalSize"),
     "shutil": ("TerminalSize",),
-    "subprocess": ("CompletedProcess", "CompletedProcessText", "TimeoutExpired"),
+    "subprocess": (
+        "CompletedProcess",
+        "CompletedProcessText",
+        "TimeoutExpired",
+        "Popen",
+        "PopenPipe",
+        "PopenText",
+        "PopenPipeText",
+    ),
     "collections": ("Deque",),
     "hmac": ("Hmac",),
     "hashlib": ("Hash",),
     "importlib.resources": ("Path",),
     "csv": ("CsvWriter", "CsvDictWriter"),
-    "argparse": ("ArgParser", "Namespace"),
+    "argparse": ("ArgParser", "Namespace", "SubParsers"),
     "logging": ("Logger",),
     "urllib.request": ("HttpRequest", "HttpResponse"),
     "urllib.error": ("HTTPError", "URLError"),
@@ -1328,6 +1345,17 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # the command and the bound, but the runtime's exception record holds
     # the code and the message only, so the class has no field here.
     "TimeoutExpired": [],
+    # The sync child handle (issue #1345) is a runtime pointer: the child's
+    # pid, the reap state and the pipe fds live in the record, so the class
+    # has no field.
+    "Popen": [],
+    # The pipe handle (issue #1345) is a runtime pointer too: it carries the
+    # child record and the stream selector, so the class has no field.
+    "PopenPipe": [],
+    # The text-mode variants (issue #1344): the same records with str
+    # reads and writes, selected by `Popen[str]` or `text=True`.
+    "PopenText": [],
+    "PopenPipeText": [],
     "Hmac": [
         ("_key", _BY),
         ("_msg", _BY),
@@ -1339,7 +1367,10 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     "Hash": [],
     # The parser holds the encoded spec rows; the namespace fields are
     # declared as the options are registered, so they start empty here.
-    "ArgParser": [("_specs", _STR_LIST)],
+    "ArgParser": [("_specs", _STR_LIST), ("_subs", _STR_LIST)],
+    # The subcommand holder: the parent parser, the namespace slot the chosen
+    # name lands in (-1 without a dest) and the required flag.
+    "SubParsers": [("_parent", _STR_LIST), ("_dest", _I), ("_required", _I)],
     # The selector record is an opaque runtime pointer; the key record carries
     # the fd and the event bits, the two fields the int-fd surface exposes.
     # CPython's SelectorKey also carries `fileobj` and `data`: the typed
@@ -1462,6 +1493,11 @@ STREAM_CLASSES: frozenset[str] = frozenset({"StreamReader", "StreamWriter"})
 # value is its pointer.
 SERVER_CLASSES: frozenset[str] = frozenset({"Server"})
 
+# The sync child handle and its pipe handles (issue #1345): the child's
+# pid, the reap state and the pipe ends live in the runtime record, so the
+# class values are pointers.
+POPEN_CLASSES: frozenset[str] = frozenset({"Popen", "PopenPipe", "PopenText", "PopenPipeText"})
+
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
 PTR_CLASSES: frozenset[str] = (
@@ -1471,8 +1507,10 @@ PTR_CLASSES: frozenset[str] = (
     | APROC_CLASSES
     | STREAM_CLASSES
     | SERVER_CLASSES
+    | POPEN_CLASSES
     | {
         "ArgParser",
+        "SubParsers",
         "DefaultSelector",
         "Hash",
         "TarFile",
@@ -1537,6 +1575,9 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("urllib.error", "HTTPError"): "HTTPError",
     ("urllib.error", "URLError"): "URLError",
     ("subprocess", "TimeoutExpired"): "TimeoutExpired",
+    # The sync child handle and its pipe handles (issue #1345).
+    ("subprocess", "Popen"): "Popen",
+    ("subprocess", "PopenPipe"): "PopenPipe",
     ("json", "JSONDecodeError"): "JSONDecodeError",
     ("asyncio", "Task"): "Task",
     ("asyncio", "CancelledError"): "CancelledError",
