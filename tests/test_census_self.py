@@ -333,6 +333,9 @@ def test_self_census_ballpark() -> None:
     # The argparse subparser tree (#1346): the add_subparsers and add_parser
     # lowering and the per-level help replay add about 250 lines, taking the
     # census to 92,048, so the ceiling moves to 94k.
+    # The subprocess Popen child-handle surface (#1345): the popen lowering,
+    # the pipe reads and the runtime helpers add about 280 lines on top, so
+    # the combined census stays under the same 94k ceiling.
     assert 11_000 <= census["lines"] <= 94_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
