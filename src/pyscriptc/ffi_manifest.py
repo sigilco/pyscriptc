@@ -876,11 +876,17 @@ def _check_container(
     if head == "list":
         nested = _CONTAINER.match(inner)
         if nested is not None:
-            # The one allowed nesting: `list[dict[K, V]]`. A list of lists
-            # has no subset element type (a list value is a pointer, not a
-            # scalar the runtime slot can hold).
+            # The allowed nestings: `list[dict[K, V]]` and `list[list[object]]`.
+            # A list of records is the sqlite row shape; a list of parameter
+            # rows is the batch shape (issue #1343's executemany). A list of
+            # lists of scalars has no subset element type (a list value is a
+            # pointer, not a scalar the runtime slot can hold).
             if nested.group(1) == "dict":
                 _check_type(inner, path=path, where=where, handle_names=handle_names)
+                return
+            if nested.group(1) == "list" and nested.group(2).strip() == "object":
+                # The batch rows: a list of tagged cells. The inner list's
+                # element type is the object sum, so the leaf is one cell.
                 return
             raise FfiManifestError(
                 "PS4006",

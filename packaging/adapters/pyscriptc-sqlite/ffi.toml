@@ -1,6 +1,15 @@
 # pyscriptc-sqlite: the F3 pilot manifest (.agents/docs/ffi/ffi-manifest.md section 5).
 # The vendored SQLite amalgamation is fetched at build time into vendor/
 # (see vendor/VENDOR.toml); only the pin is committed.
+#
+# The v2 surface (issue #1343) adds parameter binding and typed rows on top
+# of the v1 pilot's five functions. The v1 names keep their shape; the new
+# names carry the second spelling so a v1 program compiles unchanged:
+#
+#   execute(db, sql)          v1: run the statement, return SQLite's OK
+#   execute2(db, sql, params) v2: run the statement with `?` bindings
+#   query(db, sql)            v1: the rows as dict[str, str]
+#   query2(db, sql, params)   v2: the rows as dict[str, object]
 
 [manifest]
 module = "pyscriptc_sqlite"
@@ -68,3 +77,39 @@ py = "(db: Connection) -> None"
 c_symbol = "sqlite3_close_v2"
 abi = "ps_ffi_sqlite_close"
 consumes = ["db"]
+
+# The v2 surface (issue #1343).
+
+[[fn]]
+name = "connect2"
+py = "(path: str, timeout: float) -> Connection"
+c_symbol = "sqlite3_open_v2 + sqlite3_busy_timeout"
+abi = "ps_ffi_sqlite_connect2"
+
+[[fn]]
+name = "execute2"
+py = "(db: Connection, sql: str, params: list[object]) -> int"
+c_symbol = "sqlite3_prepare_v2 + sqlite3_bind_* + sqlite3_step"
+abi = "ps_ffi_sqlite_execute2"
+borrows = ["db"]
+
+[[fn]]
+name = "executemany"
+py = "(db: Connection, sql: str, rows: list[list[object]]) -> int"
+c_symbol = "sqlite3_prepare_v2 + sqlite3_bind_* + sqlite3_step"
+abi = "ps_ffi_sqlite_executemany"
+borrows = ["db"]
+
+[[fn]]
+name = "query2"
+py = "(db: Connection, sql: str, params: list[object]) -> list[dict[str, object]]"
+c_symbol = "sqlite3_prepare_v2 + sqlite3_bind_* + sqlite3_step"
+abi = "ps_ffi_sqlite_query2"
+borrows = ["db"]
+
+[[fn]]
+name = "lastrowid"
+py = "(db: Connection) -> int"
+c_symbol = "sqlite3_last_insert_rowid"
+abi = "ps_ffi_sqlite_lastrowid"
+borrows = ["db"]
