@@ -594,13 +594,13 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#91",
     ),
     _row(
-        "D92",
+        "D93",
         "the subprocess.Popen child handle (issue #1345): the spawn, the pid, the poll, the bounded wait with "
         "its TimeoutExpired, the signals and the incremental pipe reads are byte-identical to the pinned "
         "CPython; a stream that was not piped answers a handle whose read raises ValueError where CPython "
         "answers None, and the communicate call, the spawn environment keywords and the computed bounds fence",
         None,
-        docs=f"{DOC}#92",
+        docs=f"{DOC}#93",
         note="the host lane is byte-identical (probes/differential/subprocess_popen.py); the unpiped-stream "
         "read, the communicate fence (PS2001) and the literal-bound fences (PS2003) are the rest of the entry",
     ),

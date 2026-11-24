@@ -1375,10 +1375,10 @@
       "status": "divergent"
     },
     {
-      "id": "D92",
+      "id": "D93",
       "seam": "the subprocess.Popen child handle (issue #1345): the spawn, the pid, the poll, the bounded wait with its TimeoutExpired, the signals and the incremental pipe reads are byte-identical to the pinned CPython; a stream that was not piped answers a handle whose read raises ValueError where CPython answers None, and the communicate call, the spawn environment keywords and the computed bounds fence",
       "listed": true,
-      "docs": "docs/reference/divergences.md#92",
+      "docs": "docs/reference/divergences.md#93",
       "probe": null,
       "note": "the host lane is byte-identical (probes/differential/subprocess_popen.py); the unpiped-stream read, the communicate fence (PS2001) and the literal-bound fences (PS2003) are the rest of the entry",
       "cpython": null,
