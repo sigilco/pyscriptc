@@ -213,14 +213,7 @@ def test_field_default_mixed_with_factory(tmp_path: Path) -> None:
 
 
 def test_type_conflict_between_const_and_field_fences() -> None:
-    fences = _fences(
-        "class C:\n"
-        "    x: int = 1\n"
-        "    x: str\n"
-        "\n"
-        "    def __init__(self) -> None:\n"
-        "        self.x = 'a'\n"
-    )
+    fences = _fences("class C:\n    x: int = 1\n    x: str\n\n    def __init__(self) -> None:\n        self.x = 'a'\n")
     assert any(fence["code"] == "PS1003" and "C.x" in fence["message"] for fence in fences)
 
 
