@@ -2464,8 +2464,6 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 self.fail(stmt, "PS2002", "callable fields are not lowered")
             field: dict[str, Any] = {"name": name, "type": typ}
             if stmt.value is not None:
-                if seen_default:
-                    self.fail(stmt, "PS2002", "a non-default field follows a default")
                 saved_prelude = self.prelude
                 self.prelude = []
                 try:

@@ -29,10 +29,7 @@ def _class(source: str, name: str) -> dict:
 
 def test_fields_come_from_the_annotations() -> None:
     info = _class(
-        "from typing import NamedTuple\n"
-        "class P(NamedTuple):\n"
-        "    x: int\n"
-        "    y: str\n",
+        "from typing import NamedTuple\nclass P(NamedTuple):\n    x: int\n    y: str\n",
         "P",
     )
     assert [(f["name"], f["type"]["kind"]) for f in info["fields"]] == [("x", "int"), ("y", "str")]
@@ -40,17 +37,11 @@ def test_fields_come_from_the_annotations() -> None:
 
 def test_both_base_spellings_declare_the_class() -> None:
     from_import = _class(
-        "from typing import NamedTuple\n"
-        "class P(NamedTuple):\n"
-        "    x: int\n"
-        "    y: str\n",
+        "from typing import NamedTuple\nclass P(NamedTuple):\n    x: int\n    y: str\n",
         "P",
     )
     qualified = _class(
-        "import typing\n"
-        "class P(typing.NamedTuple):\n"
-        "    x: int\n"
-        "    y: str\n",
+        "import typing\nclass P(typing.NamedTuple):\n    x: int\n    y: str\n",
         "P",
     )
     assert from_import["fields"] == qualified["fields"]
@@ -58,10 +49,7 @@ def test_both_base_spellings_declare_the_class() -> None:
 
 def test_typing_forms_of_the_field_annotations() -> None:
     info = _class(
-        "from typing import NamedTuple, Optional\n"
-        "class P(NamedTuple):\n"
-        "    xs: list[int]\n"
-        "    maybe: Optional[int]\n",
+        "from typing import NamedTuple, Optional\nclass P(NamedTuple):\n    xs: list[int]\n    maybe: Optional[int]\n",
         "P",
     )
     kinds = [f["type"]["kind"] for f in info["fields"]]
@@ -138,57 +126,52 @@ def test_positional_and_keyword_construction_mix() -> None:
     assert module["fences"] == []
 
 
-def test_method_in_the_body_is_a_ps1204_fence() -> None:
-    fences = _fences(
+def test_several_defaults_fill_in_order() -> None:
+    module = lower_source(
         "from typing import NamedTuple\n"
         "class P(NamedTuple):\n"
-        "    x: int\n"
-        "    def m(self) -> int:\n"
-        "        return 1\n"
+        "    x: int = 1\n"
+        "    y: str = 'd'\n"
+        "\n"
+        "\n"
+        "def probe() -> int:\n"
+        "    p: P = P()\n"
+        "    q: P = P(5)\n"
+        "    r: P = P(5, 'e')\n"
+        "    return p.x + q.x + r.x\n",
+        "case.py",
+    )
+    assert module["fences"] == []
+
+
+def test_method_in_the_body_is_a_ps1204_fence() -> None:
+    fences = _fences(
+        "from typing import NamedTuple\nclass P(NamedTuple):\n    x: int\n    def m(self) -> int:\n        return 1\n"
     )
     assert any(f["code"] == "PS1204" for f in fences)
 
 
 def test_empty_body_is_a_ps2003_fence() -> None:
-    fences = _fences(
-        "from typing import NamedTuple\n"
-        "class P(NamedTuple):\n"
-        "    pass\n"
-    )
+    fences = _fences("from typing import NamedTuple\nclass P(NamedTuple):\n    pass\n")
     assert any(f["code"] == "PS2003" for f in fences)
 
 
 def test_other_base_alongside_namedtuple_fences() -> None:
     fences = _fences(
-        "from typing import NamedTuple\n"
-        "class Base:\n"
-        "    pass\n"
-        "\n"
-        "\n"
-        "class P(Base, NamedTuple):\n"
-        "    x: int\n"
+        "from typing import NamedTuple\nclass Base:\n    pass\n\n\nclass P(Base, NamedTuple):\n    x: int\n"
     )
     assert fences
 
 
 def test_bool_field_keeps_the_tuple_class_fence() -> None:
-    fences = _fences(
-        "from typing import NamedTuple\n"
-        "class P(NamedTuple):\n"
-        "    ok: bool\n"
-    )
+    fences = _fences("from typing import NamedTuple\nclass P(NamedTuple):\n    ok: bool\n")
     assert any(f["code"] == "PS2002" for f in fences)
 
 
 def test_default_order_fence_survives_the_checker_bypass() -> None:
     # CPython rejects a non-default field after a default; the fence here is
     # the tuple class's own field-order rule.
-    fences = _fences(
-        "from typing import NamedTuple\n"
-        "class P(NamedTuple):\n"
-        "    x: int = 1\n"
-        "    y: int\n"
-    )
+    fences = _fences("from typing import NamedTuple\nclass P(NamedTuple):\n    x: int = 1\n    y: int\n")
     assert fences
 
 
@@ -224,7 +207,5 @@ def test_asdict_and_replace_stay_fenced() -> None:
 
 
 def test_namedtuple_as_a_value_stays_a_ps2002_fence() -> None:
-    fences = _fences(
-        "from typing import NamedTuple\nP = NamedTuple('P', [('x', int)])\n"
-    )
+    fences = _fences("from typing import NamedTuple\nP = NamedTuple('P', [('x', int)])\n")
     assert any(f["code"] == "PS2002" for f in fences)

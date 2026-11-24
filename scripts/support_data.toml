@@ -992,6 +992,13 @@ def size(p: T) -> int:
 @@
 y: int = size(Point())''',
   'q: typing.Mapping[str, int] = d',
+  '''from typing import NamedTuple
+class Pt(NamedTuple):
+    x: int
+    y: str
+@@
+p: Pt = Pt(1, "a")
+y: int = p.x''',
 ]
 no = [
   ["Any annotation", 'y: typing.Any = n', "PS1104"],
@@ -1044,11 +1051,6 @@ y: int = 0''', "PS1105"],
   ["TypedDict class base", '''from typing import TypedDict
 class M(TypedDict):
     a: int
-@@
-y: int = 1''', "PS2002"],
-  ["NamedTuple class base", '''from typing import NamedTuple
-class Pt(NamedTuple):
-    x: int
 @@
 y: int = 1''', "PS2002"],
   ["NewType value", 'UserId = typing.NewType("UserId", int)', "PS2002"],
