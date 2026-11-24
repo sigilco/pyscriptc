@@ -70,7 +70,15 @@ def test_pyi_matches_manifest_surface() -> None:
     assert set(funcs) == {fn["name"] for fn in manifest["fn"]}
     for fn in manifest["fn"]:
         node = funcs[fn["name"]]
-        signature = "(" + ", ".join(f"{a.arg}: {ast.unparse(a.annotation)}" for a in node.args.args) + ")"
+        pieces: list[str] = []
+        defaults = node.args.defaults
+        first_default = len(node.args.args) - len(defaults)
+        for index, arg in enumerate(node.args.args):
+            text = f"{arg.arg}: {ast.unparse(arg.annotation)}"
+            if index >= first_default:
+                text += f" = {ast.unparse(defaults[index - first_default])}"
+            pieces.append(text)
+        signature = "(" + ", ".join(pieces) + ")"
         signature += f" -> {ast.unparse(node.returns)}"
         assert signature == fn["py"], fn["name"]
     annotated = {n.target.id for n in tree.body if isinstance(n, ast.AnnAssign) and isinstance(n.target, ast.Name)}

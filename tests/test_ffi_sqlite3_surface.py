@@ -97,6 +97,64 @@ def _oracle(tmp_path: Path, name: str, source_path: Path) -> tuple[bytes, bytes,
     return ran.stdout, ran.stderr, ran.returncode
 
 
+def test_connect_keywords_match_cpython(tmp_path: Path) -> None:
+    """`connect(path, timeout=, isolation_level=None)` compiles and runs.
+
+    The keywords fill the manifest's declared slots; `isolation_level`
+    accepts only None (the adapter's autocommit), so CPython's string
+    levels raise where CPython honors them.
+    """
+    source = """
+import sqlite3
+
+
+def main() -> None:
+    db = sqlite3.connect(":memory:", timeout=1.5, isolation_level=None)
+    db.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)")
+    cur = db.execute("INSERT INTO t (name) VALUES ('kw')", [])
+    print("kw rowcount", cur.rowcount)
+    cur = db.execute("SELECT name FROM t")
+    row = cur.fetchone()
+    if row is not None:
+        print("row", row[0])
+    db.close()
+
+
+main()
+"""
+    path = tmp_path / "kw.py"
+    path.write_text(source, encoding="utf-8")
+    native = _run(_build(tmp_path, "kw", path), tmp_path)
+    oracle = _oracle(tmp_path, "kw", path)
+    assert native == oracle
+    assert b"kw rowcount 1" in native[0]
+    assert b"row kw" in native[0]
+
+
+def test_isolation_level_other_than_none_refuses(tmp_path: Path) -> None:
+    """A string isolation level raises RuntimeError, the subset's seam."""
+    source = """
+import sqlite3
+
+
+def main() -> None:
+    try:
+        db = sqlite3.connect(":memory:", isolation_level="DEFERRED")
+        db.close()
+    except RuntimeError as exc:
+        print("refused:", str(exc))
+
+
+main()
+"""
+    path = tmp_path / "iso.py"
+    path.write_text(source, encoding="utf-8")
+    binary = _build(tmp_path, "iso", path)
+    native = _run(binary, tmp_path)
+    assert native[2] == 0
+    assert b"refused: sqlite3: only isolation_level=None" in native[0]
+
+
 def test_probe_matches_cpython(tmp_path: Path) -> None:
     """The probe source byte-compares: stdout, stderr and the exit code."""
     native = _run(_build(tmp_path, "probe", PROBE), tmp_path)

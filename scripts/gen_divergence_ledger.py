@@ -773,8 +773,8 @@ ROWS: list[dict[str, Any]] = [
         "D95",
         "the sqlite3 subset (issue #1343): the row is a list[object] in column order where CPython's cursor "
         "row is a tuple, cur.description answers the list of names where CPython answers a tuple of 7-tuples, "
-        "cur.lastrowid answers 0 where CPython answers None on a cursor no execute ran on, connect takes the "
-        "path only (no timeout, no isolation_level, no row_factory), the refused statement is RuntimeError "
+        "cur.lastrowid answers 0 where CPython answers None on a cursor no execute ran on, connect accepts the "
+        "path, the timeout and only isolation_level=None (no row_factory), the refused statement is RuntimeError "
         "where CPython raises the sqlite3.Error subclasses, and db.close() consumes the handle so a later "
         "statement is the PS4010 compile fence",
         None,

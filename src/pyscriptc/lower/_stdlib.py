@@ -68,7 +68,7 @@ from pyscriptc.stdmore import (
     member_callable,
     module_constant,
 )
-from pyscriptc.tirserde import dict_to_node, node_to_dict
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
 
 # boxed:begin
@@ -251,14 +251,17 @@ class StdlibDispatchMixin(StdlibBindMixin):
         fn = manifest.function(attr) if manifest is not None else None
         if fn is None:
             self.fail(node, "PS2001", f"{module}.{attr} is not in the FFI manifest of {module}")
-        self._reject_keywords(node)
-        count = len(node.args)
-        if count < fn.required_arity or count > fn.arity:
-            self.fail(node, "PS2003", f"{module}.{attr} expects {fn.required_arity} argument(s)")
+        slots = self._ffi_arg_slots(node, fn.params, f"{module}.{attr}")
         args: list[dict[str, Any]] = []
         consumed_locals: list[str] = []
-        for index, arg_node in enumerate(node.args):
-            param = fn.params[index]
+        for index, param in enumerate(fn.params):
+            arg_node = slots[index]
+            if arg_node is None:
+                # The omitted argument materializes its default at the call
+                # site (issue #1343): the ABI call always carries the full
+                # arity, so the thunk's signature never changes.
+                args.append(self._ffi_default_arg(param, node, manifest))
+                continue
             want = type_ir(param.type, manifest.handle_names)
             arg = self._expr(arg_node, want)
             if not types_equal(arg["type"], want):
@@ -289,7 +292,7 @@ class StdlibDispatchMixin(StdlibBindMixin):
                         node,
                         "PS4011",
                         f"{owner} is borrowed here (it is a handle parameter or an alias of one), so this "
-                        f"function cannot consume it; the caller still owns the value",
+                        "function cannot consume it; the caller still owns the value",
                     )
                 if owner not in self.handle_locals:
                     self.fail(
@@ -311,6 +314,35 @@ class StdlibDispatchMixin(StdlibBindMixin):
         if want.get("optional"):
             return self._ffi_optional_call(module, manifest, attr, args, want, fn.abi, span, fn.probe)
         return self._abi_call(module, attr, args, want, fn.abi, span)
+
+    def _ffi_arg_slots(self, node: ast.Call, params: tuple[Any, ...], what: str) -> list[ast.expr | None]:
+        """The call's arguments against the declared parameters, by slot.
+
+        A keyword argument names a declared parameter (issue #1343): the
+        slot fills from the keyword, a positional argument fills the next
+        free slot, and an omitted parameter keeps its default. A keyword
+        that names no parameter, a duplicate, or a `**kwargs` spread is
+        refused: the manifest's signature is the whole contract.
+        """
+        slots: list[ast.expr | None] = [None] * len(params)
+        names = [param.name for param in params]
+        for index, arg_node in enumerate(node.args):
+            if index >= len(params):
+                self.fail(node, "PS2003", f"{what} expects {len(params)} argument(s)")
+            slots[index] = arg_node
+        for kw in node.keywords:
+            if kw.arg is None:
+                self.fail(node, "PS2002", "a keyword spread is not lowered in an FFI call")
+            if kw.arg not in names:
+                self.fail(node, "PS2003", f"{what} got an unexpected keyword argument {kw.arg}")
+            index = names.index(kw.arg)
+            if slots[index] is not None:
+                self.fail(node, "PS2003", f"{what} got {kw.arg} more than once")
+            slots[index] = kw.value
+        for index, param in enumerate(params):
+            if slots[index] is None and param.required:
+                self.fail(node, "PS1003", f"{what} expects {len(params)} argument(s)")
+        return slots
 
     def _ffi_method_call(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
         """Lower a method call on a `--ffi` handle against its `[[method]]` row.
@@ -339,15 +371,20 @@ class StdlibDispatchMixin(StdlibBindMixin):
                 "PS2001",
                 f"{handle_name}.{node.func.attr} is not in the FFI manifest of {module}",
             )
-        self._reject_keywords(node)
-        count = len(node.args)
-        if count < method.required_arity or count > method.arity:
-            self.fail(node, "PS2003", f"{handle_name}.{method.name} expects {method.required_arity} argument(s)")
+        self._reject_starred_kwargs(node)
+        slots = self._ffi_arg_slots(node, method.params, f"{handle_name}.{method.name}")
         args: list[dict[str, Any]] = [receiver]
         consumed_locals: list[str] = []
-        for index in range(count):
-            arg_node = node.args[index]
-            param = method.params[index]
+        for index, param in enumerate(method.params):
+            arg_node = slots[index]
+            if arg_node is None:
+                # The omitted defaulted argument materializes at the call
+                # site (issue #1343): an empty list display for a list
+                # parameter, the spelled constant for a scalar one. The
+                # ABI call always carries the full arity, so the thunk's
+                # signature never changes.
+                args.append(self._ffi_default_arg(param, node, manifest))
+                continue
             want = type_ir(param.type, manifest.handle_names)
             arg = self._expr(arg_node, want)
             if not types_equal(arg["type"], want):
@@ -390,12 +427,6 @@ class StdlibDispatchMixin(StdlibBindMixin):
                     self.fail(node, "PS4011", f"{owner} is consumed twice in one call")
                 consumed_locals.append(owner)
             args.append(arg)
-        # The omitted defaulted arguments materialize at the call site
-        # (issue #1343): an empty list display for a list parameter, the
-        # spelled constant for a scalar one. The ABI call always carries
-        # the full arity, so the thunk's signature never changes.
-        for param in method.params[count:]:
-            args.append(self._ffi_default_arg(param, node, manifest))
         for owner in consumed_locals:
             del self.handle_locals[owner]
             self.consumed_handles.add(owner)
@@ -473,6 +504,20 @@ class StdlibDispatchMixin(StdlibBindMixin):
             return _const_bool(param.default in ("True", "true", "1"), span)
         if want["kind"] == "str" and param.default is not None:
             return _const_str(param.default, span)
+        if want["kind"] == "dynval" and param.default == "None":
+            # The `object` arm's None default (issue #1343): the None arm
+            # of the tagged dynamic value, the runtime's own call.
+            return node_to_dict(
+                _ir.call(
+                    _ir.module_callee("builtins", "dyn.new"),
+                    [],
+                    dict_to_type(want),
+                    _mk_span(span),
+                    "ps_dyn_new_none",
+                    "",
+                    -1,
+                )
+            )
         self.fail(node, "PS2003", f"the default of {param.name} is not a lowered literal")
 
     def _ffi_optional_call(

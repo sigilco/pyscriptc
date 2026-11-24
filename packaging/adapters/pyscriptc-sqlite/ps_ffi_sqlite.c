@@ -625,8 +625,27 @@ void *ps_ffi_sqlite_conn_executemany(void *handle, int64_t n, const char *sql, v
     return cur;
 }
 
-void *ps_ffi_sqlite_conn_connect(int64_t n, const char *path) {
-    return ps_ffi_sqlite_connect(n, path);
+/* connect(path, timeout, isolation_level) -> Connection: the open with the
+   busy timeout the caller asked for (CPython's `timeout` is in seconds and
+   defaults to 5.0) and the isolation level, which the subset pins to
+   None (the adapter's autocommit): any other level is refused, because
+   the subset has no transaction control beyond `commit`. */
+void *ps_ffi_sqlite_conn_connect(int64_t n, const char *path, double timeout_s, void *isolation_level) {
+    if (isolation_level != NULL) {
+        const PsDyn *cell = isolation_level;
+        if (cell->tag != PS_DYN_NONE) {
+            ps_raise_cstr(PS_RUNTIMEERROR,
+                          "sqlite3: only isolation_level=None is supported by this adapter.");
+        }
+    }
+    void *handle = ps_ffi_sqlite_connect(n, path);
+    sqlite3 *db = ps_sqlite_live((ps_sqlite_conn *)handle);
+    int ms = (int)(timeout_s * 1000.0);
+    if (ms < 0) {
+        ms = 0;
+    }
+    sqlite3_busy_timeout(db, ms);
+    return handle;
 }
 
 int64_t ps_ffi_sqlite_conn_commit(void *handle) {

@@ -5,7 +5,10 @@
 # The surface (issue #1343) is the sqlite3 connection/cursor shape over the
 # vendored amalgamation:
 #
-#   connect(path)                the connection
+#   connect(path, timeout=, isolation_level=None)
+#                                 the connection; the busy timeout rides
+#                                 the open (isolation_level is accepted and
+#                                 pinned to None, the adapter's autocommit)
 #   conn.execute(sql, params)    the statement, bound; returns the cursor
 #   conn.executemany(sql, rows)  the statement per row of params
 #   conn.commit()                the commit
@@ -62,9 +65,9 @@ value = 101
 
 [[fn]]
 name = "connect"
-py = "(path: str) -> Connection"
+py = "(path: str, timeout: float = 5.0, isolation_level: object = None) -> Connection"
 c_symbol = "sqlite3_open_v2"
-abi = "ps_ffi_sqlite_connect"
+abi = "ps_ffi_sqlite_conn_connect"
 
 [[fn]]
 name = "close"

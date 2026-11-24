@@ -756,6 +756,16 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         if node.keywords:
             self.fail(node, "PS2003", "keyword arguments are not lowered")
 
+    def _reject_starred_kwargs(self, node: ast.Call) -> None:
+        """Refuse a `**kwargs` spread in a call that names its own slots.
+
+        An FFI call fills its slots from the manifest's signature, so a
+        spread carries no name the compiler can place (issue #1343).
+        """
+        for kw in node.keywords:
+            if kw.arg is None:
+                self.fail(node, "PS2002", "a keyword spread is not lowered in an FFI call")
+
     def _fill_args(self, node: ast.Call, params: list[dict[str, Any]], what: str) -> list[dict[str, Any]]:
         self._expand_kwdisplay(node)
         if any(kw.arg is None for kw in node.keywords):
