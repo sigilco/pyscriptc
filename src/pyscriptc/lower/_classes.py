@@ -2962,6 +2962,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if sig is None:
             return None
         owner = info.get("setter_owner", {}).get(attr, class_name)
+        # The write path belongs to the property the receiver resolves, not
+        # to any setter in the MRO: a subclass that redefines the getter
+        # without a setter replaces the property, and CPython's write then
+        # raises AttributeError.
+        prop_owner = info.get("method_owner", {}).get(attr, class_name)
+        if prop_owner != owner:
+            return None
         return owner, sig[0], sig[1]
 
     def _setter_emit_owner(self, class_name: str, attr: str) -> str:

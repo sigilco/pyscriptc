@@ -108,6 +108,35 @@ def _function_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], s
 
 
 class MiscEmitMixin:
+    def _class_attr_write_fence(self, target: ast.Attribute) -> None:
+        """`C.a = v` on the class itself, not an instance (D4a, issue #439).
+
+        The compiled subset keeps class state on instances and has no
+        descriptor objects, so a class-level write has no lowering: it
+        fences with its own message instead of the generic "not a field"
+        one.
+        """
+        if not isinstance(target.value, ast.Name):
+            return
+        name = target.value.id
+        class_name = self.class_aliases.get(name, name)
+        if class_name not in self.classes:
+            return
+        info = self.classes[class_name]
+        if info.get("method_kind", {}).get(target.attr) == "property":
+            self.fail(
+                target,
+                "PS2002",
+                f"{class_name}.{target.attr} writes the property on the class: the subset keeps "
+                "class state on instances (write it on an instance)",
+            )
+        self.fail(
+            target,
+            "PS2002",
+            f"{class_name}.{target.attr} writes a class attribute: the subset keeps "
+            "class state on instances (an instance field or a property setter)",
+        )
+
     def _module_const_container(self, node: ast.expr) -> tuple[str, dict[str, Any]] | None:
         """`(name, type)` when `node` reads a module-scope container constant.
 
@@ -253,6 +282,7 @@ class MiscEmitMixin:
     def _setattr_target(
         self, target: ast.Attribute, value_node: ast.expr, report: ast.AST, span: dict[str, Any]
     ) -> dict[str, Any]:
+        self._class_attr_write_fence(target)
         obj = self._expr(target.value)
         if _node_type_kind(obj) != "class":
             self.fail(target, "PS2001", f"attribute assignment is not lowered ({_dotted(target)})")
@@ -302,6 +332,11 @@ class MiscEmitMixin:
                     f"{class_name}.{target.attr} is a cached property: the value lives in the "
                     "instance slot, and an instance-dictionary write is not lowered",
                 )
+            if info.get("method_kind", {}).get(target.attr) == "property":
+                # A getter without a setter is CPython's AttributeError at
+                # compile time: the write site names the property (D4a,
+                # issue #439).
+                self.fail(target, "PS2001", f"{class_name}.{target.attr} is a read-only property")
             self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
         value = self._expr(value_node, field["type"])
         self._expect(report, value["type"], field["type"], target.attr)
