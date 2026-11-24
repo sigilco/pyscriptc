@@ -2473,10 +2473,16 @@ class _Frame:
                 # completes. Wrapped in an always-true if so the caller
                 # keeps a single statement per input.
                 result = value.args[0] if isinstance(value, IrNode) else value["args"][0]
-                leave = [
-                    self.field_set(RESULT if self.plan.kind == "coroutine" else STOP, result, span),
-                    *self.kind.finish(self, span),
-                ]
+                # A None-typed result stays out of the frame: the field holds
+                # the singleton, so the store is a no-op at the ABI and the
+                # const has no runtime value to emit.
+                result_kind = _const_type_kind(result)
+                leave = (
+                    []
+                    if result_kind == "none"
+                    else [self.field_set(RESULT if self.plan.kind == "coroutine" else STOP, result, span)]
+                )
+                leave = [*leave, *self.kind.finish(self, span)]
                 return _if(_const(True, _BOOL, span), leave, [], span)
             finish = self.kind.finish(self, span)
             return finish[0] if len(finish) == 1 else _if(_const(True, _BOOL, span), finish, [], span)
@@ -2545,6 +2551,18 @@ def _is_return_marker(value: Any) -> bool:
         return False
     callee = _node_callee(value)
     return _callee_kind(callee) == "builtin" and _callee_name(callee) == RETURN_MARKER
+
+
+def _const_type_kind(expr: Any) -> str | None:
+    """The type kind of a marker argument, typed node or whole dict."""
+    if isinstance(expr, dict):
+        typ = expr.get("type")
+        if isinstance(typ, dict):
+            return typ.get("kind")
+        return None
+    typ = getattr(expr, "type", None)
+    kind = getattr(typ, "kind", None)
+    return kind if isinstance(kind, str) else None
 
 
 def _contains_kind(stmt: Any, kind: str) -> bool:
