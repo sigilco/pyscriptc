@@ -281,6 +281,11 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             module, cls = floor
             return self._island_floor_class_call(node, span, module, cls, expect)
         # boxed:end
+        if name == "cls" and self.cls_class is not None:
+            # `cls(...)` inside a classmethod constructs the receiver class:
+            # the name reads the compile-time class id, so the call site is
+            # that class's constructor (issue #447).
+            return self._construct(node, span, self.cls_class)
         if name in self.class_aliases or name in self.classes:
             return self._construct(node, span, self.class_aliases.get(name, name))
         ftype = self.locals.get(name, self.captures.get(name))

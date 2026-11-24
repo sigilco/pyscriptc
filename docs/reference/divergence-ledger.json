@@ -184,7 +184,7 @@
     },
     {
       "id": "D10",
-      "seam": "Class.method(...) on classmethod/staticmethod does not pass the class object",
+      "seam": "a classmethod body's cls is the compile-time class id of the defining class (an int), not a class object: cls.attr resolves against that class (a subclass's own-name override is not seen), cls.method(...) and cls(...) are static calls against it, cls as a value fences",
       "listed": true,
       "docs": "docs/reference/divergences.md#10",
       "probe": "probes/divergences/d10_classmethod.py",
@@ -195,12 +195,12 @@
         "stderr": ""
       },
       "pyscriptc": {
-        "stage": "compile",
-        "exit": 3,
-        "stdout": "",
-        "stderr": "probes/divergences/d10_classmethod.py:6:16: PS2002: cls is not a local or parameter\n          return cls.total\n                 ^\n"
+        "stage": "run",
+        "exit": 0,
+        "stdout": "3\n",
+        "stderr": ""
       },
-      "status": "fenced"
+      "status": "identical"
     },
     {
       "id": "D11",

@@ -785,6 +785,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             "mro": mro,
             "chain": chain,
             "node": node,
+            "class_id": self._class_ids.assign(node.name),
         }
         if generated is not None:
             info["generated_init"] = generated
@@ -1065,7 +1066,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self.fn_globals = self._globals_for(stmt.body)
         params, ret = info["methods"][stmt.name]
         kind = info["method_kind"].get(stmt.name, "method")
-        if params and params[0]["name"] == "self":
+        if kind == "class":
+            # The cls row rides the emitted signature; the body reads the id
+            # through `self.cls_class`, not through a local (issue #447).
+            params = [{"name": "cls", "type": _leaf_type("int")}, *params]
+        elif params and params[0]["name"] == "self":
             params = [_self_param(class_name), *params[1:]]
         # A generator method's body lowers under the None-returning resume
         # signature; the outward frame type rides in the method signature.
@@ -1075,6 +1080,10 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self.fn_body = list(stmt.body)
         if kind in {"method", "property"}:
             self.locals["self"] = _class_type(class_name)
+        # A classmethod body lowers with the receiver class named: `cls`
+        # reads the compile-time class id (issue #447, divergence 10).
+        saved_cls_class = self.cls_class
+        self.cls_class = class_name if kind == "class" else None
         # Function-local imports rebind module names: snapshot the
         # compile-time binding tables so they restore when the body ends.
         saved_bindings = dict(self.bindings)
@@ -1085,6 +1094,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         try:
             body = self._body(list(stmt.body))
         finally:
+            self.cls_class = saved_cls_class
             self.bindings = saved_bindings
             self.type_aliases = saved_aliases
             self.declared = saved_declared
@@ -1894,6 +1904,18 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             return self._abi_call("pathlib", name, [obj], typ, symbol, span)
         if synth_method(class_name, name) is not None:
             self.fail(node, "PS2002", f"{class_name}.{name} is a function and is not a value")
+        # A classmethod body's `cls.<method>` reads the bound method off the
+        # class object (issue #447). The static answer is the closure over
+        # the emitted method record; a classmethod's record already takes
+        # the class id, an instance method's takes the implicit self.
+        sig = info["methods"].get(name)
+        if sig is not None and info.get("method_kind", {}).get(name) in {"class", "static", "method"}:
+            from pyscriptc.lower._expr import _closure_node
+
+            owner = info.get("method_owner", {}).get(name, class_name)
+            kind = info["method_kind"].get(name)
+            params = [param["type"] for param in sig[0][1:]] if kind == "class" else [param["type"] for param in sig[0]]
+            return _closure_node(f"cls.{owner}.{name}", {"kind": "func", "params": params, "return": sig[1]}, span)
         note = annotation_note(name)
         if note is not None:
             self.fail(node, "PS2001", note)

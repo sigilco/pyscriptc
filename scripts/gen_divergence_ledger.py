@@ -108,7 +108,7 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D10",
-        "Class.method(...) on classmethod/staticmethod does not pass the class object",
+        "a classmethod body's cls is the compile-time class id of the defining class (an int), not a class object: cls.attr resolves against that class (a subclass's own-name override is not seen), cls.method(...) and cls(...) are static calls against it, cls as a value fences",
         "d10_classmethod.py",
         docs=f"{DOC}#10",
     ),

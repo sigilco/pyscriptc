@@ -370,7 +370,7 @@ class ExprMixin(ExprCompareMixin):
                 f"{node.id} was consumed by an ffi call and is dead; open the resource again or use the "
                 "handle the consuming call returned",
             )
-        elif node.id in self.locals:
+        if node.id in self.locals:
             narrowed = self.opt_unwrap.get(node.id)
             if narrowed is not None:
                 # Inside `if x is not None:` a read of x is its tagged value.
@@ -381,7 +381,11 @@ class ExprMixin(ExprCompareMixin):
                 # payload, projected off the same cell (issue #1280).
                 return self._dyn_project(node.id, arm, span)
             return _name(node.id, self.locals[node.id], span)
-        elif node.id in self.captures:
+        if node.id == "cls" and self.cls_class is not None:
+            # A classmethod body's `cls` is the compile-time class id
+            # (issue #447, divergence 10): a plain int constant.
+            return _const_int(self._class_ids.of(self.cls_class), span)
+        if node.id in self.captures:
             return _name(node.id, self.captures[node.id], span)
         slot = self.global_slots.get(node.id)
         if slot is not None and slot.get("active"):
@@ -525,6 +529,14 @@ class ExprMixin(ExprCompareMixin):
     def _binary(self, node: ast.BinOp, span: dict[str, Any]) -> dict[str, Any]:
         if isinstance(node.op, ast.Mod) and isinstance(node.left, ast.Constant) and isinstance(node.left.value, str):
             return self._percent(node, span)
+        if self.cls_class is not None and (
+            (isinstance(node.left, ast.Name) and node.left.id == "cls")
+            or (isinstance(node.right, ast.Name) and node.right.id == "cls")
+        ):
+            # `cls` used as a value (issue #447): the id is a compile-time
+            # constant with no runtime identity, so any operator use stays
+            # fenced instead of silently computing on the id integer.
+            self.fail(node, "PS2002", "cls is the compile-time class id and is not a value")
         left = self._expr(node.left)
         right = self._expr(node.right)
         left_kind = left["type"]["kind"]
@@ -994,6 +1006,9 @@ class ExprMixin(ExprCompareMixin):
                 self.fail(node, "PS2001", note)
             self.fail(node, "PS2001", f"{dotted} is not in the lowered subset of {module}")
         class_name = self.class_aliases.get(node.value.id, node.value.id) if isinstance(node.value, ast.Name) else None
+        if class_name == "cls" and self.cls_class is not None:
+            # `cls.attr` inside a classmethod (issue #447, divergence 10).
+            class_name = self.cls_class
         if class_name is not None and class_name in self.classes:
             info = self.classes[class_name]
             if info.get("enum"):
@@ -1004,6 +1019,30 @@ class ExprMixin(ExprCompareMixin):
             const = self._class_const(class_name, node.attr)
             if const is not None:
                 return {**const, "span": span}
+            if self.cls_class == class_name and self._class_ids.of(class_name) != 0:
+                # `cls.attr` inside a classmethod (issue #447): CPython reads
+                # the attribute off the cls object; the static subset has no
+                # class object, so the read resolves at compile time against
+                # the method's own class. Constants and runtime slots use the
+                # ordinary resolution; a bound method rides the closure lane.
+                runtime = self._class_runtime_attr(class_name, node.attr)
+                if runtime is not None:
+                    owner, attr_type = runtime
+                    return self._class_attr_read(owner, node.attr, attr_type, span)
+                method_sig = self.classes[class_name]["methods"].get(node.attr)
+                if method_sig is not None:
+                    owner = self.classes[class_name].get("method_owner", {}).get(node.attr, class_name)
+                    if self.classes[class_name]["method_kind"].get(node.attr) == "property":
+                        self.fail(node, "PS2002", f"{class_name}.{node.attr} is a property and not a class value")
+                    params = (
+                        [param["type"] for param in method_sig[0][1:]]
+                        if self.classes[class_name]["method_kind"].get(node.attr) == "class"
+                        else [param["type"] for param in method_sig[0]]
+                    )
+                    return _closure_node(
+                        f"cls.{owner}.{node.attr}", {"kind": "func", "params": params, "return": method_sig[1]}, span
+                    )
+                self.fail(node, "PS2001", f"{class_name}.{node.attr} is not a field")
             runtime = self._class_runtime_attr(class_name, node.attr)
             if runtime is not None:
                 owner, attr_type = runtime

@@ -20,6 +20,7 @@ from pyscriptc import _irnode as _ir
 # boxed:begin
 from pyscriptc.boxed import DEF_HANDLE_SYMBOL  # boxed:end
 from pyscriptc.builtins import EXCEPTIONS, USER_EXC_BASE
+from pyscriptc.classids import ClassIdTable
 from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
 from pyscriptc.ffi_manifest import is_handle_type  # noqa: F401  # moved-verbatim import
@@ -257,6 +258,13 @@ class Lowerer(
         # it belongs to. Module -> name pairs, keyed by the local name.
         self.refused_imports: dict[str, str] = {}
         self.classes: dict[str, dict[str, Any]] = {}
+        # The compile-time class-id enum (issue #447): one id per lowered
+        # class, baked into classmethod call sites and re-read by the
+        # classmethod body's `cls` uses.
+        self._class_ids = ClassIdTable()
+        # The class whose classmethod body is lowering, None outside one:
+        # `cls` reads the compile-time class id while it is set.
+        self.cls_class: str | None = None
         # The names the module already spells as an enum subclass (issue
         # #1314): the second definition fences, the first renames. The
         # map holds each subclass's base members, so the subclass keeps

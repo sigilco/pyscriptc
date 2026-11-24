@@ -268,8 +268,22 @@ class CallAttrMixin:
         named = None
         if isinstance(node.func.value, ast.Name):
             named = self.class_aliases.get(node.func.value.id, node.func.value.id)
+            if named == "cls" and self.cls_class is not None:
+                # `cls.method(...)` inside a classmethod (issue #447): the
+                # receiver is the method's own class.
+                named = self.cls_class
         if named is not None and named in self.classes:
             return self._named_class_call(node, span, named)
+        if (
+            isinstance(node.func.value, ast.Name)
+            and node.func.value.id == "cls"
+            and self.cls_class is not None
+            and node.func.attr == self.cls_class
+            and not node.keywords
+        ):
+            # `cls(...)` inside a classmethod constructs the receiver class:
+            # the id names the class, so the call site is its constructor.
+            return self._construct(node, span, self.cls_class)
         const = self._module_const_container(node.func.value)
         if const is not None:
             name, typ = const
@@ -706,6 +720,10 @@ class CallAttrMixin:
             self.fail(node, "PS2002", f"{class_name}.{method} needs an instance")
         owner = info.get("method_owner", {}).get(method, class_name)
         args = self._fill_args(node, sig[0], f"{class_name}.{method}")
+        if kind == "class":
+            # The receiver class rides as the compile-time class id
+            # (issue #447, divergence 10); the body's `cls` reads it.
+            args = [_const_int(self._class_ids.of(class_name), span), *args]
         return _function_call_node(f"cls.{owner}.{method}", args, sig[1], span)
 
     def _method_call(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
@@ -746,6 +764,10 @@ class CallAttrMixin:
         if kind in {"static", "class"}:
             owner = info.get("method_owner", {}).get(method, class_name)
             args = self._fill_args(node, sig[0], f"{class_name}.{method}")
+            if kind == "class":
+                # The receiver class rides as the compile-time class id
+                # (issue #447, divergence 10); the body's `cls` reads it.
+                args = [_const_int(self._class_ids.of(class_name), span), *args]
         else:
             owner = self._emit_owner(class_name, method)
             params = [param for param in sig[0] if param["name"] != "self"]
