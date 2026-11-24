@@ -770,6 +770,13 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#94",
     ),
     _row(
+        "D95",
+        "argparse nargs: a list-valued option that does not appear reads an empty list (CPython None), and a "
+        "nargs='?' argument needs a default (an absent value would be None)",
+        "d95_argparse_nargs_absent.py",
+        docs=f"{DOC}#95",
+    ),
+    _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT
     ),
     _row(

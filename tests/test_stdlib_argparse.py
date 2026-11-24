@@ -901,3 +901,170 @@ def test_argparse_optional_subcommand_reads_empty_dest(tmp_path: Path) -> None:
     assert oracle.stdout == "4 None\n"
     chosen = subprocess.run([str(binary), "go"], capture_output=True, text=True, timeout=60)
     assert chosen.stdout == "1 'go'\n"
+
+
+def _compile_and_compare(tmp_path: Path, name: str, body: list[str], argvs: list[list[str]]) -> None:
+    """Compile once, run every argv natively and under CPython, compare stdout, stderr and the exit code."""
+    path = _script(tmp_path, name, body)
+    binary = tmp_path / path.stem
+    got = run_cli("compile", str(path), "--emit", "bin", "-o", str(binary))
+    assert got.returncode == 0, got.stderr
+    for argv in argvs:
+        native = subprocess.run([str(binary), *argv], capture_output=True, text=True, timeout=60)
+        oracle = subprocess.run([sys.executable, str(path), *argv], capture_output=True, text=True, timeout=60)
+        assert (native.stdout, native.stderr, native.returncode) == (oracle.stdout, oracle.stderr, oracle.returncode), argv
+
+
+def test_argparse_nargs_positionals_and_options_match_cpython(tmp_path: Path) -> None:
+    _compile_and_compare(
+        tmp_path,
+        "nargs_mix.py",
+        [
+            "import argparse",
+            "import sys",
+            "",
+            "def main() -> int:",
+            "    p = argparse.ArgumentParser(prog='t')",
+            "    p.add_argument('--v', action='store_true')",
+            "    p.add_argument('-n', '--num', type=int, nargs='?', const=9, default=1)",
+            "    p.add_argument('--l', nargs='+')",
+            "    p.add_argument('--pair', nargs=2, type=float)",
+            "    p.add_argument('a')",
+            "    p.add_argument('b', nargs='*')",
+            "    args = p.parse_args(sys.argv[1:])",
+            "    print(args.v, args.num, args.a, args.b)",
+            "    return 0",
+            "",
+            "main()",
+        ],
+        [
+            [],
+            ["x"],
+            ["x", "y", "z"],
+            ["--v", "x", "y"],
+            ["x", "--v", "y"],
+            ["-n"],
+            ["-n", "x"],
+            ["--num=3", "x"],
+            ["x", "--l", "p", "q"],
+            ["--l"],
+            ["--pair", "1"],
+            ["--pair", "1", "2.5", "x"],
+            ["--pair", "1", "w", "x"],
+            ["--", "x", "--v"],
+            ["x", "--", "-1", "--v"],
+            ["x", "-5"],
+            ["x", "--bad"],
+            ["-h"],
+        ],
+    )
+
+
+def test_argparse_nargs_remainder_after_a_command_word(tmp_path: Path) -> None:
+    """The motivating shape of #1373: a command word, then REMAINDER takes every token after it."""
+    _compile_and_compare(
+        tmp_path,
+        "nargs_rem.py",
+        [
+            "import argparse",
+            "import sys",
+            "",
+            "def main() -> int:",
+            "    p = argparse.ArgumentParser(prog='t')",
+            "    p.add_argument('--x', nargs=2)",
+            "    p.add_argument('cmd')",
+            "    p.add_argument('rest', nargs=argparse.REMAINDER)",
+            "    args = p.parse_args(sys.argv[1:])",
+            "    print(args.cmd, args.rest)",
+            "    return 0",
+            "",
+            "main()",
+        ],
+        [[], ["go"], ["go", "-a", "--x", "1"], ["--x", "1", "2", "go", "--x", "--", "foo"], ["go", "--", "--v"], ["--x", "1"]],
+    )
+
+
+def test_argparse_subcommands_nest_alias_and_follow_registration_order(tmp_path: Path) -> None:
+    _compile_and_compare(
+        tmp_path,
+        "nested.py",
+        [
+            "import argparse",
+            "import sys",
+            "",
+            "def main() -> int:",
+            "    p = argparse.ArgumentParser(prog='t', epilog='bye')",
+            "    p.add_argument('pre')",
+            "    sub = p.add_subparsers(dest='cmd', required=True, title='cmds', description='pick one', metavar='CMD')",
+            "    p.add_argument('post', nargs='?', default='P')",
+            "    run = sub.add_parser('run', aliases=['r'], help='run it', description='runs', epilog='see')",
+            "    run.add_argument('w', nargs='*')",
+            "    rem = sub.add_parser('remote')",
+            "    inner = rem.add_subparsers(dest='action', required=True)",
+            "    add = inner.add_parser('add', aliases=['a'])",
+            "    add.add_argument('urls', nargs='+')",
+            "    args = p.parse_args(sys.argv[1:])",
+            "    print(args.pre, args.cmd, args.post)",
+            "    if args.cmd == 'remote':",
+            "        print(args.action, args.urls)",
+            "    else:",
+            "        print(args.w)",
+            "    return 0",
+            "",
+            "main()",
+        ],
+        [
+            [],
+            ["pre"],
+            ["pre", "run"],
+            ["pre", "r", "a", "b"],
+            ["pre", "run", "a", "--", "b"],
+            ["pre", "remote"],
+            ["pre", "remote", "add"],
+            ["pre", "remote", "a", "u1", "u2"],
+            ["pre", "nope"],
+            ["pre", "remote", "zap"],
+            ["-h"],
+            ["pre", "run", "-h"],
+            ["pre", "remote", "-h"],
+            ["pre", "remote", "add", "-h"],
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("call", "message"),
+    [
+        ("p.add_argument('--a', nargs='A...')", "argparse nargs is an int count"),
+        ("p.add_argument('--a', nargs=0)", "argparse nargs is an int count"),
+        ("p.add_argument('--a', nargs=True)", "argparse nargs is an int count"),
+        ("p.add_argument('--a', nargs='*', default='x')", "argparse nargs list arguments take no default"),
+        ("p.add_argument('a', nargs='?')", "argparse nargs='?' needs a default"),
+        ("p.add_argument('--a', nargs='?', default='x')", "argparse nargs='?' option needs a const"),
+        ("p.add_argument('--a', nargs=2, action='store_true')", "argparse nargs takes the store action"),
+        ("p.add_argument('--a', nargs=2, type=Path)", "argparse type=Path does not take nargs"),
+        ("p.add_argument('--a', const='x')", "argparse const takes the store_const action or nargs='?'"),
+    ],
+)
+def test_argparse_nargs_fences_the_unlowered_shapes(call: str, message: str) -> None:
+    prologue = "import argparse\nfrom pathlib import Path\np: argparse.ArgumentParser = argparse.ArgumentParser(prog='t')\n"
+    fence = _first_fence(prologue + call + "\n")
+    assert message in fence["message"]
+    assert fence["code"] == "PS2003"
+
+
+def test_peek_namespace_fields_types_a_list_valued_nargs() -> None:
+    fields = _peek_fields(
+        "import argparse\n"
+        "\n"
+        "def main() -> int:\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    parser.add_argument('files', nargs='*')\n"
+        "    parser.add_argument('--n', nargs='+', type=int)\n"
+        "    parser.add_argument('--one', nargs='?', default='x', const='y')\n"
+        "    args = parser.parse_args()\n"
+        "    return 0\n"
+    )
+    assert fields is not None
+    assert [(f["name"], f["type"]["kind"]) for f in fields] == [("files", "list"), ("n", "list"), ("one", "str")]
+    assert fields[1]["type"]["elem"]["kind"] == "int"
