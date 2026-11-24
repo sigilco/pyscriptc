@@ -91,6 +91,9 @@ _INT_SURFACE: dict[str, tuple[str, ...]] = {
     # The asyncio subprocess capture constants (issue #1266): PIPE is -1,
     # the value CPython uses, and the runtime's pipe mask reads it whole.
     "asyncio.subprocess": ("PIPE",),
+    # The Popen pipe constants (issue #1345): PIPE and STDOUT are CPython's
+    # numbers, -1 and -2, and the spawn's pipe mask reads them whole.
+    "subprocess": ("PIPE",),
     # The POSIX signal constants the watchdog surface carries (issue #1244).
     # Values are read from the host interpreter; they are the kernel numbers,
     # so the CPython 3.14 oracle and the binary agree on every platform.
@@ -1243,7 +1246,7 @@ MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "pathlib": ("Path", "Stat"),
     "os": ("Stat", "TerminalSize"),
     "shutil": ("TerminalSize",),
-    "subprocess": ("CompletedProcess", "CompletedProcessText", "TimeoutExpired"),
+    "subprocess": ("CompletedProcess", "CompletedProcessText", "TimeoutExpired", "Popen", "PopenPipe"),
     "collections": ("Deque",),
     "hmac": ("Hmac",),
     "hashlib": ("Hash",),
@@ -1334,6 +1337,13 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # the command and the bound, but the runtime's exception record holds
     # the code and the message only, so the class has no field here.
     "TimeoutExpired": [],
+    # The sync child handle (issue #1345) is a runtime pointer: the child's
+    # pid, the reap state and the pipe fds live in the record, so the class
+    # has no field.
+    "Popen": [],
+    # The pipe handle (issue #1345) is a runtime pointer too: it carries the
+    # child record and the stream selector, so the class has no field.
+    "PopenPipe": [],
     "Hmac": [
         ("_key", _BY),
         ("_msg", _BY),
@@ -1471,6 +1481,11 @@ STREAM_CLASSES: frozenset[str] = frozenset({"StreamReader", "StreamWriter"})
 # value is its pointer.
 SERVER_CLASSES: frozenset[str] = frozenset({"Server"})
 
+# The sync child handle and its pipe handles (issue #1345): the child's
+# pid, the reap state and the pipe ends live in the runtime record, so the
+# class values are pointers.
+POPEN_CLASSES: frozenset[str] = frozenset({"Popen", "PopenPipe"})
+
 # The records that live in a global slot: a runtime pointer whose identity
 # has to hold across reads, the threading records and the queue records.
 PTR_CLASSES: frozenset[str] = (
@@ -1480,6 +1495,7 @@ PTR_CLASSES: frozenset[str] = (
     | APROC_CLASSES
     | STREAM_CLASSES
     | SERVER_CLASSES
+    | POPEN_CLASSES
     | {
         "ArgParser",
         "SubParsers",
@@ -1547,6 +1563,9 @@ TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("urllib.error", "HTTPError"): "HTTPError",
     ("urllib.error", "URLError"): "URLError",
     ("subprocess", "TimeoutExpired"): "TimeoutExpired",
+    # The sync child handle and its pipe handles (issue #1345).
+    ("subprocess", "Popen"): "Popen",
+    ("subprocess", "PopenPipe"): "PopenPipe",
     ("json", "JSONDecodeError"): "JSONDecodeError",
     ("asyncio", "Task"): "Task",
     ("asyncio", "CancelledError"): "CancelledError",

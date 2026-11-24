@@ -58,6 +58,7 @@ from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower._argparse import _add_argument, _add_parser, _add_subparsers, _parse_args
 from pyscriptc.restlower._asyncio import _task_method
 from pyscriptc.restlower._asyncio_proc import _proc_method
+from pyscriptc.restlower._popen import _pipe_method, _popen_method
 from pyscriptc.restlower._asyncio_server import _server_method
 from pyscriptc.restlower._asyncio_streams import _reader_method, _writer_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
@@ -429,6 +430,10 @@ class CallAttrMixin:
             return _prim_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "AsyncProcess":
             return _proc_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "Popen":
+            return _popen_method(self, node, span, receiver)
+        if kind == "class" and receiver["type"]["name"] == "PopenPipe":
+            return _pipe_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "Queue":
             return _queue_method(self, node, span, receiver)
         if kind == "class" and receiver["type"]["name"] == "ndarray":

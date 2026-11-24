@@ -47,6 +47,7 @@ from pyscriptc.reprspec import type_spec
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower import path_attr, rest_call
 from pyscriptc.restlower._dataclasses import container_factory, factory_ast
+from pyscriptc.restlower._popen import _reaped_fill
 from pyscriptc.restlower._uuid import uuid_hex_attr
 from pyscriptc.sigrec import T, type_to_dict
 from pyscriptc.stdmore import (
@@ -1828,6 +1829,28 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # code is -1 while the child still runs, where CPython's
             # returncode is None.
             return self._abi_call("asyncio", "Process.returncode", [obj], _leaf_type("int"), "ps_aproc_code_of", span)
+        if class_name == "Popen" and name in {"pid", "returncode", "stdout", "stderr", "stdin"}:
+            # The sync child handle's surface (issue #1345): the pid is a
+            # read into the record, the return code is the tagged
+            # `int | None` (None is the child that still runs, CPython's
+            # exact shape), and the three stream names hand back the pipe
+            # handle over the child (the same handle every spelling
+            # reads, the buffers live on the child). The stream handles
+            # are never None here, where CPython answers None for an
+            # unpiped stream.
+            if name == "pid":
+                return self._abi_call("subprocess", "Popen.pid", [obj], _leaf_type("int"), "ps_popen_pid", span)
+            if name == "returncode":
+                return _reaped_fill(self, obj, span, node)
+            stream = {"stdout": 0, "stderr": 1, "stdin": 2}[name]
+            return self._abi_call(
+                "subprocess",
+                f"Popen.{name}",
+                [obj, _const_int_node(stream, span)],
+                _class_type("PopenPipe"),
+                "ps_popen_pipe",
+                span,
+            )
         if class_name == "Thread" and name == "name":
             return self._abi_call("threading", "Thread.name", [obj], _leaf_type("str"), "ps_thread_name2", span)
         if class_name == "Thread" and name == "daemon":

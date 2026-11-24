@@ -801,6 +801,11 @@ class AbiMixin(EmitterBase):
                     # owns the header map and the part tree, the handle is
                     # the pointer.
                     "EmailMessage",
+                    # The sync child handle and its pipe handles (issue
+                    # #1345): the runtime owns the child record and the
+                    # pipe ends, so the values are the record pointers.
+                    "Popen",
+                    "PopenPipe",
                 }
                 or symbol.startswith("ps_ffi_")
                 # boxed:begin
