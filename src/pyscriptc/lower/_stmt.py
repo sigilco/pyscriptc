@@ -422,6 +422,14 @@ class StmtMixin(StmtAMixin, StmtBMixin):
                     # compiler's own peek refused, whose inferred type the
                     # subset can express, binds to the checker's proof.
                     inferred = self._bridge_type(stmt.value)
+                if inferred is not None and _type_kind(inferred) == "none":
+                    # Issue #1370: a local first bound to `None` widens to
+                    # `T | None` when every later binding in this body
+                    # proves one type `T`. The None itself names no type:
+                    # with no other typed binding, or with two later
+                    # bindings that disagree, the widening refuses and the
+                    # fence stands.
+                    inferred = self._infer_widened_none_type(stmt, target)
                 if inferred is not None and _type_kind(inferred) != "none":
                     self.locals[target] = inferred
                     value = self._expr(stmt.value, inferred)

@@ -20,6 +20,7 @@ from pyscriptc.lower._core import (
     _maybe_type_kind,
     _peek_annotated_params,
     _peek_annotation,
+    _show,
     _type_kind,
     _type_rt,
 )
@@ -1035,6 +1036,201 @@ class TypeInferMixin:
             return ast.Name(id=typ["name"], ctx=ast.Load())
         return ast.Name(id="__pin_unsupported__", ctx=ast.Load())
 
+    def _infer_widened_none_type(self, stmt: ast.Assign | ast.AnnAssign, target: str) -> dict[str, Any] | None:
+        """The `T | None` a None-initialised local widens to (issue #1370).
+
+        A local whose first binding is bare `None` says nothing on its own
+        (a fence by the inference contract), but the later typed bindings
+        in the same body do: when every other plain `name = v` binding in
+        this function's body lowers to one and the same type `T`, the
+        local is `T | None` — the value-level reading CPython gives the
+        idiom (`section = None` before the loop, `section = name` inside
+        it). The None itself never names a type: with no other typed
+        binding, or two later bindings that disagree, or any later binding
+        the peek cannot lower, the scan refuses and the caller keeps its
+        PS1001 fence. Nothing else is inferred from the None alone.
+
+        The scan walks this function's own body the way the real body
+        lowers it: a later binding is read under the narrowing context it
+        sits in (`section = name` inside `elif name is not None:` reads
+        the narrowed `str`, not the `str | None` the unpack bound), and
+        the names the body binds earlier are visible to the peek
+        (`section = line[1:]` reads the `for` target). Every later
+        binding must lower to the same `T` under its own context or the
+        widening refuses.
+        """
+        if self.function is None or self.inf_peek or target in self.bindings:
+            return None
+        state = _WidenScan(target)
+        saved_locals = self.locals
+        saved_unwrap = dict(self.opt_unwrap)
+        self.locals = dict(saved_locals)
+        self.opt_unwrap = {}
+        try:
+            self._widen_scan_body(self.fn_body, state)
+        finally:
+            self.locals = saved_locals
+            self.opt_unwrap = saved_unwrap
+        if state.proven is None or len(state.binds) < 2:
+            return None
+        first = state.binds[0]
+        if not (isinstance(first.value, ast.Constant) and first.value.value is None):
+            # The None must be the local's first binding: a `section = name`
+            # before the `section = None` is the type the local already
+            # proved, and the None after it is a rebind of a live concrete
+            # value, not the not-seen-yet state.
+            return None
+        opt = self._opt_type(state.proven, stmt)
+        self._record_inference(
+            {
+                "kind": "local",
+                "module": self.module_name,
+                "name": f"{self.function}.{target}",
+                "type": _show(opt),
+                "proof": (
+                    f"{target} is None first and every later binding proves "
+                    f"{_show(state.proven)}, so the local widens to {_show(opt)}"
+                ),
+            }
+        )
+        return opt
+
+    def _widen_scan_body(self, body: list[ast.stmt], state: _WidenScan) -> None:
+        """Walk the body for the widening proof, in source order.
+
+        The walk mirrors the real body pass: the plain assignments and the
+        tuple unpacks bind the names the later values read, the `for`
+        targets bind the iterable's element, and an `if`/`elif` branch
+        narrows the optionals its test proves. A binding of the target
+        itself is read under that context, and every one of them must
+        lower to the same type.
+
+        The narrowing rides `opt_unwrap`, the same table the real read
+        consults (`_expr` reads a narrowed name as its `_val`), so the
+        peek of a narrowed name answers the narrowed type.
+        """
+        for stmt in body:
+            if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef, ast.Lambda)):
+                continue
+            if isinstance(stmt, ast.Assign):
+                self._widen_bind_assign(stmt, state)
+                continue
+            if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
+                name = stmt.target.id
+                if name not in self.locals:
+                    typ = None
+                    if stmt.value is not None:
+                        typ = self._infer_type_known(stmt.value) or self._infer_type_of(stmt.value)
+                    if typ is not None and _type_kind(typ) not in {"none", "func"}:
+                        self.locals[name] = typ
+                continue
+            if isinstance(stmt, ast.For):
+                if isinstance(stmt.target, ast.Name):
+                    elem = self._yield_elem_of_iter(stmt.iter)
+                    if elem is not None and stmt.target.id not in self.locals:
+                        self.locals[stmt.target.id] = elem
+                self._widen_scan_body(stmt.body, state)
+                self._widen_scan_body(stmt.orelse, state)
+                continue
+            if isinstance(stmt, ast.While):
+                self._widen_scan_body(stmt.body, state)
+                self._widen_scan_body(stmt.orelse, state)
+                continue
+            if isinstance(stmt, ast.If):
+                self._widen_scan_if(stmt, state)
+                continue
+            if isinstance(stmt, ast.With):
+                for entry in stmt.items:
+                    if isinstance(entry.optional_vars, ast.Name):
+                        opened = self._infer_type_known(entry.context_expr) or self._infer_type_of(entry.context_expr)
+                        if opened is not None and _maybe_type_kind(opened) == "class":
+                            self.locals[entry.optional_vars.id] = opened
+                self._widen_scan_body(stmt.body, state)
+                continue
+            if isinstance(stmt, (ast.Try, ast.TryStar)):
+                self._widen_scan_body(stmt.body, state)
+                for handler in stmt.handlers:
+                    self._widen_scan_body(handler.body, state)
+                self._widen_scan_body(stmt.orelse, state)
+                self._widen_scan_body(stmt.finalbody, state)
+                continue
+
+    def _widen_scan_if(self, stmt: ast.If, state: _WidenScan) -> None:
+        """Scan an `if`/`elif` chain, narrowing each branch.
+
+        The branch a test proves carries the narrowed names: `elif name is
+        not None and data is None:` binds `section = name` under the
+        narrowing, so the value reads as the `str` the test proved, not
+        as the `str | None` the unpack bound. The narrowing rides the
+        same `opt_unwrap` table the real read consults.
+        """
+        when_true, when_false = self._narrow_names(stmt.test)
+        saved = dict(self.opt_unwrap)
+        for name in when_true:
+            opt = self._narrow_opt_type(name)
+            if opt is not None:
+                self.opt_unwrap[name] = opt
+        self._widen_scan_body(stmt.body, state)
+        self.opt_unwrap = saved
+        for name in when_false:
+            opt = self._narrow_opt_type(name)
+            if opt is not None:
+                self.opt_unwrap[name] = opt
+        self._widen_scan_body(stmt.orelse, state)
+        self.opt_unwrap = saved
+
+    def _widen_bind_assign(self, stmt: ast.Assign, state: _WidenScan) -> None:
+        """Bind one assignment's names, and read the target's own binding."""
+        if len(stmt.targets) != 1:
+            return
+        tgt = stmt.targets[0]
+        if isinstance(tgt, ast.Tuple) and all(isinstance(elt, ast.Name) for elt in tgt.elts):
+            self._widen_bind_unpack(stmt)
+            return
+        if not isinstance(tgt, ast.Name):
+            return
+        name = tgt.id
+        if name == state.target:
+            typ = self._infer_accumulated_type(stmt) or self._infer_type_of(stmt.value)
+            state.binds.append(stmt)
+            if typ is None or _type_kind(typ) in {"none", "func"} or _has_typevar(typ):
+                # A binding the peek cannot lower says nothing: the proof
+                # needs every later binding to agree.
+                state.proven = None
+                return
+            if state.proven is None:
+                state.proven = typ
+            elif not types_equal(state.proven, typ):
+                state.proven = None
+            return
+        if name in self.locals:
+            return
+        typ = (
+            self._infer_accumulated_type(stmt) or self._infer_type_known(stmt.value) or self._infer_type_of(stmt.value)
+        )
+        if typ is not None and _type_kind(typ) not in {"none", "func"}:
+            self.locals[name] = typ
+
+    def _widen_bind_unpack(self, stmt: ast.Assign) -> None:
+        """Bind the names of a tuple unpack, for the widening peek.
+
+        `name, data = _parseline(...)` binds each name the field's type.
+        A tuple class decodes through its field list, a list RHS gives
+        every name the element type (the real unpack length-checks at run
+        time, so the binding is as proven as the unpack itself). A shape
+        the peek cannot decode leaves the names out.
+        """
+        value_type = self._infer_type_known(stmt.value) or self._infer_type_of(stmt.value)
+        fields = self._tuple_fields_of(value_type)
+        if fields is None and isinstance(value_type, dict) and _maybe_type_kind(value_type) == "list":
+            if not value_type.get("set"):
+                fields = [value_type["elem"]] * len(stmt.targets[0].elts)
+        if fields is None:
+            return
+        for elt, field in zip(stmt.targets[0].elts, fields, strict=True):
+            if elt.id not in self.locals:
+                self.locals[elt.id] = field
+
     def _infer_fence(self, node: ast.AST, target: str) -> NoReturn:
         """The refusal fence, byte-identical to the pre-inference message.
 
@@ -1045,3 +1241,17 @@ class TypeInferMixin:
         does not lower) is a fence, never a guess.
         """
         self.fail(node, "PS1001", f"{target} needs an annotation before use")
+
+
+class _WidenScan:
+    """The state the widening scan carries through the body walk.
+
+    `binds` holds the target's own assignments in source order, `proven`
+    the one type every later binding agrees on (None when they disagree
+    or when one of them did not lower).
+    """
+
+    def __init__(self, target: str) -> None:
+        self.target = target
+        self.binds: list[ast.Assign] = []
+        self.proven: dict[str, Any] | None = None
