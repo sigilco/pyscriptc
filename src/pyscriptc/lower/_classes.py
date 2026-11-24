@@ -1252,7 +1252,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         """Truthiness of a class operand: the `__bool__` definer, else the
         `__len__` definer against zero, else None (the caller keeps the
         constant-True default the decision spells)."""
-        if expr["type"].get("optional"):
+        if expr["type"].get("optional") or expr["type"].get("island"):
             return None
         name = str(expr["type"]["name"])
         if self._definer(name, "__bool__") is None and self._definer(name, "__len__") is None:

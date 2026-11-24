@@ -519,7 +519,7 @@ class ExprMixin(ExprCompareMixin):
         if isinstance(node.op, ast.Not) and (kind in _TRUTHY or operand["type"].get("optional")):
             inner = self._truthy(operand, span)
             return _unary_node("not", inner, {"kind": "bool"}, span)
-        if isinstance(node.op, ast.Not) and kind == "class":
+        if isinstance(node.op, ast.Not) and kind == "class" and not operand["type"].get("island"):
             inner = self._truthy(operand, span)
             return _unary_node("not", inner, {"kind": "bool"}, span)
         if isinstance(node.op, ast.USub) and kind == "class" and operand["type"].get("name") == "TimeDelta":
@@ -1090,7 +1090,7 @@ class ExprMixin(ExprCompareMixin):
         if kind == "float":
             zero = _const_of("0.0", "float", span)
             return _compare("!=", expr, zero, span)
-        if kind == "class":
+        if kind == "class" and not expr["type"].get("island"):
             dispatched = self._truthy_dispatch(ast.Pass(), expr, span)
             if dispatched is not None:
                 return dispatched
@@ -1384,7 +1384,7 @@ class ExprMixin(ExprCompareMixin):
             else:
                 self.fail(value, "PS2004", f"f-string formatting of {_show(arg['type'])} is not lowered")
         if not converted:
-            if arg["type"]["kind"] == "class" and arg["type"].get("name") != "Path":
+            if arg["type"]["kind"] == "class" and arg["type"].get("name") != "Path" and not arg["type"].get("island"):
                 # The format resolution (decision 2026-11-23, O3a): a user
                 # __format__ definer takes the spec (empty when the field
                 # spells none); without one only the empty spec is the plain
@@ -1504,7 +1504,7 @@ class ExprMixin(ExprCompareMixin):
             return expr
         if kind in {"int", "float"}:
             return _builtin_call("str", [expr], {"kind": "str"}, span)
-        if kind == "class" and expr["type"].get("name") != "Path":
+        if kind == "class" and expr["type"].get("name") != "Path" and not expr["type"].get("island"):
             # The format resolution (decision 2026-11-23, O3a): a bare
             # `{x}` field with no conversion is `format(x, "")`, so a user
             # __format__ definer answers before the str/repr order.

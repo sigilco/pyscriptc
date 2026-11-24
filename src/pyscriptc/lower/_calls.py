@@ -160,7 +160,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             folded = _static_builtin_fold("hash", arg, span, fence=self)
             if folded is not None:
                 return folded
-            if _node_type_kind(arg) == "class":
+            if _node_type_kind(arg) == "class" and not arg["type"].get("island"):
                 called = self._hash_dispatch(node, arg, span)
                 if called is not None:
                     return called
@@ -170,7 +170,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         if name == "format" and not node.keywords and len(node.args) == 2:
             arg = self._expr(node.args[0])
             spec = self._expr(node.args[1])
-            if _node_type_kind(arg) == "class":
+            if _node_type_kind(arg) == "class" and not arg["type"].get("island"):
                 cname = str(arg["type"].get("name"))
                 if self._definer(cname, "__format__") is not None:
                     called = self._dunder_call(node, arg, "__format__", [spec], span)
@@ -246,7 +246,8 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                         called = self._dunder_call(node, args[0], "__repr__", [], span)
                     if called is not None:
                         return called
-                if name == "hash" and len(args) == 1 and _node_type_kind(args[0]) == "class":
+                hashable = _node_type_kind(args[0]) == "class" and not args[0]["type"].get("island")
+                if name == "hash" and len(args) == 1 and hashable:
                     called = self._hash_dispatch(node, args[0], span)
                     if called is not None:
                         return called
@@ -1251,7 +1252,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         if folded is not None:
             return folded
         kind = _node_type_kind(arg)
-        if kind == "class" and not arg["type"].get("optional"):
+        if kind == "class" and not arg["type"].get("optional") and not arg["type"].get("island"):
             dispatched = self._truthy_dispatch(node, arg, span)
             if dispatched is not None:
                 return dispatched
