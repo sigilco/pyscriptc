@@ -26,7 +26,7 @@ Spell them from `typing` or `collections.abc` in any import shape (`from`, `impo
 `Mapping[K, V]` and `MutableMapping` erase to `dict[K, V]`, `MutableSequence[T]` and `Collection[T]` to `list[T]`, `AbstractSet[T]` and `MutableSet[T]` to `set[T]`; the argument must be that concrete container.
 7. Generic helpers use the PEP 484 spelling.
 `T = TypeVar("T")` at module level plus `def first(xs: list[T]) -> T` monomorphizes per call site, over scalars and user classes alike.
-`T | None`, `Callable[[T], U]` and a TypeVar key in `dict[K, V]` / `Mapping[K, V]` monomorphize the same way; a bound `TypeVar` erases to its bound; constraints and variance flags (`infer_variance` too) are accepted and not enforced.
+`T | None`, `Callable[[T], U]`, a TypeVar key in `dict[K, V]` / `Mapping[K, V]`, a TypeVar field of a tuple (`tuple[T, int]`) and the homogeneous `tuple[T, ...]` monomorphize the same way; a bound `TypeVar` erases to its bound, and the bound may name a user class the module declares below the TypeVar; constraints and variance flags (`infer_variance` too) are accepted and not enforced.
 PEP 695 `def f[T](...)` fences (`PS1106`); `ParamSpec` and `TypeVar(..., default=...)` fence.
 8. Abstract and structural bases erase.
 `class Shape(ABC)`, `@abstractmethod`, `Protocol` bases, `@overload` stubs: the class lowers as a plain class, stub bodies are skipped, there is no runtime enforcement (divergence 14), the preflight checker is the guard.

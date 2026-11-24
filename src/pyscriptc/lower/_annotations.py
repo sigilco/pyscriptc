@@ -40,9 +40,34 @@ def _type(typ: dict[str, Any]) -> dict[str, Any]:
     Every type this module returns rounds through a `_irnode.T` record and
     back: `node_to_dict` reproduces the dict key for key, and `dict_to_type`
     refuses a shape the typed record cannot carry, so a drifted type dict
-    fails here instead of at the emitter.
+    fails here instead of at the emitter. A tuple-over-TypeVar template
+    (issue #412) never reaches the typed record: its `tuple_template`
+    field list has no typed spelling, so the raw dict passes through and
+    the substitution re-forms the concrete tuple class before emission.
     """
+    if _carries_tuple_template(typ):
+        return typ
     return node_to_dict(dict_to_type(typ))
+
+
+def _carries_tuple_template(typ: dict[str, Any]) -> bool:
+    """True when a type (or a type nested in it) carries a tuple-over-TypeVar
+    template (issue #412). The typed record cannot spell the template's
+    field list, so such a type stays a plain dict until the substitution
+    re-forms the concrete tuple class."""
+    if not isinstance(typ, dict):
+        return False
+    if typ.get("tuple_template") is not None or typ.get("tuple_var"):
+        return True
+    for key in ("elem", "key", "value", "return"):
+        inner = typ.get(key)
+        if isinstance(inner, dict) and _carries_tuple_template(inner):
+            return True
+    for key in ("params", "tuple_template"):
+        for inner in typ.get(key) or []:
+            if isinstance(inner, dict) and _carries_tuple_template(inner):
+                return True
+    return False
 
 
 _UNWRAP_FORMS = frozenset({"Final", "ClassVar", "Annotated", "Required", "NotRequired"})
@@ -180,16 +205,23 @@ class AnnotationMixin:
         return params, ret
 
     def _subst(self, typ: dict[str, Any], mapping: dict[str, dict[str, Any]], node: ast.AST) -> dict[str, Any]:
-        """`_subst_type`, then the optionals it concretized re-formed (issue #412).
+        """`_subst_type`, then the optionals and tuple templates it concretized re-formed (issue #412).
 
         A `T | None` template carries the TypeVar in its `elem`; once the
         TypeVar is bound, the optional is the concrete `opt_<T>` class, which
-        `_opt_type` declares on first use.
+        `_opt_type` declares on first use. A tuple over a TypeVar carries its
+        fields in `tuple_template`; once every TypeVar is concrete, the tuple
+        class is declared with the substituted layout.
         """
         return self._concrete_opt(_subst_type(typ, mapping), node)
 
     def _concrete_opt(self, typ: dict[str, Any], node: ast.AST) -> dict[str, Any]:
         kind = typ["kind"]
+        if kind == "class" and typ.get("tuple_template") is not None:
+            fields = typ["tuple_template"]
+            if any(_has_typevar(field) for field in fields):
+                return typ
+            return self._tuple_type(fields, node)
         if kind == "class" and typ.get("optional") and isinstance(typ.get("elem"), dict):
             elem = self._concrete_opt(typ["elem"], node)
             return typ if _has_typevar(elem) else self._opt_type(elem, node)
@@ -230,7 +262,7 @@ class AnnotationMixin:
             # reads lazily, so an alias may name a class collected later.
             return self._type_alias_type(node)
         if isinstance(node, ast.Name) and node.id in self.typevars:
-            bound = self.typevars[node.id]
+            bound = self._typevar_bound(node.id, node)
             if bound is not None:
                 return bound
             return _type({"kind": "typevar", "name": node.id})
@@ -862,6 +894,12 @@ class AnnotationMixin:
             # shape. Mixed or nested ellipsis stays the current fence.
             if len(elts) == 2 and _ellipsis_const(elts[1]) and not _node_has_ellipsis(elts[0]):
                 elem = self._annotation(elts[0])
+                if _has_typevar(elem):
+                    # `tuple[T, ...]` is the homogeneous shape (a list at the
+                    # IR), but the argument may be a fixed tuple; the marker
+                    # lets `_unify` bind T from either (issue #412). The raw
+                    # dict passes through: the typed record has no marker.
+                    return {"kind": "list", "elem": elem, "tuple_var": True}
                 typ = _type({"kind": "list", "elem": elem})
                 self._reject_banned_type(node, typ)
                 return typ
@@ -873,6 +911,17 @@ class AnnotationMixin:
     def _tuple_type(self, fields: list[dict[str, Any]], node: ast.AST) -> dict[str, Any]:
         if any(field["kind"] == "func" for field in fields):
             self.fail(node, "PS2002", "callable members are not lowered")
+        if any(_has_typevar(field) for field in fields):
+            # A tuple over a TypeVar (issue #412) is a template, like the
+            # `T | None` optional: no record is declared at the signature
+            # (a typevar field has no layout); the specialized tuple class
+            # is declared per call site once the TypeVar is concrete.
+            # The template stays a plain dict: the typed type record cannot
+            # carry the field list, and the template never reaches the IR
+            # (the substitution re-forms the concrete tuple class first).
+            label = "tuple[" + ", ".join(_show(field) for field in fields) + "]"
+            slug = "tuple_" + str(len(fields)) + "_" + "_".join(_type_slug(field) for field in fields)
+            return {"kind": "class", "name": slug, "label": label, "tuple_template": fields}
         label = "tuple[" + ", ".join(_show(field) for field in fields) + "]"
         name = "tuple_" + str(len(fields)) + "_" + "_".join(_type_slug(field) for field in fields)
         existing = self.classes.get(name)

@@ -429,7 +429,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         tvars = _sig_typevars([*(param["type"] for param in params), ret])
         for tv in tvars:
             if tv not in mapping:
-                bound = self.typevars.get(tv)
+                bound = self._typevar_bound(tv, node)
                 if bound is None:
                     self.fail(node, "PS1003", f"cannot infer {tv} for {name}")
                 mapping[tv] = bound
@@ -455,6 +455,16 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         self._unify(value["type"], ptype, mapping, node, arg_node)
         return value
 
+    def _tuple_fields_of(self, typ: dict[str, Any]) -> list[dict[str, Any]] | None:
+        """The field types of a concrete tuple-typed value, or None when the
+        type is not a lowered tuple class the table declares."""
+        if not isinstance(typ, dict):
+            return None
+        info = self.classes.get(str(typ.get("name")))
+        if info is None or not info.get("tuple"):
+            return None
+        return [field["type"] for field in info["fields"]]
+
     def _unify(
         self,
         got: dict[str, Any],
@@ -467,7 +477,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         concrete parts match when nothing remains to bind."""
         if _type_kind(want) == "typevar":
             tv = want["name"]
-            bound = self.typevars.get(tv)
+            bound = self._typevar_bound(tv, node)
             existing = mapping.get(tv)
             if existing is not None:
                 if not types_equal(existing, got):
@@ -488,12 +498,29 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             inner = got["elem"] if _type_kind(got) == "class" and got.get("optional") else got
             self._unify(inner, want["elem"], mapping, node, arg_node)
             return
+        if _type_kind(want) == "list" and want.get("tuple_var"):
+            # `tuple[T, ...]` (issue #412) erases to the homogeneous list, so
+            # the argument is a list and T binds from its element.
+            if _type_kind(got) == "list":
+                self._unify(got["elem"], want["elem"], mapping, node, arg_node)
+                return
         if _type_kind(want) == "list" and _type_kind(got) == "list":
             self._unify(got["elem"], want["elem"], mapping, node, arg_node)
             return
         if _type_kind(want) == "dict" and _type_kind(got) == "dict":
             self._unify(got["key"], want["key"], mapping, node, arg_node)
             self._unify(got["value"], want["value"], mapping, node, arg_node)
+            return
+        if _type_kind(want) == "class" and want.get("tuple_template") is not None:
+            # Issue #412: a tuple over a TypeVar binds the TypeVars from the
+            # argument tuple's fields, one field for one template field.
+            fields = want["tuple_template"]
+            got_fields = self._tuple_fields_of(got)
+            if got_fields is None or len(got_fields) != len(fields):
+                self.fail(arg_node, "PS1003", f"argument is not a tuple for {_show(want)}")
+                return
+            for got_field, want_field in zip(got_fields, fields, strict=True):
+                self._unify(got_field, want_field, mapping, node, arg_node)
             return
         if _type_kind(want) == "func" and _type_kind(got) == "func":
             for got_param, want_param in zip(got["params"], want["params"], strict=False):
