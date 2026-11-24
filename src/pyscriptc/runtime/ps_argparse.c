@@ -973,9 +973,11 @@ static int64_t ps_arg_consume_positionals(PsArgLv *lv, int64_t start) {
         int dropped = 0;
         for (int64_t j = 0; j < cnt; j++) {
             int is_dd = lv->pat[index + j] == '-';
-            /* Strip the first `--`, except from a REMAINDER argument. */
+            /* Strip the first `--`, except from a REMAINDER argument; the
+               subcommand action only loses a `--` that starts its values. */
             int remainder = !taken[g].is_subs && lv->rows[taken[g].idx].nargs == PS_NARGS_REM;
-            if (is_dd && !dropped && !remainder) {
+            int leading = !taken[g].is_subs || j == 0;
+            if (is_dd && !dropped && !remainder && leading) {
                 dropped = 1;
                 continue;
             }
