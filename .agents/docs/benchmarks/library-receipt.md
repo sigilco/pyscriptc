@@ -98,3 +98,49 @@ tree), so the receipt asserts on the shape, never the host prefix.
 - No compiler or deps-lane change is carried by this receipt: everything
   it exercises ships in the track's other issues (#398, #408, #539,
   #550).
+
+## Pilot 2: iniconfig (issue #417)
+
+The second library pilot proves the general case: a package whose API is real code with real types. `benchmarks/library/iniconfig_pilot.py` is a PEP 723 program naming `iniconfig` and nothing else, pinned by `pylock.iniconfig_pilot.toml` (iniconfig 2.3.1, wheel sha256 `9121e2c1...`, lane `pure`). It parses a literal pytest-style ini document through the documented API (`ini["pytest"]["addopts"]`, a continuation value, `lineof`, `in`) and prints a `ParseError` for a malformed one.
+
+```bash
+uv run python -m benchmarks.library.pilot2 --json pilot2.json
+PYSC_NETWORK_TESTS=1 uv run pytest -q tests/test_deps_receipt.py -k iniconfig
+```
+
+The runner and the tests take the user's path: deps lane, the plain compile, no vendoring and no path edits. The multi-root seam needed no special-casing for this target: iniconfig resolves, prunes `iniconfig._version` (unreached) and lowers from the wheel source root.
+
+### Target choice, by measurement (2026-11-23, master `69b54156`)
+
+| candidate | `pyscriptc coverage` fences / root | reachable fences (consumer IR) |
+| --- | --- | --- |
+| iniconfig 2.3.1 | 23 / 22 | 33 |
+| tomli 2.5.0 | 51 / 43 | 81 |
+
+iniconfig wins on both counts, matching the #415 measurement (`.agents/docs/design/415-pure-dep-receipt.md`).
+
+### Fence profile before and after the #417 slices
+
+The PR lands two slices: the bare `Final` qualifier (`UTF8_BOM: Final = "..."`, PS1103) and `None` arms of an optional-field tuple return (`return None, x` under `-> tuple[str | None, str | None]`, PS1003 ×5).
+
+| measurement | before (`69b54156`) | after |
+| --- | --- | --- |
+| iniconfig coverage, fences / root | 23 / 22 | 17 / 16 |
+| iniconfig pilot, reachable | 33 | 27 |
+| tomli coverage, fences / root | 51 / 43 | 49 / 41 |
+| tomli consumer, reachable | 81 | 68 |
+| compiler self-census (`tests/census_pins`) | | 49 fewer across 16 modules |
+
+The 27 remaining reachable fences are one root each in five blocker slices plus their cascades:
+
+| blocker | sites | issue |
+| --- | --- | --- |
+| tuple dict keys (`_sources: Mapping[tuple[str, str \| None], int]`) | `__init__.py:92`, `:101`, `_parse.py:24`; cascades into `IniConfig takes no arguments` and every `ini` read | #1368 |
+| multi-argument exception `__init__` and fields (`ParseError(path, lineno, msg)`) | `exceptions.py:10`, `_parse.py:87`, `:94`, `:135`, the consumer's `except` | #448 |
+| `NamedTuple` base (`ParsedLine`) | `_parse.py:11`, `:83`, `:89` | #1369 |
+| `None`-initialised locals (`section = None`, `x if c else None`) | `_parse.py:76`, `:92` (+2 cascades) | #1370 |
+| `__getitem__` / `__contains__` dispatch (`ini["s"]["k"]`, `"s" in ini`) | the consumer reads | #446 |
+
+Not on the pilot's path: `get`'s `_D | _T | str | None` optional of a multi-arm union (PS1102, `__init__.py:70`, `:228`) and `SectionWrapper.__iter__`'s nested def in a generator. Fenced methods do not export, so the class still lowers; the pilot leaves `get` out for that reason.
+
+`tests/test_deps_receipt.py` pins the ceiling (`PILOT2_FENCE_CEILING = 27`, master reads 33 and fails it) and carries the full CPython match as a strict xfail: the day the profile reaches zero, the xfail fails and the match gets promoted. Lower the ceiling as each slice lands.

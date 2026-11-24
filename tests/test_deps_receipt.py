@@ -142,8 +142,8 @@ def test_iniconfig_pilot_fence_profile_is_within_the_ceiling(tmp_path: Path, mon
 @needs_toolchain
 @pytest.mark.xfail(
     strict=True,
-    reason="#417 follow-ups: tuple dict keys, multi-argument exceptions with attributes, NamedTuple, "
-    "None-initialised locals, dunder subscript/membership dispatch",
+    reason="#417 blockers: tuple dict keys #1368, exception init and fields #448, NamedTuple #1369, "
+    "None-initialised locals #1370, __getitem__/__contains__ dispatch #446",
 )
 def test_iniconfig_pilot_matches_cpython(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PYSC_UV", raising=False)

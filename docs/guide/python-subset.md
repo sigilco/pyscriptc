@@ -114,7 +114,7 @@ There is no `typing` module object in the binary.
 | `T \| None`, `Optional[T]` | compiles as a tagged optional; `is None` narrowing drives the branches |
 | `A \| B` (neither arm `None`), `Union[A, B]` | compiles as an erased annotation: the slot carries the first arm's layout, and a value of another arm fences at the call site (`PS1003`) |
 | `A \| B \| None`, `Union[A, B, None]` | unsupported (`PS1102`): an optional of a multi-arm union has no representation |
-| `Final`, `Final[int]`, `ClassVar[T]` | the inner annotation compiles; the checker enforces no reassignment |
+| `Final`, `Final[int]`, `ClassVar[T]` | the inner annotation compiles; the checker enforces no reassignment. A bare `X: Final = value` takes the value's type at module and function scope and in a plain class body; in a decorated or subclassed class body (a `@dataclass` field) bare `Final` is unsupported (`PS1103`) |
 | `Annotated[int, "..."]` | the first argument compiles, the rest is dropped |
 | `Callable[[int], int]` | compiles over functions and lambdas; bare `Callable` is unsupported (`PS1104`) |
 | `Iterator[int]`, `Iterable[int]`, `Generator[...]`, `Sequence[int]` | compiles (`Sequence[T]` reads as `list[T]`) from `typing` or `collections.abc`, imported directly, as `collections.abc.X`, or under `if TYPE_CHECKING:` |

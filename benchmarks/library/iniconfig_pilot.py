@@ -15,8 +15,10 @@ compiled binary's output against CPython running this same script.
 
 The input is a literal document passed as `data`, so neither lane reads a
 file and every printed value is deterministic: section and key reads, a
-multi-line continuation value, `lineof`, membership, `get` with a default
-and a converter, and the `ParseError` text for a malformed document.
+multi-line continuation value, `lineof`, membership, and the `ParseError`
+text for a malformed document. `IniConfig.get` is left out on purpose: its
+`_D | _T | str | None` return is an optional of a multi-arm union (PS1102),
+a gap of its own that the pilot does not need to prove the library path.
 """
 
 import iniconfig
@@ -46,8 +48,8 @@ def main() -> None:
     print(pytest_section["minversion"])
     print("pytest" in ini, "missing" in ini)
     print(ini.lineof("pytest"), ini.lineof("pytest", "minversion"), ini.lineof("missing"))
-    print(ini.get("tool:coverage", "fail_under", convert=int))
-    print(ini.get("tool:coverage", "missing", default="fallback"))
+    coverage = ini["tool:coverage"]
+    print(int(coverage["fail_under"]) + 1, coverage["branch"] == "true")
     try:
         iniconfig.IniConfig("broken.ini", data=MALFORMED)
     except iniconfig.ParseError as err:

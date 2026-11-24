@@ -34,7 +34,7 @@ Member reads through a protocol-typed name do not lower; read through a concrete
 `NamedTuple` and `TypedDict` class bases fence (`PS2002`); use `@dataclasses.dataclass` or a plain `dict[K, V]`.
 9. `Literal` and `Self` fence.
 Use a plain `str` parameter for modes and the class name (quoted only inside its own body before definition is fine for classes, but prefer `from __future__ import annotations`) for fluent returns.
-`Final`, `ClassVar`, `Annotated` unwrap to their inner annotation and lower.
+`Final`, `ClassVar`, `Annotated` unwrap to their inner annotation and lower; a bare `X: Final = value` takes the value's type (module, function and plain-class scope; a dataclass body fences it).
 10. `TYPE_CHECKING` bodies never lower and their imports stay erased; use the guard for annotation-only imports.
 `from __future__ import annotations` is accepted and avoids forward-reference fences (`PS1105`) for self-referencing classes.
 11. Runtime introspection is island material, not a typing failure.

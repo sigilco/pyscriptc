@@ -17,3 +17,5 @@ compile needs zig or clang. The pytest form of the same receipt is
 `tests/test_deps_receipt.py`, gated on `PYSC_NETWORK_TESTS=1` and run by
 the `network-receipt` CI job. The details (measured numbers, gotchas,
 scope) live in `.agents/docs/benchmarks/library-receipt.md`.
+
+Pilot 2 (issue #417) is iniconfig: `iniconfig_pilot.py` with `pylock.iniconfig_pilot.toml`, run by `uv run python -m benchmarks.library.pilot2`. It records the reachable fence profile and, once that is empty, diffs the binary against CPython; the measured profile and the blocker list are in the same doc.
