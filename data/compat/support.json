@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "14a3693466164bbb4c23e090ad3432283c0c9522",
+  "commit": "8d445468b4395b0714ebb5cb525c3ba592485c44",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -14,8 +14,8 @@
       "red": 23
     },
     "stdlib": {
-      "green": 1,
-      "yellow": 74,
+      "green": 0,
+      "yellow": 75,
       "red": 0
     },
     "packages": {
@@ -185,10 +185,12 @@
   "stdlib": [
     {
       "label": "`math`",
-      "status": "\ud83d\udfe2",
+      "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "",
-      "codes": []
+      "missing": "dist, ulp, nextafter, modf, frexp, ldexp, expm1, log1p, fma, sumprod",
+      "codes": [
+        "PS2001"
+      ]
     },
     {
       "label": "`re`",
@@ -911,8 +913,8 @@
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "249/641",
-      "blocking": "name-resolution (183), construct-other (119), field-lookup (64)",
+      "ratio": "245/641",
+      "blocking": "name-resolution (181), construct-other (118), field-lookup (64)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -968,7 +970,7 @@
       "version": "26.3",
       "status": "\ud83d\udfe1",
       "ratio": "278/558",
-      "blocking": "name-resolution (104), unlowered-type-name (98), field-lookup (83)",
+      "blocking": "name-resolution (104), unlowered-type-name (94), field-lookup (83)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
@@ -976,7 +978,7 @@
       "version": "1.1.1",
       "status": "\ud83d\udd34",
       "ratio": "75/132",
-      "blocking": "name-resolution (27), unlowered-type-name (21), type-mismatch (19)",
+      "blocking": "name-resolution (27), unlowered-type-name (20), type-mismatch (19)",
       "codes": "PS2002, PS1106, PS1003"
     },
     {
@@ -1000,7 +1002,7 @@
       "version": "2.34.2",
       "status": "\ud83d\udfe1",
       "ratio": "123/319",
-      "blocking": "name-resolution (45), unlowered-type-name (43), construct-other (23)",
+      "blocking": "name-resolution (45), unlowered-type-name (42), construct-other (23)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
