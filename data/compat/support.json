@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-23",
-  "commit": "69b5415698c4935931615a7d9f402a403d1ff654",
+  "commit": "209836bb15a8e388e047dc805b113d3f2f94f86a",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -913,8 +913,8 @@
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "249/641",
-      "blocking": "name-resolution (183), construct-other (119), field-lookup (64)",
+      "ratio": "245/641",
+      "blocking": "name-resolution (181), construct-other (118), field-lookup (64)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -970,7 +970,7 @@
       "version": "26.3",
       "status": "\ud83d\udfe1",
       "ratio": "278/558",
-      "blocking": "name-resolution (104), unlowered-type-name (98), field-lookup (83)",
+      "blocking": "name-resolution (104), unlowered-type-name (94), field-lookup (83)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
@@ -978,7 +978,7 @@
       "version": "1.1.1",
       "status": "\ud83d\udd34",
       "ratio": "75/132",
-      "blocking": "name-resolution (27), unlowered-type-name (21), type-mismatch (19)",
+      "blocking": "name-resolution (27), unlowered-type-name (20), type-mismatch (19)",
       "codes": "PS2002, PS1106, PS1003"
     },
     {
@@ -1002,7 +1002,7 @@
       "version": "2.34.2",
       "status": "\ud83d\udfe1",
       "ratio": "123/319",
-      "blocking": "name-resolution (45), unlowered-type-name (43), construct-other (23)",
+      "blocking": "name-resolution (45), unlowered-type-name (42), construct-other (23)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
