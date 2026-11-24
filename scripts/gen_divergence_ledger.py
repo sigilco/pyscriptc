@@ -771,6 +771,13 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D95",
+        "argparse nargs: a list-valued option that does not appear reads an empty list (CPython None), and a "
+        "nargs='?' argument needs a default (an absent value would be None)",
+        "d95_argparse_nargs_absent.py",
+        docs=f"{DOC}#95",
+    ),
+    _row(
+        "D96",
         "the sqlite3 subset (issue #1343): the row is a list[object] in column order where CPython's cursor "
         "row is a tuple, cur.description answers the list of names where CPython answers a tuple of 7-tuples, "
         "cur.lastrowid answers 0 where CPython answers None on a cursor no execute ran on, connect accepts the "
@@ -778,7 +785,7 @@ ROWS: list[dict[str, Any]] = [
         "where CPython raises the sqlite3.Error subclasses, and db.close() consumes the handle so a later "
         "statement is the PS4010 compile fence",
         None,
-        docs=f"{DOC}#95",
+        docs=f"{DOC}#96",
         note="the host lane is byte-identical on the ? binding of an int, a float, a str and a None, the NULL "
         "round trip, cur.rowcount, cur.lastrowid and the description's presence and count "
         "(probes/differential/sqlite3_params.py); the row shape, the description element shape, the lastrowid "
