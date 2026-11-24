@@ -912,7 +912,9 @@ def _compile_and_compare(tmp_path: Path, name: str, body: list[str], argvs: list
     for argv in argvs:
         native = subprocess.run([str(binary), *argv], capture_output=True, text=True, timeout=60)
         oracle = subprocess.run([sys.executable, str(path), *argv], capture_output=True, text=True, timeout=60)
-        assert (native.stdout, native.stderr, native.returncode) == (oracle.stdout, oracle.stderr, oracle.returncode), argv
+        assert (native.stdout, native.stderr, native.returncode) == (oracle.stdout, oracle.stderr, oracle.returncode), (
+            argv
+        )
 
 
 def test_argparse_nargs_positionals_and_options_match_cpython(tmp_path: Path) -> None:
@@ -980,7 +982,14 @@ def test_argparse_nargs_remainder_after_a_command_word(tmp_path: Path) -> None:
             "",
             "main()",
         ],
-        [[], ["go"], ["go", "-a", "--x", "1"], ["--x", "1", "2", "go", "--x", "--", "foo"], ["go", "--", "--v"], ["--x", "1"]],
+        [
+            [],
+            ["go"],
+            ["go", "-a", "--x", "1"],
+            ["--x", "1", "2", "go", "--x", "--", "foo"],
+            ["go", "--", "--v"],
+            ["--x", "1"],
+        ],
     )
 
 
@@ -1047,7 +1056,9 @@ def test_argparse_subcommands_nest_alias_and_follow_registration_order(tmp_path:
     ],
 )
 def test_argparse_nargs_fences_the_unlowered_shapes(call: str, message: str) -> None:
-    prologue = "import argparse\nfrom pathlib import Path\np: argparse.ArgumentParser = argparse.ArgumentParser(prog='t')\n"
+    prologue = (
+        "import argparse\nfrom pathlib import Path\np: argparse.ArgumentParser = argparse.ArgumentParser(prog='t')\n"
+    )
     fence = _first_fence(prologue + call + "\n")
     assert message in fence["message"]
     assert fence["code"] == "PS2003"

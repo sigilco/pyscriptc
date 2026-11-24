@@ -55,6 +55,8 @@ def parse(argv: list[str]) -> None:
 
 
 empty: list[str] = []
+
+
 def show_env(argv: list[str]) -> None:
     args = build().parse_args(argv)
     print(args.cmd, args.env, args.argv)
