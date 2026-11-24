@@ -365,6 +365,7 @@ class ModuleDriverMixin:
             saved_aliases = dict(self.type_aliases)
             saved_declared = set(self.declared)
             saved_typevars = dict(self.typevars)
+            saved_bounds = dict(self.typevar_bounds)
             try:
                 body = self._scope_exit_frees(self._body(list(fn.body)), span_of(fn, self.filename))
                 if self.caught:
@@ -394,6 +395,7 @@ class ModuleDriverMixin:
                 self.type_aliases = saved_aliases
                 self.declared = saved_declared
                 self.typevars = saved_typevars
+                self.typevar_bounds = saved_bounds
         self._drain_instances(lowered, lowered_classes, fences)
         lowered.extend(self.nested_fns)
         # The class-attribute initializers (issue #732) join the module's

@@ -872,6 +872,27 @@ def first(xs: list[T]) -> T | None:
     return xs[0] if xs else None
 @@
 y: int | None = first(xs)''',
+  '''from typing import TypeVar
+T = TypeVar("T")
+def head(pair: tuple[T, int]) -> T:
+    return pair[0]
+@@
+y: int = head((1, 2))''',
+  '''from typing import TypeVar
+T = TypeVar("T")
+def wide(xs: tuple[T, ...]) -> T:
+    return xs[0]
+@@
+y: int = wide([1, 2])''',
+  '''from typing import TypeVar
+T = TypeVar("T", bound=Point)
+class Point:
+    def __init__(self) -> None:
+        self.n: int = 1
+def size(p: T) -> int:
+    return p.n
+@@
+y: int = size(Point())''',
   'q: typing.Mapping[str, int] = d',
 ]
 no = [
