@@ -175,11 +175,18 @@ def render_coverage_text(report: dict[str, Any]) -> str:
         f"{total['unpinned_params']:>9} {rate:>9}"
     )
     if "typing" in report:
-        section = report["typing"]
-        count = section["summary"]["errors"] + section["summary"]["warnings"]
-        lines.append("")
-        lines.append(f"typing mode {section['mode']}: {count} finding(s)")
-        for finding in section["findings"]:
-            severity: str = finding["severity"]
-            lines.append(f"  {severity}: {finding['file']}:{finding['line']}: {finding['code']} {finding['message']}")
+        _render_typing(lines, report["typing"])
     return "\n".join(lines)
+
+
+def _render_typing(lines: list[str], section: dict[str, Any]) -> None:
+    """The typing section of the text report: the mode, then the findings."""
+
+    summary: dict[str, Any] = section["summary"]
+    count: int = summary["errors"] + summary["warnings"]
+    lines.append("")
+    lines.append(f"typing mode {section['mode']}: {count} finding(s)")
+    findings: list[dict[str, Any]] = section["findings"]
+    for finding in findings:
+        severity: str = finding["severity"]
+        lines.append(f"  {severity}: {finding['file']}:{finding['line']}: {finding['code']} {finding['message']}")

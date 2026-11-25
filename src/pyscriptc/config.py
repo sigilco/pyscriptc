@@ -22,7 +22,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from pyscriptc.errors import SpikeError
-from pyscriptc.typinglevels import LEVELS, TypingLevelError, TypingPolicy, check_level
+from pyscriptc.typinglevels import LEVELS, TypingLevelError, TypingPolicy
 
 CONFIG_CODE = "PS3102"
 
@@ -327,32 +327,13 @@ class Config:
         """
 
         table = self.typing if isinstance(self.typing, dict) else {}
-        mode: str = table.get("mode", "standard")
         try:
-            check_level(mode)
+            return TypingPolicy.from_table(table, self._typing_base())
         except TypingLevelError as exc:
             raise ConfigError(str(exc)) from exc
-        globs: dict[str, list[str]] = {}
-        for level in LEVELS:
-            if level not in table:
-                continue
-            value: Any = table[level]
-            if isinstance(value, str):
-                globs[level] = [value]
-            elif isinstance(value, list):
-                items: list[str] = []
-                for item in value:
-                    if not isinstance(item, str):
-                        raise ConfigError(f"{_where(self._typing_table(), level)} must be a glob or a list of globs")
-                    items.append(item)
-                globs[level] = items
-            else:
-                raise ConfigError(f"{_where(self._typing_table(), level)} must be a glob or a list of globs")
-        base: Path | None = self.origin.parent if self.origin is not None else None
-        return TypingPolicy(mode=mode, globs=globs, base=base)
 
-    def _typing_table(self) -> str:
-        return "pyscriptc.typing" if self.source == "pyscriptc.toml" else "tool.pyscriptc.typing"
+    def _typing_base(self) -> Path | None:
+        return self.origin.parent if self.origin is not None else None
 
     def lane_for(self, name: str) -> tuple[str, str]:
         """(lane, matched key) for an imported top-level name."""
@@ -530,24 +511,29 @@ def _validate_typing(table: str, typing: Dict[str, Any]) -> None:
 
     The table holds the project default (`mode`) and one glob list per
     level; a level name the compiler does not know is a PS3102, so a typo
-    never silently disables the report.
+    never silently disables the report. The parse itself lives in
+    `TypingPolicy.from_table`; this check runs at read time so a bad table
+    is a config error, not a report-time one.
     """
 
     for key, value in typing.items():
-        if key != "mode" and key not in LEVELS:
-            known: list[str] = ["mode", *LEVELS]
+        if key == "mode":
+            if not isinstance(value, str):
+                raise ConfigError(f"{table}.mode must be str, got {type(value).__name__}")
+            continue
+        if key not in LEVELS:
+            known: list[str] = ["mode"]
+            for level in LEVELS:
+                known.append(level)
             raise ConfigError(f"{table}: unknown key (known: {', '.join(known)})")
-        if key == "mode" and not isinstance(value, str):
-            raise ConfigError(f"{table}.mode must be str, got {type(value).__name__}")
-        if key != "mode":
-            if isinstance(value, str):
-                continue
-            if isinstance(value, list):
-                for item in value:
-                    if not isinstance(item, str):
-                        raise ConfigError(f"{table}.{key} must be a list of strings")
-                continue
-            raise ConfigError(f"{table}.{key} must be a string or a list of strings")
+        if isinstance(value, str):
+            continue
+        if isinstance(value, list):
+            for item in value:
+                if not isinstance(item, str):
+                    raise ConfigError(f"{table}.{key} must be a list of strings")
+            continue
+        raise ConfigError(f"{table}.{key} must be a string or a list of strings")
 
 
 def _validate_island(table: str, island: Dict[str, Any]) -> None:

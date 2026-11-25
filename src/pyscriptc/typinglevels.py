@@ -169,6 +169,37 @@ class TypingPolicy:
     globs: dict[str, list[str]] = field(default_factory=dict)
     base: Path | None = None
 
+    @classmethod
+    def from_table(cls, table: Any, base: Path | None = None) -> TypingPolicy:
+        """The policy a `[tool.pyscriptc.typing]` table names.
+
+        The table holds the project default (`mode`) and one glob list per
+        level. A level name the compiler does not know, or a glob list that
+        is not a list of strings, is a `TypingLevelError`; the config
+        layer turns that into its own PS3102 error.
+        """
+
+        data: dict[str, Any] = table if isinstance(table, dict) else {}
+        mode: str = data.get("mode", DEFAULT_LEVEL)
+        check_level(mode)
+        globs: dict[str, list[str]] = {}
+        for level in LEVELS:
+            if level not in data:
+                continue
+            value: Any = data[level]
+            if isinstance(value, str):
+                globs[level] = [value]
+            elif isinstance(value, list):
+                items: list[str] = []
+                for item in value:
+                    if not isinstance(item, str):
+                        raise TypingLevelError(f"{level} must be a glob or a list of globs")
+                    items.append(item)
+                globs[level] = items
+            else:
+                raise TypingLevelError(f"{level} must be a glob or a list of globs")
+        return cls(mode=mode, globs=globs, base=base)
+
     def config_level(self, path: Path) -> str:
         """The level the config gives a path, before the pragma.
 
@@ -549,6 +580,15 @@ def scan_file(path: Path) -> list[Finding]:
     return scan_tree(tree, path)
 
 
+def scan_files(paths: list[Path]) -> list[Finding]:
+    """The static typing findings of a tree of files, in path order."""
+
+    findings: list[Finding] = []
+    for path in paths:
+        findings.extend(scan_file(path))
+    return findings
+
+
 def typing_report(policy: TypingPolicy, files: list[Path], findings: list[Finding]) -> dict[str, Any]:
     """The typing section of a quality report.
 
@@ -573,15 +613,19 @@ def typing_report(policy: TypingPolicy, files: list[Path], findings: list[Findin
         origins[key] = origin
         level_of[key] = level
     surfaced: list[Finding] = []
+    errors: int = 0
+    warnings: int = 0
     for finding in findings:
         level = level_of.get(finding.file, policy.mode)
         severity = severity_for(level, finding.family)
         if severity is None:
             continue
         finding.severity = severity
+        if severity == "error":
+            errors += 1
+        else:
+            warnings += 1
         surfaced.append(finding)
-    errors = sum(1 for finding in surfaced if finding.severity == "error")
-    warnings = sum(1 for finding in surfaced if finding.severity == "warning")
     return {
         "mode": policy.mode,
         "levels": levels,

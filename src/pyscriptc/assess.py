@@ -265,9 +265,7 @@ def _typing_section(target: Path, target_files: list[str]) -> dict[str, Any]:
     files: list[Path] = []
     for f in target_files:
         files.append(Path(f))
-    findings: list[typinglevels.Finding] = []
-    for path in files:
-        findings.extend(typinglevels.scan_file(path))
+    findings = typinglevels.scan_files(files)
     return typinglevels.typing_report(policy, files, findings)
 
 
@@ -1060,20 +1058,7 @@ def render_text(
 
     typing_section: dict[str, Any] | None = report.get("typing")
     if typing_section is not None:
-        typing_summary: dict[str, Any] = typing_section["summary"]
-        shown = typing_summary["errors"] + typing_summary["warnings"]
-        lines.append(f"Typing (mode {typing_section['mode']}): {shown} finding(s)")
-        typing_findings: list[dict[str, Any]] = typing_section["findings"]
-        if not typing_findings:
-            lines.append("  (no typing findings)")
-        for finding in typing_findings:
-            f_file: str = finding["file"]
-            f_line: int = finding["line"]
-            f_severity: str = finding["severity"]
-            f_code: str = finding["code"]
-            f_message: str = finding["message"]
-            lines.append(f"  {f_severity}: {f_file}:{f_line}: {f_code} {f_message}")
-        lines.append("")
+        _render_assess_typing(lines, typing_section)
 
     plane_map: dict[str, Any] = report["planeMap"]
     functions_map: dict[str, str] = _str_map(plane_map, "functions")
@@ -1273,3 +1258,22 @@ def render_text(
                 )
 
     return "\n".join(lines)
+
+
+def _render_assess_typing(lines: list[str], typing_section: dict[str, Any]) -> None:
+    """The typing section of the assess text report (issue #1315).
+
+    The section is a quality report: it names the mode, then every finding
+    the level surfaces, with the severity the level gave it.
+    """
+
+    summary: dict[str, Any] = typing_section["summary"]
+    shown: int = summary["errors"] + summary["warnings"]
+    lines.append(f"Typing (mode {typing_section['mode']}): {shown} finding(s)")
+    findings: list[dict[str, Any]] = typing_section["findings"]
+    if not findings:
+        lines.append("  (no typing findings)")
+    for finding in findings:
+        severity: str = finding["severity"]
+        lines.append(f"  {severity}: {finding['file']}:{finding['line']}: {finding['code']} {finding['message']}")
+    lines.append("")
