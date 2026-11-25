@@ -854,12 +854,22 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D102",
+        "a write to a cached property name is a compile fence (issue #440): CPython stores the value into "
+        "the instance __dict__ and the name then answers the stored value without ever running the getter, "
+        "where the lowered program keeps the cached value in the struct slot and has no instance dictionary "
+        "to write; the class-level read C.y returns the descriptor there and fences here, the same rule "
+        "every method name follows",
+        "d102_cached_property_write.py",
+        docs=f"{DOC}#102",
+    ),
+    _row(
+        "D103",
         "a unicodedata argument that is not a one-character string raises ValueError where CPython raises "
         "TypeError naming the length (issue #476): the ABI carries the buffer length, so the one-character "
         "check is the runtime's own raise; the value paths answer over the whole code-point range from the "
         "generated Unicode 16.0.0 tables, so the range the old Latin-1 table could not answer is identical",
-        "d102_unicodedata_codepoints.py",
-        docs=f"{DOC}#102",
+        "d103_unicodedata_codepoints.py",
+        docs=f"{DOC}#103",
     ),
     _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT

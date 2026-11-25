@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Divergence D102: the `unicodedata` argument shape (issue #476).
+# Divergence D103: the `unicodedata` argument shape (issue #476).
 # Before the S4 slice the runtime carried a 256-entry table, so a code point
 # above U+00FF had no answer: the category came back as the unassigned
 # default, the name raised, and a normalization that would leave Latin-1

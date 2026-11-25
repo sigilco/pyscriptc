@@ -251,6 +251,17 @@ class MiscEmitMixin:
             self.fail(target, "PS2002", f"{class_name}.{target.attr} is read-only on a namedtuple")
         field = next((item for item in info["fields"] if item["name"] == target.attr), None)
         if field is None:
+            if info.get("method_kind", {}).get(target.attr) == "cached_property":
+                # A write to a cached property (issue #440): CPython writes
+                # into the instance `__dict__`, which shadows the descriptor.
+                # pyscriptc has no instance dictionary, so the write has no
+                # home and the name says so.
+                self.fail(
+                    target,
+                    "PS2001",
+                    f"{class_name}.{target.attr} is a cached property: the value lives in the "
+                    "instance slot, and an instance-dictionary write is not lowered",
+                )
             self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
         value = self._expr(value_node, field["type"])
         self._expect(report, value["type"], field["type"], target.attr)

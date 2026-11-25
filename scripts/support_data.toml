@@ -357,8 +357,58 @@ no = [["ChainMap", 'y: collections.ChainMap = collections.ChainMap()', "PS1106"]
 [[stdlib]]
 names = ["functools"]
 imports = ["operator"]
-ok = ['y: int = functools.reduce(operator.add, xs)']
-no = [["reduce with a lambda", 'y: int = functools.reduce(lambda a, c: a + c, xs)', "PS2001"], ["reduce with an initializer", 'y: int = functools.reduce(operator.add, xs, 0)', "PS2002"], ["partial, wraps, lru_cache, cmp_to_key", 'y: int = functools.partial', "PS2002"], ["cache, total_ordering", 'y: int = functools.cache', "PS2001"]]
+ok = [
+  'y: int = functools.reduce(operator.add, xs)',
+  '''from functools import cached_property
+
+
+class Holder:
+    n: int
+
+    def __init__(self, n: int) -> None:
+        self.n = n
+
+    @cached_property
+    def cached(self) -> int:
+        return self.n + 1
+@@
+h: Holder = Holder(1)
+y: int = h.cached''',
+]
+no = [
+  ["reduce with a lambda", 'y: int = functools.reduce(lambda a, c: a + c, xs)', "PS2001"],
+  ["reduce with an initializer", 'y: int = functools.reduce(operator.add, xs, 0)', "PS2002"],
+  ["partial, wraps, lru_cache, cmp_to_key", 'y: int = functools.partial', "PS2002"],
+  ["cache, total_ordering", 'y: int = functools.cache', "PS2001"],
+  [
+    "cached_property getter whose return type has no slot form",
+    '''from functools import cached_property
+
+
+class Holder:
+    @cached_property
+    def frac(self) -> float:
+        return 1.5
+@@
+h: Holder = Holder()
+y: float = h.frac''',
+    "PS2002",
+  ],
+  [
+    "a write to the cached name",
+    '''from functools import cached_property
+
+
+class Holder:
+    @cached_property
+    def cached(self) -> int:
+        return 1
+@@
+h: Holder = Holder()
+h.cached = 5''',
+    "PS2001",
+  ],
+]
 
 [[stdlib]]
 names = ["itertools"]

@@ -345,7 +345,10 @@ def test_self_census_ballpark() -> None:
     # format dispatch in lower/_classes.py and the call-site hooks add
     # about 750 lines, taking the census to 94,071, so the ceiling moves
     # to 96k.
-    assert 11_000 <= census["lines"] <= 96_000
+    # functools.cached_property (D4b, #440): the descriptor lowering and
+    # the functools lane add about 200 lines, taking the census to
+    # 96,204, so the ceiling moves to 97k.
+    assert 11_000 <= census["lines"] <= 97_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
