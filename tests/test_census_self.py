@@ -363,7 +363,11 @@ def test_self_census_ballpark() -> None:
     # The O3b protocol dispatch (#446): the container/iter/with resolver in
     # lower/_protocols.py and the call-site hooks add about 750 lines,
     # taking the census to about 98,750, so the ceiling moves to 99k.
-    assert 11_000 <= census["lines"] <= 99_000
+    # The G3b decorator and nested-generator lift (#442): the plan pass in
+    # coro.py, the closure lowering in lower/_closures.py and the frame-copy
+    # hooks add about 400 lines, taking the census to about 99,550, so the
+    # ceiling moves to 101k.
+    assert 11_000 <= census["lines"] <= 101_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
