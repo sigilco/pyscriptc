@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-25",
-  "commit": "6094dd4f108d4a8403c5c80e717c35e3f14d38df",
+  "commit": "8ad721103f38b4b9410fc78d573ea3839b0f77ee",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-25",
-    "commit": "6094dd4f108d4a8403c5c80e717c35e3f14d38df",
+    "commit": "8ad721103f38b4b9410fc78d573ea3839b0f77ee",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3842
+    "fences": 3833
   },
   "builtins": [
     {
@@ -1826,7 +1826,7 @@
         "blocked": 261
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 694,
+      "fences": 695,
       "definitions": 641,
       "fenced_definitions": 244,
       "top_families": [
@@ -1836,7 +1836,7 @@
         },
         {
           "family": "construct-other",
-          "count": 110
+          "count": 109
         },
         {
           "family": "field-lookup",
@@ -1846,7 +1846,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 406
+          "count": 405
         },
         {
           "code": "PS2001",
@@ -2148,9 +2148,9 @@
         "blocked": 286
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 639,
+      "fences": 635,
       "definitions": 558,
-      "fenced_definitions": 274,
+      "fenced_definitions": 273,
       "top_families": [
         {
           "family": "name-resolution",
@@ -2162,17 +2162,17 @@
         },
         {
           "family": "field-lookup",
-          "count": 79
+          "count": 76
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 252
+          "count": 251
         },
         {
           "code": "PS2001",
-          "count": 118
+          "count": 115
         },
         {
           "code": "PS1106",
@@ -2189,14 +2189,14 @@
       "island": "runs",
       "plane": {
         "definitions": 132,
-        "native": 50,
+        "native": 52,
         "island": 0,
-        "blocked": 82
+        "blocked": 80
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 167,
+      "fences": 161,
       "definitions": 132,
-      "fenced_definitions": 73,
+      "fenced_definitions": 71,
       "top_families": [
         {
           "family": "name-resolution",
@@ -2208,13 +2208,13 @@
         },
         {
           "family": "construct-other",
-          "count": 15
+          "count": 13
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 99
+          "count": 93
         },
         {
           "code": "PS1106",
@@ -2721,13 +2721,13 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1986,
+      "count": 1978,
       "packages": 19
     },
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 429,
+      "count": 426,
       "packages": 18
     },
     {
@@ -2739,7 +2739,7 @@
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 349,
+      "count": 351,
       "packages": 12
     },
     {
@@ -2839,12 +2839,12 @@
     },
     {
       "date": "2026-11-25",
-      "commit": "6094dd4f108d4a8403c5c80e717c35e3f14d38df",
+      "commit": "8ad721103f38b4b9410fc78d573ea3839b0f77ee",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3842
+      "fences": 3833
     }
   ]
 }
