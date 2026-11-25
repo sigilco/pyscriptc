@@ -203,10 +203,44 @@ def is_wheel_zig(path: str | None) -> bool:
     return package is not None and resolved.parent == package
 
 
-def install_hint() -> str:
-    """The user-facing fix for a missing zig."""
+def install_command(shape: str) -> str | None:
+    """The exact one-liner that adds ziglang to this install, or None.
+
+    The shapes are `doctor.install_shape()`: `binary` (no package manager
+    involved, so nothing to append to), `source` (editable/checkout, the
+    dev's own `uv sync --extra zig`), `tool` (a uv tool environment, which
+    `pip install` into the ambient interpreter would not touch), `pipx` (a
+    pipx environment, which reinstalls with the extra) and `wheel` (a plain
+    pip/venv install, where `pip install ziglang` lands in the same
+    environment). This is what makes the first-run hint actionable instead
+    of generic (issue #1291).
+    """
+    if shape == "tool":
+        return "uv tool install pyscriptc --with ziglang --force"
+    if shape == "pipx":
+        return 'pipx install "pyscriptc[zig]" --force'
+    if shape == "wheel":
+        return "pip install ziglang"
+    return None
+
+
+def install_hint(shape: str | None = None) -> str:
+    """The user-facing fix for a missing zig.
+
+    With the install shape (from `doctor.install_shape()`), the hint leads
+    with the one command that works for this install; the generic
+    alternatives stay listed behind it for the cases the shape cannot see
+    (a system zig from brew/mise/winget, or the upstream download).
+    """
+    command = install_command(shape) if shape is not None else None
+    if command is not None:
+        lead = f"Install the toolchain wheel into this install: `{command}` "
+        lead += "(pulls the ziglang wheel; pyscriptc installs a `zig` PATH shim over it). "
+        lead += "Other ways: "
+    else:
+        lead = "Install one of: "
     return (
-        'Install one of: `uv tool install "pyscriptc[zig]"` (or `pip install '
+        lead + '`uv tool install "pyscriptc[zig]"` (or `pip install '
         "pyscriptc[zig]`), which pulls the ziglang wheel and gives pyscriptc a "
         "`zig` PATH shim over it; `pip install ziglang` (the wheel ships zig and "
         "pyscriptc installs a `zig` PATH shim for it), `mise use -g zig`, "

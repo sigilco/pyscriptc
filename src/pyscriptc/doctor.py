@@ -56,12 +56,14 @@ def _zig_tool() -> dict[str, Any]:
 
 
 def install_shape() -> str:
-    """One of `binary`, `tool`, `source`, `wheel`."""
+    """One of `binary`, `tool`, `pipx`, `source`, `wheel`."""
     if getattr(sys, "frozen", False):
         return "binary"
     prefix = Path(sys.prefix).as_posix()
-    if "/uv/tools/" in prefix or "/pipx/venvs/" in prefix:
+    if "/uv/tools/" in prefix:
         return "tool"
+    if "/pipx/venvs/" in prefix:
+        return "pipx"
     try:
         raw = metadata.distribution("pyscriptc").read_text("direct_url.json")
         if raw and json.loads(raw).get("dir_info", {}).get("editable"):
@@ -76,9 +78,44 @@ def default_driver() -> str:
         return "zig"
     if shutil.which("zig") is not None:
         return "zig"
+    # A wheel-only install (the `ziglang` wheel, no `zig` on PATH) counts:
+    # the shim puts the wheel's zig on PATH for the run.
+    if zigshim.resolve_zig() is not None:
+        return "zig"
     if shutil.which("clang") is not None:
         return "clang"
     return "none"
+
+
+def toolchain_fix() -> str:
+    """The actionable fix when the host has no C toolchain.
+
+    The shape decides the command: a uv/pipx tool environment needs the
+    tool reinstalled with `--with ziglang` (a `pip install` into the ambient
+    interpreter would not reach it), a plain wheel/venv install takes
+    `pip install ziglang` in the same environment, and a checkout or the
+    release binary has nothing to append to, so the generic list stands
+    (issue #1291).
+    """
+    return zigshim.install_hint(install_shape())
+
+
+def toolchain_command() -> str | None:
+    """The one command that adds a toolchain to this install, or None.
+
+    The machine-readable form of `toolchain_fix`: the exact one-liner for
+    the install shape, without the prose around it. A checkout or the
+    release binary has no such command (there is nothing to append to), so
+    it is None there (issue #1291).
+    """
+    return zigshim.install_command(install_shape())
+
+
+def toolchain_found(zig: dict[str, Any], clang: dict[str, Any]) -> bool:
+    """True when the machine can link a binary: zig or clang resolves."""
+    if _flag_of(zig, "found"):
+        return True
+    return _flag_of(clang, "found")
 
 
 def default_target() -> str:
@@ -125,7 +162,7 @@ def gather() -> dict[str, Any]:
         own = metadata.version("pyscriptc")
     except metadata.PackageNotFoundError:
         pass
-    return {
+    info = {
         "pyscriptc": own,
         "python": platform.python_version(),
         "checker": {
@@ -144,6 +181,12 @@ def gather() -> dict[str, Any]:
         "install": install_shape(),
         "oracle": oracle_state(),
     }
+    info["toolchain"] = {
+        "found": toolchain_found(info["zig"], info["clang"]),
+        "fix": toolchain_fix(),
+        "command": toolchain_command(),
+    }
+    return info
 
 
 def render(info: dict[str, Any]) -> str:
@@ -180,6 +223,12 @@ def render(info: dict[str, Any]) -> str:
     rc_dir = _opt_str(rc, "dir")
     rc_log_dir = _opt_str(info, "log_dir")
     target = _opt_str(info, "default_target")
+    toolchain: dict[str, Any] = info.get("toolchain", {})
+    toolchain_fix_text = _opt_str(toolchain, "fix")
+    if _flag_of(toolchain, "found"):
+        toolchain_line = "ok"
+    else:
+        toolchain_line = f"missing; {toolchain_fix_text}"
     oracle: dict[str, Any] = info.get("oracle", {})
     fix: str = _opt_str(oracle, "fix") or "uv python install 3.14"
     if _flag_of(oracle, "found"):
@@ -197,9 +246,10 @@ def render(info: dict[str, Any]) -> str:
             f"driver:         {driver_str}",
             f"clang:          {tool(clang)}",
             f"zig:            {zig_line(zig)}",
+            f"toolchain:      {toolchain_line}",
             f"oracle:         {oracle_line}",
             f"cache dir:      {cache_dir}",
-            f"rt cache:      {'on' if _flag_of(rc, 'enabled') else 'off (PYSC_NO_RT_CACHE)'}, "
+            f"rt cache:       {'on' if _flag_of(rc, 'enabled') else 'off (PYSC_NO_RT_CACHE)'}, "
             f"{rc_dir} ({_opt_int(rc, 'entries', 0)} objects, {_opt_int(rc, 'bytes', 0)} bytes)",
             f"log dir:        {rc_log_dir}",
             f"default target: {target}",

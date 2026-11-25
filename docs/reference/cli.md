@@ -305,7 +305,9 @@ Exit code is 0 when the final variant still satisfies the predicate.
 
 ## Notes on `doctor`
 
-`doctor` reports the type checker it found (argv, version, how it was resolved), clang and zig paths and versions, the cache and log directories, the default target, and the install shape (`wheel`, `tool`, `binary`, `source`).
+`doctor` reports the type checker it found (argv, version, how it was resolved), clang and zig paths and versions, the cache and log directories, the default target, and the install shape (`wheel`, `tool`, `pipx`, `binary`, `source`).
+
+The `toolchain:` line says whether a C toolchain resolves at all. When it does not, it carries the exact command that adds one to this install, shaped to the install shape: `uv tool install pyscriptc --with ziglang --force` for a uv tool environment, `pipx install "pyscriptc[zig]" --force` for pipx, `pip install ziglang` for a plain venv install. `doctor --json` carries the same command in `toolchain.fix`.
 Paste this when filing an issue.
 
 ## Notes on `embed`

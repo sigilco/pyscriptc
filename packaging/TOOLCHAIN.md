@@ -45,7 +45,7 @@ The driver resolution order is:
 Notes:
 - Xcode command line tools on macOS put `clang` at `/usr/bin/clang`.
 - `pip install ziglang` puts a `python-zig` console script on PATH, not `zig`; the real binary sits inside `site-packages/ziglang/` and needs a PATH entry or a symlink.
-- `pyscriptc doctor` reports the detected clang and zig paths, versions, and current preferred driver.
+- `pyscriptc doctor` reports the detected clang and zig paths, versions, and current preferred driver, plus a `toolchain:` line that says whether a C toolchain resolves and, when it does not, the exact command that adds one to this install.
 
 ## Data files the binary must carry
 
@@ -90,6 +90,8 @@ The CI job runs `packaging/zig/smoke.sh` on every supported version (the tier-A 
 `src/pyscriptc/zigshim.py` closes that gap: when no `zig` is on PATH, pyscriptc finds an interpreter that can `import ziglang`, writes a `zig` shim into `~/.cache/pyscriptc/shim` that execs `python -m ziglang`, and puts that directory on PATH for the compiler and its children. `pyscriptc doctor` then reports the shim and the version it wraps. The shim is what `--driver zig` and `--target` use, so after `pip install ziglang` the cross-compilation path works with no PATH surgery by the user.
 
 The wheel route also ships as a package extra, so one install command covers the tool and the toolchain: `uv tool install "pyscriptc[zig]"` (or `pip install "pyscriptc[zig]"`). The extra pins `ziglang>=0.16,<0.18`, the CI-verified range in the table above. The CI job `ziglang extra wheel shim` proves the full path: tool install with the extra on a runner with no zig, then a native `--driver zig` compile and a `--target` cross-compile through the shim.
+
+The extra stays opt-in (issue #1291): `pip` and `uv` have no postinstall hooks and PEP 508 markers cannot test for a compiler on PATH, so folding `ziglang` into the default dependencies would add about 100 MB per platform wheel to every install, including hosts that already have a system toolchain. The realistic equivalent of a preinstall check is the first run: `_require_toolchain` (and `pyscriptc doctor`) detect the missing toolchain before any compile work and print the fix shaped to the install - `uv tool install pyscriptc --with ziglang --force` for a uv tool environment and `pipx install "pyscriptc[zig]" --force` for a pipx one (a `pip install` into the ambient interpreter would not reach either), `pip install ziglang` for a plain venv install (`zigshim.install_hint(shape)`; `doctor --json` exposes it as `toolchain.fix`). Even with the extra, a wheel-only install is not a complete C toolchain for every lane: `--emit lib` needs the system clang with the Android NDK or Apple SDK sysroots (zig bundles neither bionic nor the Apple SDKs), and sanitizer builds need a clang with a linkable sanitizer runtime.
 
 The wheel is a version of zig in its own right: `pip install ziglang==0.17.0` pins zig 0.17.0. The supported version range is the table above, and the wheel version and the zig version are the same number.
 
