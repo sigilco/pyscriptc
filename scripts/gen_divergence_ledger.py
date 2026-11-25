@@ -883,16 +883,6 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#104",
     ),
     _row(
-        "D105",
-        "a typing.NamedTuple class lowers as a tuple record: construction, field reads, subscripts and unpack "
-        "work, but _fields, _asdict and _replace are not lowered and the class object itself is not a value, "
-        "so those reads stop the compile",
-        "d105_namedtuple_fields.py",
-        docs=f"{DOC}#105",
-        note="the construction, field reads, subscripts and unpack are the differential probe "
-        "(probes/differential/namedtuple_class_base.py) and are byte-identical",
-    ),
-    _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT
     ),
     _row(
@@ -915,6 +905,16 @@ ROWS: list[dict[str, Any]] = [
         note="the running surface (the container reads, the isinstance narrowing, the class attribute and "
         "the JSON round trip in the probe) is byte-identical; the seams are the compile-time fences, so "
         "the probe runs the compiling side and the fences are reviewed in the prose",
+    ),
+    _row(
+        "D106",
+        "a typing.NamedTuple class lowers as a tuple record: construction, field reads, subscripts and unpack "
+        "work, but _fields, _asdict and _replace are not lowered and the class object itself is not a value, "
+        "so those reads stop the compile",
+        "d106_namedtuple_fields.py",
+        docs=f"{DOC}#106",
+        note="the construction, field reads, subscripts and unpack are the differential probe "
+        "(probes/differential/namedtuple_class_base.py) and are byte-identical",
     ),
 ]
 
