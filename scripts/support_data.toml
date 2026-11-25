@@ -733,7 +733,29 @@ y: int = len(D().xs)''', '''@dataclasses.dataclass
 class D:
     a: int = dataclasses.field(default=3)
 @@
-y: int = D().a''']
+y: int = D().a''', '''@dataclasses.dataclass
+class D:
+    a: int = dataclasses.field(default=3, repr=False)
+@@
+y: int = D().a''', '''@dataclasses.dataclass
+class D:
+    a: int = dataclasses.field(default=3, compare=False)
+@@
+y: int = D().a''', '''@dataclasses.dataclass
+class B:
+    a: int
+@dataclasses.dataclass
+class C(B):
+    b: int = 2
+@@
+y: int = C(1).a + C(1).b''', '''@dataclasses.dataclass
+class D:
+    a: int
+
+    def __post_init__(self) -> None:
+        self.a = self.a + 1
+@@
+y: int = D(1).a''']
 no = [["asdict", '''@dataclasses.dataclass
 class D:
     a: int
