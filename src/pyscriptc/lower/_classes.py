@@ -49,7 +49,13 @@ from pyscriptc.reflection import annotation_note, metaclass_note
 from pyscriptc.reprspec import type_spec
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower import path_attr, rest_call
-from pyscriptc.restlower._dataclasses import container_factory, factory_ast, marker_flags, marker_type
+from pyscriptc.restlower._dataclasses import (
+    container_factory,
+    factory_ast,
+    factory_class_name,
+    marker_flags,
+    marker_type,
+)
 from pyscriptc.restlower._popen import _reaped_fill
 from pyscriptc.restlower._uuid import uuid_hex_attr
 from pyscriptc.sigrec import T, type_to_dict
@@ -1479,6 +1485,21 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             if ast_node is None:
                 continue
             field_type = marker_type(marker)
+            # `default_factory=ClassName` (issue #452): a class is a
+            # callable, so the factory replays the zero-argument
+            # construction at the site that omits the field. The field's
+            # annotation names the class, so no callable value is lowered.
+            class_name = factory_class_name(marker)
+            if (
+                class_name is not None
+                and not field_type.get("optional")
+                and _type_kind(field_type) == "class"
+                and str(field_type.get("name")) == class_name
+                and class_name in self.classes
+            ):
+                marker["class_ctor"] = class_name
+                marker["factory_ast"] = None
+                continue
             ret = field_type
             if ret.get("optional"):
                 ret = ret["elem"]

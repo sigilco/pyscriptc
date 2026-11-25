@@ -1004,6 +1004,14 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         `default_factory` is per `__init__` call.
         """
         span = span_of(node, self.filename)
+        ctor = marker.get("class_ctor")
+        if isinstance(ctor, str):
+            # `default_factory=ClassName` (issue #452): the factory is a
+            # class, so the construction site replays the zero-argument
+            # construction of that class. The class's own constructor
+            # defaults fill the omitted arguments, the same rule every
+            # construction site follows.
+            return self._construct(ast.Call(func=ast.Name(id=ctor, ctx=ast.Load()), args=[], keywords=[]), span, ctor)
         name = container_factory(marker)
         if name == "list":
             elem = typ.get("elem")

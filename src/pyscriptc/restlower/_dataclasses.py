@@ -199,3 +199,18 @@ def marker_flags(marker: dict[str, Any]) -> dict[str, bool]:
     """
 
     return {name: bool(marker[name]) for name in FLAG_KEYWORDS if name in marker}
+
+
+def factory_class_name(marker: dict[str, Any]) -> str | None:
+    """The class name a `default_factory=ClassName` spelling names, or None.
+
+    A class is a callable in CPython, so `field(default_factory=Inner)`
+    gives every omitted construction a fresh `Inner()` (issue #452). The
+    marker keeps the factory's AST node; the caller resolves the name
+    against its class table and replays the zero-argument construction.
+    """
+
+    node = marker.get("factory_ast")
+    if isinstance(node, ast.Name):
+        return node.id
+    return None

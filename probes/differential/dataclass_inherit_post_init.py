@@ -73,6 +73,31 @@ class NoInit:
     zs: list[int] = field(default_factory=list, init=False)
 
 
+@dataclass
+class Inner:
+    value: int = 0
+
+
+@dataclass
+class Model:
+    name: str
+    age: int = 0
+    tags: list[str] = field(default_factory=list)
+    inner: Inner = field(default_factory=Inner)
+    secret: str = field(default="", repr=False, compare=False)
+
+    def __post_init__(self) -> None:
+        self.name = self.name.strip()
+
+    def describe(self) -> str:
+        return f"{self.name}:{self.age}"
+
+
+@dataclass
+class Extended(Model):
+    extra: int = 0
+
+
 flags = Flags(1)
 print(flags)
 print(Flags(1, "z", 9, "q"))
@@ -98,3 +123,11 @@ one.zs.append(1)
 print(one)
 print(two)
 print(one.zs is two.zs)
+
+model = Model("  bob  ")
+print(model)
+print(model.describe())
+print(model == Model("bob"))
+ext = Extended("ann", 30, ["x"], Inner(7))
+print(ext)
+print(ext.describe())
