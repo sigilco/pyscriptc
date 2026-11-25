@@ -139,6 +139,79 @@ def demo() -> None:
 demo()
 """
 
+THROW_CLOSE = """\
+from typing import Generator
+
+
+def catcher() -> Generator[int, None, None]:
+    try:
+        yield 1
+        yield 2
+    except ValueError:
+        print("caught inside")
+        yield 3
+        yield 4
+
+
+def cleaner() -> Generator[int, None, None]:
+    try:
+        yield 1
+    finally:
+        print("cleanup")
+
+
+def stubborn() -> Generator[int, None, None]:
+    try:
+        yield 1
+    except GeneratorExit:
+        print("caught GeneratorExit")
+        yield 2
+
+
+def plain() -> Generator[int, None, None]:
+    yield 1
+    yield 2
+
+
+def demo() -> None:
+    g = catcher()
+    print("first", next(g))
+    print("thrown", g.throw(ValueError))
+    print("after", next(g))
+
+    h = plain()
+    print("h0", next(h))
+    try:
+        h.throw(KeyError)
+    except KeyError:
+        print("KeyError at the call site")
+
+    c = cleaner()
+    print("c0", next(c))
+    c.close()
+    print("closed")
+
+    s = stubborn()
+    print("s0", next(s))
+    try:
+        s.close()
+    except RuntimeError as e:
+        print("RuntimeError", e)
+
+    f = plain()
+    try:
+        f.throw(ValueError)
+    except ValueError:
+        print("ValueError at the call site")
+
+    f2 = plain()
+    f2.close()
+    print("closed fresh")
+
+
+demo()
+"""
+
 FENCED = """\
 from typing import Generator, Iterator
 
@@ -191,7 +264,7 @@ def _run_both(tmp_path: Path, name: str, source: str) -> tuple[str, str]:
     return built.stdout, expected
 
 
-@pytest.mark.parametrize(("name", "source"), [("basic", BASIC), ("shapes", SHAPES)])
+@pytest.mark.parametrize(("name", "source"), [("basic", BASIC), ("shapes", SHAPES), ("throw_close", THROW_CLOSE)])
 def test_generator_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
     got, expected = _run_both(tmp_path, name, source)
     assert expected
@@ -207,7 +280,7 @@ def test_generator_ir_is_plain_classes(monkeypatch: pytest.MonkeyPatch) -> None:
     frames = {cls["name"]: cls for cls in module["classes"] if cls["name"].startswith("gen.")}
     assert set(frames) == {"gen.count", "gen.evens", "gen.chain"}
     for frame in frames.values():
-        assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close"}
+        assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close", "throw"}
         assert frame["fields"][0]["name"] == ".ps_state"
 
 
@@ -317,7 +390,7 @@ def test_generator_method_ir_is_plain_classes() -> None:
     frames = {cls["name"] for cls in module["classes"] if cls["name"].startswith("gen.")}
     assert frames == {"gen.Counter.upto"}
     frame = next(cls for cls in module["classes"] if cls["name"] == "gen.Counter.upto")
-    assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close"}
+    assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close", "throw"}
 
 
 def test_package_generator_lowers_and_cross_module_consumes(tmp_path: Path) -> None:
@@ -543,7 +616,7 @@ def test_generator_send_ir_has_frame_surface() -> None:
     module = lower_source(SEND, "send.py")
     assert module["fences"] == []
     frame = next(cls for cls in module["classes"] if cls["name"] == "gen.echo")
-    assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close", "send"}
+    assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close", "send", "throw"}
     assert any(field["name"] == ".ps_send" for field in frame["fields"])
     assert YIELD_MARKER not in json.dumps(module)
 
@@ -1191,7 +1264,7 @@ def test_unannotated_generator_infers_the_element_type(tmp_path: Path) -> None:
     assert frames == {"gen.squares", "gen.words", "gen.pairs"}
     for name in frames:
         frame = next(cls for cls in module["classes"] if cls["name"] == name)
-        assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close"}
+        assert {m["name"] for m in frame["methods"]} == {"__iter__", "__next__", "close", "throw"}
 
 
 def test_unannotated_generator_refusals_keep_the_annotation_fence() -> None:

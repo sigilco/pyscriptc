@@ -20,8 +20,7 @@ from typing import Any
 
 from pyscriptc import _irnode as _ir
 from pyscriptc._irnode import t_leaf
-from pyscriptc.builtins import EXCEPTIONS, method_spec
-from pyscriptc.coro import DONE, STATE
+from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS, method_spec
 from pyscriptc.ir import type_key, types_equal
 from pyscriptc.lower._annotations import _type_slug
 from pyscriptc.lower._core import (
@@ -342,10 +341,12 @@ class CallAttrMixin:
         if receiver["type"]["kind"] == "class" and receiver["type"].get("name") == "Path":
             if node.func.attr in {"__enter__", "__exit__"}:
                 return self._path_context(node, span, receiver)
-        if receiver["type"].get("kind") == "class" and node.func.attr == "throw":
+        if receiver["type"].get("kind") == "class" and node.func.attr in {"throw", "close"}:
             frame = self.classes.get(str(receiver["type"].get("name")))
             if frame is not None and frame.get("coro") == "generator":
-                return self._gen_throw(node, span, receiver)
+                if node.func.attr == "throw":
+                    return self._gen_throw(node, span, receiver)
+                return self._gen_close(node, span, receiver)
         if receiver["type"]["kind"] == "list" and receiver["type"].get("set"):
             return self._set_method(node, span, receiver)
         if receiver["type"]["kind"] == "list":
@@ -1007,45 +1008,67 @@ class CallAttrMixin:
         return _const_none(span)
 
     def _gen_throw(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
-        """`gen.throw(E)`: mark the frame done and raise E out of the call.
+        """`gen.throw(E)`: resume the frame with E's code pending (G2b, #438).
 
-        The exception class is a name here (exception classes are not values
-        in this subset). A `yield` inside `try` never lowers, so no handler
-        can surround the generator's live suspension point: CPython's "the
-        generator catches it" outcome is unreachable, and propagate-and-
-        mark-done is the exact semantics for every program that lowers.
+        The exception class is a name here (exception classes are not
+        values in this subset). The call site resolves E to its code —
+        builtin, reserved (GeneratorExit and friends, issue #162) or user —
+        and the frame's own `throw` method does the rest: the resume
+        re-enters at the live suspension point and raises the code inside
+        the `try` outline the yield sits under, so the generator's own
+        `except` handler sees it. A handler that catches it and yields
+        again makes this call return that value; a code no handler matches
+        propagates out of the call site, CPython's semantics.
         """
         if node.keywords:
             self.fail(node, "PS2003", "keyword arguments are not lowered")
         if len(node.args) != 1 or not isinstance(node.args[0], ast.Name):
             self.fail(node, "PS2002", "generator.throw takes one exception class")
         name = node.args[0].id
-        if name not in EXCEPTIONS and not self.classes.get(name, {}).get("exception"):
+        if (
+            name not in EXCEPTIONS
+            and name not in RESERVED_EXCEPTIONS
+            and not self.classes.get(name, {}).get("exception")
+        ):
             resolved = self.class_aliases.get(name, name)
             if not self.classes.get(resolved, {}).get("exception"):
                 self.fail(node.args[0], "PS2002", "generator.throw takes a lowered exception class")
             name = resolved
         frame_t = receiver["type"]
-        self.prelude.append(
-            node_to_dict(
-                _ir.setattr_stmt(dict_to_node(receiver), STATE, dict_to_node(_const_int(DONE, span)), _mk_span(span))
-            )
+        frame_info = self.classes.get(str(frame_t.get("name")), {})
+        elem = frame_info.get("coro_elem") or {"kind": "none"}
+        if name in EXCEPTIONS:
+            code = EXCEPTIONS[name]
+        elif name in RESERVED_EXCEPTIONS:
+            code = RESERVED_EXCEPTIONS[name]
+        else:
+            code = int(self.classes[name]["exc_code"])
+        return _function_call_node(
+            f"cls.{frame_t['name']}.throw",
+            [receiver, _const_int(code, span)],
+            elem,
+            span,
         )
-        self.prelude.append(
-            node_to_dict(
-                _ir.raise_stmt(
-                    name,
-                    _mk_span(span),
-                    -1 if name in EXCEPTIONS else int(self.classes[name]["exc_code"]),
-                )
-            )
+
+    def _gen_close(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
+        """`gen.close()`: the frame's own `close` method (G2b, #438).
+
+        CPython's close is `throw(GeneratorExit)` with two rules: the
+        generator's `finally` runs, and an uncaught GeneratorExit is
+        swallowed. The frame's `close` method does both, so the call site
+        only dispatches.
+        """
+        if node.keywords:
+            self.fail(node, "PS2003", "keyword arguments are not lowered")
+        if node.args:
+            self.fail(node, "PS2003", "generator.close takes 0 argument(s)")
+        frame_t = receiver["type"]
+        return _function_call_node(
+            f"cls.{frame_t['name']}.close",
+            [receiver],
+            {"kind": "none"},
+            span,
         )
-        # Unreachable after the raise; the frame's elem keeps the expression typed.
-        out = self._temp("thr")
-        self.locals[out] = (
-            frame_t.get("elem", {"kind": "none"}) if isinstance(frame_t.get("elem"), dict) else {"kind": "none"}
-        )
-        return _name(out, self.locals[out], span)
 
     def _hash_method(self, node: ast.Call, span: dict[str, Any], receiver: dict[str, Any]) -> dict[str, Any]:
         """`h.update(data)`, `h.digest()` and `h.hexdigest()`.
