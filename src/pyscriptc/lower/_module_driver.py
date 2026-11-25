@@ -416,9 +416,14 @@ class ModuleDriverMixin:
                 self.typevar_bounds = saved_bounds
                 # A nested body's plan is its own scope (G3b): the parent's
                 # walk never sees the nested def's plan, and a plan that
-                # stayed set here would rewrite the parent's own body.
-                self._coro_plans().clear()
-                self._coro_plans().update(saved_plans)
+                # stayed set here would rewrite the parent's own body. Only
+                # the lifted plans drop: a plan the body registered for
+                # itself (the `asyncio.to_thread` coroutine frame, issue
+                # #400) belongs to the module, not to the body.
+                plans = self._coro_plans()
+                for key, plan in list(plans.items()):
+                    if key not in saved_plans and plan.lifted:
+                        del plans[key]
         self._drain_instances(lowered, lowered_classes, fences)
         self._drain_frames(lowered, fences)
         # The frame-specialized method copies queue from the call sites of
