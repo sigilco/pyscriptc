@@ -84,6 +84,20 @@ def _fence_deltas(base: dict[str, int], inferred: dict[str, int]) -> dict[str, d
     return deltas
 
 
+def _typing_policy_data(config: Any) -> dict[str, Any]:
+    """The typing policy of a resolved config, as plain data for the report.
+
+    The `pyscriptc config` report is JSON when asked for, so the policy
+    goes out as the mode and the per-level glob lists, not as the object.
+    """
+
+    try:
+        policy = config.typing_policy()
+    except Exception:
+        policy = TypingPolicy()
+    return {"mode": policy.mode, "globs": policy.globs}
+
+
 def _typing_policy(source: Path) -> TypingPolicy:
     """The typing policy of the project above a source (issue #1315).
 
@@ -368,7 +382,7 @@ def config_cmd(args: argparse.Namespace) -> int:
         "ffi": list(config.ffi),
         "dependency-lanes": config.dependency_lanes(),
         "imports": {name: config.lane_for(name)[0] for name in sorted(config.imports)},
-        "typing": config.typing_policy(),
+        "typing": _typing_policy_data(config),
         "scripts": scripts,
     }
     if args.json:
@@ -391,9 +405,9 @@ def config_cmd(args: argparse.Namespace) -> int:
             print(f"  {req}: {lane}")
     for name, lane in data["imports"].items():
         print(f"import {name}: {lane}")
-    typing: Any = data["typing"]
-    print(f"typing mode: {typing.mode}")
-    for level, patterns in sorted(typing.globs.items()):
+    typing: dict[str, Any] = data["typing"]
+    print(f"typing mode: {typing['mode']}")
+    for level, patterns in sorted(typing["globs"].items()):
         print(f"typing {level}: {', '.join(patterns)}")
     if data["scripts"]:
         print("scripts:")
