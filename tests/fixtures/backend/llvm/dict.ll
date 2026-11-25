@@ -8,6 +8,8 @@ declare i64 @ps_map_len(ptr)
 declare void @ps_map_put(ptr, ptr, ptr)
 declare void @ps_map_get(ptr, ptr, ptr)
 declare i32 @ps_map_has(ptr, ptr)
+declare ptr @ps_tuple_key_new(i64, ptr)
+declare ptr @ps_tuple_key_data(ptr)
 
 define void @dict_expr() {
 entry:
