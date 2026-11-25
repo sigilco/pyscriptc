@@ -280,6 +280,8 @@ def test_self_census_ballpark() -> None:
     # The argparse namespace peek (#500): peek_namespace_fields in
     # restlower/_argparse.py adds 1 self-host fence (PS1104, `Any` like the
     # module's other helpers).
+    # The argparse shared-dest fix (#1346): the kind-conflict fence in
+    # restlower/_argparse.py adds 1 self-host fence (the `lo.fail` call).
 
     # 22,164 lines after the `--facts` lane landed in typefacts.py.
     # IR verifier (#272): the two verifier modules add about 900 lines.

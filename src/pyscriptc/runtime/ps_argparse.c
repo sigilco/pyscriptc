@@ -461,26 +461,33 @@ static int ps_arg_push_value(PsSeq *seq, int64_t base, const char *value) {
     return 1;
 }
 
+/* Write the default of one row into its slot. */
+static void ps_arg_row_default(PsArgCtx *ctx, const PsArgRow *row) {
+    if (row->kind >= PS_ARG_LIST) {
+        ps_arg_set_empty_list(ctx->out, row->offset, row->kind);
+    } else if (row->kind == PS_ARG_BOOL) {
+        *(int64_t *)((char *)ctx->out + row->offset) = strcmp(row->dflt[0] ? row->dflt : "0", "1") == 0 ? 1 : 0;
+    } else if (row->dflt[0] != '\0') {
+        ps_arg_set(ctx->out, row->offset, row->kind, row->dflt);
+    } else if (row->kind == PS_ARG_STR) {
+        ps_arg_set_str(ctx->out, row->offset, "");
+    } else if (row->kind == PS_ARG_FLOAT) {
+        *(double *)((char *)ctx->out + row->offset) = 0.0;
+    } else {
+        *(int64_t *)((char *)ctx->out + row->offset) = 0;
+    }
+}
+
 /* Write every default of this parser and its subcommands, so an option or a
-   subcommand that does not appear keeps one. */
+   subcommand that does not appear keeps one. The level that the command line
+   chose writes its own defaults again when it parses, so the value a dest
+   ends up with is the chosen level's (issue #1346). */
 static void ps_arg_defaults(PsArgCtx *ctx, PsArgParser *parser) {
     int64_t nspecs = ps_seq_len(parser->specs);
     for (int64_t i = 0; i < nspecs; i++) {
         PsArgRow row;
         ps_arg_row_load(ctx, parser->specs, i, &row);
-        if (row.kind >= PS_ARG_LIST) {
-            ps_arg_set_empty_list(ctx->out, row.offset, row.kind);
-        } else if (row.kind == PS_ARG_BOOL) {
-            *(int64_t *)((char *)ctx->out + row.offset) = strcmp(row.dflt[0] ? row.dflt : "0", "1") == 0 ? 1 : 0;
-        } else if (row.dflt[0] != '\0') {
-            ps_arg_set(ctx->out, row.offset, row.kind, row.dflt);
-        } else if (row.kind == PS_ARG_STR) {
-            ps_arg_set_str(ctx->out, row.offset, "");
-        } else if (row.kind == PS_ARG_FLOAT) {
-            *(double *)((char *)ctx->out + row.offset) = 0.0;
-        } else {
-            *(int64_t *)((char *)ctx->out + row.offset) = 0;
-        }
+        ps_arg_row_default(ctx, &row);
         ps_arg_row_free(&row);
     }
     int64_t nsubs = ps_seq_len(parser->subs);
@@ -497,6 +504,40 @@ static void ps_arg_defaults(PsArgCtx *ctx, PsArgParser *parser) {
             last = sub->child;
         }
     }
+}
+
+/* Write this level's defaults, the way argparse's `parse_known_args` does
+   before it parses the level's own arguments: a dest the level registers and
+   the namespace does not carry yet takes the level's default. The level that
+   the command line chose runs after its parent, so a dest a parent and the
+   chosen subcommand both register ends up with the chosen subcommand's value
+   (CPython's child parse writes its namespace over the parent's, issue
+   #1346). A dest the level registers twice keeps the first registration's
+   default, because argparse only sets a default the namespace lacks.
+
+   The write skips the slots this level already wrote, so a subcommand dest
+   the parent filled keeps the parent's name. */
+static void ps_arg_level_defaults(PsArgCtx *ctx, PsArgParser *parser) {
+    int64_t nslots = ps_seq_len(ctx->kinds);
+    int64_t nspecs = ps_seq_len(parser->specs);
+    unsigned char *written = calloc((size_t)(nslots > 0 ? nslots : 1), 1);
+    if (written == NULL) {
+        abort();
+    }
+    for (int64_t i = 0; i < nspecs; i++) {
+        PsArgRow row;
+        ps_arg_row_load(ctx, parser->specs, i, &row);
+        if (row.slot >= 0 && row.slot < nslots) {
+            if (written[row.slot]) {
+                ps_arg_row_free(&row);
+                continue;
+            }
+            written[row.slot] = 1;
+        }
+        ps_arg_row_default(ctx, &row);
+        ps_arg_row_free(&row);
+    }
+    free(written);
 }
 
 static void ps_arg_extra(PsArgCtx *ctx, const char *word) {
@@ -1026,6 +1067,12 @@ static void ps_arg_level(PsArgCtx *ctx, PsArgParser *parser, const char *path, c
     for (int64_t i = 0; i < lv.nrows; i++) {
         ps_arg_row_load(ctx, parser->specs, i, &lv.rows[i]);
     }
+    /* This level's defaults land before its tokens parse, the way
+       argparse's `parse_known_args` fills the namespace with the level's
+       defaults first. A dest the level shares with its parent takes the
+       level's default here, and a token the level consumes overwrites it
+       (issue #1346). */
+    ps_arg_level_defaults(ctx, parser);
     /* The positionals in registration order; the subcommand action sits where
        add_subparsers was called. */
     for (int64_t i = 0; i <= lv.nrows; i++) {

@@ -789,7 +789,12 @@ no = [["copy of a user class", 'y: P = copy.copy(p)', "PS2001"]]
 [[stdlib]]
 names = ["argparse"]
 ok = ['''ap: argparse.ArgumentParser = argparse.ArgumentParser()
-ap.add_argument("--x")''']
+ap.add_argument("--x")''', '''ap: argparse.ArgumentParser = argparse.ArgumentParser()
+sub = ap.add_subparsers(dest="cmd", required=True)
+go = sub.add_parser("go")
+go.add_argument("--n", type=int, default=0)
+stop = sub.add_parser("stop")
+stop.add_argument("--n", type=int, default=1)''']
 no = [["choices=, mutually exclusive groups", '''ap: argparse.ArgumentParser = argparse.ArgumentParser()
 ap.add_argument("--x", choices=["a", "b"])''', "PS2003"]]
 

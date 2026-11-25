@@ -1080,3 +1080,104 @@ def test_peek_namespace_fields_types_a_list_valued_nargs() -> None:
     assert fields is not None
     assert [(f["name"], f["type"]["kind"]) for f in fields] == [("files", "list"), ("n", "list"), ("one", "str")]
     assert fields[1]["type"]["elem"]["kind"] == "int"
+
+
+def test_argparse_shared_dest_across_levels_matches_cpython(tmp_path: Path) -> None:
+    """A dest a parent and a subcommand (or two siblings) both register is one attribute.
+
+    The chosen level's value lands: a token the chosen level consumes
+    overwrites the parent's value, the chosen level's default overwrites the
+    parent's default, and an unchosen sibling's default does not leak. The
+    shared dest is read only on the paths that register it, because an
+    unchosen subcommand's attribute is the recorded divergence.
+    """
+    _compile_and_compare(
+        tmp_path,
+        "shared.py",
+        [
+            "import argparse",
+            "import sys",
+            "",
+            "def main() -> int:",
+            "    p = argparse.ArgumentParser(prog='t')",
+            "    p.add_argument('--x', type=int, default=1)",
+            "    s = p.add_subparsers(dest='cmd', required=True)",
+            "    go = s.add_parser('go', help='go mode')",
+            "    go.add_argument('--x', type=int, default=2)",
+            "    go.add_argument('word')",
+            "    stop = s.add_parser('stop', help='stop mode')",
+            "    stop.add_argument('--x', type=int, default=3)",
+            "    args = p.parse_args(sys.argv[1:])",
+            "    if args.cmd == 'go':",
+            "        print('go', args.x, args.word)",
+            "    else:",
+            "        print('stop', args.x)",
+            "    return 0",
+            "",
+            "main()",
+        ],
+        [
+            ["go", "hi"],
+            ["go", "--x", "9", "hi"],
+            ["--x", "5", "go", "hi"],
+            ["--x", "5", "stop"],
+            ["stop"],
+            ["go", "hi"],
+        ],
+    )
+
+
+def test_argparse_shared_dest_between_siblings_matches_cpython(tmp_path: Path) -> None:
+    """Two sibling subcommands registering one dest name share one attribute."""
+    _compile_and_compare(
+        tmp_path,
+        "siblings.py",
+        [
+            "import argparse",
+            "import sys",
+            "",
+            "def main() -> int:",
+            "    p = argparse.ArgumentParser(prog='t')",
+            "    s = p.add_subparsers(dest='cmd', required=True)",
+            "    a = s.add_parser('a')",
+            "    a.add_argument('x', type=int)",
+            "    b = s.add_parser('b')",
+            "    b.add_argument('x', type=int)",
+            "    args = p.parse_args(sys.argv[1:])",
+            "    print(args.cmd, args.x)",
+            "    return 0",
+            "",
+            "main()",
+        ],
+        [["a", "5"], ["b", "7"], ["a", "0"], ["b", "42"]],
+    )
+
+
+def test_argparse_shared_dest_kind_conflict_fences() -> None:
+    """A dest registered twice with different types stops the compile."""
+    fence = _first_fence(
+        _SUB_PROLOGUE
+        + "sub = parser.add_subparsers(dest='cmd')\n"
+        + "a = sub.add_parser('a')\na.add_argument('x', type=int)\n"
+        + "b = sub.add_parser('b')\nb.add_argument('x', type=str)\n"
+    )
+    assert "argparse dest x is registered twice with different types" in fence["message"]
+    assert fence["code"] == "PS2003"
+
+
+def test_peek_namespace_fields_dedupes_a_shared_dest() -> None:
+    fields = _peek_fields(
+        "import argparse\n"
+        "\n"
+        "def main() -> int:\n"
+        "    parser = argparse.ArgumentParser()\n"
+        "    sub = parser.add_subparsers(dest='cmd')\n"
+        "    a = sub.add_parser('a')\n"
+        "    a.add_argument('x', type=int)\n"
+        "    b = sub.add_parser('b')\n"
+        "    b.add_argument('x', type=int)\n"
+        "    args = parser.parse_args()\n"
+        "    return 0\n"
+    )
+    assert fields is not None
+    assert [(f["name"], f["type"]["kind"]) for f in fields] == [("cmd", "str"), ("x", "int")]

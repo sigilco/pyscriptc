@@ -183,6 +183,7 @@ def peek_namespace_fields(lo: Any, body: list[ast.stmt]) -> list[dict[str, Any]]
     """
 
     fields: list[dict[str, Any]] = []
+    seen: set[str] = set()
     for node in ast.walk(ast.Module(body=body, type_ignores=[])):
         if not (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)):
             continue
@@ -200,7 +201,8 @@ def peek_namespace_fields(lo: Any, body: list[ast.stmt]) -> list[dict[str, Any]]
                     return None
             if node.args:
                 return None
-            if sub_dest is not None:
+            if sub_dest is not None and sub_dest not in seen:
+                seen.add(sub_dest)
                 fields.append({"name": sub_dest, "type": _t_leaf("str")})
             continue
         if node.func.attr != "add_argument" or not node.args:
@@ -271,6 +273,13 @@ def peek_namespace_fields(lo: Any, body: list[ast.stmt]) -> list[dict[str, Any]]
             field_type = _t_leaf("str")
         if _is_list_nargs(nargs):
             field_type = _t_list(field_type)
+        # A dest a parent and a subcommand (or two sibling subcommands) both
+        # register is one namespace attribute, as in CPython, so the walk
+        # keeps the first registration's slot and the real lowering reuses
+        # it the same way.
+        if dest in seen:
+            continue
+        seen.add(dest)
         fields.append({"name": dest, "type": field_type})
     return fields or None
 
@@ -338,16 +347,34 @@ class ArgparseState:
         self.group_of_name: dict[str, int] = {}
 
     def add(self, dest: str, field: dict[str, Any], kind: int, arg_meta: dict[str, Any], group: int = 0) -> int:
-        slot = len(self.fields)
-        self.dests[dest] = slot
-        self.fields.append(field)
-        self.kinds.append(kind)
+        """Register one argument, reusing the slot a dest already owns.
+
+        CPython's namespace holds one attribute per dest name, so a dest that
+        a parent parser and a subcommand (or two sibling subcommands) both
+        register is one attribute, not two. The slot is the attribute's index
+        in the namespace, so the second registration reuses the first one's
+        slot and the attribute read finds the value the chosen subcommand
+        wrote. A dest that is already registered keeps its first field type
+        and kind; the two registrations must agree on them, which the
+        `dest_kind_conflict` fence checks.
+        """
+        slot = self.dests.get(dest)
+        if slot is None:
+            slot = len(self.fields)
+            self.dests[dest] = slot
+            self.fields.append(field)
+            self.kinds.append(kind)
         self.registered_args.append(arg_meta)
         self.groups[group].args.append(arg_meta)
         return slot
 
     def dest_index(self, dest: str) -> int | None:
         return self.dests.get(dest)
+
+    def dest_kind(self, dest: str) -> int | None:
+        """The kind a dest's slot already carries, or None before it registers."""
+        slot = self.dests.get(dest)
+        return self.kinds[slot] if slot is not None else None
 
 
 def _assign_targets(lo: Any) -> dict[tuple[int, int], str]:
@@ -693,11 +720,16 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
     state = _state(lo)
     _install_classes(lo)
     req_str = "1" if required else "0"
-    slot = len(state.fields)
     if list_valued:
         kind += _KIND_LIST
         field_type = _t_list(field_type)
-    spec = "|".join([dest, action, const, default, ",".join(flags), req_str, str(slot), nargs])
+    # A dest a parent and a subcommand (or two sibling subcommands) both
+    # register is one namespace attribute, as in CPython: the second
+    # registration reuses the first one's slot. The two kinds must agree,
+    # because the kind table is indexed by slot (issue #1346).
+    known_kind = state.dest_kind(dest)
+    if known_kind is not None and known_kind != kind:
+        lo.fail(node, "PS2003", f"argparse dest {dest} is registered twice with different types")
     arg_meta = {
         "dest": dest,
         "flags": flags,
@@ -711,7 +743,8 @@ def _add_argument(lo: Any, node: ast.Call, span: dict[str, Any], receiver: dict[
         "nargs": nargs,
         "raw_const": raw_const,
     }
-    state.add(dest, {"name": dest, "type": field_type}, kind, arg_meta, _receiver_group(lo, node))
+    slot = state.add(dest, {"name": dest, "type": field_type}, kind, arg_meta, _receiver_group(lo, node))
+    spec = "|".join([dest, action, const, default, ",".join(flags), req_str, str(slot), nargs])
     if type_name == "Path":
         state.path_dests.add(dest)
     lo.classes["Namespace"]["fields"] = list(state.fields)
