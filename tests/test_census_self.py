@@ -354,10 +354,13 @@ def test_self_census_ballpark() -> None:
     # The shape-aware first-run toolchain hint (#1291): install_command,
     # toolchain_fix and toolchain_found plus their tests' surface in
     # doctor.py and zigshim.py add about 90 lines.
+    # The typing strictness lane (#1315): typinglevels.py (about 1.4k
+    # lines), the config table, the report wiring and the tests add about
+    # 1.5k lines.
     # The O3b protocol dispatch (#446): the container/iter/with resolver in
     # lower/_protocols.py and the call-site hooks add about 750 lines,
-    # taking the census to about 97,240, so the ceiling stays at 98k.
-    assert 11_000 <= census["lines"] <= 98_000
+    # taking the census to about 98,550, so the ceiling moves to 99k.
+    assert 11_000 <= census["lines"] <= 99_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.

@@ -149,6 +149,40 @@ There is no `typing` module object in the binary.
 
 Constructs with runtime meaning beyond their annotation (pydantic models, `attrs` validators, anything that reads annotations at run time) are not typing failures: run them through embedded CPython (fallback mode), see [Libraries and fallback mode](libraries.md).
 
+## Typing levels
+
+Typing is a quality lane: a level says how much of the typing report a project sees, never what compiles.
+The four levels are `off`, `basic`, `standard` and `strict`; the default is `standard`.
+
+| Level | What the report shows | PEPs it reports on |
+| ----- | --------------------- | ------------------- |
+| `off` | no typing findings | none |
+| `basic` | missing annotations (`PS1001`) as warnings | PEP 484 function annotations, PEP 526 variable annotations |
+| `standard` | missing annotations as warnings, plus the coverage numbers | PEP 484, PEP 526, and the PEP 561 stub resolution the checker preflight proves |
+| `strict` | missing annotations and the construct forms (`PS1103`, `PS1104`, `PS1105`, `PS1106`) as errors | PEP 484, PEP 526, PEP 561, and the PEP 585, 604, 647, 695 construct forms |
+
+The levels are reporting emphasis, never new syntax support: a strict level reports the PEP 695 and `ParamSpec` fences more loudly, it does not lower them.
+
+The project default and the per-path lists live in the config:
+
+```toml
+[tool.pyscriptc.typing]
+mode = "standard"
+strict = ["src/core/**"]
+```
+
+A file may raise its own level with a pragma comment, which is inert for CPython and for every other tool:
+
+```python
+# pyscriptc: typed=strict
+```
+
+The pragma may only raise the level over the config, never lower it, so a strict configuration holds: a file that wants less has to be taken out of the strict globs, not downgraded in place.
+The findings surface in `pyscriptc infer --report` and `pyscriptc assess`; see [Config](../reference/config.md) for the table.
+
+The report is a floor, not a replay of the compiler: it reads the shapes statically, so it names every annotation the compiler would fence and may name one the compiler later proves away (a local the compiler types from a call result, for instance).
+The compiler is still the authority on what compiles; a level never changes that.
+
 For background on the typing system itself, the upstream references are the best source and pyscriptc does not re-explain them:
 
 - [The typing module](https://docs.python.org/3/library/typing.html) and [Type hints cheat sheet](https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html) from the mypy docs
