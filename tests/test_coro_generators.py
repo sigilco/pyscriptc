@@ -1566,9 +1566,9 @@ def g() -> Iterator[int]:
 
 def test_g3b_lambda_with_yield_still_fences() -> None:
     source = """\
-from typing import Any, Iterator
+from typing import Callable, Iterator
 
-fn: Any = lambda: (yield 1)
+fn: Callable[[], Iterator[int]] = lambda: (yield 1)
 """
     module = lower_source(source, "lam.py")
     assert any(f["code"] == "PS2002" for f in module["fences"])
