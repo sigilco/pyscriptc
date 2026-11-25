@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-24",
-  "commit": "1970e5dc2998547825be8c112d3256b0a8ebbcaf",
+  "commit": "7f7387707365034bfa655eca97ae9569f1a3f8f5",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -968,7 +968,7 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "244/641",
-      "blocking": "name-resolution (186), construct-other (116), field-lookup (63)",
+      "blocking": "name-resolution (189), construct-other (110), field-lookup (60)",
       "codes": "PS2002, PS2001, PS1103"
     },
     {
@@ -991,9 +991,9 @@
       "name": "iniconfig",
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
-      "ratio": "9/34",
-      "blocking": "construct-other (3), optional-types (2), unlowered-call (2)",
-      "codes": "PS2002, PS1102, PS1001"
+      "ratio": "7/34",
+      "blocking": "name-resolution (3), optional-types (2), unlowered-call (2)",
+      "codes": "PS2002, PS1102, PS2001"
     },
     {
       "name": "jmespath",
@@ -1024,7 +1024,7 @@
       "version": "26.3",
       "status": "\ud83d\udfe1",
       "ratio": "278/558",
-      "blocking": "name-resolution (101), unlowered-type-name (94), field-lookup (77)",
+      "blocking": "name-resolution (100), unlowered-type-name (94), field-lookup (78)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
@@ -1087,8 +1087,8 @@
       "name": "urllib3",
       "version": "2.8.0",
       "status": "\ud83d\udfe1",
-      "ratio": "217/617",
-      "blocking": "name-resolution (94), unlowered-type-name (74), construct-other (56)",
+      "ratio": "222/617",
+      "blocking": "name-resolution (97), unlowered-type-name (74), construct-other (56)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
