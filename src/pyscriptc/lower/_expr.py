@@ -859,6 +859,13 @@ class ExprMixin(ExprCompareMixin):
         # boxed:end
         if kind == "class" and self.classes.get(value["type"]["name"], {}).get("tuple"):
             return self._tuple_subscript(node, value, span)
+        if kind == "class" and not value["type"].get("island"):
+            # The container resolution (decision 2026-11-23, O3b): a class
+            # operand with a `__getitem__` definer takes the index as the
+            # one argument; slices and tuple indexes keep their fences.
+            called = self._getitem_dispatch(node, value, index, span)
+            if called is not None:
+                return called
         if kind == "list" and value["type"].get("set"):
             self.fail(node, "PS2002", "a set has no subscript")
         if _nd_is_ndarray(value["type"]):

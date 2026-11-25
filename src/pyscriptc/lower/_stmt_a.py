@@ -479,6 +479,15 @@ class StmtAMixin:
                         span,
                     )
                     return [_expr_wrap(call, span)]
+                if kind == "class" and not local.get("island"):
+                    # The container resolution (decision 2026-11-23, O3b):
+                    # a class operand with a `__delitem__` definer takes
+                    # the index as the one argument.
+                    container = self._expr(target.value)
+                    index = self._expr(target.slice)
+                    call = self._delitem_dispatch(stmt, container, index, span)
+                    if call is not None:
+                        return [_expr_wrap(call, span)]
             self.fail(stmt, "PS2002", "del of a subscript is not lowered")
         if isinstance(target, (ast.Tuple, ast.List)):
             self.fail(stmt, "PS2002", "del of a tuple of names is not lowered")
@@ -899,6 +908,13 @@ class StmtAMixin:
         typ = value["type"]
         if _type_kind(typ) == "class" and self.classes.get(typ["name"], {}).get("tuple"):
             return self._unpack_fixed(node, elts, star, value, span)
+        if _type_kind(typ) == "class" and not typ.get("island"):
+            # A user iterable class unpacks through the shared resolver: the
+            # elements materialize into a list (the eager model) and the
+            # sized unpack applies (issue #446).
+            pair = self._class_iterable_value(node, value, span)
+            if pair is not None:
+                return self._unpack_sized(elts, star, pair[0], span)
         if _type_kind(typ) == "list" and not typ.get("set"):
             return self._unpack_sized(elts, star, value, span)
         self.fail(node, "PS2002", "unpacking needs a tuple or list value")

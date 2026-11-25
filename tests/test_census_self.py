@@ -360,11 +360,13 @@ def test_self_census_ballpark() -> None:
     # The dataclass lifts (O5b, #452): the field flags, the dataclass base
     # inheritance and the `__post_init__` hook in lower/_classes.py and
     # restlower/_dataclasses.py add about 230 lines.
+    # The O3b protocol dispatch (#446): the container/iter/with resolver in
+    # lower/_protocols.py and the call-site hooks add about 750 lines.
     # The tagged dynamic value's str() and class-attribute surface (#1226):
     # the `str()` of a dynval in lower/_calls.py, the dynval slot and
     # class-attribute handling in lower/_class_attrs.py and
     # lower/_classes.py add about 44 lines, taking the census to about
-    # 98,050, so the ceiling moves to 99k.
+    # 98,800, so the ceiling moves to 99k.
     assert 11_000 <= census["lines"] <= 99_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add

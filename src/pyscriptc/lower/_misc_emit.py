@@ -215,6 +215,17 @@ class MiscEmitMixin:
                 span,
             )
             return _expr_node(call, span)
+        elif kind == "class" and not container["type"].get("island"):
+            # The container resolution (decision 2026-11-23, O3b): a class
+            # operand with a `__setitem__` definer takes the index and the
+            # value; the value type is the definer's second parameter.
+            value_t = self._setitem_value_type(container["type"], "__setitem__")
+            if value_t is not None:
+                value = self._expr(stmt.value, value_t)
+                called = self._setitem_dispatch(stmt, container, index, value, span)
+                if called is not None:
+                    return _expr_node(called, span)
+            self.fail(target, "PS2002", f"{container['type']['name']} has no item assignment")
         else:
             self.fail(target, "PS2002", "item assignment targets a list or dict")
         return _setitem_node(container, index, value, span)

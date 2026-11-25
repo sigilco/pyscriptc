@@ -43,6 +43,7 @@ from pyscriptc.lower._core import (
     _type_kind,  # noqa: F401  # moved-verbatim import
     _zero,  # noqa: F401  # moved-verbatim import
 )
+from pyscriptc.lower._protocols import _exit_returns_bool
 from pyscriptc.lower._stmt_a import (
     _body_nodes,  # noqa: F401  # moved-verbatim import
     _expr_wrap,  # noqa: F401  # moved-verbatim import
@@ -125,6 +126,27 @@ def _raise_node(
         # The bare raise dict spells no message key when there is none.
         out.pop("message", None)
     return out
+
+
+def _carrier_slot_type(typ: dict[str, Any]) -> str:
+    """The carrier slot a `__exit__` parameter type fills.
+
+    The carrier passes the exception's class name (a string), the
+    exception itself and a traceback stand-in (a string). An optional
+    carrier keeps its element's slot.
+    """
+    if typ.get("optional"):
+        elem = typ.get("elem", {})
+        if elem.get("kind") == "exc":
+            return "exc"
+        if elem.get("kind") == "str":
+            return "str"
+        return "?"
+    if typ.get("kind") == "exc":
+        return "exc"
+    if typ.get("kind") == "str":
+        return "str"
+    return "?"
 
 
 def _substitute_names(node: ast.AST, binding: dict[str, ast.expr]) -> ast.AST:
@@ -220,10 +242,13 @@ class StmtBMixin:
             iter_node = list_iter
         iterable = self._expr(iter_node)
         kind = _node_type_kind(iterable)
-        if kind == "class" and "__iter__" in self.classes.get(iterable["type"]["name"], {}).get("methods", {}):
-            called = self._dunder_call(stmt.iter, iterable, "__iter__", [], span)
-            if called is not None:
-                iterable = called
+        if kind == "class" and not iterable["type"].get("island"):
+            # The iteration resolution (decision 2026-11-23, O3b): the
+            # shared resolver calls the `__iter__` definer; the result's own
+            # static type decides what the loop does.
+            resolved = self._iter_resolve(stmt.iter, iterable, span)
+            if resolved is not None:
+                iterable = resolved
                 kind = _node_type_kind(iterable)
         if kind == "dict":
             key_t = iterable["type"]["key"]
@@ -304,7 +329,7 @@ class StmtBMixin:
             return out
         if kind == "class" and self.classes.get(iterable["type"]["name"], {}).get("iterator"):
             return self._for_iter(stmt, iterable, span)
-        if kind == "class" and "__next__" in self.classes.get(iterable["type"]["name"], {}).get("methods", {}):
+        if kind == "class" and self._definer(iterable["type"]["name"], "__next__") is not None:
             return self._for_dunder(stmt, iterable, span)
         if kind == "str":
             elem = {"kind": "str"}
@@ -429,7 +454,10 @@ class StmtBMixin:
         """`for x in it` on a class with __next__: call it each step and let a
         raised StopIteration end the loop — CPython's iterator drain."""
         it_t = iterable["type"]
-        elem = self.classes[it_t["name"]]["methods"]["__next__"][1]
+        nextdef = self._definer(it_t["name"], "__next__")
+        if nextdef is None:
+            self.fail(stmt, "PS2002", f"for over {it_t['name']} needs a __next__ method")
+        elem = self.classes[nextdef]["methods"]["__next__"][1]
         if not isinstance(stmt.target, ast.Name):
             self.fail(stmt, "PS2002", "for unpacks a list of tuples or enumerate/zip")
         target = stmt.target.id
@@ -1337,20 +1365,39 @@ class StmtBMixin:
         in-flight exception (CPython's (None, None, None) is the three empty
         optionals here).
 
-        Subset signature: `__exit__(self, Optional[str], Optional[Exception],
-        Optional[str]) -> bool` — the exception's class name, the exception,
-        and a traceback stand-in that is always empty.
+        The `__exit__` carrier passes the exception's class name as a
+        string, the exception itself and a traceback stand-in that is
+        always empty. The CPython spellings (`type[BaseException] | None`,
+        `BaseException | None`, `TracebackType | None`) erase onto the
+        carrier slots through the erasure table (O3b, decision
+        2026-11-23), and the legacy `Optional[str], Optional[Exception],
+        Optional[str]` spelling keeps working.
         """
         class_name = ctx_v["type"]["name"]
         info = self.classes[class_name]
         exit_sig = info["methods"].get("__exit__")
         if exit_sig is None or info.get("method_kind", {}).get("__exit__", "method") != "method":
             self.fail(stmt, "PS2001", f"{class_name}.__exit__ is not a method")
+        enter_sig = info["methods"].get("__enter__")
+        if enter_sig is None or info.get("method_kind", {}).get("__enter__", "method") != "method":
+            self.fail(stmt, "PS2001", f"{class_name}.__enter__ is not a method")
         params = exit_sig[0]
-        if len(params) != 4 or [param["type"].get("name") for param in params[1:]] != ["opt_str", "opt_exc", "opt_str"]:
+        if len(params) != 4:
             self.fail(
                 stmt, "PS2003", f"{class_name}.__exit__ takes (Optional[str], Optional[Exception], Optional[str])"
             )
+        # The carrier slots: the class name (a string), the exception and
+        # the traceback stand-in (a string). A parameter that is not the
+        # optional carrier keeps its own type and the call checks it.
+        slot_types = [_carrier_slot_type(param["type"]) for param in params[1:]]
+        if slot_types != ["str", "exc", "str"]:
+            self.fail(
+                stmt, "PS2003", f"{class_name}.__exit__ takes (Optional[str], Optional[Exception], Optional[str])"
+            )
+        # `__exit__` answers bool, None or bool | None; None never suppresses.
+        ret = exit_sig[1]
+        if not _exit_returns_bool(ret):
+            self.fail(stmt, "PS1003", f"{class_name}.__exit__ returns {_show(ret)}, not bool")
         target = item.optional_vars
         if target is not None and not isinstance(target, ast.Name):
             self.fail(stmt, "PS2002", "with-as needs a name")
@@ -1413,6 +1460,8 @@ class StmtBMixin:
             span,
         )
         enter = self._dunder_call(stmt, mgr_n, "__enter__", [], span)
+        if enter is None:
+            self.fail(stmt, "PS2001", f"{class_name}.__enter__ is not a method")
         out = [_assign(mgr, ctx_v, span)]
         if target is None:
             out.append(_expr_wrap(enter, span))
@@ -1621,7 +1670,7 @@ class StmtBMixin:
                 self.fail(call, "PS2003", "enumerate start given more than once")
             start_node = call.args[1]
         source = self._expr(call.args[0])
-        elem = self._pair_source_elem(call, source, "enumerate")
+        source, elem = self._pair_source(call, source, "enumerate")
         start = _const_int(0, span)
         if start_node is not None:
             start = self._expr(start_node, {"kind": "int"})
@@ -1636,25 +1685,37 @@ class StmtBMixin:
             self.fail(call, "PS2003", "zip takes at least 2 lists")
         sources = [self._expr(arg) for arg in call.args]
         elems: list[dict[str, Any]] = []
+        resolved: list[dict[str, Any]] = []
         for source in sources:
-            elems.append(self._pair_source_elem(call, source, "zip"))
-        return self._for_pairs(stmt, span, sources, elems, None, "zip")
+            got, elem = self._pair_source(call, source, "zip")
+            resolved.append(got)
+            elems.append(elem)
+        return self._for_pairs(stmt, span, resolved, elems, None, "zip")
 
-    def _pair_source_elem(self, call: ast.Call, source: dict[str, Any], what: str) -> dict[str, Any]:
-        """The element type one enumerate/zip source iterates, or a fence.
+    def _pair_source(self, call: ast.Call, source: dict[str, Any], what: str) -> tuple[dict[str, Any], dict[str, Any]]:
+        """The source an enumerate/zip loop reads, with its element type.
 
-        A source is a non-set `list` of scalars or a `str` (which iterates
-        its one-character strs); anything else keeps the PS2002 fence.
+        A source is a non-set `list` of scalars, a `str` (which iterates
+        its one-character strs) or a user iterable class (the shared
+        resolver materializes its elements); anything else keeps the
+        PS2002 fence.
         """
         kind = _node_type_kind(source)
         if kind == "str":
-            return {"kind": "str"}
+            return source, {"kind": "str"}
+        if kind == "class" and not source["type"].get("island"):
+            pair = self._class_iterable_value(call, source, span_of(call, self.filename))
+            if pair is not None:
+                elem = pair[1]
+                if _type_kind(elem) not in _SCALAR | {"bool"}:
+                    self.fail(call, "PS2002", f"{what}() of {_show(elem)} is not lowered")
+                return pair[0], elem
         if kind != "list" or source["type"].get("set"):
             self.fail(call, "PS2002", f"{what}() takes lists")
         elem = source["type"]["elem"]
         if _type_kind(elem) not in _SCALAR | {"bool"}:
             self.fail(call, "PS2002", f"{what}() of list[{_show(elem)}] is not lowered")
-        return elem
+        return source, elem
 
     def _for_pairs(
         self,

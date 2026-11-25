@@ -133,10 +133,19 @@ def _sum(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     arg = lo._expr(node.args[0])
     src = _node_type(arg)
     cls = lo.classes.get(_type_name(src), {}) if _type_kind(src) == "class" else {}
-    if cls.get("iterator") or cls.get("coro") == "generator":
-        # sum over an iterator or generator: drain the remaining elements
-        # through a comprehension (the eager model materializes them into
-        # a list; the cursor or frame ends spent, like list(it)).
+    if (
+        cls.get("iterator")
+        or cls.get("coro") == "generator"
+        or (
+            _type_kind(src) == "class"
+            and not src.get("island")
+            and lo._definer(_type_name(src), "__iter__") is not None
+        )
+    ):
+        # sum over an iterator, generator or user iterable class: drain
+        # the remaining elements through a comprehension (the eager model
+        # materializes them into a list; the cursor or frame ends spent,
+        # like list(it)).
         pinned = _pin(lo, arg, span, "sum")
         var = lo._temp("v").replace(".", "_")
         arg = lo._expr(

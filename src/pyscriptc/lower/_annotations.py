@@ -139,9 +139,13 @@ class AnnotationMixin:
             pos_marks = pos_marks[1:]
         defaults = list(fn.args.defaults)
         missing = len(args) - len(defaults)
+        exit_carriers = self._exit_carrier_types(fn, args)
         for index, arg in enumerate(args):
             default = defaults[index - missing] if index >= missing else None
-            param = _param(self, arg, fn, default)
+            if exit_carriers is not None and index < len(exit_carriers) and exit_carriers[index] is not None:
+                param = {"name": arg.arg, "type": exit_carriers[index]}
+            else:
+                param = _param(self, arg, fn, default)
             if pos_marks[index]:
                 param["posonly"] = True
             if index >= missing:
