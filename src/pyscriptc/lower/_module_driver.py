@@ -180,6 +180,16 @@ class ModuleDriverMixin:
                 continue
             try:
                 kind = "static" if self._is_module_staticmethod(fn) else "method"
+                # G3b: the nested generator defs plan in the enclosing
+                # module's scope before the body lowers (the plan table is
+                # the signature pass's output); a failure here is the
+                # nested def's own fence, not the owner's.
+                for stmt in fn.body:
+                    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        try:
+                            self._coro_plan_lifted(stmt)
+                        except Fence:
+                            pass
                 self.sigs[fn.name] = self._coro_signature(fn) or self._signature(fn, None, kind)
             except Fence as exc:
                 fences.append(exc)

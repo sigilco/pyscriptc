@@ -126,13 +126,22 @@ class ClosuresMixin:
         plan = self._coro_plans().get(key)
         if plan is None:
             self.fail(fn, "PS2002", "a nested generator def is not lowered yet")
-        # The body lowers under the closure's own name (the pass's plan key
-        # stays `outer.inner`); `_build_callable` records the nested fn.
+        # The body lowers under the closure's own name (the plan's key stays
+        # `outer.inner`); the active plan makes every yield in the body plan
+        # through the frame (`_coro_current` matches on the plan's function).
         frame_t: dict[str, Any] = {"kind": "class", "name": plan.frame}
         ftype = _func_type([param["type"] for param in plan.params], frame_t)
         self.locals[fn.name] = ftype
         self.local_sigs[id(ftype)] = (ftype, plan.params)
-        built = self._build_callable(fn.name, plan.params, {"kind": "none"}, fn.body, fn)
+        saved_active = self.__dict__.get("_coro_active")
+        self.__dict__["_coro_active"] = plan
+        try:
+            built = self._build_callable(fn.name, plan.params, {"kind": "none"}, fn.body, fn)
+        finally:
+            if saved_active is None:
+                self.__dict__.pop("_coro_active", None)
+            else:
+                self.__dict__["_coro_active"] = saved_active
         if built is None:
             return [_pass_stmt(span)]
         name, env, _ = built

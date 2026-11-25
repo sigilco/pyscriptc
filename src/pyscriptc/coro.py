@@ -730,6 +730,8 @@ class CoroMixin:
         if plan is None:
             return None
         self.__dict__["_coro_active"] = plan
+        if self._coro_current() is None:
+            return None
         return ([{"name": ".ps_env", "type": dict(_NONE)}, *params], dict(_NONE))
 
     def _coro_plan_module(
@@ -1407,6 +1409,12 @@ def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dic
         if plan is None:
             functions.append(fn)
             continue
+        if plan.function != name and name.startswith(f"{plan.function}."):
+            # G3b: a lifted nested generator's own record lowers through the
+            # lifted pass below (the body is the env-first closure, not the
+            # wrapper shape this loop builds); skip it here.
+            functions.append(fn)
+            continue
         try:
             wrapper, frame, forwarder = _Frame(fn, plan, _KINDS[plan.kind], plans).build()
         except CoroError as exc:
@@ -1444,14 +1452,18 @@ def _lower_lifted_resumables(
         if plan is None or not name.startswith(f"{plan.function}."):
             continue
         try:
+            if fn.get("boxed"):
+                # The env entries ride the wrapper (the closure's heap
+                # cells); the frame rebuild lifts them into `captured`, so
+                # the island-plan fence the plain build raises never
+                # applies to a lifted nested generator.
+                del fn["boxed"]
             wrapper, frame, _forwarder = _Frame(fn, plan, _KINDS[plan.kind], plans).build()
         except CoroError as exc:
             fences.append({"code": "PS2002", "message": exc.message, "function": name, "span": exc.span})
             continue
         wrapper["name"] = name
         wrapper["env"] = fn.get("env", [])
-        if fn.get("boxed"):
-            wrapper["boxed"] = fn["boxed"]
         out.append(wrapper)
         frames.append(frame)
     return out, frames
