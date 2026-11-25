@@ -61,6 +61,275 @@ SCOUNT = LCOUNT * NCOUNT
 # and the code point instead of storing it.
 HEX_NAME_PREFIXES = ("CJK UNIFIED IDEOGRAPH-", "CJK COMPATIBILITY IDEOGRAPH-")
 
+# The compatibility decomposition tags, in the order the runtime numbers
+# them. The number is what the generated table stores, so the runtime
+# can print the tag CPython prints.
+COMPAT_TAGS = (
+    "<font>",
+    "<noBreak>",
+    "<initial>",
+    "<medial>",
+    "<final>",
+    "<isolated>",
+    "<circle>",
+    "<super>",
+    "<sub>",
+    "<vertical>",
+    "<wide>",
+    "<narrow>",
+    "<small>",
+    "<square>",
+    "<fraction>",
+    "<compat>",
+)
+
+# The formal name aliases `unicodedata.lookup` accepts beyond the stored
+# names (the ISO 6429 control names, the correction names, the alternate
+# format names, the abbreviations and the figments). Each entry is
+# checked against the oracle at generation time, so the set cannot drift
+# from CPython's own lookup table.
+ALIASES = (
+    (0x0000, 'NULL'), (0x0000, 'NUL'),
+    (0x0001, 'START OF HEADING'), (0x0001, 'SOH'),
+    (0x0002, 'START OF TEXT'), (0x0002, 'STX'),
+    (0x0003, 'END OF TEXT'), (0x0003, 'ETX'),
+    (0x0004, 'END OF TRANSMISSION'), (0x0004, 'EOT'),
+    (0x0005, 'ENQUIRY'), (0x0005, 'ENQ'),
+    (0x0006, 'ACKNOWLEDGE'), (0x0006, 'ACK'),
+    (0x0007, 'ALERT'), (0x0007, 'BEL'),
+    (0x0008, 'BACKSPACE'), (0x0008, 'BS'),
+    (0x0009, 'CHARACTER TABULATION'), (0x0009, 'HORIZONTAL TABULATION'),
+    (0x0009, 'HT'), (0x0009, 'TAB'),
+    (0x000a, 'LINE FEED'), (0x000a, 'NEW LINE'),
+    (0x000a, 'END OF LINE'), (0x000a, 'LF'),
+    (0x000a, 'NL'), (0x000a, 'EOL'),
+    (0x000b, 'LINE TABULATION'), (0x000b, 'VERTICAL TABULATION'),
+    (0x000b, 'VT'), (0x000c, 'FORM FEED'),
+    (0x000c, 'FF'), (0x000d, 'CARRIAGE RETURN'),
+    (0x000d, 'CR'), (0x000e, 'SHIFT OUT'),
+    (0x000e, 'LOCKING-SHIFT ONE'), (0x000e, 'SO'),
+    (0x000f, 'SHIFT IN'), (0x000f, 'LOCKING-SHIFT ZERO'),
+    (0x000f, 'SI'), (0x0010, 'DATA LINK ESCAPE'),
+    (0x0010, 'DLE'), (0x0011, 'DEVICE CONTROL ONE'),
+    (0x0011, 'DC1'), (0x0012, 'DEVICE CONTROL TWO'),
+    (0x0012, 'DC2'), (0x0013, 'DEVICE CONTROL THREE'),
+    (0x0013, 'DC3'), (0x0014, 'DEVICE CONTROL FOUR'),
+    (0x0014, 'DC4'), (0x0015, 'NEGATIVE ACKNOWLEDGE'),
+    (0x0015, 'NAK'), (0x0016, 'SYNCHRONOUS IDLE'),
+    (0x0016, 'SYN'), (0x0017, 'END OF TRANSMISSION BLOCK'),
+    (0x0017, 'ETB'), (0x0018, 'CANCEL'),
+    (0x0018, 'CAN'), (0x0019, 'END OF MEDIUM'),
+    (0x0019, 'EOM'), (0x0019, 'EM'),
+    (0x001a, 'SUBSTITUTE'), (0x001a, 'SUB'),
+    (0x001b, 'ESCAPE'), (0x001b, 'ESC'),
+    (0x001c, 'INFORMATION SEPARATOR FOUR'), (0x001c, 'FILE SEPARATOR'),
+    (0x001c, 'FS'), (0x001d, 'INFORMATION SEPARATOR THREE'),
+    (0x001d, 'GROUP SEPARATOR'), (0x001d, 'GS'),
+    (0x001e, 'INFORMATION SEPARATOR TWO'), (0x001e, 'RECORD SEPARATOR'),
+    (0x001e, 'RS'), (0x001f, 'INFORMATION SEPARATOR ONE'),
+    (0x001f, 'UNIT SEPARATOR'), (0x001f, 'US'),
+    (0x0020, 'SP'), (0x007f, 'DELETE'),
+    (0x007f, 'DEL'), (0x0080, 'PADDING CHARACTER'),
+    (0x0080, 'PAD'), (0x0081, 'HIGH OCTET PRESET'),
+    (0x0081, 'HOP'), (0x0082, 'BREAK PERMITTED HERE'),
+    (0x0082, 'BPH'), (0x0083, 'NO BREAK HERE'),
+    (0x0083, 'NBH'), (0x0084, 'INDEX'),
+    (0x0084, 'IND'), (0x0085, 'NEXT LINE'),
+    (0x0085, 'NEL'), (0x0086, 'START OF SELECTED AREA'),
+    (0x0086, 'SSA'), (0x0087, 'END OF SELECTED AREA'),
+    (0x0087, 'ESA'), (0x0088, 'CHARACTER TABULATION SET'),
+    (0x0088, 'HORIZONTAL TABULATION SET'), (0x0088, 'HTS'),
+    (0x0089, 'CHARACTER TABULATION WITH JUSTIFICATION'), (0x0089, 'HORIZONTAL TABULATION WITH JUSTIFICATION'),
+    (0x0089, 'HTJ'), (0x008a, 'LINE TABULATION SET'),
+    (0x008a, 'VERTICAL TABULATION SET'), (0x008a, 'VTS'),
+    (0x008b, 'PARTIAL LINE FORWARD'), (0x008b, 'PARTIAL LINE DOWN'),
+    (0x008b, 'PLD'), (0x008c, 'PARTIAL LINE BACKWARD'),
+    (0x008c, 'PARTIAL LINE UP'), (0x008c, 'PLU'),
+    (0x008d, 'REVERSE LINE FEED'), (0x008d, 'REVERSE INDEX'),
+    (0x008d, 'RI'), (0x008e, 'SINGLE SHIFT TWO'),
+    (0x008e, 'SINGLE-SHIFT-2'), (0x008e, 'SS2'),
+    (0x008f, 'SINGLE SHIFT THREE'), (0x008f, 'SINGLE-SHIFT-3'),
+    (0x008f, 'SS3'), (0x0090, 'DEVICE CONTROL STRING'),
+    (0x0090, 'DCS'), (0x0091, 'PRIVATE USE ONE'),
+    (0x0091, 'PRIVATE USE-1'), (0x0091, 'PU1'),
+    (0x0092, 'PRIVATE USE TWO'), (0x0092, 'PRIVATE USE-2'),
+    (0x0092, 'PU2'), (0x0093, 'SET TRANSMIT STATE'),
+    (0x0093, 'STS'), (0x0094, 'CANCEL CHARACTER'),
+    (0x0094, 'CCH'), (0x0095, 'MESSAGE WAITING'),
+    (0x0095, 'MW'), (0x0096, 'START OF GUARDED AREA'),
+    (0x0096, 'START OF PROTECTED AREA'), (0x0096, 'SPA'),
+    (0x0097, 'END OF GUARDED AREA'), (0x0097, 'END OF PROTECTED AREA'),
+    (0x0097, 'EPA'), (0x0098, 'START OF STRING'),
+    (0x0098, 'SOS'), (0x0099, 'SINGLE GRAPHIC CHARACTER INTRODUCER'),
+    (0x0099, 'SGC'), (0x009a, 'SINGLE CHARACTER INTRODUCER'),
+    (0x009a, 'SCI'), (0x009b, 'CONTROL SEQUENCE INTRODUCER'),
+    (0x009b, 'CSI'), (0x009c, 'STRING TERMINATOR'),
+    (0x009c, 'ST'), (0x009d, 'OPERATING SYSTEM COMMAND'),
+    (0x009d, 'OSC'), (0x009e, 'PRIVACY MESSAGE'),
+    (0x009e, 'PM'), (0x009f, 'APPLICATION PROGRAM COMMAND'),
+    (0x009f, 'APC'), (0x00a0, 'NBSP'),
+    (0x00ad, 'SHY'), (0x01a2, 'LATIN CAPITAL LETTER GHA'),
+    (0x01a3, 'LATIN SMALL LETTER GHA'), (0x034f, 'CGJ'),
+    (0x0616, 'ARABIC SMALL HIGH LIGATURE ALEF WITH YEH BARREE'), (0x061c, 'ALM'),
+    (0x0709, 'SYRIAC SUBLINEAR COLON SKEWED LEFT'), (0x0cde, 'KANNADA LETTER LLLA'),
+    (0x0e9d, 'LAO LETTER FO FON'), (0x0e9f, 'LAO LETTER FO FAY'),
+    (0x0ea3, 'LAO LETTER RO'), (0x0ea5, 'LAO LETTER LO'),
+    (0x0fd0, 'TIBETAN MARK BKA- SHOG GI MGO RGYAN'), (0x11ec, 'HANGUL JONGSEONG YESIEUNG-KIYEOK'),
+    (0x11ed, 'HANGUL JONGSEONG YESIEUNG-SSANGKIYEOK'), (0x11ee, 'HANGUL JONGSEONG SSANGYESIEUNG'),
+    (0x11ef, 'HANGUL JONGSEONG YESIEUNG-KHIEUKH'), (0x180b, 'FVS1'),
+    (0x180c, 'FVS2'), (0x180d, 'FVS3'),
+    (0x180e, 'MVS'), (0x180f, 'FVS4'),
+    (0x1bbd, 'SUNDANESE LETTER ARCHAIC I'), (0x200b, 'ZWSP'),
+    (0x200c, 'ZWNJ'), (0x200d, 'ZWJ'),
+    (0x200e, 'LRM'), (0x200f, 'RLM'),
+    (0x202a, 'LRE'), (0x202b, 'RLE'),
+    (0x202c, 'PDF'), (0x202d, 'LRO'),
+    (0x202e, 'RLO'), (0x202f, 'NNBSP'),
+    (0x205f, 'MMSP'), (0x2060, 'WJ'),
+    (0x2066, 'LRI'), (0x2067, 'RLI'),
+    (0x2068, 'FSI'), (0x2069, 'PDI'),
+    (0x2118, 'WEIERSTRASS ELLIPTIC FUNCTION'), (0x2448, 'MICR ON US SYMBOL'),
+    (0x2449, 'MICR DASH SYMBOL'), (0x2b7a, 'LEFTWARDS TRIANGLE-HEADED ARROW WITH DOUBLE VERTICAL STROKE'),
+    (0x2b7c, 'RIGHTWARDS TRIANGLE-HEADED ARROW WITH DOUBLE VERTICAL STROKE'), (0xa015, 'YI SYLLABLE ITERATION MARK'),
+    (0xaa6e, 'MYANMAR LETTER KHAMTI LLA'), (0xfe00, 'VS1'),
+    (0xfe01, 'VS2'), (0xfe02, 'VS3'),
+    (0xfe03, 'VS4'), (0xfe04, 'VS5'),
+    (0xfe05, 'VS6'), (0xfe06, 'VS7'),
+    (0xfe07, 'VS8'), (0xfe08, 'VS9'),
+    (0xfe09, 'VS10'), (0xfe0a, 'VS11'),
+    (0xfe0b, 'VS12'), (0xfe0c, 'VS13'),
+    (0xfe0d, 'VS14'), (0xfe0e, 'VS15'),
+    (0xfe0f, 'VS16'), (0xfe18, 'PRESENTATION FORM FOR VERTICAL RIGHT WHITE LENTICULAR BRACKET'),
+    (0xfeff, 'BYTE ORDER MARK'), (0xfeff, 'BOM'),
+    (0xfeff, 'ZWNBSP'), (0x122d4, 'CUNEIFORM SIGN NU11 TENU'),
+    (0x122d5, 'CUNEIFORM SIGN NU11 OVER NU11 BUR OVER BUR'), (0x12327, 'CUNEIFORM SIGN KALAM'),
+    (0x1680b, 'BAMUM LETTER PHASE-A MAEMGBIEE'), (0x16e56, 'MEDEFAIDRIN CAPITAL LETTER H'),
+    (0x16e57, 'MEDEFAIDRIN CAPITAL LETTER NG'), (0x16e76, 'MEDEFAIDRIN SMALL LETTER H'),
+    (0x16e77, 'MEDEFAIDRIN SMALL LETTER NG'), (0x1b001, 'HENTAIGANA LETTER E-1'),
+    (0x1d0c5, 'BYZANTINE MUSICAL SYMBOL FTHORA SKLIRON CHROMA VASIS'), (0x1e899, 'MENDE KIKAKUI SYLLABLE M172 MBO'),
+    (0x1e89a, 'MENDE KIKAKUI SYLLABLE M174 MBOO'), (0xe0100, 'VS17'),
+    (0xe0101, 'VS18'), (0xe0102, 'VS19'),
+    (0xe0103, 'VS20'), (0xe0104, 'VS21'),
+    (0xe0105, 'VS22'), (0xe0106, 'VS23'),
+    (0xe0107, 'VS24'), (0xe0108, 'VS25'),
+    (0xe0109, 'VS26'), (0xe010a, 'VS27'),
+    (0xe010b, 'VS28'), (0xe010c, 'VS29'),
+    (0xe010d, 'VS30'), (0xe010e, 'VS31'),
+    (0xe010f, 'VS32'), (0xe0110, 'VS33'),
+    (0xe0111, 'VS34'), (0xe0112, 'VS35'),
+    (0xe0113, 'VS36'), (0xe0114, 'VS37'),
+    (0xe0115, 'VS38'), (0xe0116, 'VS39'),
+    (0xe0117, 'VS40'), (0xe0118, 'VS41'),
+    (0xe0119, 'VS42'), (0xe011a, 'VS43'),
+    (0xe011b, 'VS44'), (0xe011c, 'VS45'),
+    (0xe011d, 'VS46'), (0xe011e, 'VS47'),
+    (0xe011f, 'VS48'), (0xe0120, 'VS49'),
+    (0xe0121, 'VS50'), (0xe0122, 'VS51'),
+    (0xe0123, 'VS52'), (0xe0124, 'VS53'),
+    (0xe0125, 'VS54'), (0xe0126, 'VS55'),
+    (0xe0127, 'VS56'), (0xe0128, 'VS57'),
+    (0xe0129, 'VS58'), (0xe012a, 'VS59'),
+    (0xe012b, 'VS60'), (0xe012c, 'VS61'),
+    (0xe012d, 'VS62'), (0xe012e, 'VS63'),
+    (0xe012f, 'VS64'), (0xe0130, 'VS65'),
+    (0xe0131, 'VS66'), (0xe0132, 'VS67'),
+    (0xe0133, 'VS68'), (0xe0134, 'VS69'),
+    (0xe0135, 'VS70'), (0xe0136, 'VS71'),
+    (0xe0137, 'VS72'), (0xe0138, 'VS73'),
+    (0xe0139, 'VS74'), (0xe013a, 'VS75'),
+    (0xe013b, 'VS76'), (0xe013c, 'VS77'),
+    (0xe013d, 'VS78'), (0xe013e, 'VS79'),
+    (0xe013f, 'VS80'), (0xe0140, 'VS81'),
+    (0xe0141, 'VS82'), (0xe0142, 'VS83'),
+    (0xe0143, 'VS84'), (0xe0144, 'VS85'),
+    (0xe0145, 'VS86'), (0xe0146, 'VS87'),
+    (0xe0147, 'VS88'), (0xe0148, 'VS89'),
+    (0xe0149, 'VS90'), (0xe014a, 'VS91'),
+    (0xe014b, 'VS92'), (0xe014c, 'VS93'),
+    (0xe014d, 'VS94'), (0xe014e, 'VS95'),
+    (0xe014f, 'VS96'), (0xe0150, 'VS97'),
+    (0xe0151, 'VS98'), (0xe0152, 'VS99'),
+    (0xe0153, 'VS100'), (0xe0154, 'VS101'),
+    (0xe0155, 'VS102'), (0xe0156, 'VS103'),
+    (0xe0157, 'VS104'), (0xe0158, 'VS105'),
+    (0xe0159, 'VS106'), (0xe015a, 'VS107'),
+    (0xe015b, 'VS108'), (0xe015c, 'VS109'),
+    (0xe015d, 'VS110'), (0xe015e, 'VS111'),
+    (0xe015f, 'VS112'), (0xe0160, 'VS113'),
+    (0xe0161, 'VS114'), (0xe0162, 'VS115'),
+    (0xe0163, 'VS116'), (0xe0164, 'VS117'),
+    (0xe0165, 'VS118'), (0xe0166, 'VS119'),
+    (0xe0167, 'VS120'), (0xe0168, 'VS121'),
+    (0xe0169, 'VS122'), (0xe016a, 'VS123'),
+    (0xe016b, 'VS124'), (0xe016c, 'VS125'),
+    (0xe016d, 'VS126'), (0xe016e, 'VS127'),
+    (0xe016f, 'VS128'), (0xe0170, 'VS129'),
+    (0xe0171, 'VS130'), (0xe0172, 'VS131'),
+    (0xe0173, 'VS132'), (0xe0174, 'VS133'),
+    (0xe0175, 'VS134'), (0xe0176, 'VS135'),
+    (0xe0177, 'VS136'), (0xe0178, 'VS137'),
+    (0xe0179, 'VS138'), (0xe017a, 'VS139'),
+    (0xe017b, 'VS140'), (0xe017c, 'VS141'),
+    (0xe017d, 'VS142'), (0xe017e, 'VS143'),
+    (0xe017f, 'VS144'), (0xe0180, 'VS145'),
+    (0xe0181, 'VS146'), (0xe0182, 'VS147'),
+    (0xe0183, 'VS148'), (0xe0184, 'VS149'),
+    (0xe0185, 'VS150'), (0xe0186, 'VS151'),
+    (0xe0187, 'VS152'), (0xe0188, 'VS153'),
+    (0xe0189, 'VS154'), (0xe018a, 'VS155'),
+    (0xe018b, 'VS156'), (0xe018c, 'VS157'),
+    (0xe018d, 'VS158'), (0xe018e, 'VS159'),
+    (0xe018f, 'VS160'), (0xe0190, 'VS161'),
+    (0xe0191, 'VS162'), (0xe0192, 'VS163'),
+    (0xe0193, 'VS164'), (0xe0194, 'VS165'),
+    (0xe0195, 'VS166'), (0xe0196, 'VS167'),
+    (0xe0197, 'VS168'), (0xe0198, 'VS169'),
+    (0xe0199, 'VS170'), (0xe019a, 'VS171'),
+    (0xe019b, 'VS172'), (0xe019c, 'VS173'),
+    (0xe019d, 'VS174'), (0xe019e, 'VS175'),
+    (0xe019f, 'VS176'), (0xe01a0, 'VS177'),
+    (0xe01a1, 'VS178'), (0xe01a2, 'VS179'),
+    (0xe01a3, 'VS180'), (0xe01a4, 'VS181'),
+    (0xe01a5, 'VS182'), (0xe01a6, 'VS183'),
+    (0xe01a7, 'VS184'), (0xe01a8, 'VS185'),
+    (0xe01a9, 'VS186'), (0xe01aa, 'VS187'),
+    (0xe01ab, 'VS188'), (0xe01ac, 'VS189'),
+    (0xe01ad, 'VS190'), (0xe01ae, 'VS191'),
+    (0xe01af, 'VS192'), (0xe01b0, 'VS193'),
+    (0xe01b1, 'VS194'), (0xe01b2, 'VS195'),
+    (0xe01b3, 'VS196'), (0xe01b4, 'VS197'),
+    (0xe01b5, 'VS198'), (0xe01b6, 'VS199'),
+    (0xe01b7, 'VS200'), (0xe01b8, 'VS201'),
+    (0xe01b9, 'VS202'), (0xe01ba, 'VS203'),
+    (0xe01bb, 'VS204'), (0xe01bc, 'VS205'),
+    (0xe01bd, 'VS206'), (0xe01be, 'VS207'),
+    (0xe01bf, 'VS208'), (0xe01c0, 'VS209'),
+    (0xe01c1, 'VS210'), (0xe01c2, 'VS211'),
+    (0xe01c3, 'VS212'), (0xe01c4, 'VS213'),
+    (0xe01c5, 'VS214'), (0xe01c6, 'VS215'),
+    (0xe01c7, 'VS216'), (0xe01c8, 'VS217'),
+    (0xe01c9, 'VS218'), (0xe01ca, 'VS219'),
+    (0xe01cb, 'VS220'), (0xe01cc, 'VS221'),
+    (0xe01cd, 'VS222'), (0xe01ce, 'VS223'),
+    (0xe01cf, 'VS224'), (0xe01d0, 'VS225'),
+    (0xe01d1, 'VS226'), (0xe01d2, 'VS227'),
+    (0xe01d3, 'VS228'), (0xe01d4, 'VS229'),
+    (0xe01d5, 'VS230'), (0xe01d6, 'VS231'),
+    (0xe01d7, 'VS232'), (0xe01d8, 'VS233'),
+    (0xe01d9, 'VS234'), (0xe01da, 'VS235'),
+    (0xe01db, 'VS236'), (0xe01dc, 'VS237'),
+    (0xe01dd, 'VS238'), (0xe01de, 'VS239'),
+    (0xe01df, 'VS240'), (0xe01e0, 'VS241'),
+    (0xe01e1, 'VS242'), (0xe01e2, 'VS243'),
+    (0xe01e3, 'VS244'), (0xe01e4, 'VS245'),
+    (0xe01e5, 'VS246'), (0xe01e6, 'VS247'),
+    (0xe01e7, 'VS248'), (0xe01e8, 'VS249'),
+    (0xe01e9, 'VS250'), (0xe01ea, 'VS251'),
+    (0xe01eb, 'VS252'), (0xe01ec, 'VS253'),
+    (0xe01ed, 'VS254'), (0xe01ee, 'VS255'),
+    (0xe01ef, 'VS256'),
+)
+
 HEADER = """/* Generated Unicode tables (Unicode {version}, via CPython 3.14's unicodedata).
 
    The general category, the canonical combining class, the bidirectional
@@ -98,6 +367,7 @@ typedef struct {{ uint32_t cp; uint32_t off; uint32_t len; }} PsUniStr;
 typedef struct {{ uint32_t cp; uint32_t off; uint16_t len; uint8_t compat; }} PsUniDec;
 typedef struct {{ uint32_t cp; uint32_t soff; uint16_t slen; uint16_t pidx; }} PsUniName;
 typedef struct {{ uint32_t off; uint16_t len; }} PsUniPrefix;
+typedef struct {{ uint32_t cp; uint32_t off; uint16_t len; }} PsUniAlias;
 typedef struct {{ uint32_t starter; uint32_t comp; uint32_t out; }} PsUniComp;
 """
 
@@ -117,12 +387,13 @@ def runs(values: list) -> list[tuple[int, int, object]]:
 
 
 def cat_code(category: str) -> int:
-    """The general category as a small integer: the two letters, the
-    first in the high nibble, the second in the low one. `Cn` is 0x00,
-    the unassigned default."""
+    """The general category as a small integer: the upper-case first
+    letter (0-25) in the high part, the lower-case second letter (1-26)
+    in the low one, packed base 27. `Cn` is 0x00, the unassigned
+    default, and the only code whose low part is 0."""
     if category == "Cn":
         return 0x00
-    return (ord(category[0]) - ord("A")) * 16 + (ord(category[1]) - ord("A"))
+    return (ord(category[0]) - ord("A")) * 27 + (ord(category[1]) - ord("a") + 1)
 
 
 def build() -> dict[str, object]:
@@ -189,7 +460,7 @@ def build() -> dict[str, object]:
         parts = raw.split()
         compat = 0
         if parts[0].startswith("<"):
-            compat = 1
+            compat = COMPAT_TAGS.index(parts[0]) + 1
             parts = parts[1:]
         seq = [int(x, 16) for x in parts]
         off = len(decomp_pool) // 4
@@ -255,6 +526,35 @@ def build() -> dict[str, object]:
         if unicodedata.normalize("NFC", chr(a) + chr(b)) == chr(out):
             comp.append((a, b, out))
 
+    # The CJK ideograph name families: the code points whose name is the
+    # family prefix and the code point in hex. The ranges are read off
+    # the oracle, so they cannot drift from CPython's own names.
+    cjk_runs: list[tuple[int, int, int]] = []  # lo, hi, family index
+    for family, prefix in enumerate(HEX_NAME_PREFIXES):
+        members = [
+            cp
+            for cp in range(MAX_CP)
+            if unicodedata.name(chr(cp), None) == f"{prefix}{cp:04X}"
+        ]
+        start = prev = members[0]
+        for cp in members[1:]:
+            if cp != prev + 1:
+                cjk_runs.append((start, prev, family))
+                start = cp
+            prev = cp
+        cjk_runs.append((start, prev, family))
+    cjk_runs.sort()
+
+    # The formal name aliases: the oracle checks every entry, so the set
+    # cannot drift from CPython's own lookup table.
+    alias_pool = bytearray()
+    alias_rows: list[tuple[int, int, int]] = []  # cp, offset, length
+    for cp, name in sorted(ALIASES, key=lambda row: row[1]):
+        data = name.encode("ascii")
+        assert unicodedata.lookup(name) == chr(cp), name
+        alias_rows.append((cp, len(alias_pool), len(data)))
+        alias_pool += data
+
     return {
         "cat_runs": cat_runs,
         "ccc_runs": ccc_runs,
@@ -274,6 +574,9 @@ def build() -> dict[str, object]:
         "comp": comp,
         "ccc": ccc,
         "cats": cats,
+        "aliases": alias_rows,
+        "alias_pool": bytes(alias_pool),
+        "cjk_runs": cjk_runs,
     }
 
 
@@ -323,6 +626,16 @@ def emit_prefixes(out: list[str], name: str, rows: list[tuple[int, int]]) -> Non
     for i in range(0, len(rows), 4):
         chunk = rows[i : i + 4]
         out.append("    " + ",".join("{%uu,%uu}" % r for r in chunk) + ",")
+    out.append("};")
+    out.append(f"#define {name.upper()}_N {len(rows)}")
+    out.append("")
+
+
+def emit_aliases(out: list[str], name: str, rows: list[tuple[int, int, int]]) -> None:
+    out.append(f"static const PsUniAlias {name}[] = {{")
+    for i in range(0, len(rows), 4):
+        chunk = rows[i : i + 4]
+        out.append("    " + ",".join("{0x%06xu,%uu,%uu}" % r for r in chunk) + ",")
     out.append("};")
     out.append(f"#define {name.upper()}_N {len(rows)}")
     out.append("")
@@ -422,6 +735,23 @@ def render() -> str:
     out.append(f"#define PS_UNI_COMP_N {len(comp)}")
     out.append("")
 
+    emit_aliases(out, "ps_uni_alias", data["aliases"])  # type: ignore[arg-type]
+    emit_pool(out, "ps_uni_alias_pool", data["alias_pool"])  # type: ignore[arg-type]
+
+    # The CJK ideograph name ranges: the code points whose name is the
+    # family prefix and the code point in hex.
+    out.append("typedef struct { uint32_t lo; uint32_t hi; uint8_t family; } PsUniCjk;")
+    out.append("static const PsUniCjk ps_uni_cjk[] = {")
+    for lo, hi, family in data["cjk_runs"]:  # type: ignore[union-attr]
+        out.append(f"    {{0x{lo:06x}u,0x{hi:06x}u,{family}u}},")
+    out.append("};")
+    out.append(f"#define PS_UNI_CJK_N {len(data['cjk_runs'])}")  # type: ignore[arg-type]
+    out.append("")
+    out.append("static const char *const ps_uni_cjk_prefixes[] = {")
+    out.append("    " + ",".join('"%s"' % p for p in HEX_NAME_PREFIXES) + ",")
+    out.append("};")
+    out.append("")
+
     return "\n".join(out) + "\n"
 
 
@@ -448,7 +778,7 @@ def selftest(data: dict[str, object]) -> None:
         parts = raw.split()
         want_compat = 0
         if parts[0].startswith("<"):
-            want_compat = 1
+            want_compat = COMPAT_TAGS.index(parts[0]) + 1
             parts = parts[1:]
         want = [int(x, 16) for x in parts]
         got = [
