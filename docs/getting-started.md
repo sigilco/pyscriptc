@@ -71,6 +71,24 @@ The extra pulls the `ziglang` wheel, which ships the zig toolchain. The wheel re
 
 The same works with `pipx install "pyscriptc[zig]"` and `pip install "pyscriptc[zig]"`. The extra is the wheel route only: a system zig (`brew`, `winget`, `mise`, the distro package) is found directly and needs no shim.
 
+### The first compile tells you which command to run
+
+A plain `uv tool install pyscriptc` does not carry the C toolchain: the `ziglang` wheel is about 100 MB per platform, so it stays opt-in. When the machine has neither `zig` nor `clang`, the first compile stops before any work and names the command for the install you have:
+
+```text
+no C toolchain found on PATH (neither zig nor clang), ...
+```
+
+For a tool install that command reinstalls the tool with the wheel included:
+
+```sh
+uv tool install pyscriptc --with ziglang --force
+```
+
+For a `pipx` install it is `pipx install "pyscriptc[zig]" --force`, and for a plain `pip` install into a venv it is `pip install ziglang` in the same environment. `pyscriptc doctor` prints the same fix on its `toolchain:` line, and `doctor --json` carries it in `toolchain.fix`.
+
+Two lanes never work through zig, whatever is installed: a mobile library build (`--emit lib`) needs the system clang with the Android NDK or the Apple SDK, and a sanitizer build needs a clang that links the sanitizer runtime.
+
 ## Install pyscriptc
 
 These pages describe master; the newest released wheel can lag it.
@@ -92,9 +110,9 @@ Then check the toolchain:
 pyscriptc doctor
 ```
 
-`doctor` prints the pyscriptc version, the checker it found, the C compiler or zig it will link with, and the cache locations. If something is missing, fix it with the table above and run `doctor` again.
+`doctor` prints the pyscriptc version, the checker it found, the C compiler or zig it will link with, and the cache locations. If something is missing, fix it with the table above and run `doctor` again. The `toolchain:` line says whether a C toolchain resolves at all, and, when it does not, the exact command that adds one to this install.
 
-For an automated check, `pyscriptc doctor --json` prints the same facts as JSON. The `zig.found` and `clang.found` fields answer whether this machine can compile a binary at all.
+For an automated check, `pyscriptc doctor --json` prints the same facts as JSON. The `zig.found` and `clang.found` fields answer whether this machine can compile a binary at all, and `toolchain.fix` carries the command that installs the missing toolchain.
 
 ## First run
 

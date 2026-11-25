@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-25",
-  "commit": "b03cc161ffe7d9db08056f966d60c0d9343f0b6a",
+  "commit": "3af51fad49bd73fee8d23c7707ed7415c4b6b0fb",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-25",
-    "commit": "b03cc161ffe7d9db08056f966d60c0d9343f0b6a",
+    "commit": "3af51fad49bd73fee8d23c7707ed7415c4b6b0fb",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3843
+    "fences": 3842
   },
   "builtins": [
     {
@@ -2240,7 +2240,7 @@
         "blocked": 142
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 246,
+      "fences": 245,
       "definitions": 388,
       "fenced_definitions": 134,
       "top_families": [
@@ -2268,7 +2268,7 @@
         },
         {
           "code": "PS2001",
-          "count": 23
+          "count": 22
         }
       ],
       "pypi": "https://pypi.org/project/platformdirs/"
@@ -2580,8 +2580,8 @@
     "lanes": [
       {
         "lane": "native",
-        "imports": 382,
-        "share": 0.7958
+        "imports": 411,
+        "share": 0.8562
       },
       {
         "lane": "pack",
@@ -2590,13 +2590,13 @@
       },
       {
         "lane": "extern",
-        "imports": 0,
-        "share": 0.0
+        "imports": 65,
+        "share": 0.1354
       },
       {
         "lane": "island",
-        "imports": 94,
-        "share": 0.1958
+        "imports": 0,
+        "share": 0.0
       },
       {
         "lane": "absent",
@@ -2727,7 +2727,7 @@
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 430,
+      "count": 429,
       "packages": 18
     },
     {
@@ -2757,7 +2757,7 @@
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 101,
+      "count": 102,
       "packages": 12
     },
     {
@@ -2775,7 +2775,7 @@
     {
       "code": "PS2004",
       "title": "operator or operand not supported",
-      "count": 39,
+      "count": 38,
       "packages": 10
     },
     {
@@ -2829,13 +2829,22 @@
   ],
   "history": [
     {
-      "date": "2026-11-25",
-      "commit": "b03cc161ffe7d9db08056f966d60c0d9343f0b6a",
+      "date": "2026-11-24",
+      "commit": "6d792850b39156af177a337243a30a4fcf2c4bd0",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3843
+      "fences": 3842
+    },
+    {
+      "date": "2026-11-25",
+      "commit": "3af51fad49bd73fee8d23c7707ed7415c4b6b0fb",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 11,
+      "packages_none": 8,
+      "fences": 3842
     }
   ]
 }
