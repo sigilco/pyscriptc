@@ -197,9 +197,12 @@ class ClosuresMixin:
             # name dispatches on the frame's real `__iter__`/`__next__`.
             param_t = params[0]
             value_t = value["type"]
-            same_params = isinstance(param_t.get("params"), list) and isinstance(value_t.get("params"), list) and len(
-                param_t["params"]
-            ) == len(value_t["params"]) and all(types_equal(a, b) for a, b in zip(param_t["params"], value_t["params"]))
+            same_params = (
+                isinstance(param_t.get("params"), list)
+                and isinstance(value_t.get("params"), list)
+                and len(param_t["params"]) == len(value_t["params"])
+                and all(types_equal(a, b) for a, b in zip(param_t["params"], value_t["params"], strict=True))
+            )
             if not (
                 param_t.get("kind") == "func"
                 and value_t.get("kind") == "func"

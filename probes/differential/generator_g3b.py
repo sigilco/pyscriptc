@@ -10,16 +10,16 @@ through the wrapped frame twice. Both sides run this same program and
 the lane byte-compares stdout.
 """
 
-from typing import Callable, Iterator, Optional
+from typing import Callable, Generator, Iterator, Optional
 
 
 def outer(n: int) -> str:
     tag: str = "t:"
 
-    def inner(start: int) -> Iterator[int]:
+    def inner(start: int) -> Iterator[str]:
         i: int = start
         while i < n:
-            yield tag + str(i) if False else i
+            yield tag + str(i)
             i += 1
 
     out: str = ""
@@ -29,14 +29,14 @@ def outer(n: int) -> str:
 
 
 def echoer(base: int) -> str:
-    def echo() -> Iterator[Optional[int]]:
+    def echo() -> Generator[Optional[int], Optional[int], None]:
         got: Optional[int] = None
         while True:
             got = yield got
             if got is None:
                 return
 
-    g: Iterator[Optional[int]] = echo()
+    g: Generator[Optional[int], Optional[int], None] = echo()
     out: str = ""
     got: Optional[int] = g.send(None)
     out += str(got) + ";"

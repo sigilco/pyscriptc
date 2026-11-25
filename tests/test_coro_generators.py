@@ -1382,18 +1382,18 @@ print(outer(4))
 """
 
 NESTED_SEND = """\
-from typing import Iterator, Optional
+from typing import Generator, Optional
 
 
 def outer(base: int) -> str:
-    def echo() -> Iterator[Optional[int]]:
+    def echo() -> Generator[Optional[int], Optional[int], None]:
         got: Optional[int] = None
         while True:
             got = yield got
             if got is None:
                 return
 
-    g: Iterator[Optional[int]] = echo()
+    g: Generator[Optional[int], Optional[int], None] = echo()
     out: str = ""
     nxt: Optional[int] = None
     got: Optional[int] = g.send(nxt)
