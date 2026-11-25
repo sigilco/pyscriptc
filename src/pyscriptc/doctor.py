@@ -100,6 +100,17 @@ def toolchain_fix() -> str:
     return zigshim.install_hint(install_shape())
 
 
+def toolchain_command() -> str | None:
+    """The one command that adds a toolchain to this install, or None.
+
+    The machine-readable form of `toolchain_fix`: the exact one-liner for
+    the install shape, without the prose around it. A checkout or the
+    release binary has no such command (there is nothing to append to), so
+    it is None there (issue #1291).
+    """
+    return zigshim.install_command(install_shape())
+
+
 def toolchain_found(zig: dict[str, Any], clang: dict[str, Any]) -> bool:
     """True when the machine can link a binary: zig or clang resolves."""
     if _flag_of(zig, "found"):
@@ -173,6 +184,7 @@ def gather() -> dict[str, Any]:
     info["toolchain"] = {
         "found": toolchain_found(info["zig"], info["clang"]),
         "fix": toolchain_fix(),
+        "command": toolchain_command(),
     }
     return info
 

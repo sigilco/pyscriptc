@@ -250,6 +250,8 @@ def test_doctor_reports_the_shape_aware_toolchain_fix(monkeypatch: pytest.Monkey
     info = doctor.gather()
     assert info["toolchain"]["found"] is False
     assert "uv tool install pyscriptc --with ziglang --force" in info["toolchain"]["fix"]
+    # The machine-readable form is the bare command, without the prose.
+    assert info["toolchain"]["command"] == "uv tool install pyscriptc --with ziglang --force"
     text = doctor.render(info)
     assert "toolchain:      missing" in text
     assert "uv tool install pyscriptc --with ziglang --force" in text
