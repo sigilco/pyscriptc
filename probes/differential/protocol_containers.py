@@ -1,3 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+# ruff: noqa: F821, B905 - the `__exit__` traceback parameter is spelled
+# `TracebackType` (the CPython name, which the compiler erases onto the
+# carrier slot without an import) and `zip(strict=)` is not in the lowered
+# subset, so the probe keeps the CPython spellings.
 # Issue #446 (O3b): container, iter and with protocol dispatch for user
 # classes. The resolved surfaces run on the pinned CPython oracle and on
 # the compiled program: stdout, stderr and the exit code must match byte
@@ -33,7 +38,7 @@ class Countdown:
     def __init__(self, n: int) -> None:
         self.n = n
 
-    def __iter__(self) -> "Countdown":
+    def __iter__(self) -> Countdown:
         return self
 
     def __next__(self) -> int:
