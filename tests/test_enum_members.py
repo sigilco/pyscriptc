@@ -113,13 +113,13 @@ def test_strenum_auto_spells_the_lower_case_name(tmp_path: Path) -> None:
     )
 
 
-def test_auto_continues_from_the_last_spelled_value(tmp_path: Path) -> None:
-    """CPython's `auto()` continues from the last value the body spelled.
+def test_auto_continues_from_the_largest_spelled_value(tmp_path: Path) -> None:
+    """CPython's `auto()` continues from the largest value the body spelled.
 
     `DEBUG = 10` then `auto()` gives 11, and an explicit value after an
     `auto()` moves the counter again (`A = 5`, `auto()` gives 6, `C = 2`,
-    `auto()` gives 7), so the counter follows the last member, not the
-    largest one.
+    `auto()` gives 7), so the counter reads the largest value spelled so
+    far, not the most recent one.
     """
     _oracle(
         tmp_path,

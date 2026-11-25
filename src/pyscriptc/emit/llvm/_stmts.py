@@ -457,6 +457,28 @@ class StmtsMixin(EmitterBase):
         self.line(f"{gep} = getelementptr ptr, ptr {env}, i64 {index}")
         return self._load("ptr", gep)
 
+    def _emit_raise_cause(self, node: Any, made: str) -> None:
+        """Link the `raise ... from` cause to the record under construction.
+
+        The cause is an excmake (a fresh record) or a bound `except ... as e`
+        local (the record the handler caught)."""
+
+        cause: Any = node.cause
+        if cause.kind == "excmake":
+            cause_code: int | None = _opt_node_code(dict_to_dict(cause))
+            ccode = cause_code if cause_code is not None else EXCEPTIONS[cause.exc]
+            cause_value = self._call_ret("ptr", "ps_exc_make", [f"i32 {ccode}", "i64 0", "ptr null"])
+            if cause.message is not None:
+                cmsg = self.emit_expr(dict_to_dict(cause.message))
+                clen, cptr = self._buf_parts(cmsg)
+                cause_value = self._call_ret("ptr", "ps_exc_make", [f"i32 {ccode}", f"i64 {clen}", f"ptr {cptr}"])
+        elif cause.kind == "name":
+            cause_value = self.load(cause.id)
+        else:
+            raise IRError("raise cause must be a name or excmake")
+        self._abi_decl("ps_exc_set_cause", "void", ["ptr", "ptr"])
+        self._call_void("ps_exc_set_cause", [f"ptr {made}", f"ptr {cause_value}"])
+
     def emit_raise(self, stmt: dict[str, Any]) -> None:
         self.needed.add("exc")
         node: Any = dict_to_node(stmt)
@@ -473,6 +495,25 @@ class StmtsMixin(EmitterBase):
                 self.line(f"call void @ps_raise_exc(ptr {value}) noreturn")
             else:
                 self.line("call void @ps_reraise() noreturn")
+        elif node.payload is not None:
+            # `raise C(args)` on a user exception class (issue #448): the
+            # instance record is the payload. The class-call path allocates
+            # the record and runs the user `__init__`, so the custom fields
+            # are live before the record rides the exception; `except C as e`
+            # reads them back through it.
+            self._abi_decl("ps_exc_make", "ptr", ["i32", "i64", "ptr"])
+            self._abi_decl("ps_exc_set_payload", "void", ["ptr", "ptr"])
+            self._abi_decl("ps_raise_exc", "void", ["ptr"])
+            made = self._call_ret("ptr", "ps_exc_make", [f"i32 {code}", "i64 0", "ptr null"])
+            if raise_message is not None:
+                msg = self.emit_expr(raise_message)
+                mlen, mptr = self._buf_parts(msg)
+                made = self._call_ret("ptr", "ps_exc_make", [f"i32 {code}", f"i64 {mlen}", f"ptr {mptr}"])
+            instance = self.emit_call(dict_to_dict(node.payload))
+            self._call_void("ps_exc_set_payload", [f"ptr {made}", f"ptr {instance}"])
+            if node.cause is not None:
+                self._emit_raise_cause(node, made)
+            self.line(f"call void @ps_raise_exc(ptr {made}) noreturn")
         elif node.cause is not None:
             # `raise E(args) from cause`: build the record, link the cause
             # (an excmake or bound `except ... as e` local), then raise.
@@ -484,20 +525,7 @@ class StmtsMixin(EmitterBase):
                 msg = self.emit_expr(raise_message)
                 mlen, mptr = self._buf_parts(msg)
                 made = self._call_ret("ptr", "ps_exc_make", [f"i32 {code}", f"i64 {mlen}", f"ptr {mptr}"])
-            cause: Any = node.cause
-            if cause.kind == "excmake":
-                cause_code: int | None = _opt_node_code(dict_to_dict(cause))
-                ccode = cause_code if cause_code is not None else EXCEPTIONS[cause.exc]
-                cause_value = self._call_ret("ptr", "ps_exc_make", [f"i32 {ccode}", "i64 0", "ptr null"])
-                if cause.message is not None:
-                    cmsg = self.emit_expr(dict_to_dict(cause.message))
-                    clen, cptr = self._buf_parts(cmsg)
-                    cause_value = self._call_ret("ptr", "ps_exc_make", [f"i32 {ccode}", f"i64 {clen}", f"ptr {cptr}"])
-            elif cause.kind == "name":
-                cause_value = self.load(cause.id)
-            else:
-                raise IRError("raise cause must be a name or excmake")
-            self._call_void("ps_exc_set_cause", [f"ptr {made}", f"ptr {cause_value}"])
+            self._emit_raise_cause(node, made)
             self.line(f"call void @ps_raise_exc(ptr {made}) noreturn")
         elif node.exc == "SystemExit" and _is_exit_status(raise_message):
             # `raise SystemExit(3)` keeps its value typed: ps_raise_system_exit
@@ -536,7 +564,7 @@ class StmtsMixin(EmitterBase):
             return
         if kind == "dict":
             self.needed.add("map")
-            key = self._stash_cell(_type_of(index_node), index)
+            key = self._stash_map_key(_type_of(index_node), index)
             # Issue #781: an Any container's slot is unresolved; the write
             # site's value is concrete, and the cell takes the value under
             # its own proven type.
@@ -649,6 +677,13 @@ def _used_names(body: list[dict[str, Any]]) -> set[str]:
             # An except handler: its excslot stores the bound record before
             # the body emits beside the try's callsite, so the slot must be
             # packed even when no statement names it (#530).
+            slot = _opt_excslot(node)
+            if slot is not None:
+                names.add(slot)
+        elif kind == "raise":
+            # A re-raise over a bound handler value (`raise e`, issue #448):
+            # the excslot names the record to raise again, so the slot must
+            # be packed even when no statement reads it as a name.
             slot = _opt_excslot(node)
             if slot is not None:
                 names.add(slot)

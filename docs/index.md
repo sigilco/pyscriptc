@@ -29,6 +29,8 @@ the live per-module and per-library status is on the [compat site]({{PYSC_COMPAT
 Two things to know before you plan around it:
 
 - Annotations are required. A parameter or local without one stops the build (`PS1001`).
+  The one exception is a local first bound to a bare `None` whose later bindings prove one type:
+  it takes `T | None` (issue [#1370](https://github.com/sigilco/pyscriptc/issues/1370)).
 - Code outside the subset does not fail silently, but it does not become native either: it runs on
   the island, at interpreter speed, and every call crossing the boundary pays a marshalling cost.
   [Libraries and fallback mode](/guide/libraries/) states what the two planes cost.

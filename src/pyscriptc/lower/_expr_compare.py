@@ -471,8 +471,14 @@ class ExprCompareMixin:
             if negated:
                 return _unary_node("not", call, {"kind": "bool"}, span)
             return call
-        needle = self._expr(node.left)
         hay = self._expr(node.comparators[0])
+        # Issue #1368: a dict's key may be a tuple, and a tuple display
+        # unifies with the dict's key type, so the needle lowers under that
+        # type.
+        needle_expect = None
+        if hay["type"]["kind"] == "dict" and self._tuple_key_ok(hay["type"]["key"]):
+            needle_expect = hay["type"]["key"]
+        needle = self._expr(node.left, needle_expect)
         hay_kind = hay["type"]["kind"]
         if hay_kind in {"str", "bytes"}:
             if needle["type"]["kind"] != hay_kind:

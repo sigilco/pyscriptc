@@ -204,6 +204,7 @@ class IrNode:
     message: IrNode | None
     cause: IrNode | None
     target_node: IrNode | None
+    payload: IrNode | None = None
     id: str = ""
     name: str = ""
     op: str = ""
@@ -232,6 +233,17 @@ def t_leaf(kind: str) -> T:
     """A leaf type dict: `str`, `int`, `float`, `bool`, `bytes`, `none`,
     `buf`, `exc`, `typevar`."""
     return T(kind=kind, elem=None, key=None, value=None, params=None, ret=None)
+
+
+def t_exc(name: str = "") -> T:
+    """The `exc` type dict: the runtime exception record.
+
+    `name` is the user exception class the record carries, when the value
+    came from `except C as e` for a user class `C` (issue #448): the
+    emitter reads the custom fields off the record's payload with that
+    class's layout. It is empty for every builtin exception.
+    """
+    return T(kind="exc", elem=None, key=None, value=None, params=None, ret=None, name=name)
 
 
 def t_class(
@@ -1159,6 +1171,7 @@ def raise_stmt(
     reraise: bool = False,
     excslot: str = "",
     cause: IrNode | None = None,
+    payload: IrNode | None = None,
 ) -> IrNode:
     flags = F_RERAISE if reraise else 0
     return IrNode(
@@ -1192,6 +1205,7 @@ def raise_stmt(
         message=message,
         cause=cause,
         target_node=None,
+        payload=payload,
         exc=exc,
         code=code,
         excslot=excslot,

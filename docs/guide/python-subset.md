@@ -112,6 +112,7 @@ There is no `typing` module object in the binary.
 | --- | --- |
 | `list[int]`, `dict[str, int]`, `set[int]`, `tuple[int, str]`, `tuple[int, ...]` | compiles; the annotation fixes the element layout |
 | `T \| None`, `Optional[T]` | compiles as a tagged optional; `is None` narrowing drives the branches |
+| a local first bound to a bare `None` (`section = None`) whose later bindings prove one type `T` | compiles as `T \| None`: the `None` names no type on its own, but the later `section = name` bindings in the same body do, and the local takes their type (issue [#1370](https://github.com/sigilco/pyscriptc/issues/1370)). The proof needs every later plain `name = v` binding to agree on one `T`: with no other typed binding, with two later bindings that disagree, or with a later binding the compiler cannot type, the `PS1001` fence stands |
 | `A \| B` (neither arm `None`), `Union[A, B]` | compiles as an erased annotation: the slot carries the first arm's layout, and a value of another arm fences at the call site (`PS1003`) |
 | `A \| B \| None`, `Union[A, B, None]` | unsupported (`PS1102`): an optional of a multi-arm union has no representation |
 | `Final`, `Final[int]`, `ClassVar[T]` | the inner annotation compiles; the checker enforces no reassignment. A bare `X: Final = value` takes the value's type at module and function scope and in a plain class body; in a decorated or subclassed class body (a `@dataclass` field) bare `Final` is unsupported (`PS1103`) |

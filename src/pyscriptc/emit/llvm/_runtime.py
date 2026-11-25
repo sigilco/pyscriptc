@@ -145,6 +145,10 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
                 "declare void @ps_map_put(ptr, ptr, ptr)",
                 "declare void @ps_map_get(ptr, ptr, ptr)",
                 "declare i32 @ps_map_has(ptr, ptr)",
+                # The tuple dict key (issue #1368): the record's builder
+                # and its payload buffer.
+                "declare ptr @ps_tuple_key_new(i64, ptr)",
+                "declare ptr @ps_tuple_key_data(ptr)",
             ]
         )
     if "str" in needed:

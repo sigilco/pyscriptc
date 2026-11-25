@@ -522,6 +522,17 @@ class Lowerer(
         # Env-first nested functions collected while lowering a module.
         self.nested_fns: list[dict[str, Any]] = []
         self.nested_n = 0
+        # The module's own function definitions, name -> def, so a call site
+        # can queue a frame-specialized copy of the callee (issue #441).
+        self.module_fns: dict[str, ast.FunctionDef] = {}
+        # (class, method) -> def, the same registry for a frame-specialized
+        # method copy (issue #441).
+        self.method_nodes: dict[tuple[str, str], ast.FunctionDef] = {}
+        # (class, method, slot, type_key) -> emitted method-copy name.
+        self.frame_method_fns: dict[tuple[str, str, int, str], str] = {}
+        # Queued frame-specialized method copies: (class, owner, method,
+        # emitted name, def, slot, frame type).
+        self.frame_method_queue: list[tuple[str, str, str, str, ast.FunctionDef, int, dict[str, Any]]] = []
         # `name = const` initializers for active global slots, emitted at the
         # top of main as ps_global_set_* calls.
         self.global_inits: list[dict[str, Any]] = []
@@ -611,12 +622,22 @@ class Lowerer(
         # of instantiations still to lower (fn, emitted name, mapping).
         self.inst_fns: dict[tuple[str, tuple[tuple[str, str], ...]], str] = {}
         self.inst_queue: list[tuple[str, str, dict[str, dict[str, Any]]]] = []
+        # Frame-parameter specializations (issue #441): a generator frame
+        # passed into an Iterator[T]-shaped parameter queues one copy of the
+        # callee whose parameter type is the frame. (fn, slot, type_key) ->
+        # emitted name, plus the queue of (fn, emitted name, slot, frame
+        # type) copies still to lower.
+        self.frame_fns: dict[tuple[str, int, str], str] = {}
+        self.frame_queue: list[tuple[ast.FunctionDef, str, int, dict[str, Any]]] = []
         # (class, (type_key, ...)) -> emitted class name, plus queued
         # (base ClassDef, emitted name, mapping) class instantiations.
         self.class_insts: dict[tuple[str, tuple[str, ...]], str] = {}
         self.class_queue: list[tuple[ast.ClassDef, str, dict[str, dict[str, Any]]]] = []
         # The substituted (params, ret) while an instantiation lowers.
         self.inst_sig: tuple[list[dict[str, Any]], dict[str, Any]] | None = None
+        # The original (params, ret) while a frame-specialized copy lowers
+        # (issue #441): the copy's emitted name is not in `sigs`.
+        self.frame_sig: tuple[list[dict[str, Any]], dict[str, Any]] | None = None
         # Optional checker bridge (issue #87): a `CheckerBridge` that answers
         # "what type did the checker infer here" with the checker's own
         # inferred-type map. None means no bridge: lowering keeps every
@@ -933,6 +954,79 @@ class Lowerer(
                         else:
                             self.constants[name] = prev
 
+    def _drain_frames(self, lowered: list[dict[str, Any]], fences: list[Fence]) -> None:
+        """Lower every queued frame-specialized copy of a function.
+
+        A generator frame passed into an iterator-shaped parameter needs
+        the callee's own slot to carry the frame's layout, not the
+        synthetic `iter_` cursor ({seq, idx}): the cursor read as a frame
+        dereferences the frame's fields as a list cell and segfaults
+        (issue #441). The copy is the same body with one parameter's type
+        replaced by the frame type, so the copied body's `for`/`next()`
+        dispatch on the frame's real `__iter__`/`__next__` methods.
+
+        The copy lowers under its own emitted name, so the original
+        callee keeps its own signature and the two coexist: a call site
+        that passes a frame calls the copy, every other call site calls
+        the original.
+        """
+        while self.frame_queue:
+            fn, emit_name, slot, frame_t = self.frame_queue.pop(0)
+            self.function = emit_name
+            self.temp_n = 0
+            self.prelude = []
+            # boxed:begin
+            self.island_modules = {}
+            self.island_class_handles = {}
+            # boxed:end
+            self.caught = []
+            self.fn_globals = self._globals_for(fn.body)
+            self.fn_nonlocals = set()
+            self.captures = {}
+            params, ret = self._coro_body_sig(fn.name)
+            params = [dict(param) for param in params]
+            self.frame_sig = (params, ret)
+            if slot >= len(params):
+                fences.append(Fence("PS2002", "the frame parameter is gone", span_of(fn, self.filename), fn.name))
+                continue
+            params[slot]["type"] = frame_t
+            self.locals = {param["name"]: param["type"] for param in params}
+            self.frozen_names = set()
+            self.opt_unwrap = {}
+            self.boxed_names = set()
+            self.fn_body = list(fn.body)
+            saved_bindings = dict(self.bindings)
+            saved_aliases = dict(self.type_aliases)
+            saved_declared = set(self.declared)
+            saved_typevars = dict(self.typevars)
+            saved_bounds = dict(self.typevar_bounds)
+            try:
+                body = self._body(list(fn.body))
+                if self.caught:
+                    fences.extend(self.caught)
+                    continue
+                if _type_kind(ret) != "none" and not _always_returns(body):
+                    self.fail(fn, "PS1004", f"{fn.name} can fall off the end and return None")
+                lowered.append(
+                    {
+                        "name": emit_name,
+                        "params": params,
+                        "returnType": ret,
+                        "locals": [{"name": name, "type": typ} for name, typ in self.locals.items()],
+                        "body": body,
+                        "span": span_of(fn, self.filename),
+                    }
+                )
+            except Fence as exc:
+                fences.append(exc)
+            finally:
+                self.bindings = saved_bindings
+                self.type_aliases = saved_aliases
+                self.declared = saved_declared
+                self.typevars = saved_typevars
+                self.typevar_bounds = saved_bounds
+                self.frame_sig = None
+
     def _bind_star(self, module: str, stmt: ast.AST, fences: list[Fence]) -> None:
         """Bind the names `from module import *` brings in.
 
@@ -1083,7 +1177,7 @@ class Lowerer(
                 self._boxed_module_fences.append(fence)
                 return
             # boxed:end
-            self._install_class_export(local, item, stmt, fences)
+            self._install_class_export(local, item, stmt, fences, module)
             return
         if _record_kind(item) == "module":
             # A module re-exported by the package (`from . import core` in

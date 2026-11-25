@@ -423,7 +423,7 @@ _NODE_FIELDS: dict[str, tuple[str, ...]] = {
     "module": ("module", "name"),
     "name": ("id", "type"),
     "pass": (),
-    "raise": ("exc", "code", "message", "reraise", "excslot", "cause"),
+    "raise": ("exc", "code", "message", "reraise", "excslot", "cause", "payload"),
     "return": ("value",),
     "setattr": ("object", "name", "value"),
     "setitem": ("container", "index", "value"),
@@ -624,6 +624,13 @@ def _write_node_field(write, node: Any, kind: str, field: str) -> None:
         write(b',"cause":')
         _write_node(write, child)
         return
+    if field == "payload":
+        child = node.payload
+        if child is None:
+            return
+        write(b',"payload":')
+        _write_node(write, child)
+        return
     if field == "container":
         # The setitem node spells the container as `object`.
         child = node.object
@@ -794,6 +801,11 @@ def _write_type(write, typ: Any) -> None:
             write(b',"return":')
             _write_type(write, typ.ret)
     elif kind == "typevar":
+        _write_type_text(write, "name", typ.name)
+    elif kind == "exc":
+        # The user exception class a bound `except C as e` carries (issue
+        # #448); empty for every builtin exception, so the bytes are stable
+        # for the existing surface.
         _write_type_text(write, "name", typ.name)
     write(b"}")
 

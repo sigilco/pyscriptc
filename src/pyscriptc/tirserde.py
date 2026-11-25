@@ -76,6 +76,7 @@ from pyscriptc._irnode import (
     t_buffer,
     t_class,
     t_dict,
+    t_exc,
     t_func,
     t_leaf,
     t_list,
@@ -213,6 +214,8 @@ def _nd_key(node: Any, key: str) -> Any:
         return _ABSENT if node.thread is None else node.thread
     if key == "cause":
         return _ABSENT if node.cause is None else node.cause
+    if key == "payload":
+        return _ABSENT if node.payload is None else node.payload
     if key == "container":
         return _ABSENT if node.object is None else node.object
     # setitem spells the container as node.object too.
@@ -286,6 +289,11 @@ def _type_dict(typ: T) -> dict[str, Any]:
         if typ.ret is not None:
             out["return"] = _type_dict(typ.ret)
     if typ.kind == "typevar" and typ.name != "":
+        out["name"] = typ.name
+    if typ.kind == "exc" and typ.name != "":
+        # The user exception class a bound `except C as e` carries (issue
+        # #448): the emitter reads the custom fields off the record's
+        # payload with that class's layout.
         out["name"] = typ.name
     return out
 
@@ -370,7 +378,7 @@ _NODE_KEYS: dict[str, list[str]] = {
     "module": ["kind", "module", "name"],
     "name": ["kind", "id", "type", "span"],
     "pass": ["kind", "span"],
-    "raise": ["kind", "exc", "code", "message", "reraise", "excslot", "cause", "span"],
+    "raise": ["kind", "exc", "code", "message", "reraise", "excslot", "cause", "payload", "span"],
     "return": ["kind", "value", "span"],
     "setattr": ["kind", "object", "name", "value", "span"],
     "setitem": ["kind", "container", "index", "value", "span"],
@@ -588,6 +596,8 @@ def dict_to_type(d: Any) -> Any:
         # The `{"kind": "typevar", "name": T}` placeholder: T carries the
         # name so `_subst_type` can resolve it at the call site.
         return T(kind=kind, elem=None, key=None, value=None, params=None, ret=None, name=d["name"])
+    if kind == "exc":
+        return t_exc(d.get("name", ""))
     return t_leaf(kind)
 
 
@@ -794,6 +804,7 @@ def _b_raise(d: Any, span: Any, typ: Any, flags: int) -> Any:
         bool(flags & F_RERAISE),
         d.get("excslot", ""),
         dict_to_node(d.get("cause")),
+        dict_to_node(d.get("payload")),
     )
 
 

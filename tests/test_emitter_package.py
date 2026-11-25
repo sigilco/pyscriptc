@@ -522,6 +522,7 @@ def test_every_emitter_area_lives_in_its_own_module() -> None:
         "_runtime.py",
         "_stdlib.py",
         "_stmts.py",
+        "_tupkey.py",
     ]
     # Every area module holds exactly one class, the mixin it contributes.
     # `_runtime.py` is the exception: it is the declaration table, not an area.

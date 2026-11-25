@@ -15,6 +15,11 @@ Both sides run this same program and the lane byte-compares stdout.
 `print` of a member itself stays on the value (the divergence the enum
 subset already carries), so the probe prints the member surface and the
 arithmetic results, never a bare member.
+
+The `auto()` counter reads the largest value the body has spelled, so an
+explicit value moves it: `DEBUG = 10` then `auto()` gives 11, and an
+explicit value after an `auto()` moves it again (`A = 5`, `auto()` gives
+6, `C = 2`, `auto()` gives 7).
 """
 
 from enum import Enum, Flag, IntEnum, IntFlag, StrEnum, auto
@@ -45,6 +50,21 @@ class Name(StrEnum):
         return self.upper() + "!"
 
 
+class Level(IntEnum):
+    DEBUG = 10
+    INFO = auto()
+    WARN = auto()
+    ERROR = auto()
+    CRITICAL = auto()
+
+
+class Mixed(IntEnum):
+    A = 5
+    B = auto()
+    C = 2
+    D = auto()
+
+
 class Perm(IntFlag):
     READ = 1
     WRITE = 2
@@ -59,6 +79,10 @@ class Bits(Flag):
 print(Color.RED.value, Color.RED.name)
 print(Color.GREEN.value, Color.GREEN.name)
 print(State.OFF.value, State.OFF.name)
+print(Level.DEBUG.value, Level.INFO.value, Level.WARN.value)
+print(Level.ERROR.value, Level.CRITICAL.value)
+print(Level.DEBUG.value + Level.INFO.value + Level.WARN.value + Level.ERROR.value + Level.CRITICAL.value)
+print(Mixed.A.value, Mixed.B.value, Mixed.C.value, Mixed.D.value)
 print(Name.FIRST.value, Name.FIRST.name)
 print(Perm.READ.value, Perm.READ.name)
 print(Bits.A.value, Bits.A.name)

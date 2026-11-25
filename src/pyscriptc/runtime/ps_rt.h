@@ -331,7 +331,13 @@ typedef struct PsGrow {
 static class-name table, message at a 256-byte owned buffer like the old
 ps_msg channel. cause links `raise ... from`; args is built lazily by
 ps_exc_args from message (E3 stores real ctor args). exit_status carries the
-`raise SystemExit(<int>)` value the uncaught handler exits with. */
+`raise SystemExit(<int>)` value the uncaught handler exits with.
+
+payload points at the instance record of a user exception class: the raise
+site builds the class instance (running the user's `__init__`), so the
+custom fields ride the exception (issue #448, divergence 9). The runtime
+never dereferences it: the emitter knows the class layout statically and
+reads the fields by offset. It is NULL for every builtin exception. */
 typedef struct PsExc {
     int32_t code;
     int32_t flags;
@@ -339,6 +345,7 @@ typedef struct PsExc {
     PsBuf message;
     struct PsExc *cause;
     PsSeq *args;
+    void *payload;
     int64_t exit_status;
 } PsExc;
 
@@ -363,6 +370,13 @@ void ps_report_current(const char *prefix);
 PsExc *ps_exc_current(void);
 void ps_exc_restore(PsExc *e);
 PsExc *ps_exc_make(int32_t code, int64_t n, const char *data);
+/* Attach the user exception class's instance record. `raise C(args)` runs
+   the user `__init__` over a fresh class instance and the emitter hands the
+   record here before ps_raise_exc (issue #448, divergence 9). */
+void ps_exc_set_payload(PsExc *e, void *payload);
+/* The class instance a user exception carries (issue #448). NULL for every
+   builtin exception. */
+void *ps_exc_payload(PsExc *e);
 /* Run `fn(env)` and catch the exception it raises: 0 returned (its status
    lands in `*status`), 1 raised (the record lands in `*out`). The event loop
    drives a child coroutine through this, so its failure travels to the
@@ -425,6 +439,26 @@ void ps_map_val_at(PsMap *m, int64_t i, void *out);
    ps_map_clear in ps_more.c are the wrappers that raise on a missing key. */
 int64_t ps_map_delete(PsMap *m, void *key);
 void ps_map_reset(PsMap *m);
+
+/* The tuple dict key (issue #1368). A map with `key_kind` 4 stores a tuple
+   as its key: the key cell holds one pointer to a tuple-key record, and the
+   record names each field's kind and carries the field payloads in a flat
+   buffer. The compiler packs the fields (it knows each field's static
+   type); the runtime hashes and compares the record field-wise, the way
+   CPython hashes and compares a tuple.
+
+   `ps_tuple_key_new` allocates the record for `n` fields of the given
+   kinds, `ps_tuple_key_data` hands the compiler the payload buffer and
+   `ps_tuple_key_offset` the offset of one field in it. The hash and the
+   equality are the map's key functions for this kind. */
+void *ps_tuple_key_new(int64_t n, int32_t *kinds);
+void *ps_tuple_key_data(void *key);
+int64_t ps_tuple_key_offset(void *key, int64_t i);
+int64_t ps_tuple_key_hash(void *key);
+int32_t ps_tuple_key_eq(void *a, void *b);
+/* The repr of a tuple key: CPython's tuple repr, `(a, None)`. The KeyError
+   message of a missing tuple key is this repr. */
+void ps_tuple_key_repr(void *key, PsBuf *out);
 
 void ps_buf_view(PsBuf *out, const char *p, int64_t n);
 void ps_buf_copy(PsBuf *out, const char *p, int64_t n);

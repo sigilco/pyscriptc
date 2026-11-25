@@ -102,7 +102,9 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D9",
-        "a user exception stores a code and an optional str without calling __init__",
+        "a user exception class runs its own __init__ on raise and carries the custom fields "
+        "in the record's payload (issue #448); the residual seam is e.args, which holds the "
+        "message list instead of the constructor arguments",
         "d09_user_exc_init.py",
         docs=f"{DOC}#9",
     ),

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-24",
-  "commit": "23117244de0782901e5e9979995c00a72d023ec4",
+  "commit": "30568246fac9e16477d75344463ddfd4c7a33227",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -968,8 +968,8 @@
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
       "ratio": "244/641",
-      "blocking": "name-resolution (181), construct-other (118), field-lookup (64)",
-      "codes": "PS2002, PS2001, PS2003"
+      "blocking": "name-resolution (189), construct-other (110), field-lookup (60)",
+      "codes": "PS2002, PS2001, PS1103"
     },
     {
       "name": "h11",
@@ -991,9 +991,9 @@
       "name": "iniconfig",
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
-      "ratio": "10/34",
-      "blocking": "call-arity (4), construct-other (3), optional-types (2)",
-      "codes": "PS2002, PS2003, PS1102"
+      "ratio": "7/34",
+      "blocking": "name-resolution (3), optional-types (2), unlowered-call (2)",
+      "codes": "PS2002, PS1102, PS2001"
     },
     {
       "name": "jmespath",
@@ -1023,8 +1023,8 @@
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "278/558",
-      "blocking": "name-resolution (101), unlowered-type-name (94), field-lookup (77)",
+      "ratio": "274/558",
+      "blocking": "name-resolution (98), unlowered-type-name (94), field-lookup (79)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
@@ -1087,8 +1087,8 @@
       "name": "urllib3",
       "version": "2.8.0",
       "status": "\ud83d\udfe1",
-      "ratio": "217/617",
-      "blocking": "name-resolution (94), unlowered-type-name (74), construct-other (56)",
+      "ratio": "222/617",
+      "blocking": "name-resolution (97), unlowered-type-name (74), construct-other (56)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {

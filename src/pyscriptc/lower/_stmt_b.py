@@ -594,6 +594,11 @@ class StmtBMixin:
         # builds its own message (issue #814): the raw-argument message
         # below would be CPython's message for a class that overrides it.
         chained = self._chained_exc_message(stmt)
+        # A user exception class takes its own constructor arguments (issue
+        # #448): the raise site runs the user's `__init__` over the class
+        # instance, so the multi-argument arity of a builtin exception (one
+        # scalar) does not apply to it.
+        user_class = self._raised_user_class(stmt)
         msgs: list[dict[str, Any] | None] = [None, None]
         for which in range(2):
             call = stmt.exc if which == 0 else stmt.cause
@@ -603,9 +608,29 @@ class StmtBMixin:
                 self.fail(call, "PS2003", "keyword arguments are not lowered")
             built: dict[str, Any] | None = None
             if call.args:
-                if len(call.args) != 1 and not (which == 0 and chained is not None):
+                if len(call.args) > 1 and not (which == 0 and (chained is not None or user_class is not None)):
                     self.fail(call, "PS2003", "exception takes one scalar argument")
+                if which == 0 and user_class is not None and chained is None:
+                    # A user class without a `super().__init__(msg)` chain:
+                    # CPython's `BaseException.__new__` stores the
+                    # constructor arguments, and `str(e)` shows the single
+                    # argument (the tuple repr for more than one, which
+                    # the record cannot hold: the message stays empty and
+                    # the divergence entry says so).
+                    msgs[which] = None
+                    if len(call.args) == 1:
+                        expr = self._expr(call.args[0])
+                        if _node_type_kind(expr) == "bool":
+                            msgs[which] = _builtin_call("str", [expr], {"kind": "str"}, span)
+                        elif _node_type_kind(expr) in {"str", "int", "float"}:
+                            msgs[which] = self._as_str(expr, call)
+                        else:
+                            self.fail(call, "PS2003", "exception argument is a scalar")
+                    continue
                 if which == 0 and chained is not None:
+                    # The user class builds its own message: the builtin
+                    # base's one-argument shape does not apply, and the
+                    # payload carries the instance (with its fields).
                     msgs[which] = None
                     continue
                 expr = self._expr(call.args[0])
@@ -645,20 +670,37 @@ class StmtBMixin:
             elif exc.id in RESERVED_EXCEPTIONS:
                 # A reserved class (queue.Empty): the code rides the node.
                 node = _raise_node(exc.id, span, message, code=RESERVED_EXCEPTIONS[exc.id])
+            elif _maybe_type_kind(self.locals.get(exc.id, {})) == "exc":
+                # `raise e` over a bound handler value (issue #448): the
+                # record is re-raised as it is, so the payload (the class
+                # instance) rides it and the outer handler reads the same
+                # custom fields.
+                if exc.id in self.dead_names:
+                    self.fail(stmt, "PS2002", f"{exc.id} is not bound here")
+                node = _raise_node("Exception", span, reraise=True, excslot=exc.id)
             else:
                 resolved = self.class_aliases.get(exc.id, exc.id)
                 info = self.classes.get(resolved)
                 if info is None or not info.get("exception"):
                     self.fail(stmt, "PS2002", "raise names a lowered exception")
-                # raise makes a code plus optional str; it does not call
-                # __init__ (divergence 9). When the class's __init__ chains
-                # the builtin base with `super().__init__(msg)`, CPython's
-                # message is that expression evaluated over the ctor args:
-                # the raise site computes it, so str(e) and the uncaught
-                # report read what CPython reads (issue #814).
+                # raise runs the user __init__ and carries the custom fields
+                # in the exception payload (issue #448, divergence 9). The
+                # payload is the class instance: the emitter allocates the
+                # record, calls `__init__` over it, and the runtime keeps the
+                # pointer, so `except C as e` reads `e.field`.
+                #
+                # The message is separate: CPython's message for a user class
+                # is what `super().__init__(msg)` passed to the builtin base.
+                # When the class's __init__ chains the base that way, the
+                # raise site computes that expression over the ctor args
+                # (issue #814), so str(e) and the uncaught report read what
+                # CPython reads.
                 if chained is not None:
                     message = chained
                 node = _raise_node(resolved, span, message, code=info["exc_code"])
+                payload = self._exc_payload(resolved, info, stmt, span)
+                if payload is not None:
+                    node["payload"] = payload
         if stmt.cause is not None:
             cause_node = stmt.cause
             if isinstance(cause_node, ast.Name) and _maybe_type_kind(self.locals.get(cause_node.id, {})) == "exc":
@@ -680,6 +722,95 @@ class StmtBMixin:
                         self.fail(cause_node, "PS2002", "raise-from needs an exception or None")
                     node["cause"] = _excmake_node(cresolved, span, cmessage, code=cinfo["exc_code"])
         return node
+
+    def _exc_payload(
+        self, resolved: str, info: dict[str, Any], stmt: ast.Raise, span: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """The instance-record construction one user raise carries.
+
+        `raise C(args)` on a user exception class builds the class instance
+        (the emitter allocates the record and runs `__init__`) and hands it
+        to the runtime as the exception's payload, so the custom fields ride
+        the exception (issue #448, divergence 9). A raise of the bare class
+        name (`raise C`) instantiates the class with no arguments, the way
+        CPython calls `C()`: fields the `__init__` sets on its own keep
+        their value, everything else reads its zero value.
+        """
+
+        exc = stmt.exc
+        init = info["methods"].get("__init__")
+        if not isinstance(exc, ast.Call):
+            if init is None:
+                # `raise C` over a class without own `__init__`:
+                # CPython's `C()` needs no arguments.
+                return self._exc_instance(resolved, span)
+            params = [param for param in init[0] if param["name"] != "self"]
+            if any("default" not in param for param in params):
+                self.fail(stmt, "PS1003", f"{resolved}() expects {len(params)} argument(s)")
+            return self._exc_instance(resolved, span)
+        if init is None:
+            # No own `__init__`: the class inherits the builtin base's,
+            # which takes the single message argument.
+            if exc.keywords:
+                self.fail(exc, "PS2003", "keyword arguments are not lowered")
+            if len(exc.args) > 1:
+                self.fail(exc, "PS2003", "exception takes one scalar argument")
+            return self._exc_instance(resolved, span)
+        params = [param for param in init[0] if param["name"] != "self"]
+        args = self._fill_args(exc, params, resolved)
+        return self._exc_instance(resolved, span, args)
+
+    def _exc_instance(
+        self, resolved: str, span: dict[str, Any], args: list[dict[str, Any]] | None = None
+    ) -> dict[str, Any]:
+        from pyscriptc.lower._classes import _class_call, _class_type  # noqa: PLC0415  # local import avoids the mixin cycle
+
+        return _class_call(resolved, args or [], _class_type(resolved), span)
+
+    def _bound_exc_class(self, names: list[str]) -> str | None:
+        """The user exception class a handler binds, or None.
+
+        `except C as e` over a user class `C` binds a value of that class:
+        the runtime record carries the class instance as its payload, so the
+        custom fields read back through it (issue #448). A handler over
+        several classes, or over a builtin, binds the plain exception
+        record: there the payload is not there to read.
+        """
+
+        if len(names) != 1:
+            return None
+        name = names[0]
+        resolved = self.class_aliases.get(name, name)
+        info = self.classes.get(resolved)
+        if info is None or not info.get("exception"):
+            return None
+        if resolved in EXCEPTIONS or resolved in RESERVED_EXCEPTIONS:
+            return None
+        return resolved
+
+    def _raised_user_class(self, stmt: ast.Raise) -> str | None:
+        """The user exception class one raise names, or None.
+
+        `raise C(...)` over a lowered exception class (a name that is not a
+        builtin or reserved exception) takes the class's own constructor
+        arguments, so the builtin one-scalar arity does not fence it
+        (issue #448). The cause call keeps the builtin shape: CPython
+        evaluates it the same way, but the payload only rides the raise
+        itself.
+        """
+
+        exc = stmt.exc
+        if isinstance(exc, ast.Call):
+            exc = exc.func
+        if not isinstance(exc, ast.Name):
+            return None
+        if exc.id in EXCEPTIONS or exc.id in RESERVED_EXCEPTIONS:
+            return None
+        resolved = self.class_aliases.get(exc.id, exc.id)
+        info = self.classes.get(resolved)
+        if info is None or not info.get("exception"):
+            return None
+        return resolved
 
     def _chained_exc_message(self, stmt: ast.Raise) -> dict[str, Any] | None:
         """The message a user exception class builds by chaining the builtin
@@ -798,10 +929,19 @@ class StmtBMixin:
             bind = handler.name
             if bind is not None:
                 prior = self.locals.get(bind)
-                if prior is None:
-                    self.locals[bind] = {"kind": "exc"}
-                elif _maybe_type_kind(prior) != "exc":
+                # A handler over one user exception class binds a value of
+                # that class (issue #448): the record's payload carries the
+                # class instance, so the custom fields read back.
+                bound_class = self._bound_exc_class(names)
+                exc_type: dict[str, Any] = {"kind": "exc"}
+                if bound_class is not None:
+                    exc_type["name"] = bound_class
+                if prior is not None and _maybe_type_kind(prior) != "exc":
                     self.fail(handler, "PS1205", f"{bind} is {_show(prior)}, and except-as binds an exception")
+                # The binding takes the handler's own class: two handlers
+                # in the same scope may bind the same name over different
+                # exception classes, and each read sees its own class.
+                self.locals[bind] = exc_type
                 self.dead_names.discard(bind)
             self.exc_stack.append(bind or "")
             try:

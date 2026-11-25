@@ -167,8 +167,15 @@ class MiscEmitMixin:
             )
             return _expr_node(call, span)
         container = self._expr(target.value)
-        index = self._expr(target.slice)
         kind = _node_type_kind(container)
+        # Issue #1368: a dict's key may be a tuple, and a tuple display
+        # unifies with the dict's key type, so the index lowers under that
+        # type (`d["a", None] = 1` against `dict[tuple[str, str | None],
+        # int]` boxes the None arm into the key tuple's field optional).
+        index_expect = None
+        if kind == "dict" and self._tuple_key_ok(container["type"]["key"]):
+            index_expect = container["type"]["key"]
+        index = self._expr(target.slice, index_expect)
         if _nd_is_ndarray(container["type"]):
             # `a[i] = v` on an ndarray (issue #496): the element write. The
             # runtime converts the value to the array's dtype.
