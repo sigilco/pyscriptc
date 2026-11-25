@@ -25,7 +25,8 @@ def total(msg: dict[str, object]) -> int:
     return n
 
 
-print(total({"a": 1, "b": "two", "c": 2.5, "d": True, "e": None, "f": [1], "g": {}}))
+msg: dict[str, object] = {"a": 1, "b": "two", "c": 2.5, "d": True, "e": None, "f": [1]}
+print(total(msg))
 
 xs: list[object] = [1, "x", None, 2.5, True, [1], {"k": 1}]
 print(xs)
@@ -42,7 +43,7 @@ print(Holder.v, Holder.w, Holder().v)
 
 def narrow(v: object) -> str:
     if isinstance(v, int):
-        return v + 1
+        return str(v + 1)
     if isinstance(v, str):
         return v.upper()
     return "other"
