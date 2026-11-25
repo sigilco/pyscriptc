@@ -1577,7 +1577,9 @@ def _resolve_default_driver(target: str | None = None, sanitize: list[str] | Non
         return None
     if shutil.which("zig") is not None:
         return "zig"
-    if zigshim.resolve_zig() is not None:
+    from pyscriptc import zigshim as _zigshim
+
+    if _zigshim.resolve_zig() is not None:
         return "zig"
     if shutil.which("clang") is not None:
         return "clang"
