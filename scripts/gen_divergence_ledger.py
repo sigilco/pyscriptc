@@ -863,6 +863,15 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#102",
     ),
     _row(
+        "D103",
+        "a unicodedata argument that is not a one-character string raises ValueError where CPython raises "
+        "TypeError naming the length (issue #476): the ABI carries the buffer length, so the one-character "
+        "check is the runtime's own raise; the value paths answer over the whole code-point range from the "
+        "generated Unicode 16.0.0 tables, so the range the old Latin-1 table could not answer is identical",
+        "d103_unicodedata_codepoints.py",
+        docs=f"{DOC}#103",
+    ),
+    _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT
     ),
     _row(

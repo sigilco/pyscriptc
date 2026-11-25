@@ -1898,6 +1898,26 @@
       "status": "fenced"
     },
     {
+      "id": "D103",
+      "seam": "a unicodedata argument that is not a one-character string raises ValueError where CPython raises TypeError naming the length (issue #476): the ABI carries the buffer length, so the one-character check is the runtime's own raise; the value paths answer over the whole code-point range from the generated Unicode 16.0.0 tables, so the range the old Latin-1 table could not answer is identical",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#103",
+      "probe": "probes/divergences/d103_unicodedata_codepoints.py",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "Mn\nCOMBINING ACUTE ACCENT\nLo\nHANGUL SYLLABLE GA\nLo\nCJK UNIFIED IDEOGRAPH-4E00\nSo\nGRINNING FACE\n'가'\n'가'\n가\n0.25\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "Mn\nCOMBINING ACUTE ACCENT\nLo\nHANGUL SYLLABLE GA\nLo\nCJK UNIFIED IDEOGRAPH-4E00\nSo\nGRINNING FACE\n'가'\n'가'\n가\n0.25\n",
+        "stderr": ""
+      },
+      "status": "identical"
+    },
+    {
       "id": "AUDIT-D11",
       "seam": "json.dumps does not escape non-ASCII (audit D11)",
       "listed": false,

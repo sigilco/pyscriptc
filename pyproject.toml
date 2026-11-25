@@ -136,6 +136,7 @@ select = ["E", "F", "I", "UP", "B"]
 [tool.ruff.lint.per-file-ignores]
 # The table generator emits C source with percent formats.
 "scripts/gen_case_tables.py" = ["UP031"]
+"scripts/gen_unicode_tables.py" = ["UP031"]
 # The erased-annotation probe exercises the PEP 613 TypeAlias spelling the
 # subset lowers (issue #413); PEP 695 `type` is a different construct.
 "probes/differential/erased_annotations.py" = ["UP040"]
