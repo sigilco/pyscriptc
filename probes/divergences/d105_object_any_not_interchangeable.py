@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-# Divergence D104: `object` and `Any` are not interchangeable (issue #1226).
+# Divergence D105: `object` and `Any` are not interchangeable (issue #1226).
 # This probe shows the compiling surface: `object` is the tagged dynamic
 # value (the closed sum None | bool | int | float | str | list | dict),
 # every arm boxes, the isinstance tag test narrows, and a bool answers
