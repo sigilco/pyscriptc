@@ -1,5 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
-"""Regenerate the Unicode tables in `src/pyscriptc/runtime/ps_unicode.c`.
+"""Regenerate the Unicode tables in `src/pyscriptc/runtime/ps_unicode_data.c`.
 
 The tables are the CPython 3.14 `unicodedata` data (Unicode
 `PS_UNICODE_VERSION`): the general category, the canonical combining
@@ -15,8 +15,8 @@ Run from the repo root:
 The generator is mechanical: every table is derived from this
 interpreter's `unicodedata` module, so the data cannot drift from the
 oracle. The self-check at the end replays the exact runtime algorithms
-over a sweep of every code point (the category, the combining class, the
-mirrored flag, the numeric values, the decomposition, the name, and a
+over a sweep of every code point (the category, the combining class,
+the mirrored flag, the numeric values, the decomposition, the name, and a
 randomized NFC/NFD/NFKC/NFKD round trip), so a data drift fails the run
 instead of landing.
 
@@ -30,13 +30,36 @@ through `ps_unicode.c` (the same discipline `ps_case.c` uses).
 from __future__ import annotations
 
 import random
+import re
 import sys
 import unicodedata
+from fractions import Fraction
 from pathlib import Path
 
 TARGET = Path("src/pyscriptc/runtime/ps_unicode_data.c")
 
 MAX_CP = 0x110000
+
+# The Hangul syllable block is algorithmic: a syllable in
+# U+AC00..U+D7A3 decomposes to the choseong, jungseong and (when
+# present) jongseong jamo by arithmetic, and three jamo compose back.
+# The syllables therefore carry no table row.
+SBASE = 0xAC00
+LBASE = 0x1100
+VBASE = 0x1161
+TBASE = 0x11A7
+LCOUNT = 19
+VCOUNT = 21
+TCOUNT = 28
+NCOUNT = VCOUNT * TCOUNT
+SCOUNT = LCOUNT * NCOUNT
+
+# The two name families whose names are the code point in hex: the CJK
+# unified ideographs and the CJK compatibility ideographs. They are
+# contiguous runs (the unified block has a hole between the extension A
+# and the main block), so the runtime builds the name from the prefix
+# and the code point instead of storing it.
+HEX_NAME_PREFIXES = ("CJK UNIFIED IDEOGRAPH-", "CJK COMPATIBILITY IDEOGRAPH-")
 
 HEADER = """/* Generated Unicode tables (Unicode {version}, via CPython 3.14's unicodedata).
 
@@ -46,6 +69,10 @@ HEADER = """/* Generated Unicode tables (Unicode {version}, via CPython 3.14's u
    value. The decimal, digit and numeric values, the decompositions, the
    names and the composition pairs are stored as sorted records.
 
+   The Hangul syllable block and the two CJK ideograph name families are
+   algorithmic (the runtime builds them by arithmetic), so they carry no
+   table row.
+
    Regenerate with scripts/gen_unicode_tables.py; the version is stamped
    here and checked by the generator's self-test. Included by
    ps_unicode.c; it compiles only through that include. */
@@ -54,10 +81,6 @@ HEADER = """/* Generated Unicode tables (Unicode {version}, via CPython 3.14's u
 
 #define PS_UNICODE_VERSION "{version}"
 
-/* The Hangul syllable block is algorithmic: a syllable in
-   U+AC00..U+D7A3 decomposes to the choseong, jungseong and (when
-   present) jongseong jamo by arithmetic, and three jamo compose back.
-   The syllables therefore carry no table row. */
 #define PS_UNI_SBASE 0xAC00u
 #define PS_UNI_LBASE 0x1100u
 #define PS_UNI_VBASE 0x1161u
@@ -70,6 +93,7 @@ HEADER = """/* Generated Unicode tables (Unicode {version}, via CPython 3.14's u
 
 typedef struct {{ uint32_t lo; uint32_t hi; uint8_t val; }} PsUniRun;
 typedef struct {{ uint32_t cp; int32_t val; }} PsUniNum;
+typedef struct {{ uint32_t cp; int64_t num; int32_t den; }} PsUniVal;
 typedef struct {{ uint32_t cp; uint32_t off; uint32_t len; }} PsUniStr;
 typedef struct {{ uint32_t cp; uint32_t off; uint16_t len; }} PsUniDec;
 typedef struct {{ uint32_t starter; uint32_t comp; uint32_t out; }} PsUniComp;
@@ -123,55 +147,73 @@ def build() -> dict[str, object]:
     # `digit` are the ASCII digit values for the ASCII digits and the
     # Unicode decimal digit values for the rest; `numeric` carries the
     # fractional and the vulgar-fraction values too.
+    #
+    # The numeric value is stored as an exact rational (the numerator and
+    # the denominator as integers): the Unicode values include repeating
+    # fractions (one seventh, one third) and values above 2^53, so a
+    # scaled integer would lose them. The runtime divides the two as
+    # doubles, which reproduces the oracle's double exactly.
     decimal: list[tuple[int, int]] = []
     digit: list[tuple[int, int]] = []
-    numeric: list[tuple[int, float]] = []
+    numeric: list[tuple[int, int, int]] = []
     for cp in range(MAX_CP):
         ch = chr(cp)
         try:
-            numeric.append((cp, unicodedata.numeric(ch)))
+            value = unicodedata.numeric(ch)
         except ValueError:
             pass
+        else:
+            fraction = Fraction(value).limit_denominator(1000000)
+            assert fraction.numerator / fraction.denominator == value, (hex(cp), value)
+            numeric.append((cp, fraction.numerator, fraction.denominator))
         if ch.isdecimal():
             decimal.append((cp, unicodedata.digit(ch)))
         if ch.isdigit():
             digit.append((cp, unicodedata.digit(ch)))
 
     # The decompositions: the canonical ones and the compatibility ones,
-    # as the code point sequences they expand to.
+    # as the code point sequences they expand to. A compatibility
+    # decomposition is tagged: the runtime's NFKC/NFKD apply it, NFD/NFC
+    # do not.
     decomp_pool = bytearray()
-    decomp: list[tuple[int, int, int]] = []  # cp, offset, length (in code points)
+    decomp: list[tuple[int, int, int, int]] = []  # cp, offset, length, compat
     canon_pairs: dict[tuple[int, int], int] = {}
     for cp in range(MAX_CP):
-        if PS_UNI_SBASE <= cp < PS_UNI_SBASE + PS_UNI_SCOUNT:
+        if SBASE <= cp < SBASE + SCOUNT:
             continue  # Hangul is algorithmic, never a table row
         raw = unicodedata.decomposition(chr(cp))
         if not raw:
             continue
         parts = raw.split()
+        compat = 0
         if parts[0].startswith("<"):
+            compat = 1
             parts = parts[1:]
         seq = [int(x, 16) for x in parts]
         off = len(decomp_pool) // 4
         for value in seq:
             decomp_pool += value.to_bytes(4, "big")
-        decomp.append((cp, off, len(seq)))
-        if not raw.startswith("<") and len(seq) == 2:
+        decomp.append((cp, off, len(seq), compat))
+        if not compat and len(seq) == 2:
             canon_pairs[(seq[0], seq[1])] = cp
 
     # The names. CPython's `name` is the Unicode name, and `lookup`
     # accepts the name and the algorithmic aliases ("NULL", "BYTE ORDER
     # MARK", the Hangul syllable names). The Hangul syllable names are
     # algorithmic (they spell out the chosen jamo names), so they are
-    # generated at run time, not stored.
+    # generated at run time, not stored. The two CJK ideograph families
+    # are algorithmic too: the name is the prefix and the code point in
+    # hex.
     name_pool = bytearray()
     names: list[tuple[int, int, int]] = []  # cp, offset, length
     for cp in range(MAX_CP):
-        if PS_UNI_SBASE <= cp < PS_UNI_SBASE + PS_UNI_SCOUNT:
+        if SBASE <= cp < SBASE + SCOUNT:
             continue  # the Hangul syllable names are algorithmic
         name = unicodedata.name(chr(cp), None)
         if not name:
             continue
+        if name.startswith(HEX_NAME_PREFIXES):
+            continue  # the CJK ideograph names are algorithmic
         data = name.encode("ascii")
         names.append((cp, len(name_pool), len(data)))
         name_pool += data
@@ -215,16 +257,21 @@ def emit_runs(out: list[str], name: str, rows: list[tuple[int, int, int]]) -> No
     out.append("")
 
 
-def emit_nums(out: list[str], name: str, rows: list[tuple[int, float]]) -> None:
+def emit_nums(out: list[str], name: str, rows: list[tuple[int, int]]) -> None:
     out.append(f"static const PsUniNum {name}[] = {{")
     for i in range(0, len(rows), 4):
         chunk = rows[i : i + 4]
-        cells = []
-        for cp, value in chunk:
-            if isinstance(value, int):
-                cells.append("{0x%06xu,%d}" % (cp, value))
-            else:
-                cells.append("{0x%06xu,%d}" % (cp, int(round(value * 1e6))))
+        out.append("    " + ",".join("{0x%06xu,%d}" % r for r in chunk) + ",")
+    out.append("};")
+    out.append(f"#define {name.upper()}_N {len(rows)}")
+    out.append("")
+
+
+def emit_vals(out: list[str], name: str, rows: list[tuple[int, int, int]]) -> None:
+    out.append(f"static const PsUniVal {name}[] = {{")
+    for i in range(0, len(rows), 2):
+        chunk = rows[i : i + 2]
+        cells = ["{0x%06xu,%dLL,%d}" % r for r in chunk]
         out.append("    " + ",".join(cells) + ",")
     out.append("};")
     out.append(f"#define {name.upper()}_N {len(rows)}")
@@ -241,7 +288,17 @@ def emit_strs(out: list[str], name: str, rows: list[tuple[int, int, int]]) -> No
     out.append("")
 
 
-def emit_pool(out: list[str], name: str, pool: bytes, width: int) -> None:
+def emit_decs(out: list[str], name: str, rows: list[tuple[int, int, int, int]]) -> None:
+    out.append(f"static const PsUniDec {name}[] = {{")
+    for i in range(0, len(rows), 4):
+        chunk = rows[i : i + 4]
+        out.append("    " + ",".join("{0x%06xu,%uu,%uu,%uu}" % r for r in chunk) + ",")
+    out.append("};")
+    out.append(f"#define {name.upper()}_N {len(rows)}")
+    out.append("")
+
+
+def emit_pool(out: list[str], name: str, pool: bytes) -> None:
     out.append(f"static const char {name}[] =")
     for i in range(0, len(pool), 16):
         chunk = pool[i : i + 16]
@@ -267,6 +324,7 @@ def render() -> str:
     out.append("};")
     out.append(f"#define PS_UNI_BIDI_NAMES_N {len(data['bidi_names'])}")  # type: ignore[arg-type]
     out.append("")
+
     out.append("static const char *const ps_uni_eaw_names[] = {")
     out.append("    " + ",".join('"%s"' % n for n in data["eaw_names"]) + ",")  # type: ignore[union-attr]
     out.append("};")
@@ -275,13 +333,13 @@ def render() -> str:
 
     emit_nums(out, "ps_uni_decimal", data["decimal"])  # type: ignore[arg-type]
     emit_nums(out, "ps_uni_digit", data["digit"])  # type: ignore[arg-type]
-    emit_nums(out, "ps_uni_numeric", data["numeric"])  # type: ignore[arg-type]
+    emit_vals(out, "ps_uni_numeric", data["numeric"])  # type: ignore[arg-type]
 
-    emit_strs(out, "ps_uni_decomp", data["decomp"])  # type: ignore[arg-type]
-    emit_pool(out, "ps_uni_decomp_pool", data["decomp_pool"], 4)  # type: ignore[arg-type]
+    emit_decs(out, "ps_uni_decomp", data["decomp"])  # type: ignore[arg-type]
+    emit_pool(out, "ps_uni_decomp_pool", data["decomp_pool"])  # type: ignore[arg-type]
 
     emit_strs(out, "ps_uni_name", data["names"])  # type: ignore[arg-type]
-    emit_pool(out, "ps_uni_name_pool", data["name_pool"], 1)  # type: ignore[arg-type]
+    emit_pool(out, "ps_uni_name_pool", data["name_pool"])  # type: ignore[arg-type]
 
     out.append("static const PsUniComp ps_uni_comp[] = {")
     comp = data["comp"]  # type: ignore[assignment]
@@ -313,16 +371,19 @@ def selftest(data: dict[str, object]) -> None:
 
     # The decomposition records must reproduce the exact sequences.
     pool = data["decomp_pool"]  # type: ignore[assignment]
-    for cp, off, length in data["decomp"]:  # type: ignore[union-attr]
+    for cp, off, length, compat in data["decomp"]:  # type: ignore[union-attr]
         raw = unicodedata.decomposition(chr(cp))
         parts = raw.split()
+        want_compat = 0
         if parts[0].startswith("<"):
+            want_compat = 1
             parts = parts[1:]
         want = [int(x, 16) for x in parts]
         got = [
             int.from_bytes(pool[(off + i) * 4 : (off + i + 1) * 4], "big") for i in range(length)
         ]
         assert got == want, (hex(cp), got, want)
+        assert compat == want_compat, (hex(cp), compat, want_compat)
 
     # The names must reproduce the exact strings.
     name_pool = data["name_pool"]  # type: ignore[assignment]
@@ -332,83 +393,119 @@ def selftest(data: dict[str, object]) -> None:
         assert got == want, (hex(cp), got, want)
 
     # The numeric records must reproduce the exact values.
-    for cp, value in data["numeric"]:  # type: ignore[union-attr]
+    for cp, num, den in data["numeric"]:  # type: ignore[union-attr]
         want = unicodedata.numeric(chr(cp))
-        assert abs(want - value) < 1e-9, (hex(cp), want, value)
+        got = num / den
+        assert got == want, (hex(cp), got, want)
 
     # The normalization round trip: the generated decomposition and
     # composition tables must agree with `unicodedata.normalize` on a
     # randomized sweep over the code points that have a decomposition.
     comp = {(s, c): out for s, c, out in data["comp"]}  # type: ignore[union-attr]
-    decomp_map = {cp: off for cp, off, _ in data["decomp"]}  # type: ignore[union-attr]
+    decomp_map = {cp: (off, ln) for cp, off, ln, _ in data["decomp"]}  # type: ignore[union-attr]
+    compat_map = {cp for cp, _, _, compat in data["decomp"] if compat}  # type: ignore[union-attr]
 
-    def decomp_seq(cp: int) -> list[int]:
-        off, length = decomp_map[cp], None
-        for c, o, ln in data["decomp"]:  # type: ignore[union-attr]
-            if c == cp:
-                off, length = o, ln
-                break
-        assert length is not None
-        return [int.from_bytes(pool[(off + i) * 4 : (off + i + 1) * 4], "big") for i in range(length)]
-
-    def nfd(cps: list[int]) -> list[int]:
-        out: list[int] = []
-        for cp in cps:
-            if cp in decomp_map:
-                out.extend(nfd(decomp_seq(cp)))
-            else:
-                out.append(cp)
+    def hangul_decomp(cp: int) -> list[int] | None:
+        """The algorithmic Hangul syllable decomposition, or None."""
+        if not (SBASE <= cp < SBASE + SCOUNT):
+            return None
+        index = cp - SBASE
+        out = [LBASE + index // NCOUNT, VBASE + (index % NCOUNT) // TCOUNT]
+        tail = index % TCOUNT
+        if tail:
+            out.append(TBASE + tail)
         return out
+
+    def canon_decomp(cp: int) -> list[int] | None:
+        """The canonical decomposition, or None when the code point has
+        none or only a compatibility one."""
+        hangul = hangul_decomp(cp)
+        if hangul is not None:
+            return hangul
+        raw = unicodedata.decomposition(chr(cp))
+        if not raw or raw.startswith("<"):
+            return None
+        return [int(x, 16) for x in raw.split()]
+
+    def comp_decomp(cp: int) -> list[int] | None:
+        """The full decomposition (compatibility included), or None."""
+        raw = unicodedata.decomposition(chr(cp))
+        if not raw:
+            return None
+        parts = raw.split()
+        if parts[0].startswith("<"):
+            parts = parts[1:]
+        return [int(x, 16) for x in parts]
+
+    def full_decomp(cp: int, table: dict[int, list[int]]) -> list[int]:
+        seq = table.get(cp)
+        if seq is None:
+            return [cp]
+        out: list[int] = []
+        for value in seq:
+            out.extend(full_decomp(value, table))
+        return out
+
+    # The runtime tables, in the shape the generated C encodes them.
+    decomp_canon = {cp: seq for cp, seq in ((c, canon_decomp(c)) for c in range(MAX_CP)) if seq}
+    decomp_full = {cp: seq for cp, seq in ((c, comp_decomp(c)) for c in range(MAX_CP)) if seq}
+
+    def compose(a: int, b: int) -> int | None:
+        # The pair (LV, T) composes to an LVT syllable; the pair (L, V)
+        # composes to an LV syllable. The rest come from the table.
+        if TBASE < b < TBASE + TCOUNT and SBASE <= a < SBASE + SCOUNT and (a - SBASE) % TCOUNT == 0:
+            return a + (b - TBASE)
+        if LBASE <= a < LBASE + LCOUNT and VBASE <= b < VBASE + VCOUNT:
+            return SBASE + ((a - LBASE) * VCOUNT + (b - VBASE)) * TCOUNT
+        return comp.get((a, b))
+
+    def nfc(cps: list[int]) -> list[int]:
+        d: list[int] = []
+        for cp in cps:
+            d.extend(full_decomp(cp, decomp_canon))
+        seq = canonical_order(d)
+        if not seq:
+            return []
+        # The reference composition walk: the current starter stays in
+        # place, a composable mark replaces it in place, and a class-0
+        # code point becomes the next starter.
+        res = [seq[0]]
+        sp = 0
+        starter = seq[0]
+        wpos = 1
+        last = unicodedata.combining(chr(starter))
+        if last != 0:
+            last = 256
+        for ch in seq[1:]:
+            cls = unicodedata.combining(chr(ch))
+            composite = compose(starter, ch)
+            if composite is not None and (last < cls or last == 0):
+                res[sp] = composite
+                starter = composite
+            else:
+                if cls == 0:
+                    sp = wpos
+                    starter = ch
+                last = cls
+                res.append(ch)
+                wpos += 1
+        return res
 
     def canonical_order(cps: list[int]) -> list[int]:
         # The canonical ordering algorithm: a stable sort of each
         # combining-mark run by combining class.
-        out: list[int] = []
-        i = 0
-        while i < len(cps):
-            starter = cps[i]
-            i += 1
-            marks: list[int] = []
-            while i < len(cps) and ccc[cps[i]] != 0:
-                marks.append(cps[i])
-                i += 1
-            out.append(starter)
-            for mark in sorted(marks, key=lambda m: ccc[m]):
-                out.append(mark)
-        return out
+        res: list[int] = []
+        for ch in cps:
+            cls = ccc[ch]
+            if cls == 0:
+                res.append(ch)
+            else:
+                j = len(res) - 1
+                while j >= 0 and ccc[res[j]] > cls:
+                    j -= 1
+                res.insert(j + 1, ch)
+        return res
 
-    def nfc(cps: list[int]) -> list[int]:
-        cps = canonical_order(nfd(cps))
-        out: list[int] = []
-        i = 0
-        while i < len(cps):
-            starter = cps[i]
-            if ccc[starter] != 0:
-                out.append(starter)
-                i += 1
-                continue
-            j = i + 1
-            # The blocking rule: a mark blocks composition when a
-            # preceding mark in the sequence has a combining class equal
-            # to or lower than its own. The starter itself never blocks.
-            last_ccc = -1
-            while j < len(cps) and ccc[cps[j]] != 0:
-                if ccc[cps[j]] <= last_ccc:
-                    j += 1
-                    continue
-                composed = comp.get((starter, cps[j]))
-                if composed is not None:
-                    starter = composed
-                    last_ccc = ccc[cps[j]]
-                    i = j
-                    j += 1
-                    continue
-                last_ccc = ccc[cps[j]]
-                j += 1
-            out.append(starter)
-            out.extend(cps[i + 1 : j])
-            i = j
-        return out
 
     rng = random.Random(20261124)
     candidates = [cp for cp in range(MAX_CP) if cp in decomp_map or ccc[cp] != 0]
@@ -417,7 +514,14 @@ def selftest(data: dict[str, object]) -> None:
         cps = [rng.choice(candidates) for _ in range(length)]
         text = "".join(chr(cp) for cp in cps)
         assert unicodedata.normalize("NFC", text) == "".join(chr(cp) for cp in nfc(cps))
-        assert unicodedata.normalize("NFD", text) == "".join(chr(cp) for cp in canonical_order(nfd(cps)))
+        assert unicodedata.normalize("NFD", text) == "".join(
+            chr(cp)
+            for cp in canonical_order([x for cp in cps for x in full_decomp(cp, decomp_canon)])
+        )
+        assert unicodedata.normalize("NFKD", text) == "".join(
+            chr(cp)
+            for cp in canonical_order([x for cp in cps for x in full_decomp(cp, decomp_full)])
+        )
 
 
 def main() -> int:
