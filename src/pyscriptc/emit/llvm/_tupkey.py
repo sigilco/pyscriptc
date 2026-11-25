@@ -177,9 +177,7 @@ class TupleKeyMixin:
         self._abi_decl("ps_tuple_key_data", "ptr", ["ptr"])
         kinds_global = self._tuple_key_kinds_global(class_name)
         rec = self.tmp()
-        self.line(
-            f"{rec} = call ptr @ps_tuple_key_new(i64 {len(fields)}, ptr {kinds_global})"
-        )
+        self.line(f"{rec} = call ptr @ps_tuple_key_new(i64 {len(fields)}, ptr {kinds_global})")
         data = self.tmp()
         self.line(f"{data} = call ptr @ps_tuple_key_data(ptr {rec})")
         for index, field in enumerate(fields):
@@ -248,7 +246,6 @@ class TupleKeyMixin:
         if not arm_fields:
             raise IRError(f"an optional tuple-key field has no arm class {arm_class}")
         arm_field = arm_fields[1]
-        arm_type = _field_type(arm_field)
         arm_slot = self._field_ptr(arm_class, cell, self._field(arm_class, arm_field["name"]))
         if arm_kind == _TK_STR:
             length = self.tmp()

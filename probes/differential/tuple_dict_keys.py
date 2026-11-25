@@ -15,11 +15,9 @@ pins that the compiled program agrees on:
 - the KeyError message of a missing key, which is the tuple's repr.
 """
 
-from typing import Optional
-
 
 def main() -> None:
-    sources: dict[tuple[str, Optional[str]], int] = {}
+    sources: dict[tuple[str, str | None], int] = {}
     sources["alpha", "one"] = 1
     sources["alpha", None] = 2
     sources["beta", "two"] = 3
@@ -39,7 +37,7 @@ def main() -> None:
 
     # A second map over the same shape: the keys are compared by value, so
     # a key read out of one map finds the entry in the other.
-    other: dict[tuple[str, Optional[str]], int] = {}
+    other: dict[tuple[str, str | None], int] = {}
     other["alpha", None] = 20
     print(other[("alpha", None)], sources[("alpha", None)])
 
