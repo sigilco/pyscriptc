@@ -49,7 +49,7 @@ from pyscriptc.reflection import annotation_note, metaclass_note
 from pyscriptc.reprspec import type_spec
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower import path_attr, rest_call
-from pyscriptc.restlower._dataclasses import container_factory, factory_ast, marker_flags
+from pyscriptc.restlower._dataclasses import container_factory, factory_ast, marker_flags, marker_type
 from pyscriptc.restlower._popen import _reaped_fill
 from pyscriptc.restlower._uuid import uuid_hex_attr
 from pyscriptc.sigrec import T, type_to_dict
@@ -499,6 +499,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         fixed-shape tuple whose elements are constants.
         """
         node = marker.get("default_ast")
+        if node is None:
+            # `field(init=False)` with no default (issue #452): CPython
+            # leaves the field unset, so the read raises `AttributeError`.
+            # The lowered struct always has the slot, so this shape has no
+            # right answer and fences here.
+            self.fail(stmt, "PS2002", "field(init=False) needs a default")
         assert isinstance(node, ast.expr)
         if self._is_tuple_annotation(typ):
             return self._tuple_field_default(node, typ, stmt)
@@ -962,7 +968,15 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # fence the base-less dataclass has.
             all_fields = [*inherited, *fields]
             params = [_self_param(node.name)]
+            init_excluded: list[dict[str, Any]] = []
             for field in all_fields:
+                if field.get("flags", {}).get("init") is False:
+                    # `field(init=False)` (issue #452): the field is not a
+                    # constructor parameter. CPython's generated `__init__`
+                    # writes the field's default (or calls the factory) and
+                    # takes no argument for it.
+                    init_excluded.append(field)
+                    continue
                 param: dict[str, Any] = {"name": field["name"], "type": field["type"]}
                 if "default" in field:
                     param["default"] = field["default"]
@@ -1449,14 +1463,23 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         params = info.get("methods", {}).get("__init__")
         if params is None:
             return
+        # The `__init=False` fields (issue #452) carry no parameter, so
+        # their factory rides the field row instead of a parameter row.
+        markers: list[dict[str, Any]] = []
         for param in params[0]:
             marker = param.get("factory")
-            if marker is None:
-                continue
+            if marker is not None:
+                markers.append(marker)
+        for field in info.get("fields", []):
+            marker = field.get("factory")
+            if marker is not None:
+                markers.append(marker)
+        for marker in markers:
             ast_node = factory_ast(marker)
             if ast_node is None:
                 continue
-            ret = param["type"]
+            field_type = marker_type(marker)
+            ret = field_type
             if ret.get("optional"):
                 ret = ret["elem"]
             ftype = {"kind": "func", "params": [], "return": ret}
@@ -1887,6 +1910,40 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             span,
         )
 
+    def _initless_field_store(
+        self, node: ast.ClassDef, field: dict[str, Any], span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """The store a `field(init=False)` field gets in the generated init.
+
+        CPython's `init=False` field with a default is not a constructor
+        parameter, but the generated `__init__` still writes the default
+        into the instance (issue #452). A factory field calls the factory
+        there, so every instance gets its own value. A field with no
+        default at all stays unset in CPython (the read raises
+        `AttributeError`); the lowered struct always has the slot, so
+        that shape fences instead of answering a wrong value.
+        """
+        self_type = _class_type(node.name)
+        target = _name("self", self_type, span)
+        if "factory" in field:
+            marker = field["factory"]
+            saved_prelude = self.prelude
+            self.prelude = []
+            try:
+                value = self._factory_default(marker, field["type"], node)
+            finally:
+                inner = self.prelude
+                self.prelude = saved_prelude
+            return [*inner, _setattr_node(target, field["name"], value, span)]
+        default = field.get("default")
+        if default is None:
+            self.fail(node, "PS2002", "field(init=False) needs a default")
+        if field.get("optdefault"):
+            value = self._opt_box(default, field["type"], span)
+        else:
+            value = default
+        return [_setattr_node(target, field["name"], value, span)]
+
     def _generated_method(self, node: ast.ClassDef, info: dict[str, Any]) -> dict[str, Any] | None:
         mode = info.get("generated_init")
         if mode is None:
@@ -1899,12 +1956,23 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # The dataclass base (issue #452): the base's fields are the
             # instance's leading slots, so the generated init writes them
             # before the child's own, the order the layout declares.
-            body = [
-                _setattr_node(
-                    _name("self", self_type, span), field["name"], _name(field["name"], field["type"], span), span
+            body: list[dict[str, Any]] = []
+            param_names = {param["name"] for param in params}
+            for field in info["fields"]:
+                if field["name"] not in param_names:
+                    # A `field(init=False)` field (issue #452): no
+                    # parameter exists, so the init writes the default
+                    # (the Optional cell for `None`) or calls the factory.
+                    body.extend(self._initless_field_store(node, field, span))
+                    continue
+                body.append(
+                    _setattr_node(
+                        _name("self", self_type, span),
+                        field["name"],
+                        _name(field["name"], field["type"], span),
+                        span,
+                    )
                 )
-                for field in info["fields"]
-            ]
             post = self._dataclass_post_init(node, info, span)
             if post is not None:
                 body.append(post)

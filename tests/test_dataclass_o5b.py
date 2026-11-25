@@ -173,6 +173,61 @@ def compile_fences(path: Path) -> str:
     return proc.stderr.decode("utf-8", "replace")
 
 
+NO_INIT = """\
+from dataclasses import dataclass, field
+
+
+@dataclass
+class NoInit:
+    x: int
+    y: int = field(default=1, init=False)
+    zs: list[int] = field(default_factory=list, init=False)
+
+
+one = NoInit(5)
+two = NoInit(6)
+one.zs.append(1)
+print(one)
+print(two)
+print(one.zs is two.zs)
+"""
+
+
+@pytest.mark.skipif(not ZIG, reason="zig not on PATH")
+def test_init_false_takes_the_field_out_of_the_constructor(tmp_path: Path) -> None:
+    """`init=False`: no parameter, but the default (or factory) is written."""
+    got = compile_and_run(tmp_path, "noinit.py", NO_INIT)
+    assert got[1] == b""
+    assert got[2] == 0
+    assert [
+        b"NoInit(x=5, y=1, zs=[1])",
+        b"NoInit(x=6, y=1, zs=[])",
+        b"False",
+    ] == got[0].splitlines()
+
+
+NO_INIT_NO_DEFAULT = """\
+from dataclasses import dataclass, field
+
+
+@dataclass
+class NoInit:
+    x: int
+    y: int = field(init=False)
+"""
+
+
+@pytest.mark.skipif(not ZIG, reason="zig not on PATH")
+def test_init_false_without_a_default_fences(tmp_path: Path) -> None:
+    """CPython leaves the field unset; the lowered struct always has the slot."""
+    from tests.test_gates import write_case
+
+    path = write_case(tmp_path, "noinit2.py", NO_INIT_NO_DEFAULT)
+    proc = compile_fences(path)
+    assert "PS2002" in proc
+    assert "field(init=False) needs a default" in proc
+
+
 POST_INIT = """\
 from dataclasses import dataclass
 

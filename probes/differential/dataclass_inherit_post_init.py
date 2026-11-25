@@ -66,6 +66,13 @@ class HookedSuper(Hooked):
         self.w = self.w + 100
 
 
+@dataclass
+class NoInit:
+    x: int
+    y: int = field(default=1, init=False)
+    zs: list[int] = field(default_factory=list, init=False)
+
+
 flags = Flags(1)
 print(flags)
 print(Flags(1, "z", 9, "q"))
@@ -84,3 +91,10 @@ print(Hooked(3))
 print(HookedChild(3))
 print(HookedInherit(3))
 print(HookedSuper(3))
+
+one = NoInit(5)
+two = NoInit(6)
+one.zs.append(1)
+print(one)
+print(two)
+print(one.zs is two.zs)

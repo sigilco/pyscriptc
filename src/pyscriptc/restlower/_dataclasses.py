@@ -16,7 +16,10 @@ follows. `default=None` on an `Optional` field rides the same marker and
 the construction site boxes the None. `repr=<bool>` and `compare=<bool>`
 (issue #452) name whether the field rides the synthesized `__repr__` and
 `__eq__`: the flags ride the marker and the two generated bodies honor
-them. Other keyword names (`kw_only=`, `init=`, `hash=`) keep the fence.
+them. `init=False` (issue #452) takes the field out of the constructor:
+the generated `__init__` writes the field's default (or the factory's
+value) and takes no parameter for it. Other keyword names (`kw_only=`,
+`hash=`) keep the fence.
 
 The handler returns the `factory-default` marker record: it is not an IR
 node, the construction site that omits the argument replays the factory,
@@ -45,6 +48,12 @@ IGNORED_KEYWORDS = frozenset({"metadata"})
 #: field spec and drops the field from the matching body; the lowered
 #: subset does the same.
 FLAG_KEYWORDS = frozenset({"repr", "compare"})
+
+#: The keyword that takes the field out of the constructor (issue #452).
+#: CPython's `init=False` field is not a constructor parameter: the
+#: generated `__init__` writes the field's default (or calls the
+#: factory) instead.
+INIT_KEYWORD = "init"
 
 
 def _flag_value(lo: Any, kw: ast.keyword) -> bool:
@@ -102,6 +111,9 @@ def _dataclass_field(
         if kw.arg in FLAG_KEYWORDS:
             flags[kw.arg] = _flag_value(lo, kw)
             continue
+        if kw.arg == INIT_KEYWORD:
+            flags[INIT_KEYWORD] = _flag_value(lo, kw)
+            continue
         if kw.arg not in {"default_factory", "default"}:
             lo.fail(kw, "PS2002", f"field({kw.arg}=...) is not lowered; use default or default_factory")
     default_kw = next((kw for kw in node.keywords if kw.arg == "default"), None)
@@ -109,7 +121,13 @@ def _dataclass_field(
     if default_kw is not None and factory_kw is not None:
         lo.fail(node, "PS2002", "field takes default or default_factory, not both")
     if factory_kw is None and default_kw is None:
-        lo.fail(node, "PS2002", "field lowers default or default_factory")
+        # `field(init=False)` alone is legal: the class body pass reports
+        # the missing default (the constructor takes no parameter and
+        # CPython leaves the field unset, which the lowered struct cannot
+        # spell). Every other flag-less call needs a value to ride.
+        if flags.get(INIT_KEYWORD) is not False:
+            lo.fail(node, "PS2002", "field lowers default or default_factory")
+        return {"kind": "field-const-default", "default_ast": None, "type": expect or {}, **flags}
     if factory_kw is None:
         # `field(default=...)`: the constant form of the bare assignment
         # default (issue #444). The marker defers to the class body pass,
