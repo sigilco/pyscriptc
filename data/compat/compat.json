@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-24",
-  "commit": "f777a3b3c2cc93b43a50bdcc649e223d133a5a0c",
+  "commit": "3dfbd9b209ddc89f97f68117630a207fff7c2ae5",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-24",
-    "commit": "f777a3b3c2cc93b43a50bdcc649e223d133a5a0c",
+    "commit": "3dfbd9b209ddc89f97f68117630a207fff7c2ae5",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -691,7 +691,7 @@
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "reduce with a lambda, reduce with an initializer, partial, wraps, lru_cache, cmp_to_key, cache, total_ordering"
+        "reduce with a lambda, reduce with an initializer, partial, wraps, lru_cache, cmp_to_key, cache, total_ordering, cached_property getter whose return type has no slot form, a write to the cached name"
       ],
       "fences": [
         "PS2001",
@@ -2830,7 +2830,7 @@
   "history": [
     {
       "date": "2026-11-24",
-      "commit": "f777a3b3c2cc93b43a50bdcc649e223d133a5a0c",
+      "commit": "3dfbd9b209ddc89f97f68117630a207fff7c2ae5",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
