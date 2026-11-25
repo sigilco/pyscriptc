@@ -853,23 +853,15 @@ ROWS: list[dict[str, Any]] = [
         "the value/name reads, the enum methods and properties and the StrEnum and flag bases are byte-identical",
     ),
     _row(
-        "D102",
-        "a write to a cached property name is a compile fence (issue #440): CPython stores the value into "
-        "the instance __dict__ and the name then answers the stored value without ever running the getter, "
-        "where the lowered program keeps the cached value in the struct slot and has no instance dictionary "
-        "to write; the class-level read C.y returns the descriptor there and fences here, the same rule "
-        "every method name follows",
-        "d102_cached_property_write.py",
-        docs=f"{DOC}#102",
-    ),
-    _row(
-        "D103",
-        "a unicodedata argument that is not a one-character string raises ValueError where CPython raises "
-        "TypeError naming the length (issue #476): the ABI carries the buffer length, so the one-character "
-        "check is the runtime's own raise; the value paths answer over the whole code-point range from the "
-        "generated Unicode 16.0.0 tables, so the range the old Latin-1 table could not answer is identical",
-        "d103_unicodedata_codepoints.py",
-        docs=f"{DOC}#103",
+        "D105",
+        "property setters (issue #439, D4a): c.a = v dispatches to the @<name>.setter, but the "
+        "class-level surface stays fenced — C.a reads the property object in CPython and C.a = v "
+        "writes the class attribute; the compiled subset has neither and fences with a named "
+        "PS2002 per direction",
+        "d105_property_class_access.py",
+        docs=f"{DOC}#105",
+        note="the instance write lane is byte-identical (probes/differential/property_setters.py); "
+        "the class-level read and write fences are the rest of the entry",
     ),
     _row(
         "D104",

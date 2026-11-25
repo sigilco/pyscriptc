@@ -9,4 +9,4 @@ class Box:
         return self._n
 
 
-print(Box.n)
+print(type(Box.n).__name__)
