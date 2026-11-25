@@ -390,9 +390,6 @@ class ExprsMixin(EmitterBase):
         node: Any = dict_to_node(expr)
         self.needed.add("map")
         typ: dict[str, Any] = _type_dict_of(node)
-        # The key and value types come off the typed `T` record: the tag
-        # dispatch reads the record's kind, not the dict's key (#829).
-        typ_t: Any = dict_to_type(typ)
         key_t: dict[str, Any] = typ["key"]
         val_t: dict[str, Any] = typ["value"]
         key_kind = self._map_key_kind(key_t)
