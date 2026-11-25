@@ -316,6 +316,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             return
         info = copy.deepcopy(item["info"])
         info["imported"] = True
+        # The export table carries the MRO list and the primary-base spine
+        # (issue #732): a consumer that subclasses this class resolves an
+        # inherited method's owner through them. The table stores the spine
+        # as a list (the export rows are plain data), so it becomes a set
+        # here, the shape the class records carry.
+        if "chain" in info and isinstance(info["chain"], list):
+            info["chain"] = set(info["chain"])
         self.classes[name] = info
         self.class_aliases[local] = name
         self.known_classes.add(local)
@@ -795,18 +802,31 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         owners: dict[str, str] = {}
         # MRO order, first definer wins: a method resolves to the earliest
         # ancestor that defined it, which is the C3 answer for diamonds too.
+        #
+        # A cross-module base (issue #732) brings its inherited methods
+        # through the export table, and the export records the definer, not
+        # the class the consumer imported: `Mid`'s export says `get_x` is
+        # owned by `Base`, two modules up. The ancestor's own MRO names that
+        # definer, so the method is inherited with its real owner and the
+        # emitted symbol stays `cls.{Base}.{method}`, the one the defining
+        # module emits. Without the ancestor's MRO the method is dropped and
+        # the call site has no body to call.
         for ancestor in mro[1:]:
             ancestor_info = self.classes.get(ancestor)
             if ancestor_info is None:
                 continue
+            ancestor_mro = ancestor_info.get("mro", [ancestor])
             for mname, sig in ancestor_info["methods"].items():
-                if ancestor_info["method_owner"].get(mname) != ancestor or mname in method_sigs:
+                owner = ancestor_info["method_owner"].get(mname)
+                if mname in method_sigs:
+                    continue
+                if owner != ancestor and owner not in ancestor_mro:
                     continue
                 if sig[0] and sig[0][0]["name"] == "self":
                     sig = ([_self_param(node.name), *sig[0][1:]], sig[1])
                 method_sigs[mname] = sig
                 kinds[mname] = ancestor_info["method_kind"].get(mname, "method")
-                owners[mname] = ancestor
+                owners[mname] = owner if owner is not None else ancestor
         wrote_init = False
         # A field fence leaves the field set unknown; a method signature fence
         # only drops that one method. Count each kind so the catalog pass can
