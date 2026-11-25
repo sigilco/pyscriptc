@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-25",
-  "commit": "5d71387dfd87526a0bb0856e26234d2322392034",
+  "commit": "89ac9d3add2f7b0aca45b79b71ab17333a94d66d",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-25",
-    "commit": "5d71387dfd87526a0bb0856e26234d2322392034",
+    "commit": "89ac9d3add2f7b0aca45b79b71ab17333a94d66d",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3832
+    "fences": 3824
   },
   "builtins": [
     {
@@ -2143,14 +2143,14 @@
       "island": "runs",
       "plane": {
         "definitions": 558,
-        "native": 272,
+        "native": 274,
         "island": 0,
-        "blocked": 286
+        "blocked": 284
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 635,
+      "fences": 633,
       "definitions": 558,
-      "fenced_definitions": 273,
+      "fenced_definitions": 271,
       "top_families": [
         {
           "family": "name-resolution",
@@ -2168,7 +2168,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 251
+          "count": 252
         },
         {
           "code": "PS2001",
@@ -2235,14 +2235,14 @@
       "island": "runs",
       "plane": {
         "definitions": 388,
-        "native": 246,
+        "native": 248,
         "island": 0,
-        "blocked": 142
+        "blocked": 140
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 245,
+      "fences": 243,
       "definitions": 388,
-      "fenced_definitions": 134,
+      "fenced_definitions": 132,
       "top_families": [
         {
           "family": "construct-other",
@@ -2254,7 +2254,7 @@
         },
         {
           "family": "optional-types",
-          "count": 33
+          "count": 34
         }
       ],
       "codes": [
@@ -2264,7 +2264,7 @@
         },
         {
           "code": "PS1102",
-          "count": 33
+          "count": 34
         },
         {
           "code": "PS2001",
@@ -2469,14 +2469,14 @@
       "island": "unmeasured",
       "plane": {
         "definitions": 617,
-        "native": 378,
+        "native": 382,
         "island": 2,
-        "blocked": 237
+        "blocked": 233
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 582,
+      "fences": 578,
       "definitions": 617,
-      "fenced_definitions": 222,
+      "fenced_definitions": 218,
       "top_families": [
         {
           "family": "name-resolution",
@@ -2484,11 +2484,11 @@
         },
         {
           "family": "unlowered-type-name",
-          "count": 74
+          "count": 75
         },
         {
           "family": "construct-other",
-          "count": 56
+          "count": 57
         }
       ],
       "codes": [
@@ -2498,7 +2498,7 @@
         },
         {
           "code": "PS1106",
-          "count": 74
+          "count": 75
         },
         {
           "code": "PS2001",
@@ -2721,7 +2721,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1978,
+      "count": 1979,
       "packages": 19
     },
     {
@@ -2739,7 +2739,7 @@
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 351,
+      "count": 352,
       "packages": 12
     },
     {
@@ -2763,7 +2763,7 @@
     {
       "code": "PS1102",
       "title": "Optional annotation",
-      "count": 58,
+      "count": 59,
       "packages": 8
     },
     {
@@ -2781,8 +2781,8 @@
     {
       "code": "PS1201",
       "title": "decorator",
-      "count": 38,
-      "packages": 5
+      "count": 27,
+      "packages": 3
     },
     {
       "code": "PS1203",
@@ -2839,12 +2839,12 @@
     },
     {
       "date": "2026-11-25",
-      "commit": "5d71387dfd87526a0bb0856e26234d2322392034",
+      "commit": "89ac9d3add2f7b0aca45b79b71ab17333a94d66d",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3832
+      "fences": 3824
     }
   ]
 }

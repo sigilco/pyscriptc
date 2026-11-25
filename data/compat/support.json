@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-25",
-  "commit": "5d71387dfd87526a0bb0856e26234d2322392034",
+  "commit": "89ac9d3add2f7b0aca45b79b71ab17333a94d66d",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1023,7 +1023,7 @@
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "273/558",
+      "ratio": "271/558",
       "blocking": "name-resolution (98), unlowered-type-name (94), field-lookup (76)",
       "codes": "PS2002, PS2001, PS1106"
     },
@@ -1039,8 +1039,8 @@
       "name": "platformdirs",
       "version": "4.13.0",
       "status": "\ud83d\udfe1",
-      "ratio": "134/388",
-      "blocking": "construct-other (64), name-resolution (63), optional-types (33)",
+      "ratio": "132/388",
+      "blocking": "construct-other (64), name-resolution (63), optional-types (34)",
       "codes": "PS2002, PS1102, PS2001"
     },
     {
@@ -1087,8 +1087,8 @@
       "name": "urllib3",
       "version": "2.8.0",
       "status": "\ud83d\udfe1",
-      "ratio": "222/617",
-      "blocking": "name-resolution (97), unlowered-type-name (74), construct-other (56)",
+      "ratio": "218/617",
+      "blocking": "name-resolution (97), unlowered-type-name (75), construct-other (57)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
