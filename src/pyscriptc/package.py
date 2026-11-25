@@ -2264,8 +2264,8 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     exported["mro"] = mro
     chain: list[str] = []
     if "chain" in info:
-        raw_chain: list[str] = sorted(info["chain"])
-        for cname in raw_chain:
+        raw_chain: list[str] = info["chain"]
+        for cname in sorted(raw_chain):
             chain.append(cname)
     exported["chain"] = chain
     exported["imported"] = True
