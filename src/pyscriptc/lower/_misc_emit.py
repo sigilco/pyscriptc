@@ -198,6 +198,16 @@ class MiscEmitMixin:
         elif kind == "dict":
             self._expect(target, index["type"], container["type"]["key"], "dict key")
             value = self._expr(stmt.value, container["type"]["value"])
+        elif kind == "class" and not container["type"].get("island"):
+            # The container resolution (decision 2026-11-23, O3b): a class
+            # operand with a `__setitem__` definer takes the index and the
+            # value; the value type is the definer's second parameter.
+            value_t = self._setitem_value_type(container["type"], "__setitem__")
+            if value_t is not None:
+                value = self._expr(stmt.value, value_t)
+                called = self._setitem_dispatch(stmt, container, index, value, span)
+                if called is not None:
+                    return _expr_node(called, span)
         elif kind == "class" and container["type"].get("name") == "EmailMessage":
             # `msg[name] = value`: the header store (issue #1268). The name
             # and the value are both str; the runtime owns the header list.

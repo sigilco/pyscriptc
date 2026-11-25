@@ -56,6 +56,7 @@ from pyscriptc.lower._expr import ExprMixin
 from pyscriptc.lower._infer import TypeInferMixin
 from pyscriptc.lower._misc_emit import MiscEmitMixin
 from pyscriptc.lower._module_driver import ModuleDriverMixin
+from pyscriptc.lower._protocols import ProtocolsMixin
 from pyscriptc.lower._stdlib import StdlibDispatchMixin
 from pyscriptc.lower._stmt import (
     StmtMixin,
@@ -267,6 +268,7 @@ def _erase_bare_final(tree: ast.Module) -> None:
 class Lowerer(
     CoroMixin,
     StdlibDispatchMixin,
+    ProtocolsMixin,
     ExprMixin,
     StmtMixin,
     CallsMixin,

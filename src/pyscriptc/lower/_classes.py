@@ -44,6 +44,7 @@ from pyscriptc.lower._core import (
 )
 from pyscriptc.lower._expr_compare import _assign_node, _compare_node, _if_node, _unary_node
 from pyscriptc.lower._ndarray import _dtype_of as _nd_dtype_of
+from pyscriptc.lower._protocols import _exit_returns_bool
 from pyscriptc.lower._stmt import _always_returns, _is_docstring
 from pyscriptc.reflection import annotation_note, metaclass_note
 from pyscriptc.reprspec import type_spec
@@ -1221,10 +1222,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             "__bool__": "bool",
             "__hash__": "int",
             "__format__": "str",
-            "__exit__": "bool",
         }.get(name)
         if want is not None and _type_kind(ret) != want:
             self.fail(node, "PS1003", f"{class_name}.{name} returns {_show(ret)}, not {want}")
+        if name == "__exit__" and not _exit_returns_bool(ret):
+            self.fail(node, "PS1003", f"{class_name}.__exit__ returns {_show(ret)}, not bool")
         emit = self._emit_owner(class_name, name)
         return _function_call(f"cls.{emit}.{name}", [receiver, *args], ret, span)
 

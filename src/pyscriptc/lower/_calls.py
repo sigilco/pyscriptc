@@ -242,11 +242,18 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 return self._str_of_opt(node, args[0], span)
             if spec is None:
                 if name in {"str", "len"} and len(args) == 1 and _node_type_kind(args[0]) == "class":
-                    called = self._dunder_call(node, args[0], {"str": "__str__", "len": "__len__"}[name], [], span)
-                    if called is None and name == "str":
-                        called = self._dunder_call(node, args[0], "__repr__", [], span)
-                    if called is not None:
-                        return called
+                    if name == "len" and not args[0]["type"].get("island"):
+                        # The len resolution (decision 2026-11-23, O3b): the
+                        # `__len__` definer with the negative-result check.
+                        called = self._len_dispatch(node, args[0], span)
+                        if called is not None:
+                            return called
+                    else:
+                        called = self._dunder_call(node, args[0], {"str": "__str__", "len": "__len__"}[name], [], span)
+                        if called is None and name == "str":
+                            called = self._dunder_call(node, args[0], "__repr__", [], span)
+                        if called is not None:
+                            return called
                 hashable = args and _node_type_kind(args[0]) == "class" and not args[0]["type"].get("island")
                 if name == "hash" and len(args) == 1 and hashable:
                     called = self._hash_dispatch(node, args[0], span)

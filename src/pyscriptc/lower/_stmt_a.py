@@ -479,6 +479,15 @@ class StmtAMixin:
                         span,
                     )
                     return [_expr_wrap(call, span)]
+                if kind == "class" and not local.get("island"):
+                    # The container resolution (decision 2026-11-23, O3b):
+                    # a class operand with a `__delitem__` definer takes
+                    # the index as the one argument.
+                    container = self._expr(target.value)
+                    index = self._expr(target.slice)
+                    call = self._delitem_dispatch(stmt, container, index, span)
+                    if call is not None:
+                        return [_expr_wrap(call, span)]
             self.fail(stmt, "PS2002", "del of a subscript is not lowered")
         if isinstance(target, (ast.Tuple, ast.List)):
             self.fail(stmt, "PS2002", "del of a tuple of names is not lowered")

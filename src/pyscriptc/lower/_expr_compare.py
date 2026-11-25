@@ -480,6 +480,18 @@ class ExprCompareMixin:
             needle_expect = hay["type"]["key"]
         needle = self._expr(node.left, needle_expect)
         hay_kind = hay["type"]["kind"]
+        if hay_kind == "class" and not hay["type"].get("island"):
+            # The container resolution (decision 2026-11-23, O3b): a class
+            # operand with a `__contains__` definer answers the membership
+            # test; without one the family falls through to the iteration
+            # resolver (the element-wise `==` scan).
+            called = self._contains_dispatch(node, needle, hay, span, negated)
+            if called is not None:
+                return called
+            scanned = self._class_iteration_contains(node, needle, hay, span, negated)
+            if scanned is not None:
+                return scanned
+            self.fail(node, "PS2002", f"in on {hay['type'].get('name')} needs __contains__ or __iter__")
         if hay_kind in {"str", "bytes"}:
             if needle["type"]["kind"] != hay_kind:
                 self.fail(node, "PS1003", f"in on {hay_kind} takes {hay_kind}")
