@@ -91,11 +91,13 @@ HEADER = """/* Generated Unicode tables (Unicode {version}, via CPython 3.14's u
 #define PS_UNI_NCOUNT (PS_UNI_VCOUNT * PS_UNI_TCOUNT)
 #define PS_UNI_SCOUNT (PS_UNI_LCOUNT * PS_UNI_NCOUNT)
 
-typedef struct {{ uint32_t lo; uint32_t hi; uint8_t val; }} PsUniRun;
+typedef struct {{ uint32_t lo; uint32_t hi; uint16_t val; }} PsUniRun;
 typedef struct {{ uint32_t cp; int32_t val; }} PsUniNum;
 typedef struct {{ uint32_t cp; int64_t num; int32_t den; }} PsUniVal;
 typedef struct {{ uint32_t cp; uint32_t off; uint32_t len; }} PsUniStr;
-typedef struct {{ uint32_t cp; uint32_t off; uint16_t len; }} PsUniDec;
+typedef struct {{ uint32_t cp; uint32_t off; uint16_t len; uint8_t compat; }} PsUniDec;
+typedef struct {{ uint32_t cp; uint32_t soff; uint16_t slen; uint16_t pidx; }} PsUniName;
+typedef struct {{ uint32_t off; uint16_t len; }} PsUniPrefix;
 typedef struct {{ uint32_t starter; uint32_t comp; uint32_t out; }} PsUniComp;
 """
 
@@ -204,19 +206,46 @@ def build() -> dict[str, object]:
     # generated at run time, not stored. The two CJK ideograph families
     # are algorithmic too: the name is the prefix and the code point in
     # hex.
+    #
+    # The stored names are prefix-compressed: the named code points fall
+    # into contiguous runs, and inside a run the names share a long
+    # common prefix ("LATIN CAPITAL LETTER A" ... "LATIN CAPITAL LETTER
+    # Z"). The pool holds the shared prefix once per run, then the
+    # per-code-point suffix, and the index row carries the prefix
+    # length, so the runtime rebuilds the name as prefix + suffix.
+    named_cps = [
+        cp
+        for cp in range(MAX_CP)
+        if not (SBASE <= cp < SBASE + SCOUNT)
+        and unicodedata.name(chr(cp), None)
+        and not unicodedata.name(chr(cp)).startswith(HEX_NAME_PREFIXES)
+    ]
+    name_runs: list[tuple[int, int]] = []
+    start = named_cps[0]
+    prev = named_cps[0]
+    for cp in named_cps[1:]:
+        if cp != prev + 1:
+            name_runs.append((start, prev))
+            start = cp
+        prev = cp
+    name_runs.append((start, prev))
+
     name_pool = bytearray()
-    names: list[tuple[int, int, int]] = []  # cp, offset, length
-    for cp in range(MAX_CP):
-        if SBASE <= cp < SBASE + SCOUNT:
-            continue  # the Hangul syllable names are algorithmic
-        name = unicodedata.name(chr(cp), None)
-        if not name:
-            continue
-        if name.startswith(HEX_NAME_PREFIXES):
-            continue  # the CJK ideograph names are algorithmic
-        data = name.encode("ascii")
-        names.append((cp, len(name_pool), len(data)))
-        name_pool += data
+    names: list[tuple[int, int, int, int]] = []  # cp, suffix offset, suffix len, prefix index
+    prefixes: list[tuple[int, int]] = []  # prefix offset, prefix length
+    for lo, hi in name_runs:
+        run_names = [unicodedata.name(chr(cp)) for cp in range(lo, hi + 1)]
+        shared = run_names[0]
+        for text in run_names[1:]:
+            while not text.startswith(shared):
+                shared = shared[:-1]
+        prefixes.append((len(name_pool), len(shared)))
+        name_pool += shared.encode("ascii")
+        prefix_index = len(prefixes) - 1
+        for index, text in enumerate(run_names):
+            suffix = text[len(shared) :].encode("ascii")
+            names.append((lo + index, len(name_pool), len(suffix), prefix_index))
+            name_pool += suffix
 
     # The composition pairs: exactly the (starter, combining) pairs where
     # the pair composes under CPython's own NFC (the composition
@@ -240,6 +269,7 @@ def build() -> dict[str, object]:
         "decomp": decomp,
         "decomp_pool": bytes(decomp_pool),
         "names": names,
+        "prefixes": prefixes,
         "name_pool": bytes(name_pool),
         "comp": comp,
         "ccc": ccc,
@@ -278,6 +308,26 @@ def emit_vals(out: list[str], name: str, rows: list[tuple[int, int, int]]) -> No
     out.append("")
 
 
+def emit_names(out: list[str], name: str, rows: list[tuple[int, int, int, int]]) -> None:
+    out.append(f"static const PsUniName {name}[] = {{")
+    for i in range(0, len(rows), 4):
+        chunk = rows[i : i + 4]
+        out.append("    " + ",".join("{0x%06xu,%uu,%uu,%uu}" % r for r in chunk) + ",")
+    out.append("};")
+    out.append(f"#define {name.upper()}_N {len(rows)}")
+    out.append("")
+
+
+def emit_prefixes(out: list[str], name: str, rows: list[tuple[int, int]]) -> None:
+    out.append(f"static const PsUniPrefix {name}[] = {{")
+    for i in range(0, len(rows), 4):
+        chunk = rows[i : i + 4]
+        out.append("    " + ",".join("{%uu,%uu}" % r for r in chunk) + ",")
+    out.append("};")
+    out.append(f"#define {name.upper()}_N {len(rows)}")
+    out.append("")
+
+
 def emit_strs(out: list[str], name: str, rows: list[tuple[int, int, int]]) -> None:
     out.append(f"static const PsUniStr {name}[] = {{")
     for i in range(0, len(rows), 4):
@@ -299,10 +349,31 @@ def emit_decs(out: list[str], name: str, rows: list[tuple[int, int, int, int]]) 
 
 
 def emit_pool(out: list[str], name: str, pool: bytes) -> None:
+    # The pool bytes are ASCII (the Unicode names) or big-endian code
+    # points (the decompositions). A printable ASCII byte other than the
+    # quote and the backslash is emitted literally, which keeps the
+    # generated file readable and a third of the size; the rest goes out
+    # as a hex escape. A hex escape is always terminated by the next
+    # non-hex character, so the emitter breaks the line after every
+    # escape to keep the boundary unambiguous.
     out.append(f"static const char {name}[] =")
-    for i in range(0, len(pool), 16):
-        chunk = pool[i : i + 16]
-        out.append('    "%s"' % "".join("\\x%02x" % b for b in chunk))
+    line: list[str] = []
+    escaped = False
+    for byte in pool:
+        if 0x20 <= byte < 0x7F and byte not in (0x22, 0x5C):
+            # A hex escape followed by a hex digit would extend the
+            # escape (C reads "\x61f" as one character), so a literal
+            # character after an escape closes the string literal and
+            # opens a new one.
+            if escaped:
+                out.append('    "%s"' % "".join(line))
+                line = []
+                escaped = False
+            line.append(chr(byte))
+        else:
+            line.append("\\x%02x" % byte)
+            escaped = True
+    out.append('    "%s"' % "".join(line))
     out.append(";")
     out.append("")
 
@@ -338,7 +409,8 @@ def render() -> str:
     emit_decs(out, "ps_uni_decomp", data["decomp"])  # type: ignore[arg-type]
     emit_pool(out, "ps_uni_decomp_pool", data["decomp_pool"])  # type: ignore[arg-type]
 
-    emit_strs(out, "ps_uni_name", data["names"])  # type: ignore[arg-type]
+    emit_names(out, "ps_uni_name", data["names"])  # type: ignore[arg-type]
+    emit_prefixes(out, "ps_uni_name_prefix", data["prefixes"])  # type: ignore[arg-type]
     emit_pool(out, "ps_uni_name_pool", data["name_pool"])  # type: ignore[arg-type]
 
     out.append("static const PsUniComp ps_uni_comp[] = {")
@@ -385,12 +457,16 @@ def selftest(data: dict[str, object]) -> None:
         assert got == want, (hex(cp), got, want)
         assert compat == want_compat, (hex(cp), compat, want_compat)
 
-    # The names must reproduce the exact strings.
+    # The names must reproduce the exact strings: the prefix at the
+    # prefix offset plus the suffix at the prefix offset plus the prefix
+    # length, which is where the runtime reads them from.
     name_pool = data["name_pool"]  # type: ignore[assignment]
-    for cp, off, length in data["names"]:  # type: ignore[union-attr]
+    for cp, soff, slen, pidx in data["names"]:  # type: ignore[union-attr]
         want = unicodedata.name(chr(cp))
-        got = name_pool[off : off + length].decode("ascii")
-        assert got == want, (hex(cp), got, want)
+        poff, plen = data["prefixes"][pidx]  # type: ignore[index]
+        prefix = name_pool[poff : poff + plen].decode("ascii")
+        suffix = name_pool[soff : soff + slen].decode("ascii")
+        assert prefix + suffix == want, (hex(cp), prefix + suffix, want)
 
     # The numeric records must reproduce the exact values.
     for cp, num, den in data["numeric"]:  # type: ignore[union-attr]
