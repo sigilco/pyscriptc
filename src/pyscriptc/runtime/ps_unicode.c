@@ -146,6 +146,31 @@ static uint32_t ps_uni_one(int64_t n, const char *s, const char *what) {
     return cp;
 }
 
+/* The UTF-8 encoding of one code point into a four byte buffer: the
+   number of bytes written. */
+static int ps_uni_encode(uint32_t cp, char *buf) {
+    if (cp < 0x80) {
+        buf[0] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800) {
+        buf[0] = (char)(0xC0 | (cp >> 6));
+        buf[1] = (char)(0x80 | (cp & 0x3Fu));
+        return 2;
+    }
+    if (cp < 0x10000) {
+        buf[0] = (char)(0xE0 | (cp >> 12));
+        buf[1] = (char)(0x80 | ((cp >> 6) & 0x3Fu));
+        buf[2] = (char)(0x80 | (cp & 0x3Fu));
+        return 3;
+    }
+    buf[0] = (char)(0xF0 | (cp >> 18));
+    buf[1] = (char)(0x80 | ((cp >> 12) & 0x3Fu));
+    buf[2] = (char)(0x80 | ((cp >> 6) & 0x3Fu));
+    buf[3] = (char)(0x80 | (cp & 0x3Fu));
+    return 4;
+}
+
 /* The UTF-8 encoding of one code point, appended to the grow buffer. */
 static void ps_uni_put(PsGrow *grow, uint32_t cp) {
     if (cp < 0x80) {
@@ -338,7 +363,7 @@ void ps_unicode_name(int64_t n, const char *s, int64_t has_default, int64_t dn, 
    construction, and the formal aliases come from the alias table. */
 void ps_unicode_lookup(int64_t n, const char *s, PsBuf *out) {
     /* The algorithmic names first: the Hangul syllables. */
-    if (n > 15 && memcmp(s, "HANGUL SYLLABLE ", 15) == 0) {
+    if (n > 16 && memcmp(s, "HANGUL SYLLABLE ", 16) == 0) {
         static const char *const lparts[] = {"G", "GG", "N", "D", "DD", "R", "M", "B", "BB", "S",
                                              "SS", "", "J", "JJ", "C", "K", "T", "P", "H"};
         static const char *const vparts[] = {"A", "AE", "YA", "YAE", "EO", "E", "YEO", "YE", "O", "WA",
@@ -346,8 +371,8 @@ void ps_unicode_lookup(int64_t n, const char *s, PsBuf *out) {
         static const char *const tparts[] = {"", "G", "GG", "GS", "N", "NJ", "NH", "D", "L", "LG", "LM",
                                              "LB", "LS", "LT", "LP", "LH", "M", "B", "BS", "S", "SS",
                                              "NG", "J", "C", "K", "T", "P", "H"};
-        const char *body = s + 15;
-        int64_t blen = n - 15;
+        const char *body = s + 16;
+        int64_t blen = n - 16;
         for (uint32_t l = 0; l < PS_UNI_LCOUNT; l++) {
             size_t ll = strlen(lparts[l]);
             if ((int64_t)ll > blen || memcmp(body, lparts[l], ll) != 0) {
@@ -364,22 +389,8 @@ void ps_unicode_lookup(int64_t n, const char *s, PsBuf *out) {
                         continue;
                     }
                     uint32_t cp = PS_UNI_SBASE + (l * PS_UNI_VCOUNT + v) * PS_UNI_TCOUNT + t;
-                    ps_buf_copy(out, (const char *)&cp, 0); /* replaced below */
                     char one[4];
-                    int width;
-                    if (cp < 0x80) {
-                        one[0] = (char)cp;
-                        width = 1;
-                    } else if (cp < 0x800) {
-                        one[0] = (char)(0xC0 | (cp >> 6));
-                        one[1] = (char)(0x80 | (cp & 0x3F));
-                        width = 2;
-                    } else {
-                        one[0] = (char)(0xE0 | (cp >> 12));
-                        one[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
-                        one[2] = (char)(0x80 | (cp & 0x3F));
-                        width = 3;
-                    }
+                    int width = ps_uni_encode(cp, one);
                     ps_buf_copy(out, one, width);
                     return;
                 }
@@ -387,57 +398,39 @@ void ps_unicode_lookup(int64_t n, const char *s, PsBuf *out) {
         }
     }
     /* The two CJK ideograph families: the name is the prefix and the
-       code point in hex. */
-    static const struct {
-        const char *prefix;
-        int64_t plen;
-        uint32_t lo1;
-        uint32_t hi1;
-        uint32_t lo2;
-        uint32_t hi2;
-    } cjk[] = {
-        {"CJK UNIFIED IDEOGRAPH-", 23, 0x3400, 0x4DBF, 0x4E00, 0x9FFF},
-        {"CJK COMPATIBILITY IDEOGRAPH-", 28, 0xF900, 0xFA6D, 0xFA70, 0xFAD9},
-    };
-    for (int k = 0; k < 2; k++) {
-        if (n > cjk[k].plen && memcmp(s, cjk[k].prefix, (size_t)cjk[k].plen) == 0) {
-            const char *hexpart = s + cjk[k].plen;
-            int64_t hlen = n - cjk[k].plen;
-            if (hlen != 4 && hlen != 5) {
+       code point in hex. The ranges come from the generated table. */
+    for (int64_t k = 0; k < PS_UNI_CJK_N; k++) {
+        const PsUniCjk *range = &ps_uni_cjk[k];
+        const char *prefix = ps_uni_cjk_prefixes[range->family];
+        int64_t plen = (int64_t)strlen(prefix);
+        if (n <= plen || memcmp(s, prefix, (size_t)plen) != 0) {
+            continue;
+        }
+        const char *hexpart = s + plen;
+        int64_t hlen = n - plen;
+        if (hlen != 4 && hlen != 5) {
+            continue;
+        }
+        uint32_t cp = 0;
+        int ok = 1;
+        for (int64_t i = 0; i < hlen; i++) {
+            char c = hexpart[i];
+            uint32_t digit;
+            if (c >= '0' && c <= '9') {
+                digit = (uint32_t)(c - '0');
+            } else if (c >= 'A' && c <= 'F') {
+                digit = (uint32_t)(c - 'A' + 10);
+            } else {
+                ok = 0;
                 break;
             }
-            uint32_t cp = 0;
-            int ok = 1;
-            for (int64_t i = 0; i < hlen; i++) {
-                char c = hexpart[i];
-                uint32_t digit;
-                if (c >= '0' && c <= '9') {
-                    digit = (uint32_t)(c - '0');
-                } else if (c >= 'A' && c <= 'F') {
-                    digit = (uint32_t)(c - 'A' + 10);
-                } else {
-                    ok = 0;
-                    break;
-                }
-                cp = cp * 16 + digit;
-            }
-            if (ok && ((cp >= cjk[k].lo1 && cp <= cjk[k].hi1) || (cp >= cjk[k].lo2 && cp <= cjk[k].hi2))) {
-                char one[4];
-                int width;
-                if (cp < 0x800) {
-                    one[0] = (char)(0xC0 | (cp >> 6));
-                    one[1] = (char)(0x80 | (cp & 0x3F));
-                    width = 2;
-                } else {
-                    one[0] = (char)(0xE0 | (cp >> 12));
-                    one[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
-                    one[2] = (char)(0x80 | (cp & 0x3F));
-                    width = 3;
-                }
-                ps_buf_copy(out, one, width);
-                return;
-            }
-            break;
+            cp = cp * 16 + digit;
+        }
+        if (ok && cp >= range->lo && cp <= range->hi) {
+            char one[4];
+            int width = ps_uni_encode(cp, one);
+            ps_buf_copy(out, one, width);
+            return;
         }
     }
     /* The stored names: the longest prefix match wins, so the walk goes
@@ -461,21 +454,7 @@ void ps_unicode_lookup(int64_t n, const char *s, PsBuf *out) {
             }
             if (memcmp(s + prefix->len, ps_uni_name_pool + row->soff, row->slen) == 0) {
                 char one[4];
-                int width;
-                uint32_t cp = row->cp;
-                if (cp < 0x80) {
-                    one[0] = (char)cp;
-                    width = 1;
-                } else if (cp < 0x800) {
-                    one[0] = (char)(0xC0 | (cp >> 6));
-                    one[1] = (char)(0x80 | (cp & 0x3F));
-                    width = 2;
-                } else {
-                    one[0] = (char)(0xE0 | (cp >> 12));
-                    one[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
-                    one[2] = (char)(0x80 | (cp & 0x3F));
-                    width = 3;
-                }
+                int width = ps_uni_encode(row->cp, one);
                 ps_buf_copy(out, one, width);
                 return;
             }
@@ -489,21 +468,7 @@ void ps_unicode_lookup(int64_t n, const char *s, PsBuf *out) {
         }
         if (memcmp(s, ps_uni_alias_pool + row->off, row->len) == 0) {
             char one[4];
-            int width;
-            uint32_t cp = row->cp;
-            if (cp < 0x80) {
-                one[0] = (char)cp;
-                width = 1;
-            } else if (cp < 0x800) {
-                one[0] = (char)(0xC0 | (cp >> 6));
-                one[1] = (char)(0x80 | (cp & 0x3F));
-                width = 2;
-            } else {
-                one[0] = (char)(0xE0 | (cp >> 12));
-                one[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
-                one[2] = (char)(0x80 | (cp & 0x3F));
-                width = 3;
-            }
+            int width = ps_uni_encode(row->cp, one);
             ps_buf_copy(out, one, width);
             return;
         }
