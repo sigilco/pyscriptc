@@ -306,8 +306,17 @@ _ERASED_DECORATORS = frozenset({"abstractmethod", "overload"})
 # constant (`_getattr_hook_call`). Every other hook here still fences at its
 # definition, and a hook whose signature fences never becomes dispatchable
 # (the refusal stays a refusal).
+#
+# D3 (issue #436): `__setattr__` is out of this table for one shape only, a
+# plain `def __setattr__(self, name: str, value: T) -> None` method: unknown-
+# name WRITE sites then lower as a direct hook call with the name as a
+# compile-time string constant and the value boxed into a tagged dynamic
+# value (`_setattr_hook_call`), CPython's object.__setattr__ spelling the
+# hook body uses to store. A `@dataclass` class keeps refusing the hook
+# (PS2002): the generated `__init__` writes straight to the fields, where
+# CPython routes every write through the hook, so the two would silently
+# diverge.
 _REFUSED_HOOKS: dict[str, str] = {
-    "__setattr__": "PS4201",
     "__getattribute__": "PS4201",
     "__get__": "PS4201",
     "__set__": "PS4201",
@@ -841,6 +850,30 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     if code is not None:
                         self.fail(stmt, code, f"the {stmt.name} hook is refused by design")
                     kind = self._method_decorator(stmt)  # type: ignore[arg-type]
+                    if stmt.name == "__setattr__":
+                        # D3 (issue #436): the hook lowers for one shape only,
+                        # a plain instance method `def __setattr__(self,
+                        # name: str, value: T) -> None`. A decorated spelling
+                        # keeps the D1 refusal (PS4201): the signature never
+                        # becomes dispatchable, so the write site keeps its
+                        # ordinary fence and the refusal is not quietly
+                        # lifted for a shape this lowering cannot call. The
+                        # parameter and return shape is checked against the
+                        # lowered signature in the method pass below. A
+                        # `@dataclass` class refuses the hook outright
+                        # (PS2002): the generated `__init__` writes straight
+                        # to the fields, where CPython routes every write
+                        # through the hook, so the two would silently
+                        # diverge.
+                        if deco == "dataclass":
+                            self.fail(
+                                stmt,
+                                "PS2002",
+                                "a dataclass does not take a written __setattr__: the generated "
+                                "__init__ writes straight to the fields, bypassing the hook",
+                            )
+                        if kind != "method":
+                            self.fail(stmt, "PS4201", f"the {stmt.name} hook is refused by design")
                     if stmt.name == "__init__" and kind != "method":
                         self.fail(stmt, "PS1201", "decorators are not lowered")
                     if kind == "cached_property":
@@ -949,6 +982,24 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 method_sigs[method.name] = self._coro_method_signature(method, node.name) or self._signature(
                     method, node.name, kind
                 )
+                if method.name == "__setattr__":
+                    # D3 (issue #436): the lowered signature decides whether
+                    # the hook is dispatchable. Exactly `(self, name: str,
+                    # value: T)` with a `None` return lowers; anything else
+                    # (an unannotated or non-str name, extra parameters, a
+                    # non-None return) keeps the D1 refusal (PS4201), the
+                    # same rule the `__getattr__` lift follows: a hook whose
+                    # signature does not fit never becomes dispatchable, so
+                    # the refusal stays a refusal.
+                    params, ret = method_sigs[method.name]
+                    if (
+                        len(params) != 3
+                        or params[0]["name"] != "self"
+                        or params[2]["name"] != "value"
+                        or _maybe_type_kind(params[1].get("type", {})) != "str"
+                        or _maybe_type_kind(ret) != "none"
+                    ):
+                        self.fail(method, "PS4201", f"the {method.name} hook is refused by design")
                 kinds[method.name] = kind
                 owners[method.name] = node.name
                 if method.name == "__init__":
@@ -1762,6 +1813,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self.island_class_handles = {}
         # boxed:end
         self.fn_globals = self._globals_for(stmt.body)
+        # D3 (issue #436): a write to `self.<field>` inside the hook stores
+        # straight to the field, bypassing the hook, so the hook body does
+        # not re-enter itself.
+        saved_in_setattr_hook = self.in_setattr_hook
+        self.in_setattr_hook = stmt.name == "__setattr__"
         if sig is None:
             params, ret = info["methods"][stmt.name]
             kind = info["method_kind"].get(stmt.name, "method")
@@ -1808,6 +1864,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             self.declared = saved_declared
             self.typevars = saved_typevars
             self.typevar_bounds = saved_bounds
+            self.in_setattr_hook = saved_in_setattr_hook
         if self.caught:
             return None
         if stmt.name == "__init__":
@@ -3192,6 +3249,61 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         return _function_call(
             f"cls.{owner}.__getattr__",
             [obj, _const_str_node(name, span)],
+            copy.deepcopy(ret),
+            span,
+        )
+
+    def _setattr_hook(self, class_name: str) -> tuple[str, dict[str, Any]] | None:
+        """The first `__setattr__` definer in the MRO, as (owner, signature).
+
+        None means no lowered class in the MRO defines the hook, or the
+        definition is not the one supported shape: a plain instance method
+        taking exactly `self`, one `str` and one value. A `@property`,
+        `@staticmethod` or `@classmethod` spelling, a generator body and a
+        wrong parameter list stay refused: the signature never becomes
+        dispatchable, so the write site keeps its ordinary fence and D1's
+        refusal is not quietly lifted for shapes this lowering cannot call
+        (issue #436). A definition whose signature fenced never lands in
+        `method_owner` either, so a partial refusal still refuses.
+        """
+        info = self.classes.get(class_name)
+        if info is None:
+            return None
+        for ancestor in info.get("mro", [class_name]):
+            ancestor_info = self.classes.get(ancestor)
+            if ancestor_info is None:
+                continue
+            if ancestor_info.get("method_owner", {}).get("__setattr__") != ancestor:
+                continue
+            if ancestor_info.get("method_kind", {}).get("__setattr__", "method") != "method":
+                return None
+            params, ret = ancestor_info["methods"]["__setattr__"]
+            if len(params) != 3 or _maybe_type_kind(params[1].get("type", {})) != "str":
+                return None
+            if _maybe_type_kind(ret) != "none":
+                return None
+            return ancestor, ancestor_info["methods"]["__setattr__"]
+        return None
+
+    def _setattr_hook_call(
+        self,
+        hook: tuple[str, Any],
+        obj: dict[str, Any],
+        name: str,
+        value: dict[str, Any],
+        span: dict[str, Any],
+        node: ast.AST,
+    ) -> dict[str, Any]:
+        """An unknown-name WRITE on a class with `__setattr__`: a direct call.
+
+        The name rides as a compile-time string constant, so the hook is a
+        plain three-argument call and the class layout never grows a name
+        cell.
+        """
+        owner, (params, ret) = hook
+        return _function_call(
+            f"cls.{owner}.__setattr__",
+            [obj, _const_str_node(name, span), value],
             copy.deepcopy(ret),
             span,
         )

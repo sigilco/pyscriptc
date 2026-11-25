@@ -308,6 +308,11 @@ class Lowerer(
             except Exception:
                 pass
         self.function: str | None = None
+        # D3 (issue #436): set while a `__setattr__` body lowers, so a write
+        # to `self.<field>` inside the hook stores straight to the field
+        # instead of re-entering the hook (the issue's "writes inside the
+        # hook bypass it" contract).
+        self.in_setattr_hook: bool = False
         self.sigs: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
         self.locals: dict[str, dict[str, Any]] = {}
         self.bindings: dict[str, Binding] = {}

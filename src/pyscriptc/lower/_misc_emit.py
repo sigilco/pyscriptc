@@ -319,6 +319,25 @@ class MiscEmitMixin:
             self._expect(report, value["type"], want, target.attr)
             emit = self._setter_emit_owner(class_name, target.attr)
             return _expr_node(_function_call(f"cls.{emit}.{target.attr}.__set__", [obj, value], ret, span), span)
+        hook = self._setattr_hook(class_name)
+        if hook is not None and not (self.in_setattr_hook and isinstance(target.value, ast.Name) and target.value.id == "self"):
+            # D3 (issue #436): every write on a class whose MRO defines the
+            # `__setattr__` hook dispatches to it, the way CPython routes
+            # `c.a = v` through the hook before any descriptor or class
+            # dictionary lookup. The hook's own value parameter type is the
+            # write's type, and the value is checked against it; a write to
+            # a known field and an unknown name ride the same hook. A write
+            # to `self.<field>` inside the hook body bypasses the hook (the
+            # issue's contract), so the hook body can store without
+            # re-entering itself.
+            owner, (hook_params, hook_ret) = hook
+            want = hook_params[2]["type"]
+            value = self._expr(value_node, want)
+            self._expect(report, value["type"], want, target.attr)
+            return _expr_node(
+                self._setattr_hook_call(hook, obj, target.attr, value, span, report),
+                span,
+            )
         field = next((item for item in info["fields"] if item["name"] == target.attr), None)
         if field is None:
             if info.get("method_kind", {}).get(target.attr) == "cached_property":
