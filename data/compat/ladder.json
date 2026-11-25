@@ -31,8 +31,8 @@
     "lanes": [
       {
         "lane": "native",
-        "imports": 411,
-        "share": 0.8562
+        "imports": 382,
+        "share": 0.7958
       },
       {
         "lane": "pack",
@@ -41,13 +41,13 @@
       },
       {
         "lane": "extern",
-        "imports": 65,
-        "share": 0.1354
+        "imports": 0,
+        "share": 0.0
       },
       {
         "lane": "island",
-        "imports": 0,
-        "share": 0.0
+        "imports": 94,
+        "share": 0.1958
       },
       {
         "lane": "absent",

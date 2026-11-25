@@ -1,5 +1,5 @@
 {
-  "generated": "2026-11-17",
+  "generated": "2026-11-25",
   "command": "uv run python -m benchmarks.compat2.census --json data/benchmarks/census-snapshot.json",
   "src": "benchmarks/compat/top100/src",
   "packages": [
@@ -14,30 +14,30 @@
     },
     {
       "package": "charset_normalizer",
-      "fences": 364,
+      "fences": 195,
       "definitions": 148,
-      "nativeDefinitions": 88,
-      "fencedDefinitions": 60,
+      "nativeDefinitions": 96,
+      "fencedDefinitions": 52,
       "rootFamilies": {
-        "field-lookup": 139,
-        "construct-other": 49,
-        "name-resolution": 39,
-        "local-inference": 20,
-        "unlowered-call": 17,
-        "class-body": 11,
+        "name-resolution": 42,
+        "construct-other": 27,
+        "type-mismatch": 20,
+        "class-body": 12,
         "generic-alias": 11,
         "unlowered-type-name": 11,
-        "type-mismatch": 9,
+        "local-inference": 10,
+        "field-lookup": 7,
         "decorators": 6,
-        "import-table": 5,
         "call-arity": 3,
         "module-assign": 3,
-        "operator": 3,
         "annotation-other": 2,
+        "operator": 2,
         "stdlib:logging": 2,
         "typing-value": 2,
+        "unlowered-call": 2,
         "dynamic-annotation": 1,
         "keyword-args": 1,
+        "module-value": 1,
         "reflection": 1,
         "stdlib:os": 1
       },
@@ -67,18 +67,17 @@
     },
     {
       "package": "dotenv",
-      "fences": 128,
+      "fences": 124,
       "definitions": 75,
-      "nativeDefinitions": 30,
-      "fencedDefinitions": 45,
+      "nativeDefinitions": 31,
+      "fencedDefinitions": 44,
       "rootFamilies": {
-        "unlowered-call": 25,
         "construct-other": 24,
         "name-resolution": 24,
+        "unlowered-call": 24,
         "unlowered-type-name": 16,
         "local-inference": 5,
         "generic-alias": 4,
-        "import-table": 3,
         "stdlib:os": 3,
         "field-lookup": 2,
         "return-inference": 2,
@@ -97,24 +96,23 @@
     },
     {
       "package": "filelock",
-      "fences": 741,
+      "fences": 694,
       "definitions": 641,
-      "nativeDefinitions": 392,
-      "fencedDefinitions": 249,
+      "nativeDefinitions": 397,
+      "fencedDefinitions": 244,
       "rootFamilies": {
-        "name-resolution": 183,
-        "construct-other": 121,
-        "field-lookup": 64,
-        "generic-alias": 53,
-        "unlowered-type-name": 38,
-        "local-inference": 32,
-        "call-arity": 31,
+        "name-resolution": 189,
+        "construct-other": 110,
+        "field-lookup": 60,
+        "generic-alias": 40,
+        "unlowered-type-name": 36,
+        "local-inference": 35,
         "unlowered-call": 25,
-        "type-mismatch": 24,
-        "typing-value": 13,
-        "import-table": 12,
-        "keyword-args": 11,
-        "stdlib:os": 10,
+        "call-arity": 21,
+        "type-mismatch": 16,
+        "stdlib:os": 14,
+        "keyword-args": 12,
+        "typing-value": 12,
         "generators": 5,
         "operator": 4,
         "reflection": 4,
@@ -139,10 +137,10 @@
     },
     {
       "package": "h11",
-      "fences": 189,
+      "fences": 187,
       "definitions": 133,
-      "nativeDefinitions": 62,
-      "fencedDefinitions": 71,
+      "nativeDefinitions": 63,
+      "fencedDefinitions": 70,
       "rootFamilies": {
         "unlowered-type-name": 20,
         "reflection": 17,
@@ -156,9 +154,9 @@
         "field-lookup": 3,
         "optional-types": 3,
         "type-mismatch": 3,
-        "forward-reference": 2,
         "local-inference": 2,
-        "operator": 2
+        "forward-reference": 1,
+        "operator": 1
       },
       "derivedFamilies": {
         "export-cascade": 77,
@@ -167,19 +165,17 @@
     },
     {
       "package": "idna",
-      "fences": 145,
+      "fences": 140,
       "definitions": 56,
       "nativeDefinitions": 21,
       "fencedDefinitions": 35,
       "rootFamilies": {
         "keyword-args": 47,
         "name-resolution": 31,
-        "type-mismatch": 13,
-        "call-arity": 11,
-        "construct-other": 9,
+        "type-mismatch": 14,
+        "call-arity": 10,
         "local-inference": 9,
-        "field-lookup": 2,
-        "import-table": 2,
+        "construct-other": 8,
         "stdlib:sys": 2,
         "unlowered-call": 2,
         "unlowered-type-name": 2,
@@ -197,20 +193,18 @@
     },
     {
       "package": "iniconfig",
-      "fences": 23,
+      "fences": 12,
       "definitions": 34,
-      "nativeDefinitions": 24,
-      "fencedDefinitions": 10,
+      "nativeDefinitions": 27,
+      "fencedDefinitions": 7,
       "rootFamilies": {
-        "type-mismatch": 5,
-        "call-arity": 4,
-        "construct-other": 3,
-        "local-inference": 2,
-        "name-resolution": 2,
+        "name-resolution": 3,
         "optional-types": 2,
         "unlowered-call": 2,
+        "call-arity": 1,
+        "construct-other": 1,
         "generators": 1,
-        "generic-alias": 1
+        "local-inference": 1
       },
       "derivedFamilies": {
         "class-cascade": 1
@@ -218,7 +212,7 @@
     },
     {
       "package": "jmespath",
-      "fences": 119,
+      "fences": 118,
       "definitions": 200,
       "nativeDefinitions": 91,
       "fencedDefinitions": 109,
@@ -226,10 +220,9 @@
         "param-inference": 82,
         "return-inference": 19,
         "name-resolution": 2,
-        "construct-other": 1,
-        "import-table": 1,
         "reflection": 1,
-        "stdlib:itertools": 1
+        "stdlib:itertools": 1,
+        "type-mismatch": 1
       },
       "derivedFamilies": {
         "class-cascade": 7,
@@ -238,7 +231,7 @@
     },
     {
       "package": "jwt",
-      "fences": 96,
+      "fences": 95,
       "definitions": 171,
       "nativeDefinitions": 124,
       "fencedDefinitions": 47,
@@ -257,7 +250,6 @@
         "stdlib:binascii": 2,
         "stdlib:platform": 2,
         "type-mismatch": 2,
-        "import-table": 1,
         "stdlib:calendar": 1,
         "stdlib:datetime": 1,
         "stdlib:ssl": 1,
@@ -276,8 +268,8 @@
       "nativeDefinitions": 6,
       "fencedDefinitions": 6,
       "rootFamilies": {
-        "name-resolution": 15,
-        "construct-other": 7,
+        "name-resolution": 16,
+        "construct-other": 6,
         "call-arity": 4,
         "unlowered-call": 3,
         "operator": 2,
@@ -291,33 +283,31 @@
     },
     {
       "package": "packaging",
-      "fences": 673,
+      "fences": 639,
       "definitions": 558,
-      "nativeDefinitions": 279,
-      "fencedDefinitions": 279,
+      "nativeDefinitions": 284,
+      "fencedDefinitions": 274,
       "rootFamilies": {
-        "name-resolution": 111,
-        "unlowered-type-name": 97,
-        "field-lookup": 83,
-        "construct-other": 73,
+        "name-resolution": 98,
+        "unlowered-type-name": 94,
+        "field-lookup": 79,
+        "construct-other": 72,
         "generic-alias": 63,
-        "unlowered-call": 49,
-        "local-inference": 37,
+        "unlowered-call": 46,
+        "local-inference": 34,
         "decorators": 22,
         "typing-value": 18,
-        "operator": 14,
+        "type-mismatch": 13,
+        "operator": 11,
         "dynamic-annotation": 10,
-        "type-mismatch": 9,
-        "import-table": 8,
-        "call-arity": 7,
+        "call-arity": 8,
+        "class-body": 6,
         "module-assign": 6,
-        "class-body": 3,
         "optional-types": 3,
-        "with-as": 3,
-        "annotation-other": 2,
         "class-keywords": 2,
-        "stdlib:email": 2,
+        "stdlib:email.policy": 2,
         "stdlib:urllib.parse": 2,
+        "annotation-other": 1,
         "keyword-args": 1,
         "refused-dynamic-attrs": 1,
         "stdlib:ctypes": 1,
@@ -333,26 +323,25 @@
     },
     {
       "package": "pathspec",
-      "fences": 196,
+      "fences": 167,
       "definitions": 132,
-      "nativeDefinitions": 55,
-      "fencedDefinitions": 77,
+      "nativeDefinitions": 59,
+      "fencedDefinitions": 73,
       "rootFamilies": {
-        "name-resolution": 30,
-        "construct-other": 21,
-        "unlowered-type-name": 21,
-        "type-mismatch": 19,
+        "name-resolution": 27,
+        "unlowered-type-name": 20,
+        "construct-other": 15,
         "field-lookup": 7,
-        "local-inference": 6,
         "decorators": 5,
+        "class-body": 4,
         "dynamic-annotation": 4,
-        "call-arity": 3,
-        "forward-reference": 3,
+        "local-inference": 4,
+        "type-mismatch": 4,
         "generic-alias": 3,
         "param-inference": 3,
         "stdlib:os": 3,
         "typing-value": 3,
-        "class-body": 2,
+        "call-arity": 2,
         "keyword-args": 2,
         "operator": 2,
         "annotation-other": 1,
@@ -366,24 +355,24 @@
     },
     {
       "package": "platformdirs",
-      "fences": 255,
+      "fences": 246,
       "definitions": 388,
-      "nativeDefinitions": 253,
-      "fencedDefinitions": 135,
+      "nativeDefinitions": 254,
+      "fencedDefinitions": 134,
       "rootFamilies": {
-        "name-resolution": 65,
-        "construct-other": 63,
+        "construct-other": 64,
+        "name-resolution": 63,
         "optional-types": 33,
         "local-inference": 22,
         "unlowered-call": 15,
         "unlowered-type-name": 14,
         "field-lookup": 12,
         "decorators": 6,
-        "generic-alias": 6,
-        "import-table": 6,
         "stdlib:sys": 5,
+        "generic-alias": 3,
         "stdlib:functools": 2,
         "type-mismatch": 2,
+        "fall-off-end": 1,
         "keyword-args": 1,
         "operator": 1,
         "stdlib:ctypes": 1,
@@ -413,31 +402,31 @@
     },
     {
       "package": "requests",
-      "fences": 388,
+      "fences": 356,
       "definitions": 319,
       "nativeDefinitions": 196,
       "fencedDefinitions": 123,
       "rootFamilies": {
-        "name-resolution": 49,
-        "unlowered-type-name": 43,
-        "import-table": 26,
-        "construct-other": 24,
+        "name-resolution": 45,
+        "unlowered-type-name": 42,
+        "construct-other": 23,
         "local-inference": 17,
-        "unlowered-call": 13,
         "dynamic-annotation": 12,
+        "unlowered-call": 12,
         "operator": 9,
         "call-arity": 8,
         "type-mismatch": 8,
-        "generic-alias": 7,
+        "generic-alias": 5,
         "optional-types": 5,
         "stdlib:urllib.request": 5,
         "stdlib:urllib.parse": 4,
+        "stdlib:codecs": 3,
         "stdlib:socket": 3,
         "keyword-args": 2,
+        "module-assign": 2,
         "return-inference": 2,
         "stdlib:os": 2,
         "annotation-other": 1,
-        "module-assign": 1,
         "stdlib:http": 1,
         "stdlib:io": 1,
         "stdlib:logging": 1,
@@ -446,13 +435,13 @@
         "uninitialized-field": 1
       },
       "derivedFamilies": {
-        "export-cascade": 109,
+        "export-cascade": 108,
         "class-cascade": 32
       }
     },
     {
       "package": "shellingham",
-      "fences": 46,
+      "fences": 45,
       "definitions": 25,
       "nativeDefinitions": 6,
       "fencedDefinitions": 19,
@@ -460,10 +449,9 @@
         "module-value": 19,
         "param-inference": 12,
         "return-inference": 6,
-        "import-table": 1,
+        "annotation-other": 1,
         "module-assign": 1,
-        "stdlib:ctypes": 1,
-        "unlowered-call": 1
+        "stdlib:ctypes": 1
       },
       "derivedFamilies": {
         "export-cascade": 4,
@@ -492,32 +480,34 @@
     },
     {
       "package": "urllib3",
-      "fences": 631,
+      "fences": 582,
       "definitions": 617,
-      "nativeDefinitions": 400,
-      "fencedDefinitions": 217,
+      "nativeDefinitions": 395,
+      "fencedDefinitions": 222,
       "rootFamilies": {
-        "name-resolution": 125,
+        "name-resolution": 97,
         "unlowered-type-name": 74,
         "construct-other": 56,
-        "import-table": 43,
-        "unlowered-call": 26,
+        "unlowered-call": 24,
         "dynamic-annotation": 23,
-        "local-inference": 21,
-        "field-lookup": 15,
+        "local-inference": 22,
+        "field-lookup": 19,
+        "type-mismatch": 17,
+        "module-value": 15,
         "generic-alias": 12,
         "module-assign": 10,
-        "type-mismatch": 10,
         "typing-value": 10,
-        "module-value": 9,
         "optional-types": 9,
         "keyword-args": 7,
+        "operator": 6,
         "decorators": 5,
         "stdlib:socket": 5,
         "call-arity": 4,
-        "operator": 4,
         "annotation-other": 3,
         "reflection": 2,
+        "stdlib:select": 2,
+        "class-body": 1,
+        "fall-off-end": 1,
         "stdlib:binascii": 1,
         "stdlib:io": 1,
         "stdlib:itertools": 1,
@@ -534,7 +524,7 @@
     },
     {
       "package": "zipp",
-      "fences": 70,
+      "fences": 69,
       "definitions": 75,
       "nativeDefinitions": 18,
       "fencedDefinitions": 57,
@@ -545,7 +535,6 @@
         "name-resolution": 2,
         "stdlib:sys": 2,
         "construct-other": 1,
-        "import-table": 1,
         "stdlib:os": 1,
         "unlowered-call": 1
       },
@@ -564,7 +553,7 @@
       "rank": 1,
       "family": "module-assign",
       "packagesTouched": 8,
-      "fences": 24,
+      "fences": 25,
       "newlyUnblocked": [
         "trove_classifiers"
       ],
@@ -572,25 +561,25 @@
     },
     {
       "rank": 2,
-      "family": "unlowered-call",
-      "packagesTouched": 17,
-      "fences": 194,
+      "family": "name-resolution",
+      "packagesTouched": 16,
+      "fences": 674,
       "newlyUnblocked": [],
       "cumulativeUnblocked": 1
     },
     {
       "rank": 3,
       "family": "construct-other",
-      "packagesTouched": 17,
-      "fences": 477,
+      "packagesTouched": 16,
+      "fences": 432,
       "newlyUnblocked": [],
       "cumulativeUnblocked": 1
     },
     {
       "rank": 4,
-      "family": "name-resolution",
+      "family": "unlowered-call",
       "packagesTouched": 16,
-      "fences": 713,
+      "fences": 171,
       "newlyUnblocked": [],
       "cumulativeUnblocked": 1
     },
@@ -612,167 +601,167 @@
     },
     {
       "rank": 7,
-      "family": "import-table",
-      "packagesTouched": 12,
-      "fences": 109,
+      "family": "call-arity",
+      "packagesTouched": 11,
+      "fences": 75,
       "newlyUnblocked": [],
       "cumulativeUnblocked": 1
     },
     {
       "rank": 8,
       "family": "module-value",
-      "packagesTouched": 6,
-      "fences": 40,
+      "packagesTouched": 7,
+      "fences": 47,
       "newlyUnblocked": [],
       "cumulativeUnblocked": 1
     },
     {
       "rank": 9,
-      "family": "stdlib:ctypes",
-      "packagesTouched": 3,
-      "fences": 3,
-      "newlyUnblocked": [
-        "shellingham"
-      ],
-      "cumulativeUnblocked": 2
-    },
-    {
-      "rank": 10,
-      "family": "call-arity",
-      "packagesTouched": 11,
-      "fences": 89,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 2
-    },
-    {
-      "rank": 11,
       "family": "stdlib:atexit",
       "packagesTouched": 1,
       "fences": 1,
       "newlyUnblocked": [
         "colorama"
       ],
-      "cumulativeUnblocked": 3
+      "cumulativeUnblocked": 2
+    },
+    {
+      "rank": 10,
+      "family": "local-inference",
+      "packagesTouched": 13,
+      "fences": 164,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 2
+    },
+    {
+      "rank": 11,
+      "family": "unlowered-type-name",
+      "packagesTouched": 12,
+      "fences": 349,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 2
     },
     {
       "rank": 12,
-      "family": "local-inference",
-      "packagesTouched": 13,
-      "fences": 176,
-      "newlyUnblocked": [],
+      "family": "operator",
+      "packagesTouched": 10,
+      "fences": 39,
+      "newlyUnblocked": [
+        "mdurl"
+      ],
       "cumulativeUnblocked": 3
     },
     {
       "rank": 13,
-      "family": "unlowered-type-name",
+      "family": "type-mismatch",
       "packagesTouched": 12,
-      "fences": 356,
+      "fences": 101,
       "newlyUnblocked": [],
       "cumulativeUnblocked": 3
     },
     {
       "rank": 14,
-      "family": "operator",
-      "packagesTouched": 10,
-      "fences": 42,
+      "family": "stdlib:os",
+      "packagesTouched": 8,
+      "fences": 26,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 3
+    },
+    {
+      "rank": 15,
+      "family": "stdlib:sys",
+      "packagesTouched": 6,
+      "fences": 13,
       "newlyUnblocked": [
-        "mdurl"
+        "zipp"
       ],
       "cumulativeUnblocked": 4
     },
     {
-      "rank": 15,
-      "family": "generic-alias",
-      "packagesTouched": 12,
-      "fences": 177,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 4
-    },
-    {
       "rank": 16,
-      "family": "type-mismatch",
-      "packagesTouched": 12,
-      "fences": 105,
+      "family": "generic-alias",
+      "packagesTouched": 11,
+      "fences": 158,
       "newlyUnblocked": [],
       "cumulativeUnblocked": 4
     },
     {
       "rank": 17,
-      "family": "optional-types",
-      "packagesTouched": 8,
-      "fences": 58,
+      "family": "typing-value",
+      "packagesTouched": 10,
+      "fences": 54,
       "newlyUnblocked": [],
       "cumulativeUnblocked": 4
     },
     {
       "rank": 18,
+      "family": "keyword-args",
+      "packagesTouched": 9,
+      "fences": 74,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 4
+    },
+    {
+      "rank": 19,
+      "family": "dynamic-annotation",
+      "packagesTouched": 8,
+      "fences": 56,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 4
+    },
+    {
+      "rank": 20,
+      "family": "field-lookup",
+      "packagesTouched": 9,
+      "fences": 191,
+      "newlyUnblocked": [
+        "dotenv"
+      ],
+      "cumulativeUnblocked": 5
+    },
+    {
+      "rank": 21,
+      "family": "stdlib:idna.idnadata",
+      "packagesTouched": 1,
+      "fences": 1,
+      "newlyUnblocked": [
+        "idna"
+      ],
+      "cumulativeUnblocked": 6
+    },
+    {
+      "rank": 22,
+      "family": "optional-types",
+      "packagesTouched": 8,
+      "fences": 58,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 6
+    },
+    {
+      "rank": 23,
       "family": "generators",
       "packagesTouched": 2,
       "fences": 6,
       "newlyUnblocked": [
         "iniconfig"
       ],
-      "cumulativeUnblocked": 5
-    },
-    {
-      "rank": 19,
-      "family": "field-lookup",
-      "packagesTouched": 10,
-      "fences": 329,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 5
-    },
-    {
-      "rank": 20,
-      "family": "typing-value",
-      "packagesTouched": 10,
-      "fences": 55,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 5
-    },
-    {
-      "rank": 21,
-      "family": "stdlib:sys",
-      "packagesTouched": 6,
-      "fences": 13,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 5
-    },
-    {
-      "rank": 22,
-      "family": "stdlib:os",
-      "packagesTouched": 8,
-      "fences": 22,
-      "newlyUnblocked": [
-        "zipp"
-      ],
-      "cumulativeUnblocked": 6
-    },
-    {
-      "rank": 23,
-      "family": "keyword-args",
-      "packagesTouched": 9,
-      "fences": 73,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 6
+      "cumulativeUnblocked": 7
     },
     {
       "rank": 24,
-      "family": "dynamic-annotation",
-      "packagesTouched": 8,
-      "fences": 56,
-      "newlyUnblocked": [
-        "dotenv"
-      ],
+      "family": "annotation-other",
+      "packagesTouched": 7,
+      "fences": 12,
+      "newlyUnblocked": [],
       "cumulativeUnblocked": 7
     },
     {
       "rank": 25,
-      "family": "stdlib:idna.idnadata",
-      "packagesTouched": 1,
-      "fences": 1,
+      "family": "stdlib:ctypes",
+      "packagesTouched": 3,
+      "fences": 3,
       "newlyUnblocked": [
-        "idna"
+        "shellingham"
       ],
       "cumulativeUnblocked": 8
     },
@@ -804,44 +793,36 @@
     },
     {
       "rank": 29,
-      "family": "forward-reference",
-      "packagesTouched": 3,
-      "fences": 7,
+      "family": "class-body",
+      "packagesTouched": 4,
+      "fences": 23,
       "newlyUnblocked": [
-        "h11"
+        "pathspec"
       ],
       "cumulativeUnblocked": 10
     },
     {
       "rank": 30,
-      "family": "annotation-other",
-      "packagesTouched": 6,
-      "fences": 12,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 10
-    },
-    {
-      "rank": 31,
-      "family": "class-body",
-      "packagesTouched": 3,
-      "fences": 16,
-      "newlyUnblocked": [
-        "pathspec"
-      ],
-      "cumulativeUnblocked": 11
-    },
-    {
-      "rank": 32,
       "family": "stdlib:logging",
       "packagesTouched": 3,
       "fences": 4,
       "newlyUnblocked": [
         "charset_normalizer"
       ],
+      "cumulativeUnblocked": 11
+    },
+    {
+      "rank": 31,
+      "family": "forward-reference",
+      "packagesTouched": 2,
+      "fences": 3,
+      "newlyUnblocked": [
+        "h11"
+      ],
       "cumulativeUnblocked": 12
     },
     {
-      "rank": 33,
+      "rank": 32,
       "family": "stdlib:datetime",
       "packagesTouched": 2,
       "fences": 3,
@@ -849,7 +830,7 @@
       "cumulativeUnblocked": 12
     },
     {
-      "rank": 34,
+      "rank": 33,
       "family": "stdlib:struct",
       "packagesTouched": 1,
       "fences": 1,
@@ -859,7 +840,47 @@
       "cumulativeUnblocked": 13
     },
     {
+      "rank": 34,
+      "family": "stdlib:urllib.parse",
+      "packagesTouched": 4,
+      "fences": 8,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 13
+    },
+    {
       "rank": 35,
+      "family": "stdlib:platform",
+      "packagesTouched": 3,
+      "fences": 4,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 13
+    },
+    {
+      "rank": 36,
+      "family": "class-keywords",
+      "packagesTouched": 3,
+      "fences": 5,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 13
+    },
+    {
+      "rank": 37,
+      "family": "stdlib:binascii",
+      "packagesTouched": 2,
+      "fences": 3,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 13
+    },
+    {
+      "rank": 38,
+      "family": "fall-off-end",
+      "packagesTouched": 2,
+      "fences": 2,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 13
+    },
+    {
+      "rank": 39,
       "family": "stdlib:functools",
       "packagesTouched": 2,
       "fences": 3,
@@ -867,45 +888,13 @@
       "cumulativeUnblocked": 13
     },
     {
-      "rank": 36,
+      "rank": 40,
       "family": "stdlib:posixpath",
       "packagesTouched": 1,
       "fences": 1,
       "newlyUnblocked": [
         "platformdirs"
       ],
-      "cumulativeUnblocked": 14
-    },
-    {
-      "rank": 37,
-      "family": "stdlib:urllib.parse",
-      "packagesTouched": 4,
-      "fences": 8,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 14
-    },
-    {
-      "rank": 38,
-      "family": "stdlib:platform",
-      "packagesTouched": 3,
-      "fences": 4,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 14
-    },
-    {
-      "rank": 39,
-      "family": "class-keywords",
-      "packagesTouched": 3,
-      "fences": 5,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 14
-    },
-    {
-      "rank": 40,
-      "family": "stdlib:binascii",
-      "packagesTouched": 2,
-      "fences": 3,
-      "newlyUnblocked": [],
       "cumulativeUnblocked": 14
     },
     {
@@ -952,6 +941,14 @@
     },
     {
       "rank": 46,
+      "family": "stdlib:select",
+      "packagesTouched": 1,
+      "fences": 2,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 15
+    },
+    {
+      "rank": 47,
       "family": "value-type",
       "packagesTouched": 1,
       "fences": 1,
@@ -961,7 +958,7 @@
       "cumulativeUnblocked": 16
     },
     {
-      "rank": 47,
+      "rank": 48,
       "family": "stdlib:urllib.request",
       "packagesTouched": 1,
       "fences": 5,
@@ -969,7 +966,15 @@
       "cumulativeUnblocked": 16
     },
     {
-      "rank": 48,
+      "rank": 49,
+      "family": "stdlib:codecs",
+      "packagesTouched": 1,
+      "fences": 3,
+      "newlyUnblocked": [],
+      "cumulativeUnblocked": 16
+    },
+    {
+      "rank": 50,
       "family": "stdlib:http",
       "packagesTouched": 1,
       "fences": 1,
@@ -979,23 +984,15 @@
       "cumulativeUnblocked": 17
     },
     {
-      "rank": 49,
-      "family": "with-as",
-      "packagesTouched": 1,
-      "fences": 3,
-      "newlyUnblocked": [],
-      "cumulativeUnblocked": 17
-    },
-    {
-      "rank": 50,
-      "family": "stdlib:email",
+      "rank": 51,
+      "family": "stdlib:email.policy",
       "packagesTouched": 1,
       "fences": 2,
       "newlyUnblocked": [],
       "cumulativeUnblocked": 17
     },
     {
-      "rank": 51,
+      "rank": 52,
       "family": "refused-dynamic-attrs",
       "packagesTouched": 1,
       "fences": 1,
@@ -1003,7 +1000,7 @@
       "cumulativeUnblocked": 17
     },
     {
-      "rank": 52,
+      "rank": 53,
       "family": "stdlib:warnings",
       "packagesTouched": 1,
       "fences": 1,
@@ -1013,7 +1010,7 @@
       "cumulativeUnblocked": 18
     },
     {
-      "rank": 53,
+      "rank": 54,
       "family": "stdlib:contextlib",
       "packagesTouched": 1,
       "fences": 2,
@@ -1021,7 +1018,7 @@
       "cumulativeUnblocked": 18
     },
     {
-      "rank": 54,
+      "rank": 55,
       "family": "stdlib:dataclasses",
       "packagesTouched": 1,
       "fences": 2,
@@ -1029,7 +1026,7 @@
       "cumulativeUnblocked": 18
     },
     {
-      "rank": 55,
+      "rank": 56,
       "family": "refused-finalizer",
       "packagesTouched": 1,
       "fences": 1,
@@ -1037,7 +1034,7 @@
       "cumulativeUnblocked": 18
     },
     {
-      "rank": 56,
+      "rank": 57,
       "family": "stdlib:inspect",
       "packagesTouched": 1,
       "fences": 1,
@@ -1045,7 +1042,7 @@
       "cumulativeUnblocked": 18
     },
     {
-      "rank": 57,
+      "rank": 58,
       "family": "stdlib:tempfile",
       "packagesTouched": 1,
       "fences": 1,
@@ -1053,7 +1050,7 @@
       "cumulativeUnblocked": 18
     },
     {
-      "rank": 58,
+      "rank": 59,
       "family": "stdlib:threading",
       "packagesTouched": 1,
       "fences": 1,
