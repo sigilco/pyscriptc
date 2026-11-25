@@ -1,4 +1,5 @@
 # SPDX-License-Identifier: Apache-2.0
+# ruff: noqa: UP035, UP043, UP045, UP006 - the typing.Iterator / typing.Optional spellings are the constructs under test
 # Divergence D104: the G3b generator shapes (issue #442).
 # A generator def nested inside a plain function lifts to the enclosing
 # module's scope, a nested generator drives the send protocol, and a
