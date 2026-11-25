@@ -182,17 +182,37 @@ class ClosuresMixin:
                 f"decorator {ast.unparse(dec)} is not a lowered callable",
             )
         params = dec_expr["type"]["params"]
-        if (
-            len(params) != 1
-            or not types_equal(params[0], value["type"])
-            or dec_expr["type"]["return"]["kind"] != "func"
-        ):
+        result: dict[str, Any] = dec_expr["type"]["return"]
+        if len(params) != 1 or dec_expr["type"]["return"]["kind"] != "func":
             self.fail(dec, "PS2002", "user decorators are not lowered")
+        if not types_equal(params[0], value["type"]):
+            # G3b (issue #442): a pass-through decorator's parameter spells
+            # the iterator annotation (`Callable[[int], Iterator[int]]`),
+            # while the value it wraps is the generator's frame-returning
+            # closure. The frame narrows to the annotation the same way a
+            # direct call argument does (`_narrows_to_generator`), so the
+            # wrap type-checks — and the wrap result keeps the truthful
+            # frame-returning callable type: a pass-through decorator hands
+            # the same callable back, and a `for` over a call to the bound
+            # name dispatches on the frame's real `__iter__`/`__next__`.
+            param_t = params[0]
+            value_t = value["type"]
+            same_params = isinstance(param_t.get("params"), list) and isinstance(value_t.get("params"), list) and len(
+                param_t["params"]
+            ) == len(value_t["params"]) and all(types_equal(a, b) for a, b in zip(param_t["params"], value_t["params"]))
+            if not (
+                param_t.get("kind") == "func"
+                and value_t.get("kind") == "func"
+                and same_params
+                and self._narrows_to_generator(param_t.get("return", {}), value_t.get("return", {}))
+            ):
+                self.fail(dec, "PS2002", "user decorators are not lowered")
+            result = value_t
         return node_to_dict(
             _ir.call(
                 _ir.value_callee(dict_to_node(dec_expr)),
                 [dict_to_node(value)],
-                _mk_type(dec_expr["type"]["return"]),
+                _mk_type(result),
                 _mk_span(span),
                 "",
                 "",

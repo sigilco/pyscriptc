@@ -177,6 +177,7 @@ class FramePlan:
     send: dict[str, Any] = field(default_factory=lambda: dict(_NONE))  # the Generator[T, S, R] send type
     manager: str = ""  # `@contextmanager` wrapper class (`cm.<name>`), "" for a plain generator
     ret: dict[str, Any] = field(default_factory=lambda: dict(_NONE))  # the Generator[T, S, R] return type
+    lifted: bool = False  # G3b: the plan drives a nested def's env-first closure, not a module function
 
 
 def enabled() -> bool:
@@ -387,8 +388,13 @@ class CoroMixin:
             # keep the caller's paths.
             if coroutine or len(fn.decorator_list) > 1 or self._decorator_is_reserved(fn) or not is_generator(fn):
                 return None
-            _, elem, params = self._coro_plan_module(fn)
-            return (params, self._coro_iterator_type(elem, fn))
+            _, _elem, params = self._coro_plan_module(fn)
+            # The outward type is the plain generator's: the closure value
+            # the global binds returns the frame, and the decorator wrap
+            # proves its parameter against that shape (the pass-through
+            # narrowing in `_apply_decorator`).
+            plan = self._coro_plans()[fn.name]
+            return (params, {"kind": "class", "name": plan.frame})
         if self.cataloguing and not (is_generator(fn) or isinstance(fn, ast.AsyncFunctionDef)):
             return None
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or not (
@@ -713,6 +719,7 @@ class CoroMixin:
             send,
             "",
             ret,
+            True,
         )
         return True
 
@@ -792,23 +799,6 @@ class CoroMixin:
             ret,
         )
         return fn.name, elem, params
-
-    def _coro_iterator_type(self, elem: dict[str, Any], node: ast.AST) -> dict[str, Any]:
-        """The func type a decorated generator's closure carries.
-
-        The deferred decorator pass wraps the closure the way it wraps any
-        callable global: the wrap's parameter has to equal the value's own
-        type and the wrap's return has to be callable, so the outward type
-        is `params -> Iterator[elem]` (the iterator-cursor record
-        `_iter_type` spells). `_narrows_to_generator` keeps a frame bound
-        to an iterator-typed local as the frame, so a wrapped frame still
-        iterates through its own `__iter__`/`__next__`.
-        """
-        return {
-            "kind": "func",
-            "params": [],
-            "return": self._iter_type(elem, node),
-        }
 
     def _decorator_is_reserved(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
         """True when any decorator in the stack is one the generator path
@@ -1409,16 +1399,26 @@ def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dic
         if plan is None:
             functions.append(fn)
             continue
-        if plan.function != name and name.startswith(f"{plan.function}."):
-            # G3b: a lifted nested generator's own record lowers through the
-            # lifted pass below (the body is the env-first closure, not the
-            # wrapper shape this loop builds); skip it here.
-            functions.append(fn)
-            continue
         try:
+            if plan.lifted:
+                # G3b: a lifted nested generator's own record IS the
+                # env-first closure body; the frame rebuild swaps it for the
+                # frame's resume body and the synthesized wrapper replaces
+                # the record in place (the closure's env entries ride the
+                # wrapper, so the island-plan fence the plain build raises
+                # never applies to a lifted nested generator).
+                fn.pop("boxed", None)
+                wrapper, frame, _forwarder = _Frame(fn, plan, _KINDS[plan.kind], plans).build()
+                wrapper["name"] = name
+                wrapper["env"] = fn.get("env", [])
+                functions.append(wrapper)
+                classes.append(frame)
+                continue
             wrapper, frame, forwarder = _Frame(fn, plan, _KINDS[plan.kind], plans).build()
         except CoroError as exc:
             fences.append({"code": "PS2002", "message": exc.message, "function": name, "span": exc.span})
+            if plan.lifted:
+                functions.append(fn)
             continue
         functions.append(wrapper)
         if forwarder is not None:
@@ -1428,45 +1428,7 @@ def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dic
             classes.append(_manager_class(plan, _record_span(fn)))
     classes, method_functions = _lower_method_resumables(classes, plans, fences)
     functions.extend(method_functions)
-    lifted_functions, lifted_frames = _lower_lifted_resumables(functions, plans, fences)
-    functions.extend(lifted_functions)
-    classes.extend(lifted_frames)
     return _module_rewritten(module, functions, classes, fences)
-
-
-def _lower_lifted_resumables(
-    functions: list[dict[str, Any]], plans: dict[str, FramePlan], fences: list[dict[str, Any]]
-) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
-    """Rewrite the lifted nested generators (G3b): the pass swaps the
-    closure body record the lowerer built for the frame's resume body and
-    appends the synthesized wrapper (one body per closure name, keyed by
-    the plan's `ir_name`). The frame class joins the module's class table.
-    A plain function record (one the plan does not name) passes through.
-    """
-    out: list[dict[str, Any]] = []
-    frames: list[dict[str, Any]] = []
-    by_ir = {plan.ir_name: plan for plan in plans.values() if plan.ir_name}
-    for fn in functions:
-        name = _record_name(fn)
-        plan = by_ir.get(name)
-        if plan is None or not name.startswith(f"{plan.function}."):
-            continue
-        try:
-            if fn.get("boxed"):
-                # The env entries ride the wrapper (the closure's heap
-                # cells); the frame rebuild lifts them into `captured`, so
-                # the island-plan fence the plain build raises never
-                # applies to a lifted nested generator.
-                del fn["boxed"]
-            wrapper, frame, _forwarder = _Frame(fn, plan, _KINDS[plan.kind], plans).build()
-        except CoroError as exc:
-            fences.append({"code": "PS2002", "message": exc.message, "function": name, "span": exc.span})
-            continue
-        wrapper["name"] = name
-        wrapper["env"] = fn.get("env", [])
-        out.append(wrapper)
-        frames.append(frame)
-    return out, frames
 
 
 def _lower_method_resumables(

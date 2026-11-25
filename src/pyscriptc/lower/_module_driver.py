@@ -361,6 +361,7 @@ class ModuleDriverMixin:
             self.fn_globals = self._globals_for(fn.body)
             self.fn_nonlocals = set()
             self.captures = {}
+            saved_plans = dict(self._coro_plans())
             params, ret = self._coro_body_sig(fn.name)
             self.locals = {param["name"]: param["type"] for param in params}
             self.frozen_names = set()
@@ -413,6 +414,11 @@ class ModuleDriverMixin:
                 self.declared = saved_declared
                 self.typevars = saved_typevars
                 self.typevar_bounds = saved_bounds
+                # A nested body's plan is its own scope (G3b): the parent's
+                # walk never sees the nested def's plan, and a plan that
+                # stayed set here would rewrite the parent's own body.
+                self._coro_plans().clear()
+                self._coro_plans().update(saved_plans)
         self._drain_instances(lowered, lowered_classes, fences)
         self._drain_frames(lowered, fences)
         # The frame-specialized method copies queue from the call sites of
