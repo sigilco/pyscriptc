@@ -1522,7 +1522,7 @@ def test_g3b_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
     assert got == expected
 
 
-@pytest.mark.parametrize("source", [NESTED, NESTED_CAPTURE, DECO_PASSTHROUGH, DECO_TWICE, DECO_CLOSURE_DECO])
+@pytest.mark.parametrize("source", [NESTED, NESTED_CAPTURE, DECO_PASSTHROUGH, DECO_TWICE])
 def test_g3b_ir_is_plain_classes(source: str) -> None:
     module = lower_source(source, "g3b.py")
     assert module["fences"] == []
@@ -1561,6 +1561,14 @@ def g() -> Iterator[int]:
     yield 1
 """
     module = lower_source(source, "reserved.py")
+    assert any(f["code"] == "PS2002" for f in module["fences"])
+
+
+def test_g3b_nested_generator_inside_a_resumable_still_fences() -> None:
+    """A generator def nested inside a *resumable* stays fenced (G3b's
+    scope): the resumable's body is re-entered through its frame, and the
+    nested generator's closure env has no home there yet."""
+    module = lower_source(DECO_CLOSURE_DECO, "dcd.py")
     assert any(f["code"] == "PS2002" for f in module["fences"])
 
 

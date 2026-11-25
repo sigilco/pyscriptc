@@ -992,6 +992,15 @@ class Lowerer(
                 fences.append(Fence("PS2002", "the frame parameter is gone", span_of(fn, self.filename), fn.name))
                 continue
             params[slot]["type"] = frame_t
+            if _type_kind(frame_t) == "func":
+                # The callable crossing (G3b, issue #442): the copy's
+                # parameter is the frame-returning callable, so the body
+                # call answers the frame. The copy's own return type
+                # narrows with it: the body hands the frame back, and the
+                # caller reads it as the frame (the annotation's cursor
+                # would make the call site's `for` read the frame's fields
+                # as a list cell).
+                ret = self._callable_frame_return(frame_t, ret)
             self.locals = {param["name"]: param["type"] for param in params}
             self.frozen_names = set()
             self.opt_unwrap = {}

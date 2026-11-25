@@ -912,7 +912,16 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         `__iter__`/`__next__` methods. A frame bound to a local keeps the
         frame type already (`_narrows_to_generator`), and a same-type
         argument (the specialized copy's own call sites) passes through.
+
+        The callable shape (G3b, issue #442) is the same crossing one
+        level up: a `Callable[..., Iterator[T]]` parameter receives a
+        frame-returning callable, and the callee's body calls it, so the
+        frame the call produces lands in the callee's own iterator slot.
+        The copy's parameter keeps the frame-returning callable type, so
+        the call inside the copy answers the frame.
         """
+        if _type_kind(want) == "func" and _type_kind(got) == "func":
+            return self._needs_callable_frame_copy(want, got)
         want_name = want.get("name") if _type_kind(want) == "class" else None
         got_name = got.get("name") if _type_kind(got) == "class" else None
         if not isinstance(want_name, str) or not isinstance(got_name, str):
@@ -924,6 +933,33 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         if self.classes.get(got_name, {}).get("coro") is None:
             return False
         return not types_equal(got, want)
+
+    def _needs_callable_frame_copy(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
+        """True when a frame-returning callable crosses into a callable slot.
+
+        The parameter's return annotation is the iterator cursor and the
+        value hands back a generator frame: the callee's body calls the
+        value, and the frame the call produces would land in the
+        callee's iterator slot (the `{seq, idx}` cursor), so the frame
+        needs the frame-specialized copy.
+        """
+        want_ret = want.get("return")
+        got_ret = got.get("return")
+        if not isinstance(want_ret, dict) or not isinstance(got_ret, dict):
+            return False
+        if _type_kind(want_ret) != "class" or _type_kind(got_ret) != "class":
+            return False
+        want_name = want_ret.get("name")
+        got_name = got_ret.get("name")
+        if not isinstance(want_name, str) or not isinstance(got_name, str):
+            return False
+        if not self.classes.get(want_name, {}).get("iterator"):
+            return False
+        if not got_name.startswith(("gen.", "coro.")):
+            return False
+        if self.classes.get(got_name, {}).get("coro") is None:
+            return False
+        return not types_equal(got_ret, want_ret)
 
     def _frame_call(
         self,
@@ -967,6 +1003,11 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 and self._needs_frame_copy(params[index]["type"], value["type"])
             ):
                 frame_slot, frame_t = index, value["type"]
+                # The callable crossing (G3b, issue #442): the copy's
+                # parameter is the frame-returning callable itself, not the
+                # frame, so the copied body's call answers the frame.
+                if _type_kind(value["type"]) == "func":
+                    frame_t = value["type"]
             args.append(value)
         if frame_slot is None or frame_t is None:
             # Another call site of this callee specialized it first; the
@@ -988,11 +1029,15 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             emit = f"{name}.{_type_slug(frame_t)}"
             self.frame_fns[key] = emit
             self.frame_queue.append((fn, emit, frame_slot, copy.deepcopy(frame_t)))
+        # The copy hands the frame back (G3b, issue #442): the call site's
+        # value is the frame, not the annotation's cursor, so the call
+        # answers the frame's type.
+        call_ret = self._callable_frame_return(frame_t, ret) if _type_kind(frame_t) == "func" else ret
         return node_to_dict(
             _ir.call(
                 _ir.function_callee(emit),
                 [dict_to_node(arg) for arg in args],
-                _mk_type(ret),
+                _mk_type(call_ret),
                 _mk_span(span),
                 "",
                 "",

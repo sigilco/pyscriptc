@@ -537,6 +537,32 @@ class ClassesMoreMixin:
             return False
         return self._is_subclass_name(got_name, want_name)
 
+    def _callable_frame_return(self, frame_t: dict[str, Any], ret: dict[str, Any]) -> dict[str, Any]:
+        """The return type a frame-returning callable's copy keeps.
+
+        G3b (issue #442): the copy's parameter is the frame-returning
+        callable, so the body hands the frame back. The copy's return type
+        is the frame, the way a local keeps the frame type under an
+        iterator-shaped annotation: the cursor layout would make the
+        caller's `for` read the frame's fields as a list cell.
+        """
+        got = frame_t.get("return")
+        if not isinstance(got, dict) or _type_kind(got) != "class":
+            return ret
+        got_name = got.get("name")
+        if not isinstance(got_name, str):
+            return ret
+        frame = self.classes.get(got_name)
+        if frame is None or frame.get("coro") != "generator":
+            return ret
+        if _type_kind(ret) != "class" or not self.classes.get(ret.get("name", ""), {}).get("iterator"):
+            return ret
+        next_ret = frame["methods"].get("__next__", (None, None))[1]
+        elem = ret.get("elem")
+        if next_ret is None or elem is None or not types_equal(next_ret, elem):
+            return ret
+        return dict(got)
+
     def _accepts_protocol_value(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
         """The value-shaped half of `_accepts_protocol`.
 

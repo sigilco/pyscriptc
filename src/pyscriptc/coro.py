@@ -293,8 +293,11 @@ def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, s
                 # one is a plain def) is still outside the scope: the body
                 # is re-entered through the frame, and a plain nested def
                 # binds there today only through the closure path the
-                # resumable body does not lower.
-                if getattr(stmt, "_g3b_owners", None) == ("fn",) and is_generator(stmt):
+                # resumable body does not lower. A generator def inside a
+                # resumable keeps the fence for the same reason: the
+                # resumable's body is re-entered through its frame, and the
+                # nested generator's closure env has no home there yet.
+                if getattr(stmt, "_g3b_owners", None) == ("fn",) and is_generator(stmt) and not is_generator(fn):
                     continue
                 return stmt, "a nested def or class in a resumable is not lowered yet"
             if isinstance(stmt, ast.Return):
