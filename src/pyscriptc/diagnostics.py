@@ -376,15 +376,19 @@ _ENTRIES = (
         "PS4201",
         "dynamic attribute protocol refused",
         (
-            "`__setattr__`, `__getattribute__`, `__get__` and `__set__` "
+            "`__getattribute__`, `__get__` and `__set__` "
             "intercept attribute access at run time. Attribute access is resolved "
             "statically to declared fields, so a hook that can intercept any name "
-            "lookup or write has nothing to run in, and the hook would be silently "
-            "dropped or silently bypassed."
+            "lookup has nothing to run in, and the hook would be silently "
+            "dropped or silently bypassed. `__setattr__` compiles only as a "
+            "plain `(self, name: str, value: T) -> None` method and a "
+            "`__getattr__` only as a plain `(self, name: str) -> T` one; any "
+            "other spelling of either hook is refused."
         ),
         (
             "Use plain annotated fields and methods. `@property` getters compile; "
-            "`__getattr__` compiles for unknown-name reads (issue #434); "
+            "`__getattr__` compiles for unknown-name reads and `__setattr__` "
+            "for writes in their one plain-method shape (issues #434, #436); "
             "unknown-name delegation otherwise becomes an explicit method call."
         ),
     ),
