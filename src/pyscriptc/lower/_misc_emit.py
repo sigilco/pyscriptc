@@ -92,7 +92,51 @@ def _one_identity_note(name: str, typ: dict[str, Any]) -> str:
     return f"annotate {name} ({name}: {_show(typ)} = ...) so the container keeps one identity"
 
 
+def _function_call(name: str, args: list[dict[str, Any]], typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """The call node one dict-IR function callee spells."""
+    return node_to_dict(
+        _ir.call(
+            _ir.function_callee(name),
+            [dict_to_node(arg) for arg in args],
+            dict_to_type(typ),
+            _mk_span(span),
+            "",
+            "",
+            -1,
+        )
+    )
+
+
 class MiscEmitMixin:
+    def _class_attr_write_fence(self, target: ast.Attribute) -> None:
+        """`C.a = v` on the class itself, not an instance (D4a, issue #439).
+
+        The compiled subset keeps class state on instances and has no
+        descriptor objects, so a class-level write has no lowering: it
+        fences with its own message instead of the generic "not a field"
+        one.
+        """
+        if not isinstance(target.value, ast.Name):
+            return
+        name = target.value.id
+        class_name = self.class_aliases.get(name, name)
+        if class_name not in self.classes:
+            return
+        info = self.classes[class_name]
+        if info.get("method_kind", {}).get(target.attr) == "property":
+            self.fail(
+                target,
+                "PS2002",
+                f"{class_name}.{target.attr} writes the property on the class: the subset keeps "
+                "class state on instances (write it on an instance)",
+            )
+        self.fail(
+            target,
+            "PS2002",
+            f"{class_name}.{target.attr} writes a class attribute: the subset keeps "
+            "class state on instances (an instance field or a property setter)",
+        )
+
     def _module_const_container(self, node: ast.expr) -> tuple[str, dict[str, Any]] | None:
         """`(name, type)` when `node` reads a module-scope container constant.
 
@@ -238,6 +282,7 @@ class MiscEmitMixin:
     def _setattr_target(
         self, target: ast.Attribute, value_node: ast.expr, report: ast.AST, span: dict[str, Any]
     ) -> dict[str, Any]:
+        self._class_attr_write_fence(target)
         obj = self._expr(target.value)
         if _node_type_kind(obj) != "class":
             self.fail(target, "PS2001", f"attribute assignment is not lowered ({_dotted(target)})")
@@ -260,6 +305,20 @@ class MiscEmitMixin:
         info = self.classes[class_name]
         if info.get("namedtuple"):
             self.fail(target, "PS2002", f"{class_name}.{target.attr} is read-only on a namedtuple")
+        setter = self._property_setter(class_name, target.attr)
+        if setter is not None:
+            # D4a (issue #439): `c.a = v` on a class with a property setter
+            # dispatches to the setter method, the way CPython's descriptor
+            # protocol does. The setter's own parameter type is the write's
+            # type, and the value is checked against it.
+            owner, params, ret = setter
+            if len(params) != 2:
+                self.fail(target, "PS2002", f"{class_name}.{target.attr} setter takes one value")
+            want = params[1]["type"]
+            value = self._expr(value_node, want)
+            self._expect(report, value["type"], want, target.attr)
+            emit = self._setter_emit_owner(class_name, target.attr)
+            return _expr_node(_function_call(f"cls.{emit}.{target.attr}.__set__", [obj, value], ret, span), span)
         field = next((item for item in info["fields"] if item["name"] == target.attr), None)
         if field is None:
             if info.get("method_kind", {}).get(target.attr) == "cached_property":
@@ -273,6 +332,11 @@ class MiscEmitMixin:
                     f"{class_name}.{target.attr} is a cached property: the value lives in the "
                     "instance slot, and an instance-dictionary write is not lowered",
                 )
+            if info.get("method_kind", {}).get(target.attr) == "property":
+                # A getter without a setter is CPython's AttributeError at
+                # compile time: the write site names the property (D4a,
+                # issue #439).
+                self.fail(target, "PS2001", f"{class_name}.{target.attr} is a read-only property")
             self.fail(target, "PS2001", f"{class_name}.{target.attr} is not a field")
         value = self._expr(value_node, field["type"])
         self._expect(report, value["type"], field["type"], target.attr)

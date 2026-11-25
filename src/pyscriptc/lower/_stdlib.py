@@ -1422,8 +1422,39 @@ class StdlibDispatchMixin(StdlibBindMixin):
             )
         return False
 
+    def _module_class_name(self, name: str) -> str | None:
+        """The class `name` names at module scope, or None.
+
+        The class table is not filled yet when a module assignment binds
+        (the collect pass runs after the split), so the module's own class
+        nodes are the source here. An imported class is in the table
+        already.
+        """
+        for node in getattr(self, "module_class_nodes", []):
+            if node.name == name:
+                return node.name
+        aliased = self.class_aliases.get(name, name)
+        if aliased in self.classes:
+            return aliased
+        return None
+
     def _bind_module_assign(self, stmt: ast.stmt) -> None:
         try:
+            # D4a (issue #439): `C.a = v` writes the class attribute. The
+            # compiled subset keeps class state on instances only, so the
+            # class-level write has no lowering and fences with its own
+            # message instead of the generic module-assignment one.
+            if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                target = stmt.target if isinstance(stmt, ast.AnnAssign) else stmt.targets[0]
+                if isinstance(target, ast.Attribute) and isinstance(target.value, ast.Name):
+                    cls = self._module_class_name(target.value.id)
+                    if cls is not None:
+                        self.fail(
+                            stmt,
+                            "PS2002",
+                            f"{cls}.{target.attr} writes a class attribute: the subset keeps "
+                            "class state on instances (an instance field or a property setter)",
+                        )
             if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
                 if stmt.value is None:
                     self._annotation(stmt.annotation)  # a bare declaration binds nothing

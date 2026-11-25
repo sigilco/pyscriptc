@@ -137,6 +137,16 @@ def _expr_stmt_node(expr: dict[str, Any], span: dict[str, Any]) -> dict[str, Any
     return node_to_dict(_ir.expr_stmt(dict_to_node(expr), _mk_span(span)))
 
 
+def _setter_method_name(prop: str) -> str:
+    """The emitted name of a property's setter (D4a, issue #439).
+
+    The getter keeps the property name; the setter takes the mangled
+    `name.__set__` spelling so the two bodies never collide in the
+    emitted class record.
+    """
+    return f"{prop}.__set__"
+
+
 def _type_rt(typ: dict[str, Any]) -> dict[str, Any]:
     """The exact type dict one dict-IR type spells, through the T record."""
     return node_to_dict(dict_to_type(typ))
@@ -840,6 +850,15 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                         if stmt.name in seen or stmt.name in inherited_types:
                             self.fail(stmt, "PS2002", f"cached property {stmt.name} clashes with a field")
                         cached_names.add(stmt.name)
+                    if kind == "setter":
+                        # D4a (issue #439): the setter attaches to the
+                        # property the getter defined. A setter with no
+                        # property getter (or one attaching to a name that
+                        # is not a property) is the shape CPython also
+                        # refuses, and a named fence here keeps the write
+                        # sites from dispatching to nothing.
+                        if not any(m.name == stmt.name and k == "property" for m, k in methods):
+                            self.fail(stmt, "PS2002", f"no property {stmt.name} for the setter")
                     methods.append((stmt, kind))  # type: ignore[arg-type]
                     continue
                 if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
@@ -864,6 +883,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         method_sigs: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
         kinds: dict[str, str] = {}
         owners: dict[str, str] = {}
+        # D4a (issue #439): the property setters live beside the getters.
+        # The getter keeps the property name (the read site resolves it);
+        # the setter takes the mangled `name.__set__` spelling, so the two
+        # bodies never collide in the emitted class record.
+        setter_sigs: dict[str, tuple[list[dict[str, Any]], dict[str, Any]]] = {}
+        setter_owners: dict[str, str] = {}
         # MRO order, first definer wins: a method resolves to the earliest
         # ancestor that defined it, which is the C3 answer for diamonds too.
         #
@@ -899,14 +924,28 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 method_sigs[mname] = sig
                 kinds[mname] = ancestor_info["method_kind"].get(mname, "method")
                 owners[mname] = owner if owner is not None else ancestor
+            # The setters follow the same MRO rule: the earliest ancestor
+            # that defined a setter for a name owns the write path.
+            for sname, sig in ancestor_info.get("setters", {}).items():
+                if sname in setter_sigs:
+                    continue
+                setter_sigs[sname] = sig
+                setter_owners[sname] = ancestor_info.get("setter_owner", {}).get(sname, ancestor)
         wrote_init = False
         # A field fence leaves the field set unknown; a method signature fence
         # only drops that one method. Count each kind so the catalog pass can
         # tell them apart.
         body_fences = len(self.caught)
         sig_fences = 0
+        setters: dict[str, tuple[ast.FunctionDef, list[dict[str, Any]], dict[str, Any]]] = {}
         for method, kind in methods:
             try:
+                if kind == "setter":
+                    sig = self._coro_method_signature(method, node.name) or self._signature(method, node.name, "method")
+                    setters[method.name] = (method, sig[0], sig[1])
+                    setter_sigs[method.name] = sig
+                    setter_owners[method.name] = node.name
+                    continue
                 method_sigs[method.name] = self._coro_method_signature(method, node.name) or self._signature(
                     method, node.name, kind
                 )
@@ -1107,6 +1146,9 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             "methods": method_sigs,
             "method_kind": kinds,
             "method_owner": owners,
+            "setters": setter_sigs,
+            "setter_owner": setter_owners,
+            "setter_defs": setters,
             "base": parent_name,
             "mro": mro,
             "chain": chain,
@@ -1569,11 +1611,19 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self._lower_factories(info)
         own_names = {field["name"] for field in info.get("own_fields", info["fields"])}
         methods: list[dict[str, Any]] = []
+        setter_defs = info.get("setter_defs", {})
+        setter_stmts = {id(entry[0]) for entry in setter_defs.values()}
         for stmt in node.body:
             if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
             self.method_nodes.setdefault((own, stmt.name), stmt)
             if info["method_owner"].get(stmt.name) != own:
+                continue
+            # A property setter's def is not a `methods` member (D4a, issue
+            # #439): the setter loop below emits it under the mangled name.
+            # The getter and the setter share the property name, so the
+            # def's identity is what tells them apart.
+            if id(stmt) in setter_stmts:
                 continue
             emitted = self._emit_class_method(own, stmt, info, own_names)
             if emitted is not None:
@@ -1598,6 +1648,27 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             if ostmt is None:
                 continue
             emitted = self._emit_class_method(own, ostmt, info, own_names)
+            if emitted is not None:
+                methods.append(emitted)
+        # D4a (issue #439): the property setters lower under their mangled
+        # name, so the write site can call `cls.{C}.{name}.__set__`.
+        for sname, (sstmt, sparams, sret) in info.get("setter_defs", {}).items():
+            emitted = self._emit_class_method(
+                own, sstmt, info, own_names, emit_name=_setter_method_name(sname), sig=(sparams, sret)
+            )
+            if emitted is not None:
+                methods.append(emitted)
+        for sname in info.get("setters", {}):
+            owner = info.get("setter_owner", {}).get(sname, own)
+            if owner == own or owner in info.get("chain", {own}):
+                continue
+            sdefs = self.classes.get(owner, {}).get("setter_defs", {})
+            entry = sdefs.get(sname)
+            if entry is None:
+                continue
+            emitted = self._emit_class_method(
+                own, entry[0], info, own_names, emit_name=_setter_method_name(sname), sig=(entry[1], entry[2])
+            )
             if emitted is not None:
                 methods.append(emitted)
         if self.caught:
@@ -1663,13 +1734,25 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         }
 
     def _emit_class_method(
-        self, class_name: str, stmt: ast.FunctionDef, info: dict[str, Any], own_names: set[str]
+        self,
+        class_name: str,
+        stmt: ast.FunctionDef,
+        info: dict[str, Any],
+        own_names: set[str],
+        emit_name: str | None = None,
+        sig: tuple[list[dict[str, Any]], dict[str, Any]] | None = None,
     ) -> dict[str, Any] | None:
         """Lower one method body for `cls.{class_name}.{stmt.name}`.
 
         The definer's FunctionDef is reused verbatim; `self` and `super()`
         resolve against `class_name`'s layout while `method_owner` still names
         the defining class (CPython's __class__ cell for super()).
+
+        A property setter (D4a, issue #439) lowers under the mangled
+        `emit_name` spelling, so the getter and the setter never collide
+        in the emitted class record; `sig` carries the setter's own
+        signature, which the class map does not keep under the property
+        name.
         """
         self.function = f"{class_name}.{stmt.name}"
         self.temp_n = 0
@@ -1679,8 +1762,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self.island_class_handles = {}
         # boxed:end
         self.fn_globals = self._globals_for(stmt.body)
-        params, ret = info["methods"][stmt.name]
-        kind = info["method_kind"].get(stmt.name, "method")
+        if sig is None:
+            params, ret = info["methods"][stmt.name]
+            kind = info["method_kind"].get(stmt.name, "method")
+        else:
+            params, ret = sig
+            kind = "method"
         is_enum = bool(info.get("enum"))
         if kind == "class":
             # The cls row rides the emitted signature; the body reads the id
@@ -1731,7 +1818,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             body = self._seed_const_fields(class_name, info, body, span_of(stmt, self.filename))
         if _type_kind(ret) != "none" and not _always_returns(body):
             self.fail(stmt, "PS1004", f"{stmt.name} can fall off the end and return None")
-        return self._method_ir(stmt.name, params, ret, body, span_of(stmt, self.filename))
+        return self._method_ir(emit_name or stmt.name, params, ret, body, span_of(stmt, self.filename))
 
     def _drain_frame_methods(self, lowered_classes: list[dict[str, Any]], fences: list[Fence]) -> None:
         """Lower every queued frame-specialized copy of a method.
@@ -2975,6 +3062,48 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             self.fail(node, "PS2001", note)
         self.fail(node, "PS2001", f"{class_name}.{name} is not a field")
         raise AssertionError("unreachable")
+
+    def _property_setter(self, class_name: str, attr: str) -> tuple[str, list[dict[str, Any]], dict[str, Any]] | None:
+        """The property setter of `class_name.attr`, or None.
+
+        D4a (issue #439): a class that defines a `@property` getter and
+        the matching `@<name>.setter` lowers the setter as the property's
+        write path. The returned triple is the defining class, the
+        setter's parameter list and its return type; None means the class
+        has no setter for that name (a getter alone stays read-only).
+        """
+        info = self.classes.get(class_name)
+        if info is None:
+            return None
+        sig = info.get("setters", {}).get(attr)
+        if sig is None:
+            return None
+        owner = info.get("setter_owner", {}).get(attr, class_name)
+        # The write path belongs to the property the receiver resolves, not
+        # to any setter in the MRO: a subclass that redefines the getter
+        # without a setter replaces the property, and CPython's write then
+        # raises AttributeError.
+        prop_owner = info.get("method_owner", {}).get(attr, class_name)
+        if prop_owner != owner:
+            return None
+        return owner, sig[0], sig[1]
+
+    def _setter_emit_owner(self, class_name: str, attr: str) -> str:
+        """The class that emitted `cls.{?}.{attr}.__set__` for a receiver.
+
+        The setter walks the MRO the same way `_emit_owner` does: the owner
+        itself emits the setter, and every class whose primary chain does
+        not contain the owner emits its own monomorphized copy.
+        """
+        info = self.classes[class_name]
+        owner = info.get("setter_owner", {}).get(attr, class_name)
+        for name in info.get("mro", [class_name]):
+            xinfo = self.classes.get(name)
+            if xinfo is None or attr not in xinfo.get("setters", {}):
+                continue
+            if name == owner or owner not in xinfo.get("chain", {name}):
+                return name
+        return owner
 
     def _class_const(self, class_name: str, attr: str) -> dict[str, Any] | None:
         """The class-level constant `attr` of `class_name`, or None.

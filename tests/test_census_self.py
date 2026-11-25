@@ -369,8 +369,10 @@ def test_self_census_ballpark() -> None:
     # The tagged dynamic value's str() and class-attribute surface (#1226):
     # the `str()` of a dynval in lower/_calls.py, the dynval slot and
     # class-attribute handling in lower/_class_attrs.py and
-    # lower/_classes.py add about 44 lines, taking the census to about
-    # 99,600, so the ceiling moves to 101k.
+    # lower/_classes.py add about 44 lines.
+    # The property setters (D4a, #439): the setter lowering, the class-level
+    # property fences and the setter dispatch add about 260 lines, taking
+    # the census to about 99,900, so the ceiling stays at 101k.
     assert 11_000 <= census["lines"] <= 101_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add

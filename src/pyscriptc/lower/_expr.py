@@ -1076,6 +1076,17 @@ class ExprMixin(ExprCompareMixin):
             if runtime is not None:
                 owner, attr_type = runtime
                 return self._class_attr_read(owner, node.attr, attr_type, span)
+            if info.get("method_kind", {}).get(node.attr) == "property":
+                # D4a (issue #439): `C.a` reads the property object itself in
+                # CPython. The compiled subset has no descriptor objects, so
+                # the class-level read fences with its own message instead
+                # of the generic "class is not a value" one.
+                self.fail(
+                    node,
+                    "PS2002",
+                    f"{class_name}.{node.attr} reads the property object: the subset has no "
+                    "descriptor objects (read it on an instance)",
+                )
         value = self._expr(node.value)
         read = path_attribute(self, value, node.attr, self._lookup_attr(value, node.attr, span, node, expect), span)
         if isinstance(node.value, ast.Name):
