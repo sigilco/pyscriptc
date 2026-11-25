@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-24",
-  "commit": "1970e5dc2998547825be8c112d3256b0a8ebbcaf",
+  "commit": "efeec5fd82e1a34a24af6719d3d03a08a74027ef",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -1023,8 +1023,8 @@
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "278/558",
-      "blocking": "name-resolution (101), unlowered-type-name (94), field-lookup (77)",
+      "ratio": "274/558",
+      "blocking": "name-resolution (99), unlowered-type-name (94), field-lookup (78)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {

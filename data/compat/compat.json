@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-24",
-  "commit": "c66aab0e2662c971ce012e221a917988e014ec9b",
+  "commit": "efeec5fd82e1a34a24af6719d3d03a08a74027ef",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-24",
-    "commit": "c66aab0e2662c971ce012e221a917988e014ec9b",
+    "commit": "efeec5fd82e1a34a24af6719d3d03a08a74027ef",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3841
+    "fences": 3837
   },
   "builtins": [
     {
@@ -2143,18 +2143,18 @@
       "island": "runs",
       "plane": {
         "definitions": 558,
-        "native": 268,
+        "native": 272,
         "island": 0,
-        "blocked": 290
+        "blocked": 286
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 643,
+      "fences": 639,
       "definitions": 558,
-      "fenced_definitions": 278,
+      "fenced_definitions": 274,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 101
+          "count": 99
         },
         {
           "family": "unlowered-type-name",
@@ -2162,17 +2162,17 @@
         },
         {
           "family": "field-lookup",
-          "count": 77
+          "count": 78
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 256
+          "count": 253
         },
         {
           "code": "PS2001",
-          "count": 115
+          "count": 117
         },
         {
           "code": "PS1106",
@@ -2721,13 +2721,13 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1991,
+      "count": 1988,
       "packages": 19
     },
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 422,
+      "count": 424,
       "packages": 17
     },
     {
@@ -2807,12 +2807,6 @@
       "title": "forward reference annotation",
       "count": 3,
       "packages": 2
-    },
-    {
-      "code": "PS1206",
-      "title": "with-as binding",
-      "count": 3,
-      "packages": 1
     },
     {
       "code": "PS1004",
@@ -2917,12 +2911,12 @@
     },
     {
       "date": "2026-11-24",
-      "commit": "c66aab0e2662c971ce012e221a917988e014ec9b",
+      "commit": "efeec5fd82e1a34a24af6719d3d03a08a74027ef",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3841
+      "fences": 3837
     }
   ]
 }
