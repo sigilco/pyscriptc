@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-25",
-  "commit": "8ad721103f38b4b9410fc78d573ea3839b0f77ee",
+  "commit": "9cf82ae769be90389bb028ffada106be77059ba4",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -967,7 +967,7 @@
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "244/641",
+      "ratio": "243/641",
       "blocking": "name-resolution (189), construct-other (109), field-lookup (60)",
       "codes": "PS2002, PS2001, PS1103"
     },
