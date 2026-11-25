@@ -805,7 +805,7 @@ class ExprMixin(ExprCompareMixin):
             pairs.append({"key": key, "value": value})
         key_t = pairs[0]["key"]["type"]
         val_t = pairs[0]["value"]["type"]
-        if key_t["kind"] not in {"int", "str"}:
+        if key_t["kind"] not in {"int", "str"} and not self._tuple_key_ok(key_t):
             self.fail(node, "PS2002", "dict keys are int or str")
         if val_t["kind"] == "bool" and not (
             expect and expect.get("kind") == "dict" and expect.get("value", {}).get("kind") == "dynval"
@@ -844,7 +844,14 @@ class ExprMixin(ExprCompareMixin):
                 self.fail(node, "PS1003", "an os.environ key is str")
             return self._abi_call("os", "environ.getitem", [index], {"kind": "str"}, "ps_os_getenv", span)
         value = self._expr(node.value)
-        index = self._expr(node.slice)
+        # Issue #1368: a dict's key may be a tuple, and a tuple display
+        # unifies with the dict's key type, so the index lowers under that
+        # type (`d["a", None]` against `dict[tuple[str, str | None], int]`
+        # boxes the None arm into the key tuple's field optional).
+        index_expect = None
+        if value["type"]["kind"] == "dict" and self._tuple_key_ok(value["type"]["key"]):
+            index_expect = value["type"]["key"]
+        index = self._expr(node.slice, index_expect)
         kind = value["type"]["kind"]
         # boxed:begin
         if value["type"].get("island"):

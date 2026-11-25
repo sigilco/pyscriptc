@@ -440,6 +440,26 @@ void ps_map_val_at(PsMap *m, int64_t i, void *out);
 int64_t ps_map_delete(PsMap *m, void *key);
 void ps_map_reset(PsMap *m);
 
+/* The tuple dict key (issue #1368). A map with `key_kind` 4 stores a tuple
+   as its key: the key cell holds one pointer to a tuple-key record, and the
+   record names each field's kind and carries the field payloads in a flat
+   buffer. The compiler packs the fields (it knows each field's static
+   type); the runtime hashes and compares the record field-wise, the way
+   CPython hashes and compares a tuple.
+
+   `ps_tuple_key_new` allocates the record for `n` fields of the given
+   kinds, `ps_tuple_key_data` hands the compiler the payload buffer and
+   `ps_tuple_key_offset` the offset of one field in it. The hash and the
+   equality are the map's key functions for this kind. */
+void *ps_tuple_key_new(int64_t n, int32_t *kinds);
+void *ps_tuple_key_data(void *key);
+int64_t ps_tuple_key_offset(void *key, int64_t i);
+int64_t ps_tuple_key_hash(void *key);
+int32_t ps_tuple_key_eq(void *a, void *b);
+/* The repr of a tuple key: CPython's tuple repr, `(a, None)`. The KeyError
+   message of a missing tuple key is this repr. */
+void ps_tuple_key_repr(void *key, PsBuf *out);
+
 void ps_buf_view(PsBuf *out, const char *p, int64_t n);
 void ps_buf_copy(PsBuf *out, const char *p, int64_t n);
 

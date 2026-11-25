@@ -247,10 +247,40 @@ class AnnotationMixin:
         if typ["kind"] == "dict":
             # A TypeVar key (`Mapping[K, V]`, issue #412) is checked once it
             # is bound: `_concrete_opt` refuses a substituted non-int/str key.
-            if typ["key"]["kind"] not in {"int", "str", "typevar"}:
+            if typ["key"]["kind"] not in {"int", "str", "typevar"} and not self._tuple_key_ok(typ["key"]):
                 self.fail(node, "PS2002", "dict keys are int or str")
             if typ["value"]["kind"] == "bool":
                 self.fail(node, "PS2002", "dict values of bool are not lowered")
+
+    def _tuple_key_ok(self, key: dict[str, Any]) -> bool:
+        """True when a dict key type is a synthetic tuple the runtime can
+        hash field-wise (issue #1368).
+
+        The tuple's fields must each be a scalar the tuple-key record
+        carries (int, float, bool, str) or an optional of one of them: an
+        optional compares by its tag and its payload, so `(section, None)`
+        is a key that equals another `(section, None)`.
+        """
+        if key["kind"] != "class":
+            return False
+        info = self.classes.get(key.get("name", ""))
+        if info is None or not info.get("tuple"):
+            return False
+        fields = info.get("fields", [])
+        if not fields:
+            return False
+        return all(self._tuple_key_field_ok(field["type"]) for field in fields)
+
+    def _tuple_key_field_ok(self, field: dict[str, Any]) -> bool:
+        kind = field.get("kind")
+        if kind in {"int", "float", "bool", "str"}:
+            return True
+        if kind == "class" and field.get("optional"):
+            elem = field.get("elem")
+            if elem is None:
+                return False
+            return elem.get("kind") in {"int", "float", "bool", "str"}
+        return False
 
     def _annotation(self, node: ast.AST) -> dict[str, Any]:
         if isinstance(node, ast.Name) and node.id in self.tv_subst:

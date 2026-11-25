@@ -564,7 +564,7 @@ class StmtsMixin(EmitterBase):
             return
         if kind == "dict":
             self.needed.add("map")
-            key = self._stash_cell(_type_of(index_node), index)
+            key = self._stash_map_key(_type_of(index_node), index)
             # Issue #781: an Any container's slot is unresolved; the write
             # site's value is concrete, and the cell takes the value under
             # its own proven type.

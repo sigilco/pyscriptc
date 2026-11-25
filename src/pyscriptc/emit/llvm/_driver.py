@@ -28,6 +28,7 @@ from pyscriptc.emit.llvm._ndarray import NdArrayMixin
 from pyscriptc.emit.llvm._print import PrintMixin
 from pyscriptc.emit.llvm._stdlib import StdlibMixin
 from pyscriptc.emit.llvm._stmts import StmtsMixin
+from pyscriptc.emit.llvm._tupkey import TupleKeyMixin
 from pyscriptc.errors import IRError
 from pyscriptc.ir import assert_same_cpython
 
@@ -60,6 +61,7 @@ class Emitter(
     PrintMixin,
     StdlibMixin,
     StmtsMixin,
+    TupleKeyMixin,
 ):
     """Emits the textual LLVM IR of one module.
 

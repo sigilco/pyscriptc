@@ -515,7 +515,10 @@ class CallAttrMixin:
         if kind == "dict" and node.func.attr == "get" and len(node.args) in {1, 2} and not node.keywords:
             # `d.get(k, default)` is `d[k] if k in d else default`. The 1-arg
             # form's `else None` arm unifies into the tagged `V | None`.
-            key = self._expr(node.args[0])
+            # Issue #1368: a tuple key lowers under the dict's key type, so a
+            # tuple display unifies with the annotated tuple shape.
+            key_expect = receiver["type"]["key"] if self._tuple_key_ok(receiver["type"]["key"]) else None
+            key = self._expr(node.args[0], key_expect)
             self._expect(node, key["type"], receiver["type"]["key"], "dict.get key")
             d_t = self._temp("getd").replace(".", "_")
             k_t = self._temp("getk").replace(".", "_")
