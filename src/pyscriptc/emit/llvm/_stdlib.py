@@ -26,7 +26,13 @@ class StdlibMixin(EmitterBase):
         The kind tag read lives on `AbiMixin._t_kind` (the emitter is one
         class, so the mixins share the typed-record helpers); only the
         shape walks the JSON and copy tables need stay here.
+
+        A dict with no kind tag is the kind-less wrapper (the FFI `T |
+        None` type dict, which carries only `optional` and `elem`); its
+        element is the dict's own `elem` key.
         """
+        if isinstance(typ, dict) and "kind" not in typ:
+            return typ.get("elem", None)
         record: Any = dict_to_type(typ)
         return record.elem
 
@@ -36,8 +42,13 @@ class StdlibMixin(EmitterBase):
         return record.value
 
     def _t_is_optional(self, typ: Any) -> bool:
-        """Whether a type record spells the `X | None` optional bit (the
-        `F_TOPT` flag word the `T` record carries)."""
+        """Whether a type record spells the `X | None` optional bit.
+
+        The `T` record carries the bit as the `F_TOPT` flag word; the
+        kind-less wrapper spells it as the `optional` key.
+        """
+        if isinstance(typ, dict) and "kind" not in typ:
+            return bool(typ.get("optional", False))
         record: Any = dict_to_type(typ)
         return bool(record.flags & F_TOPT)
 

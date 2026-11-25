@@ -67,12 +67,17 @@ class AbiMixin(EmitterBase):
         record (not the dict) crosses the boundary: the shape lives in the
         record, never in a raw `["kind"]` read here (#829).
 
-        A method, not a module-level function, for the reason `_funcs`'s
-        `_type_kind` documents: the self-host subset lowers a method call
-        on a lowered class but not a call to a module-level function whose
-        signature it cannot prove, so a module-level helper fences every
-        call site.
+        A dict with no kind tag falls back to `"any"`: the shape is the
+        kind-less wrapper (the FFI `T | None` type dict, which carries only
+        `optional` and `elem`), and the dispatches that read it answer the
+        catch-all the `_kind` accessor raised on. A method, not a
+        module-level function, for the reason `_funcs`'s `_type_kind`
+        documents: the self-host subset lowers a method call on a lowered
+        class but not a call to a module-level function whose signature it
+        cannot prove, so a module-level helper fences every call site.
         """
+        if isinstance(typ, dict) and "kind" not in typ:
+            return "any"
         record: Any = dict_to_type(typ)
         kind: str = record.kind
         return kind
