@@ -56,16 +56,20 @@ FLAG_KEYWORDS = frozenset({"repr", "compare"})
 INIT_KEYWORD = "init"
 
 
-def _flag_value(lo: Any, kw: ast.keyword) -> bool:
-    """The boolean value of a `repr=`/`compare=` keyword.
+def _flag_value(lo: Any, kw: ast.keyword) -> int:
+    """The value of a `repr=`/`compare=`/`init=` keyword: 1 or 0.
 
     CPython takes any truthy object, but the lowered subset reads a
     literal `True` or `False`: a name or a call would need a runtime
-    value, and the flags decide the generated body at compile time.
+    value, and the flags decide the generated body at compile time. The
+    value rides the marker as an int, the shape the compiler's own dict
+    values take.
     """
     if not isinstance(kw.value, ast.Constant) or not isinstance(kw.value.value, bool):
         lo.fail(kw, "PS2002", f"field({kw.arg}=...) takes True or False")
-    return bool(kw.value.value)
+    if kw.value.value:
+        return 1
+    return 0
 
 
 def _dataclass_field(
@@ -96,7 +100,7 @@ def _dataclass_field(
     """
     if node.args:
         lo.fail(node, "PS2002", "field takes keyword arguments only")
-    flags: dict[str, bool] = {}
+    flags: dict[str, int] = {}
     for kw in node.keywords:
         if kw.arg is None:
             lo.fail(kw, "PS2002", "**kwargs are not lowered")
@@ -125,7 +129,7 @@ def _dataclass_field(
         # the missing default (the constructor takes no parameter and
         # CPython leaves the field unset, which the lowered struct cannot
         # spell). Every other flag-less call needs a value to ride.
-        if flags.get(INIT_KEYWORD) is not False:
+        if flags.get(INIT_KEYWORD) != 0:
             lo.fail(node, "PS2002", "field lowers default or default_factory")
         return {"kind": "field-const-default", "default_ast": None, "type": expect or {}, **flags}
     if factory_kw is None:
@@ -188,29 +192,3 @@ def marker_type(marker: dict[str, Any]) -> dict[str, Any]:
 
     typ: dict[str, Any] = marker["type"]
     return typ
-
-
-def marker_flags(marker: dict[str, Any]) -> dict[str, bool]:
-    """The `repr=`/`compare=` flags the marker carries (issue #452).
-
-    A flag the call did not spell is absent, and the caller reads the
-    CPython default: the field rides the synthesized `__repr__` and
-    `__eq__` unless the call says otherwise.
-    """
-
-    return {name: bool(marker[name]) for name in FLAG_KEYWORDS if name in marker}
-
-
-def factory_class_name(marker: dict[str, Any]) -> str | None:
-    """The class name a `default_factory=ClassName` spelling names, or None.
-
-    A class is a callable in CPython, so `field(default_factory=Inner)`
-    gives every omitted construction a fresh `Inner()` (issue #452). The
-    marker keeps the factory's AST node; the caller resolves the name
-    against its class table and replays the zero-argument construction.
-    """
-
-    node = marker.get("factory_ast")
-    if isinstance(node, ast.Name):
-        return node.id
-    return None

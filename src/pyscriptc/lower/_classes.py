@@ -52,8 +52,6 @@ from pyscriptc.restlower import path_attr, rest_call
 from pyscriptc.restlower._dataclasses import (
     container_factory,
     factory_ast,
-    factory_class_name,
-    marker_flags,
     marker_type,
 )
 from pyscriptc.restlower._popen import _reaped_fill
@@ -721,7 +719,6 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     if _type_kind(typ) == "func":
                         self.fail(stmt, "PS2002", "callable fields are not lowered")
                     field: dict[str, Any] = {"name": stmt.target.id, "type": typ}
-                    field_flags: dict[str, bool] = {}
 
                     if stmt.value is not None:
                         saved_prelude = self.prelude
@@ -742,10 +739,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                                 # lowers right here, against the annotation,
                                 # the same rule the bare spelling follows.
                                 default = self._field_default(stmt.value, typ)
-                                # The `repr=`/`compare=` flags (issue #452)
-                                # ride the marker and name whether the field
-                                # joins the synthesized `__repr__` and `__eq__`.
-                                field_flags.update(marker_flags(default))
+                                # The `repr=`/`compare=`/`init=` flags (issue
+                                # #452) ride the marker; each names whether the
+                                # field joins the synthesized `__repr__` and
+                                # `__eq__` or the constructor.
+                                for flag_name in ("repr", "compare", "init"):
+                                    if flag_name in default:
+                                        field[flag_name] = bool(default[flag_name])
                                 if _record_kind(default) == "field-const-default":
                                     default = self._field_const_default(default, typ, stmt)
                             elif self._is_tuple_annotation(typ):
@@ -770,10 +770,6 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             self._expect(stmt, default["type"], typ, stmt.target.id)
                         if _record_kind(default) != "factory-default":
                             field["default"] = default
-                        if field_flags:
-                            # The `repr=`/`compare=` flags (issue #452): the
-                            # generated `__repr__`/`__eq__` read them.
-                            field["flags"] = field_flags
                         seen_default = True
                     elif seen_default:
                         self.fail(stmt, "PS2002", "a non-default field follows a default")
@@ -976,7 +972,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             params = [_self_param(node.name)]
             init_excluded: list[dict[str, Any]] = []
             for field in all_fields:
-                if field.get("flags", {}).get("init") is False:
+                if field.get("init") is False:
                     # `field(init=False)` (issue #452): the field is not a
                     # constructor parameter. CPython's generated `__init__`
                     # writes the field's default (or calls the factory) and
@@ -1004,7 +1000,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 and all(
                     self._eq_comparable_field(field["type"], current=node.name)
                     for field in all_fields
-                    if field.get("flags", {}).get("compare", True)
+                    if field.get("compare", True)
                 )
             ):
                 # The dataclass `__eq__` (issue #1279): CPython synthesizes
@@ -1489,7 +1485,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # callable, so the factory replays the zero-argument
             # construction at the site that omits the field. The field's
             # annotation names the class, so no callable value is lowered.
-            class_name = factory_class_name(marker)
+            factory_node = factory_ast(marker)
+            class_name = factory_node.id if isinstance(factory_node, ast.Name) else None
             if (
                 class_name is not None
                 and not field_type.get("optional")
@@ -2024,7 +2021,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         mode = info.get("generated_init")
         if mode != "dataclass" or "__repr__" in info["methods"] or "__str__" in info["methods"]:
             return None
-        fields = [field for field in info["fields"] if field.get("flags", {}).get("repr", True)]
+        fields = [field for field in info["fields"] if field.get("repr", True)]
         if any(not self._reprable_field(field["type"]) for field in fields):
             return None
         span = span_of(node, self.filename)
@@ -2064,7 +2061,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         """
         if not info.get("generated_eq"):
             return None
-        fields = [field for field in info["fields"] if field.get("flags", {}).get("compare", True)]
+        fields = [field for field in info["fields"] if field.get("compare", True)]
         if any(not self._eq_comparable_field(field["type"], current=node.name) for field in fields):
             return None
         span = span_of(node, self.filename)
