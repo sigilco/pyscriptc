@@ -853,18 +853,19 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     if stmt.name == "__setattr__":
                         # D3 (issue #436): the hook lowers for one shape only,
                         # a plain instance method `def __setattr__(self,
-                        # name: str, value: T) -> None`. A decorated spelling
-                        # keeps the D1 refusal (PS4201): the signature never
-                        # becomes dispatchable, so the write site keeps its
-                        # ordinary fence and the refusal is not quietly
-                        # lifted for a shape this lowering cannot call. The
-                        # parameter and return shape is checked against the
-                        # lowered signature in the method pass below. A
-                        # `@dataclass` class refuses the hook outright
-                        # (PS2002): the generated `__init__` writes straight
-                        # to the fields, where CPython routes every write
-                        # through the hook, so the two would silently
-                        # diverge.
+                        # name: str, value: T) -> None`. The shape check is a
+                        # body fence (the definition refuses, the class does
+                        # not register), so an unshaped hook never leaves a
+                        # half-collected class a write site can crash on. A
+                        # decorated spelling, a wrong parameter list or a
+                        # non-`None` return keeps the D1 refusal (PS4201):
+                        # the signature never becomes dispatchable, so the
+                        # refusal is not quietly lifted for a shape this
+                        # lowering cannot call. A `@dataclass` class refuses
+                        # the hook outright (PS2002): the generated
+                        # `__init__` writes straight to the fields, where
+                        # CPython routes every write through the hook, so
+                        # the two would silently diverge.
                         if deco == "dataclass":
                             self.fail(
                                 stmt,
@@ -873,6 +874,17 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                                 "__init__ writes straight to the fields, bypassing the hook",
                             )
                         if kind != "method":
+                            self.fail(stmt, "PS4201", f"the {stmt.name} hook is refused by design")
+                        hook_args = stmt.args.args
+                        if (
+                            len(hook_args) != 3
+                            or hook_args[0].arg != "self"
+                            or hook_args[1].arg != "name"
+                            or hook_args[2].arg != "value"
+                            or hook_args[1].annotation is None
+                            or _maybe_type_kind(self._annotation(hook_args[1].annotation)) != "str"
+                            or (stmt.returns is not None and _maybe_type_kind(self._annotation(stmt.returns)) != "none")
+                        ):
                             self.fail(stmt, "PS4201", f"the {stmt.name} hook is refused by design")
                     if stmt.name == "__init__" and kind != "method":
                         self.fail(stmt, "PS1201", "decorators are not lowered")
@@ -982,24 +994,6 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 method_sigs[method.name] = self._coro_method_signature(method, node.name) or self._signature(
                     method, node.name, kind
                 )
-                if method.name == "__setattr__":
-                    # D3 (issue #436): the lowered signature decides whether
-                    # the hook is dispatchable. Exactly `(self, name: str,
-                    # value: T)` with a `None` return lowers; anything else
-                    # (an unannotated or non-str name, extra parameters, a
-                    # non-None return) keeps the D1 refusal (PS4201), the
-                    # same rule the `__getattr__` lift follows: a hook whose
-                    # signature does not fit never becomes dispatchable, so
-                    # the refusal stays a refusal.
-                    params, ret = method_sigs[method.name]
-                    if (
-                        len(params) != 3
-                        or params[0]["name"] != "self"
-                        or params[2]["name"] != "value"
-                        or _maybe_type_kind(params[1].get("type", {})) != "str"
-                        or _maybe_type_kind(ret) != "none"
-                    ):
-                        self.fail(method, "PS4201", f"the {method.name} hook is refused by design")
                 kinds[method.name] = kind
                 owners[method.name] = node.name
                 if method.name == "__init__":
