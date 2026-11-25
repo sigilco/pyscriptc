@@ -220,6 +220,64 @@ def test_require_toolchain_diagnostics_mention_ziglang(monkeypatch: pytest.Monke
     assert "pip install ziglang" in msg_zig
 
 
+def test_require_toolchain_hint_leads_with_the_tool_command_on_a_tool_install(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On a uv/pipx tool install, `pip install ziglang` cannot reach the tool env.
+
+    The refusal must lead with the reinstall command instead of a `pip
+    install` that lands in an environment the tool never sees (issue #1291).
+    """
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    monkeypatch.setattr("pyscriptc.doctor.install_shape", lambda: "tool")
+
+    args = argparse.Namespace(run=True, emit="bin", driver=None)
+    with pytest.raises(IRError) as excinfo:
+        _require_toolchain(args)
+    msg = str(excinfo.value)
+    assert "uv tool install pyscriptc --with ziglang --force" in msg
+    # The generic pip route stays listed behind the shaped one, not leading.
+    assert "pip install ziglang" in msg
+    assert msg.index("uv tool install pyscriptc --with ziglang --force") < msg.index("pip install ziglang")
+
+
+def test_doctor_reports_the_shape_aware_toolchain_fix(monkeypatch: pytest.MonkeyPatch) -> None:
+    """doctor --json carries the actionable fix for the missing toolchain."""
+    from pyscriptc import doctor
+
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    monkeypatch.setattr(doctor, "install_shape", lambda: "tool")
+    info = doctor.gather()
+    assert info["toolchain"]["found"] is False
+    assert "uv tool install pyscriptc --with ziglang --force" in info["toolchain"]["fix"]
+    # The machine-readable form is the bare command, without the prose.
+    assert info["toolchain"]["command"] == "uv tool install pyscriptc --with ziglang --force"
+    text = doctor.render(info)
+    assert "toolchain:      missing" in text
+    assert "uv tool install pyscriptc --with ziglang --force" in text
+
+    # A found toolchain renders as ok, with no command in the line.
+    monkeypatch.setattr(shutil, "which", lambda _cmd: "/usr/bin/clang")
+    info_ok = doctor.gather()
+    assert info_ok["toolchain"]["found"] is True
+    assert "ok" == doctor.render(info_ok).splitlines()[6].split(":", 1)[1].strip()
+
+
+def test_default_driver_prefers_the_wheel_zig(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A wheel-only install (ziglang importable, no zig on PATH) defaults to zig."""
+    from pyscriptc import zigshim
+
+    monkeypatch.setattr(shutil, "which", lambda _cmd: None)
+    monkeypatch.setattr(zigshim, "resolve_zig", lambda: "/home/u/.cache/pyscriptc/shim/zig")
+    assert _resolve_default_driver() == "zig"
+    from pyscriptc import doctor
+
+    assert doctor.default_driver() == "zig"
+    # Without the wheel either, the answer stays None/clang as before.
+    monkeypatch.setattr(zigshim, "resolve_zig", lambda: None)
+    assert _resolve_default_driver() is None
+
+
 def test_require_toolchain_selects_the_ziglang_shim_when_nothing_else_resolves(monkeypatch: pytest.MonkeyPatch) -> None:
     """A wheel-only install has no zig or clang on PATH; the shim must be picked, not PS0001."""
     on_path: list[bool] = []

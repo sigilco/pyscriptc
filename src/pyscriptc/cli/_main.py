@@ -1563,6 +1563,9 @@ def _resolve_default_driver(target: str | None = None, sanitize: list[str] | Non
       `-fsanitize=` but ships no linkable sanitizer runtime, so the link
       fails with `undefined symbol: __asan_init`.
     - If shutil.which("zig") is found on PATH -> prefer zig.
+    - If the `ziglang` wheel is importable, its zig counts too (the wheel
+      ships the binary; the shim puts it on PATH for the run), so a
+      wheel-only install prefers zig.
     - Otherwise, fall back to clang on macOS/Linux if found on PATH.
     - If neither is found, return None.
     """
@@ -1573,6 +1576,10 @@ def _resolve_default_driver(target: str | None = None, sanitize: list[str] | Non
             return "clang"
         return None
     if shutil.which("zig") is not None:
+        return "zig"
+    from pyscriptc import zigshim as _zigshim
+
+    if _zigshim.resolve_zig() is not None:
         return "zig"
     if shutil.which("clang") is not None:
         return "clang"
@@ -1689,6 +1696,20 @@ def _require_mobile_refusals(args: argparse.Namespace) -> None:
         )
 
 
+def _toolchain_hint() -> str:
+    """The missing-zig hint, shaped to this install.
+
+    A uv/pipx tool install cannot be fixed with a `pip install` into the
+    ambient interpreter (it lands somewhere the tool never sees), so the
+    hint leads with the reinstall command for that shape instead of the
+    generic `pip install ziglang` first suggestion (issue #1291,
+    `.agents/docs/design/self-contained-install.md`).
+    """
+    from pyscriptc.doctor import install_shape
+
+    return zigshim.install_hint(install_shape())
+
+
 def _require_toolchain(args: argparse.Namespace) -> None:
     """Fail before any work when the requested output needs a C driver that is not on PATH."""
     _load_compiler()
@@ -1708,7 +1729,7 @@ def _require_toolchain(args: argparse.Namespace) -> None:
             return
         raise IRError(
             "no C toolchain found on PATH (neither zig nor clang), and compiling to a binary needs a C toolchain. "
-            f"{zigshim.install_hint()}, or clang (xcode-select --install, apt install clang, ...). "
+            f"{_toolchain_hint()}, or clang (xcode-select --install, apt install clang, ...). "
             "Run `pyscriptc doctor` to see what was found and the README for install commands. "
             "`--emit ir` and `--emit llvm` need no toolchain."
         )
@@ -1720,7 +1741,7 @@ def _require_toolchain(args: argparse.Namespace) -> None:
         zigshim.ensure_on_path()
     if shutil.which(driver) is None:
         hint: str = (
-            zigshim.install_hint()
+            _toolchain_hint()
             if driver == "zig"
             else ("install clang (xcode-select --install, apt install clang, ...) or pick zig with --driver zig")
         )
