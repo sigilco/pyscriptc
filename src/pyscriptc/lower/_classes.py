@@ -1239,7 +1239,10 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         info = self.classes.get(class_name)
         if info is None:
             return None
-        for ancestor in info.get("mro", [class_name]):
+        # A class record without an mro of its own (a generator frame
+        # class, an exported record) still defines its own methods, so the
+        # empty list falls back to the class itself.
+        for ancestor in info.get("mro") or [class_name]:
             xinfo = self.classes.get(ancestor)
             if xinfo is None:
                 continue
