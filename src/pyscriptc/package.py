@@ -2264,7 +2264,9 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     exported["mro"] = mro
     chain: list[str] = []
     if "chain" in info:
-        raw_chain: list[str] = info["chain"]
+        # `chain` is the primary-base spine, a set in the class record; the
+        # export row carries it sorted, so the round trip is deterministic.
+        raw_chain: set[str] = info["chain"]
         for cname in sorted(raw_chain):
             chain.append(cname)
     exported["chain"] = chain
