@@ -352,7 +352,11 @@ def test_self_census_ballpark() -> None:
     # kind tags and the type shapes off the typed `T` record instead of the
     # raw dict keys, and the typed helpers add about 140 lines, taking the
     # census to 96,139, so the ceiling moves to 98k.
-    assert 11_000 <= census["lines"] <= 98_000
+    # The typing strictness lane (#1315): typinglevels.py (about 1.4k
+    # lines), the config table, the report wiring and the tests add about
+    # 1.5k lines, taking the census to 97,673, so the ceiling moves to
+    # 99k.
+    assert 11_000 <= census["lines"] <= 99_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
