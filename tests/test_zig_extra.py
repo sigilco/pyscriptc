@@ -47,10 +47,35 @@ def test_the_missing_toolchain_error_names_the_extra() -> None:
     from pyscriptc.cli import _main
 
     source = Path(_main.__file__).read_text(encoding="utf-8")
-    assert "zigshim.install_hint()" in source
+    # The refusal routes through the shape-aware hint, which in turn calls
+    # the extra-naming hint.
+    assert "zigshim.install_hint(" in source
     # The hint is the only place the extra can be named from the CLI, so the
     # refusal has to route through it.
     assert "pyscriptc[zig]" in zigshim_install_hint()
+
+
+def test_the_install_hint_is_shaped_to_the_install() -> None:
+    """A tool install cannot be fixed with a pip install into the ambient env."""
+    from pyscriptc import zigshim
+
+    tool = zigshim.install_hint("tool")
+    assert "uv tool install pyscriptc --with ziglang --force" in tool, tool
+    pipx = zigshim.install_hint("pipx")
+    assert 'pipx install "pyscriptc[zig]" --force' in pipx, pipx
+    wheel = zigshim.install_hint("wheel")
+    assert "pip install ziglang" in wheel, wheel
+    # The generic alternatives stay behind the shaped command.
+    for hint in (tool, pipx, wheel):
+        assert "brew install zig" in hint, hint
+        assert "pyscriptc[zig]" in hint, hint
+
+
+def test_the_install_shape_knows_the_tool_environments() -> None:
+    """A uv tool and a pipx environment need different reinstall commands."""
+    from pyscriptc import doctor
+
+    assert doctor.install_shape() in {"wheel", "tool", "pipx", "binary", "source"}
 
 
 def zigshim_install_hint() -> str:

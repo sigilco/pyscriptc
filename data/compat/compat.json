@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-25",
-  "commit": "7edb87b3b13b064b1ac5ce7c87893be507459e83",
+  "commit": "3af51fad49bd73fee8d23c7707ed7415c4b6b0fb",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-25",
-    "commit": "7edb87b3b13b064b1ac5ce7c87893be507459e83",
+    "commit": "3af51fad49bd73fee8d23c7707ed7415c4b6b0fb",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3841
+    "fences": 3842
   },
   "builtins": [
     {
@@ -1821,14 +1821,14 @@
       "island": "runs",
       "plane": {
         "definitions": 641,
-        "native": 378,
+        "native": 376,
         "island": 4,
-        "blocked": 259
+        "blocked": 261
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 693,
+      "fences": 694,
       "definitions": 641,
-      "fenced_definitions": 243,
+      "fenced_definitions": 244,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1854,7 +1854,7 @@
         },
         {
           "code": "PS1103",
-          "count": 39
+          "count": 40
         }
       ],
       "pypi": "https://pypi.org/project/filelock/"
@@ -2745,7 +2745,7 @@
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 157,
+      "count": 158,
       "packages": 11
     },
     {
@@ -2839,12 +2839,12 @@
     },
     {
       "date": "2026-11-25",
-      "commit": "7edb87b3b13b064b1ac5ce7c87893be507459e83",
+      "commit": "3af51fad49bd73fee8d23c7707ed7415c4b6b0fb",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3841
+      "fences": 3842
     }
   ]
 }
