@@ -9,6 +9,7 @@ import ast
 from typing import Any
 
 from pyscriptc import _irnode as _ir
+from pyscriptc.coro import _lift_nested
 from pyscriptc.errors import span_of
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import Fence, _assign, _mk_span, _mk_type, _name
@@ -86,6 +87,9 @@ class ClosuresMixin:
     def _nested_def(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, span: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(fn, ast.AsyncFunctionDef):
             self.fail(fn, "PS2002", "async functions are not lowered")
+        lifted = _lift_nested(fn, "")
+        if lifted is not None:
+            return self._nested_generator_def(fn, span)
         params, ret = self._signature(fn, None, "static")
         ftype = _func_type([param["type"] for param in params], ret)
         # Bind the name before building the env so the def can capture itself
@@ -99,6 +103,41 @@ class ClosuresMixin:
         stmts = [_assign(fn.name, node_to_dict(_closure_node(name, env, ftype, span)), span)]
         stmts.extend(self._decorators(fn, span))
         return stmts
+
+    def _nested_generator_def(
+        self, fn: ast.FunctionDef | ast.AsyncFunctionDef, span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """The G3b lift: a nested generator def binds as a callable value.
+
+        `_coro_plan_lifted` registered the frame class and the plan (keyed
+        `outer.inner`); this lowers the nested body as a closure the
+        existing env machinery carries: the captured names ride the env
+        (`_build_callable`'s free-name scan sees them, and every captured
+        local becomes heap storage), the body returns None (the frame
+        carries the values, the same body shape a generator method
+        lowers), and the pass's lifted wrapper (`_wrapper` for the plan,
+        rekeyed to the closure's own name) allocates the frame, stores the
+        env entries and every parameter into it and returns it. The
+        callable's type is params -> the frame (a generator frame iterates
+        through its own `__iter__`/`__next__`).
+        """
+        owner = self.function or ""
+        key = f"{owner}.{fn.name}"
+        plan = self._coro_plans().get(key)
+        if plan is None:
+            self.fail(fn, "PS2002", "a nested generator def is not lowered yet")
+        # The body lowers under the closure's own name (the pass's plan key
+        # stays `outer.inner`); `_build_callable` records the nested fn.
+        frame_t: dict[str, Any] = {"kind": "class", "name": plan.frame}
+        ftype = _func_type([param["type"] for param in plan.params], frame_t)
+        self.locals[fn.name] = ftype
+        self.local_sigs[id(ftype)] = (ftype, plan.params)
+        built = self._build_callable(fn.name, plan.params, {"kind": "none"}, fn.body, fn)
+        if built is None:
+            return [_pass_stmt(span)]
+        name, env, _ = built
+        plan.ir_name = name
+        return [_assign(fn.name, node_to_dict(_closure_node(name, env, ftype, span)), span)]
 
     def _decorators(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, span: dict[str, Any]) -> list[dict[str, Any]]:
         """`@dec` on a nested def rewrites the just-bound name to `name =

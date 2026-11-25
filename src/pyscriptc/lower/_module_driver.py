@@ -85,6 +85,12 @@ class ModuleDriverMixin:
                 "fences": [fence.as_dict()],
             }
         tree = self._desugar(tree)
+        # The G3b owner tags: a nested generator def plans in the enclosing
+        # module's scope (`_coro_plan_lifted`) when no class body owns it;
+        # the tags ride attributes and every consumer is the coro pass.
+        from pyscriptc.coro import _tag_owners
+
+        _tag_owners(tree)
         fences: list[Fence] = []
         functions: list[ast.FunctionDef] = []
         class_nodes: list[ast.ClassDef] = []
