@@ -932,6 +932,10 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         # declared set, so `__repr__`, the dataclass `__eq__` and the export
         # table never see them.
         hidden_fields: list[dict[str, Any]] = []
+        # The declared fields of this class and of its dataclass bases:
+        # the set the dataclass rules read (the constructor, the
+        # `__repr__` and the `__eq__`). The hidden slots stay out of it.
+        declared_fields: list[dict[str, Any]] = []
         for name in cached_props:
             sig = method_sigs.get(name)
             if sig is None:
@@ -968,7 +972,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # follow them. CPython's rule is the whole field list in
             # order, so a required field after a defaulted one is the same
             # fence the base-less dataclass has.
+            # The cached-property hidden slots (issue #440) are struct
+            # slots, not dataclass fields: they ride the layout but not
+            # the constructor, the `__repr__` or the `__eq__`, so the
+            # dataclass rules below see only the declared set.
             all_fields = [*inherited, *fields]
+            declared_fields = list(all_fields)
             params = [_self_param(node.name)]
             init_excluded: list[dict[str, Any]] = []
             for field in all_fields:
@@ -1059,6 +1068,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         info: dict[str, Any] = {
             "fields": [*inherited, *fields, *hidden_fields],
             "own_fields": fields,
+            "declared_fields": declared_fields or fields,
             "constants": class_constants,
             "const_types": const_types,
             "methods": method_sigs,
@@ -1976,7 +1986,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # before the child's own, the order the layout declares.
             body: list[dict[str, Any]] = []
             param_names = {param["name"] for param in params}
-            for field in info["fields"]:
+            for field in info.get("declared_fields", info["own_fields"]):
                 if field["name"] not in param_names:
                     # A `field(init=False)` field (issue #452): no
                     # parameter exists, so the init writes the default
@@ -2021,7 +2031,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         mode = info.get("generated_init")
         if mode != "dataclass" or "__repr__" in info["methods"] or "__str__" in info["methods"]:
             return None
-        fields = [field for field in info["fields"] if field.get("repr", True)]
+        fields = [field for field in info.get("declared_fields", info["own_fields"]) if field.get("repr", True)]
         if any(not self._reprable_field(field["type"]) for field in fields):
             return None
         span = span_of(node, self.filename)
@@ -2061,7 +2071,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         """
         if not info.get("generated_eq"):
             return None
-        fields = [field for field in info["fields"] if field.get("compare", True)]
+        fields = [field for field in info.get("declared_fields", info["own_fields"]) if field.get("compare", True)]
         if any(not self._eq_comparable_field(field["type"], current=node.name) for field in fields):
             return None
         span = span_of(node, self.filename)
@@ -2528,7 +2538,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         inst["own_fields"] = [
             {**field, "type": self._subst(field["type"], mapping, node)} for field in inst.get("own_fields", [])
         ]
-        for field in inst["fields"] + inst["own_fields"]:
+        inst["declared_fields"] = [
+            {**field, "type": self._subst(field["type"], mapping, node)}
+            for field in inst.get("declared_fields", inst["own_fields"])
+        ]
+        for field in inst["fields"] + inst["own_fields"] + inst["declared_fields"]:
             default = field.get("default")
             if default is not None:
                 default["type"] = self._subst(default["type"], mapping, node)

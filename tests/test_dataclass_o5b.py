@@ -315,3 +315,67 @@ def test_plain_base_still_fences(tmp_path: Path) -> None:
     path = write_case(tmp_path, "plain.py", NON_DATACLASS_BASE)
     proc = compile_fences(path)
     assert "PS2002" in proc
+
+
+CACHED_PROPERTY_DATACLASS = """\
+from dataclasses import dataclass
+from functools import cached_property
+
+
+@dataclass
+class C:
+    x: int
+
+    @cached_property
+    def y(self) -> int:
+        return self.x + 1
+
+
+print(C(1).y)
+print(C(1) == C(1))
+print(C(1))
+"""
+
+
+@pytest.mark.skipif(not ZIG, reason="zig not on PATH")
+def test_a_cached_property_is_not_a_dataclass_field(tmp_path: Path) -> None:
+    """The cached property's hidden slots ride the layout, not the fields.
+
+    The hidden value slot and its computed flag are struct slots (issue
+    #440), not dataclass fields: they take no constructor parameter,
+    they stay out of the synthesized `__repr__` and `__eq__`, and the
+    dataclass rules never see them.
+    """
+    got = compile_and_run(tmp_path, "cached.py", CACHED_PROPERTY_DATACLASS)
+    assert got[1] == b""
+    assert got[2] == 0
+    assert [b"2", b"True", b"C(x=1)"] == got[0].splitlines()
+
+
+BASE_CHILD_REPR = """\
+from dataclasses import dataclass
+
+
+@dataclass
+class Base:
+    x: int
+
+
+@dataclass
+class Child(Base):
+    y: int
+
+
+print(Child(1, 2))
+print(Child(1, 2) == Child(1, 2))
+print(Child(1, 2) == Child(1, 3))
+"""
+
+
+@pytest.mark.skipif(not ZIG, reason="zig not on PATH")
+def test_the_child_repr_and_eq_cover_the_base_fields(tmp_path: Path) -> None:
+    """CPython regenerates the child's dunders over the whole field list."""
+    got = compile_and_run(tmp_path, "baserepr.py", BASE_CHILD_REPR)
+    assert got[1] == b""
+    assert got[2] == 0
+    assert [b"Child(x=1, y=2)", b"True", b"False"] == got[0].splitlines()
