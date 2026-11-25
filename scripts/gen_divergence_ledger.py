@@ -940,6 +940,18 @@ ROWS: list[dict[str, Any]] = [
         note="the hook dispatch itself is byte-identical (probes/differential/setattr_hook.py); the store "
         "seam is the rest of the entry",
     ),
+    _row(
+        "D109",
+        "a generator expression lowers as an eager list (issue #449, G4d): the elements materialize at the "
+        "point of evaluation, so the element side effects run at creation, a later mutation of the outermost "
+        "iterable does not flow through, and the value drains again like a list; CPython builds a lazy "
+        "generator that captures the outermost iterable by reference and is single-use",
+        "d109_genexp_eager_list.py",
+        docs=f"{DOC}#109",
+        note="the probe pins the three seams (creation-time side effects, the captured iterable and the "
+        "single-use drain) on both sides; the read-only shapes (sum, list, a for over a genexp) stay "
+        "byte-identical",
+    ),
 ]
 
 

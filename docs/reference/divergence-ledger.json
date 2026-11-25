@@ -2060,6 +2060,27 @@
         "stderr": ""
       },
       "status": "divergent"
+    },
+    {
+      "id": "D109",
+      "seam": "a generator expression lowers as an eager list (issue #449, G4d): the elements materialize at the point of evaluation, so the element side effects run at creation, a later mutation of the outermost iterable does not flow through, and the value drains again like a list; CPython builds a lazy generator that captures the outermost iterable by reference and is single-use",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#109",
+      "probe": "probes/divergences/d109_genexp_eager_list.py",
+      "note": "the probe pins the three seams (creation-time side effects, the captured iterable and the single-use drain) on both sides; the read-only shapes (sum, list, a for over a genexp) stay byte-identical",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "created\ncall 0\nv 0\ncall 1\nv 2\ncall 2\nv 4\n[10, 20, 30, 40]\n60000\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "call 0\ncall 1\ncall 2\ncreated\nv 0\nv 2\nv 4\n[10, 20, 30]\n60060\n",
+        "stderr": ""
+      },
+      "status": "divergent"
     }
   ]
 }
