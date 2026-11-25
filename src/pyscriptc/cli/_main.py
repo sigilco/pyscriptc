@@ -638,7 +638,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--report",
         action="store_true",
         help="print the inference coverage report: unannotated, pinned and unpinned parameters "
-        "and the pin rate per module plus a tree total (diagnostics only, no behavior change)",
+        "and the pin rate per module plus a tree total, plus the typing findings section "
+        "(diagnostics only, no behavior change)",
     )
     infer_parser.add_argument(
         "--overlay",

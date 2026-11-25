@@ -54,6 +54,7 @@ The accepted keys, their types and their allowed values:
 | `stub-path` | `string` or `list` |  | extra stub roots, relative to this file |
 | `ffi` | `string` or `list` |  | extern manifests, relative to this file |
 | `imports` | `table` |  | import lane per top-level module name |
+| `typing` | `table` |  | typing strictness levels: `mode`, and the per-level glob lists |
 | `fallback` | `table` or `string` or `boolean` |  | fallback mode settings: `definitions`, or the tier `cpython` |
 | `island` | `table` |  | embedded CPython settings: `embed`, `stdlib`, `engine`, `allow_host_libpython` |
 
@@ -83,6 +84,31 @@ An exact name wins over `*`; without either, the lane is `compile`, so the zero-
 The `refuse` lane is enforced while compiling: an import routed to `refuse` stops the compile with `PS2002`, naming the lane and the policy site.
 The other lanes are recorded in config and reported by `pyscriptc config`.
 The `island` lane is what `--fallback=cpython` (alias `--island`) acts on; see [Runtime pack](runtime-pack.md) for what a libpython-linked binary carries.
+
+## Typing levels
+
+`typing` sets how much of the typing quality report a project sees.
+It is a quality lane: a level never changes what compiles, what lowers or the exit code of a compile.
+
+```toml
+[tool.pyscriptc.typing]
+mode = "standard"        # off | basic | standard | strict: the project default
+strict = ["src/core/**"] # glob list per level, relative to this file
+basic = ["src/legacy/**"]
+```
+
+| Level | What the report shows |
+| ----- | --------------------- |
+| `off` | no typing findings |
+| `basic` | missing annotations (the `PS1001` family) as warnings |
+| `standard` | missing annotations as warnings, plus the coverage numbers |
+| `strict` | missing annotations and the construct forms (`PS1103`, `PS1104`, `PS1105`, `PS1106`) as errors |
+
+`mode` is the project default; a project without the table gets `standard`.
+Each level also accepts a list of glob patterns, relative to the config file's directory, and the longest matching pattern wins.
+The level of a file is the strictest of the pattern that matches it and the per-file pragma `# pyscriptc: typed=<level>`, which may only raise the level, never lower it.
+
+The findings surface in `pyscriptc infer --report` and `pyscriptc assess`; see [The Python subset](../guide/python-subset.md) for the PEP mapping of the levels.
 
 ## PEP 723
 
