@@ -689,7 +689,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                         const = self._module_fold(stmt.value)
                         if const is None or const.get("kind") not in {"const", "tuple-const"}:
                             typ = self._annotation(stmt.annotation)
-                            if _type_kind(typ) not in {"str", "int", "list", "dict"}:
+                            if _type_kind(typ) not in {"str", "int", "list", "dict", "dynval"}:
                                 self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
                             if stmt.target.id in seen or stmt.target.id in inherited_types:
                                 self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
@@ -699,6 +699,17 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             seen.add(stmt.target.id)
                             continue
                         typ = self._annotation(stmt.annotation)
+                        if _type_kind(typ) == "dynval":
+                            # A dynval-annotated class attribute (issue #1226):
+                            # the tagged cell has no const spelling, so the
+                            # value lowers in the runtime-attribute pass like
+                            # any other computed class body value and reads
+                            # through the slot.
+                            if stmt.target.id in seen or stmt.target.id in inherited_types:
+                                self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
+                            runtime_attrs.append((stmt.target.id, stmt))
+                            seen.add(stmt.target.id)
+                            continue
                         if const.get("kind") == "tuple-const":
                             # A fixed-shape tuple constant (issue #444): the
                             # class attribute holds the tuple, and the
@@ -771,6 +782,20 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             # annotation drives the factory's result type.
                             self._check_factory_default(stmt, default, typ)
                             field["factory"] = default
+                        elif _type_kind(typ) == "dynval":
+                            # A dynval field default (issue #1226): the value
+                            # boxes into the tagged cell, so the default is
+                            # the box call and not a const. It replays per
+                            # construction like the tuple default does (a
+                            # fresh cell per omitted argument,
+                            # value-identical), so the const rule does not
+                            # apply. The dataclass attribute is the CPython
+                            # class-attribute fallback: the default is also
+                            # the class attribute `C.v` reads, so it lands
+                            # in `class_constants` as the box call (a fresh
+                            # cell per read, value-identical).
+                            class_constants[stmt.target.id] = default
+                            const_types[stmt.target.id] = typ
                         elif _default_kind(default) not in {"const", "tuple-default"}:
                             self.fail(stmt, "PS2002", "a dataclass default must be a constant")
                         elif typ.get("optional"):
@@ -2342,6 +2367,16 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 self.fail(default_node, "PS1003", f"{arg.arg} is {_show(value['type'])}, not {_show(param['type'])}")
             param["default"] = value
             param["optdefault"] = True
+        elif _type_kind(param["type"]) == "dynval":
+            # A dynval-parameter default (issue #1226): the value boxes into
+            # the tagged cell, so the default is the box call and not a
+            # const. It replays per call site like the tuple default does
+            # (a fresh cell per omitted argument, value-identical), so the
+            # const rule does not apply.
+            value = self._expr(default_node, param["type"])
+            if _node_kind(value) == "assign":
+                self.fail(default_node, "PS2002", "a default must be a constant")
+            param["default"] = value
         elif _maybe_type_kind(param["type"]) == "class" and self.classes.get(param["type"]["name"], {}).get("tuple"):
             # A fixed-shape tuple default: the elements must each be
             # constants, and the shape must match the annotation. The

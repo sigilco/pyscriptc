@@ -1997,6 +1997,27 @@
         "stderr": ""
       },
       "status": "identical"
+    },
+    {
+      "id": "D105",
+      "seam": "object and Any are not interchangeable (issue #1226): CPython treats the two as aliases for the top type and pyscriptc gives them two meanings, object lowers as the tagged dynamic value (the closed sum None | bool | int | float | str | list | dict) while Any keeps the unresolved slot with its PS1107 read fence and a bare Any annotation keeps the PS1104 fence; a value whose arm is outside the sum (bytes, a tuple, a set, a user class instance) refuses the box with PS2002 where CPython accepts everything",
+      "listed": true,
+      "docs": "docs/reference/divergences.md#105",
+      "probe": "probes/divergences/d105_object_any_not_interchangeable.py",
+      "note": "the running surface (the container reads, the isinstance narrowing, the class attribute and the JSON round trip in the probe) is byte-identical; the seams are the compile-time fences, so the probe runs the compiling side and the fences are reviewed in the prose",
+      "cpython": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1112\n[1, 'x', None, 2.5, True, [1], {'k': 1}]\n1 x None 2.5 True\n1 seed 1\n2 AB other\n{'a': [1, {'b': 2.5}], 'c': None}\n{\"a\": [1, {\"b\": 2.5}], \"c\": null}\n",
+        "stderr": ""
+      },
+      "pyscriptc": {
+        "stage": "run",
+        "exit": 0,
+        "stdout": "1112\n[1, 'x', None, 2.5, True, [1], {'k': 1}]\n1 x None 2.5 True\n1 seed 1\n2 AB other\n{'a': [1, {'b': 2.5}], 'c': None}\n{\"a\": [1, {\"b\": 2.5}], \"c\": null}\n",
+        "stderr": ""
+      },
+      "status": "identical"
     }
   ]
 }

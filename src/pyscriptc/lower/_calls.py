@@ -240,6 +240,11 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 # str(next(it, None)): unbox the tagged optional, print
                 # "None" for the untagged arm, str(_val) otherwise.
                 return self._str_of_opt(node, args[0], span)
+            if spec is None and name == "str" and len(args) == 1 and _node_type_kind(args[0]) == "dynval":
+                # str(v) on a tagged dynamic value (issue #1226): the runtime's
+                # own str form of the cell, the same one print uses: the str
+                # arm's text, every other arm's repr.
+                return self._abi_call("builtins", "dyn.str", [args[0]], _t_leaf("str"), "ps_dyn_str_form", span)
             if spec is None:
                 if name in {"str", "len"} and len(args) == 1 and _node_type_kind(args[0]) == "class":
                     if name == "len" and not args[0]["type"].get("island"):

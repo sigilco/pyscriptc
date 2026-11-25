@@ -53,9 +53,11 @@ def storable_slot_type(typ: dict[str, Any]) -> bool:
     dict are pointers to a heap object, so they keep their identity
     through the slot. A float, a bool, a tuple and a user class instance
     have no slot form, so an attribute of those types keeps its fence.
+    A tagged dynamic value (issue #1226) is a pointer to its heap cell,
+    so it rides the pointer slot.
     """
     kind = _type_kind(typ)
-    if kind in {"str", "int", "list", "dict", "func"}:
+    if kind in {"str", "int", "list", "dict", "func", "dynval"}:
         return True
     if kind == "class" and (typ.get("name") == "Path" or typ.get("name") in PTR_CLASSES):
         return True
