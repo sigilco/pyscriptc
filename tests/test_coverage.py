@@ -502,9 +502,10 @@ def test_coverage_census_counts_the_class_bases_by_kind(tmp_path: Path) -> None:
     assert got.returncode == 0, got.stderr
     report = json.loads(got.stdout)
     census = report["summary"]["classBases"]
-    assert report["summary"]["classBaseTotal"] == 5
-    assert census["namedtuple"]["fences"] == 1
-    assert census["namedtuple"]["bases"] == ["NamedTuple"]
+    # The NamedTuple base compiles since #1369, so it no longer censuses as
+    # a fenced base: four fenced kinds remain.
+    assert report["summary"]["classBaseTotal"] == 4
+    assert "namedtuple" not in census
     assert census["typeddict"]["fences"] == 1
     assert census["typeddict"]["bases"] == ["TypedDict"]
     assert census["enum"]["fences"] == 1
@@ -544,8 +545,8 @@ def test_coverage_census_text_lists_the_kinds(tmp_path: Path) -> None:
     path = write_case(tmp_path, "bases.py", CLASS_BASE_SOURCE)
     got = run_cli("coverage", str(path))
     assert got.returncode == 0, got.stderr
-    assert "class bases by kind: 5 fenced" in got.stdout
-    assert "namedtuple: 1 (NamedTuple)" in got.stdout
+    assert "class bases by kind: 4 fenced" in got.stdout
+    assert "namedtuple" not in got.stdout
     assert "typeddict: 1 (TypedDict)" in got.stdout
     assert "enum: 1 (Color)" in got.stdout
     assert "stdlib: 1 (threading.Thread)" in got.stdout
