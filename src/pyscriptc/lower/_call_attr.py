@@ -240,10 +240,24 @@ class CallAttrMixin:
             if status == "pkg":
                 item = self._pkg_item(node, module, member)
                 if item["kind"] == "class":
+                    name = str(item["name"])
+                    if item.get("island"):
+                        # boxed:begin
+                        if self.program and self._boxed_cross_module_island():
+                            owner = str(item.get("module") or module)
+                            return self._island_floor_class_call(node, span, owner, name, expect)
+                        self.fail(
+                            node,
+                            "PS2002",
+                            f"{module}.{name} runs on the island floor of its own module, and calling it "
+                            "crosses a package boundary into it. Compile the tree as a program "
+                            "(--program --fallback=cpython) so the whole program runs island-side, "
+                            "or make the class lower natively.",
+                        )
+                        # boxed:end
                     # `pkg.mod.Class(...)` spells the class through the module,
                     # so no from-import ever installed its export: install it
                     # here the way `_bind_one_export` does for the named form.
-                    name = str(item["name"])
                     pending: list[Fence] = []
                     self._install_class_export(name, item, node, pending, module)
                     if pending:

@@ -22,6 +22,7 @@ from pathlib import Path
 from typing import Any, Dict
 
 from pyscriptc.errors import SpikeError
+from pyscriptc.typinglevels import LEVELS, TypingLevelError, TypingPolicy
 
 CONFIG_CODE = "PS3102"
 
@@ -49,6 +50,7 @@ _KEYS: Dict[str, list[str]] = {
     "stub-path": ["str", "list"],
     "ffi": ["str", "list"],
     "imports": ["dict"],
+    "typing": ["dict"],
     # boxed:begin
     "fallback": ["dict", "str", "bool"],
     "island": ["dict"],
@@ -192,6 +194,7 @@ class Config:
     stub_path: tuple[str, ...]
     ffi: tuple[str, ...]
     imports: Dict[str, str]
+    typing: Dict[str, Any]
     # boxed:begin
     fallback: Dict[str, Any]
     island: Dict[str, Any]
@@ -212,6 +215,7 @@ class Config:
         stub_path: tuple[str, ...] | None = None,
         ffi: tuple[str, ...] | None = None,
         imports: Dict[str, str] | None = None,
+        typing: Dict[str, Any] | None = None,
         # boxed:begin
         fallback: Dict[str, Any] | None = None,
         island: Dict[str, Any] | None = None,
@@ -232,6 +236,8 @@ class Config:
         self.ffi = empty_src if ffi is None else ffi
         empty_imports: Dict[str, str] = {}
         self.imports = empty_imports if imports is None else imports
+        empty_typing: Dict[str, Any] = {}
+        self.typing = empty_typing if typing is None else typing
         # boxed:begin
         empty_fallback: Dict[str, Any] = {}
         self.fallback = empty_fallback if fallback is None else fallback
@@ -308,6 +314,26 @@ class Config:
         # boxed:end
 
     # boxed:end
+
+    def typing_policy(self) -> TypingPolicy:
+        """The typing policy of the project (issue #1315).
+
+        The `[tool.pyscriptc.typing]` table holds the project default
+        (`mode`, one of the four levels) and one glob list per level. The
+        globs are paths relative to the config file's directory, so the
+        base of the policy is the config origin's directory; with no
+        origin (the default config) the base is None and the policy is the
+        project mode alone.
+        """
+
+        table = self.typing if isinstance(self.typing, dict) else {}
+        try:
+            return TypingPolicy.from_table(table, self._typing_base())
+        except TypingLevelError as exc:
+            raise ConfigError(str(exc)) from exc
+
+    def _typing_base(self) -> Path | None:
+        return self.origin.parent if self.origin is not None else None
 
     def lane_for(self, name: str) -> tuple[str, str]:
         """(lane, matched key) for an imported top-level name."""
@@ -480,6 +506,36 @@ def _paths(table: Dict[str, Any], key: str) -> tuple[str, ...]:
     return _as_tuple(out)
 
 
+def _validate_typing(table: str, typing: Dict[str, Any]) -> None:
+    """Key and type check of the `[tool.pyscriptc.typing]` subtable.
+
+    The table holds the project default (`mode`) and one glob list per
+    level; a level name the compiler does not know is a PS3102, so a typo
+    never silently disables the report. The parse itself lives in
+    `TypingPolicy.from_table`; this check runs at read time so a bad table
+    is a config error, not a report-time one.
+    """
+
+    for key, value in typing.items():
+        if key == "mode":
+            if not isinstance(value, str):
+                raise ConfigError(f"{table}.mode must be str, got {type(value).__name__}")
+            continue
+        if key not in LEVELS:
+            known: list[str] = ["mode"]
+            for level in LEVELS:
+                known.append(level)
+            raise ConfigError(f"{table}: unknown key (known: {', '.join(known)})")
+        if isinstance(value, str):
+            continue
+        if isinstance(value, list):
+            for item in value:
+                if not isinstance(item, str):
+                    raise ConfigError(f"{table}.{key} must be a list of strings")
+            continue
+        raise ConfigError(f"{table}.{key} must be a string or a list of strings")
+
+
 def _validate_island(table: str, island: Dict[str, Any]) -> None:
     """Key and type check of the `[tool.pyscriptc.island]` subtable.
 
@@ -577,6 +633,10 @@ def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
     imports: Dict[str, str] = {}
     if "imports" in table:
         imports = table["imports"]
+    typing: Dict[str, Any] = {}
+    if "typing" in table:
+        typing = table["typing"]
+        _validate_typing("tool.pyscriptc.typing" if source == "pyproject.toml" else "pyscriptc.typing", typing)
     return Config(
         origin=origin,
         source=source,
@@ -589,6 +649,7 @@ def _from_table(table: dict[str, Any], origin: Path, source: str) -> Config:
         stub_path=_paths(table, "stub-path"),
         ffi=_paths(table, "ffi"),
         imports=imports,
+        typing=typing,
         # boxed:begin
         fallback=fallback,
         island=island,
@@ -695,6 +756,7 @@ def load_config(source: Path) -> Config:
             stub_path=meta_project.stub_path,
             ffi=meta_project.ffi,
             imports=meta_project.imports,
+            typing=meta_project.typing,
             requires_python=requires,
             dependencies=deps,
         )
@@ -707,6 +769,12 @@ def load_config(source: Path) -> Config:
                 merged_imports[k] = v
         for k, v in project.imports.items():
             merged_imports[k] = v
+        merged_typing: dict[str, Any] = {}
+        if meta_project is not None:
+            for k, v in meta_project.typing.items():
+                merged_typing[k] = v
+        for k, v in project.typing.items():
+            merged_typing[k] = v
         empty_paths: tuple[str, ...] = _as_tuple([])
         return Config(
             origin=project.origin,
@@ -720,6 +788,7 @@ def load_config(source: Path) -> Config:
             stub_path=project.stub_path or (meta_project.stub_path if meta_project else empty_paths),
             ffi=project.ffi or (meta_project.ffi if meta_project else empty_paths),
             imports=merged_imports,
+            typing=merged_typing,
             requires_python=requires,
             dependencies=deps,
         )

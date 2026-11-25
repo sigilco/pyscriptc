@@ -81,13 +81,19 @@ def _module_of_callee(callee: str) -> str:
     return callee.rpartition(".")[0]
 
 
-def coverage_report(root: Path, facts: InferFacts) -> dict[str, Any]:
+def coverage_report(root: Path, facts: InferFacts, policy: Any = None) -> dict[str, Any]:
     """The coverage report for a tree: per module and the tree total.
 
     `root` is the package directory the facts were built over, `facts`
     the `build_facts` result. A pin covers the unannotated parameter its
     qualified callee names; every unannotated parameter no pin reaches is
     unpinned, the fence the default-on decision would leave standing.
+
+    `policy` is the optional typing policy (issue #1315): when it is
+    given, the report carries the typing section the strictness levels
+    configure, and the per-module rows carry the level of their module.
+    Without a policy the report is the plain coverage report it always
+    was.
     """
 
     root = root.resolve()
@@ -95,11 +101,13 @@ def coverage_report(root: Path, facts: InferFacts) -> dict[str, Any]:
     for (callee, param), pin in facts.pins.items():
         pins_by_module.setdefault(_module_of_callee(callee), {})[(callee, param)] = pin
     rows: dict[str, ModuleCoverage] = {}
+    paths: list[Path] = []
     for path in sorted(root.rglob("*.py")):
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"))
         except (OSError, SyntaxError, UnicodeDecodeError):
             continue
+        paths.append(path)
         module = _module_name(path, root)
         row = rows.setdefault(module, ModuleCoverage(module=module))
         module_pins = pins_by_module.get(module, {})
@@ -123,7 +131,7 @@ def coverage_report(root: Path, facts: InferFacts) -> dict[str, Any]:
     unannotated = sum(row["unannotated_params"] for row in modules)
     pinned = sum(row["pinned_params"] for row in modules)
     unpinned = sum(row["unpinned_params"] for row in modules)
-    return {
+    report: dict[str, Any] = {
         "provider": facts.provider,
         "modules": modules,
         "total": {
@@ -133,13 +141,22 @@ def coverage_report(root: Path, facts: InferFacts) -> dict[str, Any]:
             "pin_rate": round(pinned / unannotated, 4) if unannotated else None,
         },
     }
+    if policy is not None:
+        from pyscriptc import typinglevels
+
+        findings: list[typinglevels.Finding] = []
+        for path in paths:
+            findings.extend(typinglevels.scan_file(path))
+        report["typing"] = typinglevels.typing_report(policy, paths, findings)
+    return report
 
 
 def render_coverage_text(report: dict[str, Any]) -> str:
     """The text report: one row per module, the tree total last.
 
     `pin_rate` is `None` when nothing is unannotated (nothing to prove);
-    the text prints `-` there.
+    the text prints `-` there. When the report carries the typing section
+    (issue #1315), the typing findings join the rows.
     """
 
     lines: list[str] = []
@@ -157,4 +174,19 @@ def render_coverage_text(report: dict[str, Any]) -> str:
         f"{'total':<40} {total['unannotated_params']:>11} {total['pinned_params']:>8} "
         f"{total['unpinned_params']:>9} {rate:>9}"
     )
+    if "typing" in report:
+        _render_typing(lines, report["typing"])
     return "\n".join(lines)
+
+
+def _render_typing(lines: list[str], section: dict[str, Any]) -> None:
+    """The typing section of the text report: the mode, then the findings."""
+
+    summary: dict[str, Any] = section["summary"]
+    count: int = summary["errors"] + summary["warnings"]
+    lines.append("")
+    lines.append(f"typing mode {section['mode']}: {count} finding(s)")
+    findings: list[dict[str, Any]] = section["findings"]
+    for finding in findings:
+        severity: str = finding["severity"]
+        lines.append(f"  {severity}: {finding['file']}:{finding['line']}: {finding['code']} {finding['message']}")
