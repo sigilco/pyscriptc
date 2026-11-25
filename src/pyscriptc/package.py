@@ -2248,6 +2248,28 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
     if "base" in info:
         base = info["base"]
     exported["base"] = base
+    # The MRO list and the primary-base spine (issue #732): a consumer that
+    # subclasses this class resolves an inherited method's owner through
+    # `_emit_owner`, which walks the subclass's `mro` and asks each class on
+    # it for its `chain`. Without the two here the consumer's copy of this
+    # record has neither, so the owner resolves to the subclass itself and
+    # the emitted `cls.{Sub}.{method}` has no body: the definer emits
+    # `cls.{Base}.{method}`. The names are the lowered classes' own names,
+    # so the list stays plain strings like `base`.
+    mro: list[str] = []
+    if "mro" in info:
+        raw_mro: list[str] = info["mro"]
+        for cname in raw_mro:
+            mro.append(cname)
+    exported["mro"] = mro
+    chain: list[str] = []
+    if "chain" in info:
+        # `chain` is the primary-base spine, a set in the class record; the
+        # export row carries it sorted, so the round trip is deterministic.
+        raw_chain: set[str] = info["chain"]
+        for cname in sorted(raw_chain):
+            chain.append(cname)
+    exported["chain"] = chain
     exported["imported"] = True
     if "generated_init" in info:
         generated_init: str = info["generated_init"]
