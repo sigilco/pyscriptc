@@ -366,8 +366,8 @@ def test_self_census_ballpark() -> None:
     # the `str()` of a dynval in lower/_calls.py, the dynval slot and
     # class-attribute handling in lower/_class_attrs.py and
     # lower/_classes.py add about 44 lines, taking the census to about
-    # 98,800, so the ceiling moves to 99k.
-    assert 11_000 <= census["lines"] <= 99_000
+    # 99,000, so the ceiling moves to 100k.
+    assert 11_000 <= census["lines"] <= 100_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.
