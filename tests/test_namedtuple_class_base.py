@@ -57,6 +57,34 @@ def test_typing_forms_of_the_field_annotations() -> None:
     assert kinds == ["list", "class"]
 
 
+def test_an_optional_field_takes_a_bare_none_or_the_element() -> None:
+    # The field annotation is the expectation, so `None` boxes into the
+    # optional like any parameter, and a bare `str` boxes too. This is the
+    # iniconfig shape (`ParsedLine(lineno, section, None, None)`).
+    module = lower_source(
+        "from typing import NamedTuple\n"
+        "class P(NamedTuple):\n"
+        "    x: int\n"
+        "    y: str | None\n"
+        "\n"
+        "\n"
+        "def probe() -> int:\n"
+        "    p: P = P(1, None)\n"
+        "    q: P = P(2, 'a')\n"
+        "    return 0\n",
+        "case.py",
+    )
+    assert module["fences"] == []
+
+
+def test_an_optional_field_refuses_a_foreign_type() -> None:
+    fences = _fences(
+        "from typing import NamedTuple\nclass P(NamedTuple):\n    y: str | None\n\n\ndef probe() -> int:\n"
+        "    p: P = P(3)\n    return 0\n"
+    )
+    assert any(f["code"] == "PS1003" for f in fences)
+
+
 def test_default_is_a_constant_and_construction_fills_it() -> None:
     module = lower_source(
         "from typing import NamedTuple\n"

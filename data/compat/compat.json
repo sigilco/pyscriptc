@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-25",
-  "commit": "442e0aecc7cc96bd0a49a3a1eb724cc19ebd8c3f",
+  "commit": "fa7c67f64a9af0f20ecc6ef9933943b50331f0e2",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-25",
-    "commit": "442e0aecc7cc96bd0a49a3a1eb724cc19ebd8c3f",
+    "commit": "fa7c67f64a9af0f20ecc6ef9933943b50331f0e2",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3816
+    "fences": 3815
   },
   "builtins": [
     {
@@ -1964,7 +1964,7 @@
         "blocked": 10
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 8,
+      "fences": 7,
       "definitions": 34,
       "fenced_definitions": 6,
       "top_families": [
@@ -2757,8 +2757,8 @@
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 103,
-      "packages": 13
+      "count": 102,
+      "packages": 12
     },
     {
       "code": "PS1102",
@@ -2830,12 +2830,12 @@
   "history": [
     {
       "date": "2026-11-25",
-      "commit": "442e0aecc7cc96bd0a49a3a1eb724cc19ebd8c3f",
+      "commit": "fa7c67f64a9af0f20ecc6ef9933943b50331f0e2",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3816
+      "fences": 3815
     }
   ]
 }

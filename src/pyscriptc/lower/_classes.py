@@ -2511,18 +2511,22 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         later ones check against them, like a class without an `__init__`.
         """
         fields = info["nt_fields"]
+        declared = {field["name"]: field["type"] for field in info["fields"]}
         node.args = self._expand_starred(node)
         if len(node.args) > len(fields):
             self.fail(node, "PS2003", f"{name}() expects {len(fields)} argument(s)")
         values: dict[str, dict[str, Any]] = {}
         for field, arg in zip(fields, node.args, strict=False):
-            values[field] = self._expr(arg)
+            # The field annotation is the expectation (the class body fixes
+            # the types), so a `T | None` field accepts a bare T or None and
+            # the argument boxes into the optional like any parameter.
+            values[field] = self._expr(arg, declared.get(field))
         for kw in node.keywords:
             if kw.arg is None or kw.arg not in fields:
                 self.fail(node, "PS2003", f"{name}() keyword arguments name its fields")
             if kw.arg in values:
                 self.fail(node, "PS2003", f"{name}() field {kw.arg} is given twice")
-            values[kw.arg] = self._expr(kw.value)
+            values[kw.arg] = self._expr(kw.value, declared.get(kw.arg))
         defaults = info.get("nt_defaults") or {}
         missing = [field for field in fields if field not in values and field not in defaults]
         if missing:
