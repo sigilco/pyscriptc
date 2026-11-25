@@ -1692,9 +1692,7 @@ class StmtBMixin:
             elems.append(elem)
         return self._for_pairs(stmt, span, resolved, elems, None, "zip")
 
-    def _pair_source(
-        self, call: ast.Call, source: dict[str, Any], what: str
-    ) -> tuple[dict[str, Any], dict[str, Any]]:
+    def _pair_source(self, call: ast.Call, source: dict[str, Any], what: str) -> tuple[dict[str, Any], dict[str, Any]]:
         """The source an enumerate/zip loop reads, with its element type.
 
         A source is a non-set `list` of scalars, a `str` (which iterates

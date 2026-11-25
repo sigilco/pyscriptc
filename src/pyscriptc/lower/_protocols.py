@@ -396,8 +396,6 @@ class ProtocolsMixin:
             return None
         return materialized, elem
 
-
-
     def _iter_resolve(
         self,
         node: ast.AST,
@@ -458,9 +456,7 @@ class ProtocolsMixin:
     # the with family: the __exit__ carrier erasure
     # ------------------------------------------------------------------
 
-    def _exit_carrier_types(
-        self, fn: ast.FunctionDef, args: list[ast.arg]
-    ) -> list[dict[str, Any] | None] | None:
+    def _exit_carrier_types(self, fn: ast.FunctionDef, args: list[ast.arg]) -> list[dict[str, Any] | None] | None:
         """The carrier types an `__exit__` signature's parameters erase to.
 
         The `with` family passes three values to `__exit__`: the
