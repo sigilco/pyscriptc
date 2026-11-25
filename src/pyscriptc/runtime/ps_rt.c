@@ -1156,7 +1156,7 @@ static int64_t ps_key_hash(PsMap *m, const void *key) {
         memcpy(&k, key, 8);
         return (int64_t)ps_mix64((uint64_t)k);
     }
-    if (m->key_kind == 3) {
+    if (m->key_kind == 4) {
         /* The tuple key (issue #1368): the cell holds the record's pointer
            and the record hashes field-wise, the way CPython hashes a
            tuple. */
@@ -1252,7 +1252,7 @@ static int ps_key_eq(PsMap *m, const void *a, const void *b) {
         memcpy(&kb, b, 8);
         return ka == kb;
     }
-    if (m->key_kind == 3) {
+    if (m->key_kind == 4) {
         /* The tuple key (issue #1368): the cells hold the records' pointers
            and the records compare field-wise. */
         void *ra = NULL;
@@ -1371,7 +1371,7 @@ void ps_map_get(PsMap *m, void *key, void *out) {
         char msg[280];
         if (m->key_kind == 1) {
             snprintf(msg, sizeof msg, "%lld", (long long)*(int64_t *)key);
-        } else if (m->key_kind == 3) {
+        } else if (m->key_kind == 4) {
             /* The tuple key (issue #1368): the message is the tuple's
                repr, the way a str key's message is the str's repr. */
             void *rec = NULL;

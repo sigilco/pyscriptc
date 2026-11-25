@@ -440,7 +440,7 @@ void ps_map_val_at(PsMap *m, int64_t i, void *out);
 int64_t ps_map_delete(PsMap *m, void *key);
 void ps_map_reset(PsMap *m);
 
-/* The tuple dict key (issue #1368). A map with `key_kind` 3 stores a tuple
+/* The tuple dict key (issue #1368). A map with `key_kind` 4 stores a tuple
    as its key: the key cell holds one pointer to a tuple-key record, and the
    record names each field's kind and carries the field payloads in a flat
    buffer. The compiler packs the fields (it knows each field's static

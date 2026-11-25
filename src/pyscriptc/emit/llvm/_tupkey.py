@@ -105,7 +105,7 @@ class TupleKeyMixin:
     """The tuple dict key's packing, as a mixin over the LLVM emitter."""
 
     def _map_key_kind(self, key_type: dict[str, Any]) -> int:
-        """The map's key kind for a key type: 1 int, 2 str, 3 tuple.
+        """The map's key kind for a key type: 1 int, 2 str, 4 tuple.
 
         The map's key kind decides how the key cell is hashed and compared,
         so the kind is a property of the key's type, not of the call site.
@@ -116,7 +116,7 @@ class TupleKeyMixin:
         if kind == "str":
             return 2
         if kind == "class" and self._is_tuple_class(key_type.get("name", "")):
-            return 3
+            return 4
         raise IRError(f"a map key of kind {kind} is not lowered")
 
     def _is_tuple_class(self, class_name: str) -> bool:
@@ -133,9 +133,9 @@ class TupleKeyMixin:
         An int or a str key stores its own cell, the way the map's key
         kinds 1 and 2 read it. A tuple key packs the tuple into a
         tuple-key record and stores the record's pointer, the way the map's
-        key kind 3 reads it.
+        key kind 4 reads it.
         """
-        if self._map_key_kind(key_type) == 3:
+        if self._map_key_kind(key_type) == 4:
             slot = self._alloca("ptr")
             rec = self._pack_tuple_key(key_type["name"], value)
             self.line(f"store ptr {rec}, ptr {slot}")
