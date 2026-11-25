@@ -44,7 +44,6 @@ def _class_source(hook: str, body: list[str]) -> str:
 
 
 _HOOKS = [
-    ("__setattr__", "PS4201", ["self", "name: str", "value: int"]),
     ("__getattribute__", "PS4201", ["self", "name: str"]),
     ("__get__", "PS4201", ["self", "obj: int", "owner: int"]),
     ("__set__", "PS4201", ["self", "obj: int", "value: int"]),
@@ -120,7 +119,9 @@ def test_finalizer_is_refused_by_name(tmp_path: Path) -> None:
 
 
 def test_the_silent_setattr_trap_is_gone(tmp_path: Path) -> None:
-    """The divergence this ticket kills: the hook compiled and never ran."""
+    """The divergence this ticket kills: the hook compiled and never ran.
+    D3 (issue #436) now lowers the write lane to the hook; see
+    tests/test_setattr_writes.py."""
     source = "\n".join(
         [
             "class C:",
@@ -150,8 +151,26 @@ def test_the_silent_setattr_trap_is_gone(tmp_path: Path) -> None:
         "-o",
         str(tmp_path / "out.ll"),
     )
+    assert got.returncode == 0, got.stderr
+
+
+def test_an_unshaped_setattr_hook_still_refuses(tmp_path: Path) -> None:
+    """The D3 lift covers one shape; every other spelling keeps the refusal
+    at the definition site, so the class never registers half-collected."""
+    source = _class_source("__setattr__", ["self", "name: str"])
+    path = write_case(tmp_path, "setatt-run.py", source)
+    got = run_cli(
+        "compile",
+        str(path),
+        "--skip-check",
+        "--emit",
+        "llvm",
+        "-o",
+        str(tmp_path / "out.ll"),
+    )
     assert got.returncode == 3, got.stderr
     assert "PS4201" in got.stderr, got.stderr
+    assert "the __setattr__ hook is refused by design" in got.stderr, got.stderr
     # The compile stops before emission: no binary that silently drops the hook.
     assert not (tmp_path / "out.ll").exists()
 
@@ -223,7 +242,7 @@ def test_the_refusal_reaches_a_package_module(tmp_path: Path) -> None:
                 "    def __init__(self, a: int) -> None:",
                 "        self.a = a",
                 "",
-                "    def __setattr__(self, name: str, value: int) -> None:",
+                "    def __setattr__(self, name: int, value: int) -> None:",
                 "        self.a = value",
                 "",
             ]
@@ -264,7 +283,7 @@ def test_every_refusal_code_is_registered_and_explained() -> None:
 
 
 def test_coverage_names_the_refused_hook(tmp_path: Path) -> None:
-    path = write_case(tmp_path, "cov.py", _class_source("__setattr__", ["self", "name: str", "value: int"]))
+    path = write_case(tmp_path, "cov.py", _class_source("__setattr__", ["self", "name: int", "value: int"]))
     got = run_cli("coverage", str(path))
     assert got.returncode == 0, got.stderr
     assert "PS4201" in got.stdout
