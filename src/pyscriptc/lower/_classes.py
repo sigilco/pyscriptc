@@ -49,7 +49,11 @@ from pyscriptc.reflection import annotation_note, metaclass_note
 from pyscriptc.reprspec import type_spec
 from pyscriptc.restlower import method_spec as synth_method
 from pyscriptc.restlower import path_attr, rest_call
-from pyscriptc.restlower._dataclasses import container_factory, factory_ast
+from pyscriptc.restlower._dataclasses import (
+    container_factory,
+    factory_ast,
+    marker_type,
+)
 from pyscriptc.restlower._popen import _reaped_fill
 from pyscriptc.restlower._uuid import uuid_hex_attr
 from pyscriptc.sigrec import T, type_to_dict
@@ -499,6 +503,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         fixed-shape tuple whose elements are constants.
         """
         node = marker.get("default_ast")
+        if node is None:
+            # `field(init=False)` with no default (issue #452): CPython
+            # leaves the field unset, so the read raises `AttributeError`.
+            # The lowered struct always has the slot, so this shape has no
+            # right answer and fences here.
+            self.fail(stmt, "PS2002", "field(init=False) needs a default")
         assert isinstance(node, ast.expr)
         if self._is_tuple_annotation(typ):
             return self._tuple_field_default(node, typ, stmt)
@@ -585,7 +595,14 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if base is not None and _base_kind(base) == "enum" and enum_mixin:
             base = _enum_base("IntEnum")
         if deco == "dataclass" and base is not None:
-            self.fail(node, "PS2002", "a dataclass has no base")
+            # The dataclass base (issue #452): CPython lets a dataclass
+            # extend a dataclass, and the child's fields follow the base's.
+            # Only a dataclass base lowers: a plain class base would mix
+            # the two constructor shapes, and the base's own `__init__` is
+            # not the dataclass one.
+            base_info = self.classes.get(str(base["name"]))
+            if base_info is None or base_info.get("generated_init") != "dataclass":
+                self.fail(node, "PS2002", "a dataclass base is not lowered")
         if base is not None and _base_kind(base) == "enum":
             parent = str(base.get("parent", ""))
             if parent:
@@ -713,6 +730,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     if _type_kind(typ) == "func":
                         self.fail(stmt, "PS2002", "callable fields are not lowered")
                     field: dict[str, Any] = {"name": stmt.target.id, "type": typ}
+
                     if stmt.value is not None:
                         saved_prelude = self.prelude
                         self.prelude = []
@@ -732,6 +750,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                                 # lowers right here, against the annotation,
                                 # the same rule the bare spelling follows.
                                 default = self._field_default(stmt.value, typ)
+                                # The `repr=`/`compare=`/`init=` flags (issue
+                                # #452) ride the marker; each names whether the
+                                # field joins the synthesized `__repr__` and
+                                # `__eq__` or the constructor.
+                                for flag_name in ("repr", "compare", "init"):
+                                    if flag_name in default:
+                                        field[flag_name] = bool(default[flag_name])
                                 if _record_kind(default) == "field-const-default":
                                     default = self._field_const_default(default, typ, stmt)
                             elif self._is_tuple_annotation(typ):
@@ -772,6 +797,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             field["default"] = default
                         seen_default = True
                     elif seen_default:
+                        self.fail(stmt, "PS2002", "a non-default field follows a default")
+                    elif any(("default" in base_field or "factory" in base_field) for base_field in inherited):
+                        # The dataclass base (issue #452): CPython's rule
+                        # spans base and child, so a required child field
+                        # after a defaulted base field is the same
+                        # TypeError CPython raises at class creation.
                         self.fail(stmt, "PS2002", "a non-default field follows a default")
                     seen.add(stmt.target.id)
                     fields.append(field)
@@ -847,6 +878,14 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     continue
                 if owner != ancestor and owner not in ancestor_mro:
                     continue
+                if deco == "dataclass" and mname in {"__eq__", "__repr__"}:
+                    # The dataclass base (issue #452): CPython regenerates
+                    # the synthesized `__eq__` and `__repr__` on the child,
+                    # over the whole field list, so the base's copies do not
+                    # come through the MRO. A child that writes its own
+                    # `__eq__`/`__repr__` keeps it (the MRO loop skips the
+                    # names the child defines).
+                    continue
                 if sig[0] and sig[0][0]["name"] == "self":
                     sig = ([_self_param(node.name), *sig[0][1:]], sig[1])
                 method_sigs[mname] = sig
@@ -918,6 +957,10 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         # declared set, so `__repr__`, the dataclass `__eq__` and the export
         # table never see them.
         hidden_fields: list[dict[str, Any]] = []
+        # The declared fields of this class and of its dataclass bases:
+        # the set the dataclass rules read (the constructor, the
+        # `__repr__` and the `__eq__`). The hidden slots stay out of it.
+        declared_fields: list[dict[str, Any]] = []
         for name in cached_props:
             sig = method_sigs.get(name)
             if sig is None:
@@ -949,8 +992,27 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if deco == "dataclass":
             if wrote_init:
                 self.fail(node, "PS2002", "a dataclass does not take a written __init__")
+            # The dataclass base (issue #452): the base's fields are the
+            # constructor's leading parameters, so the child's own fields
+            # follow them. CPython's rule is the whole field list in
+            # order, so a required field after a defaulted one is the same
+            # fence the base-less dataclass has.
+            # The cached-property hidden slots (issue #440) are struct
+            # slots, not dataclass fields: they ride the layout but not
+            # the constructor, the `__repr__` or the `__eq__`, so the
+            # dataclass rules below see only the declared set.
+            all_fields = [*inherited, *fields]
+            declared_fields = list(all_fields)
             params = [_self_param(node.name)]
-            for field in fields:
+            init_excluded: list[dict[str, Any]] = []
+            for field in all_fields:
+                if field.get("init") is False:
+                    # `field(init=False)` (issue #452): the field is not a
+                    # constructor parameter. CPython's generated `__init__`
+                    # writes the field's default (or calls the factory) and
+                    # takes no argument for it.
+                    init_excluded.append(field)
+                    continue
                 param: dict[str, Any] = {"name": field["name"], "type": field["type"]}
                 if "default" in field:
                     param["default"] = field["default"]
@@ -968,14 +1030,20 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             generated = "dataclass"
             if (
                 "__eq__" not in method_sigs
-                and fields
-                and all(self._eq_comparable_field(field["type"], current=node.name) for field in fields)
+                and all_fields
+                and all(
+                    self._eq_comparable_field(field["type"], current=node.name)
+                    for field in all_fields
+                    if field.get("compare", True)
+                )
             ):
                 # The dataclass `__eq__` (issue #1279): CPython synthesizes
                 # it, so the signature is registered here, in the collect
                 # pass, and the compare sites find it before the body pass
                 # lowers the method. A written `__eq__` wins. A field the
-                # chain cannot spell keeps the identity fallback.
+                # chain cannot spell keeps the identity fallback. A field
+                # spelled `field(compare=False)` (issue #452) drops out of
+                # the chain, so it needs no compare.
                 eq_params = [
                     _self_param(node.name),
                     {"name": "other", "type": _class_type(node.name)},
@@ -1025,6 +1093,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         info: dict[str, Any] = {
             "fields": [*inherited, *fields, *hidden_fields],
             "own_fields": fields,
+            "declared_fields": declared_fields or fields,
             "constants": class_constants,
             "const_types": const_types,
             "methods": method_sigs,
@@ -1431,14 +1500,39 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         params = info.get("methods", {}).get("__init__")
         if params is None:
             return
+        # The `__init=False` fields (issue #452) carry no parameter, so
+        # their factory rides the field row instead of a parameter row.
+        markers: list[dict[str, Any]] = []
         for param in params[0]:
             marker = param.get("factory")
-            if marker is None:
-                continue
+            if marker is not None:
+                markers.append(marker)
+        for field in info.get("fields", []):
+            marker = field.get("factory")
+            if marker is not None:
+                markers.append(marker)
+        for marker in markers:
             ast_node = factory_ast(marker)
             if ast_node is None:
                 continue
-            ret = param["type"]
+            field_type = marker_type(marker)
+            # `default_factory=ClassName` (issue #452): a class is a
+            # callable, so the factory replays the zero-argument
+            # construction at the site that omits the field. The field's
+            # annotation names the class, so no callable value is lowered.
+            factory_node = factory_ast(marker)
+            class_name = factory_node.id if isinstance(factory_node, ast.Name) else None
+            if (
+                class_name is not None
+                and not field_type.get("optional")
+                and _type_kind(field_type) == "class"
+                and str(field_type.get("name")) == class_name
+                and class_name in self.classes
+            ):
+                marker["class_ctor"] = class_name
+                marker["factory_ast"] = None
+                continue
+            ret = field_type
             if ret.get("optional"):
                 ret = ret["elem"]
             ftype = {"kind": "func", "params": [], "return": ret}
@@ -1844,6 +1938,65 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         finally:
             self.locals = saved_locals
 
+    def _dataclass_post_init(
+        self, node: ast.ClassDef, info: dict[str, Any], span: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """The `__post_init__` call the generated init ends with, or None.
+
+        CPython's `@dataclass` synthesizes an `__init__` that calls
+        `self.__post_init__()` when the class (or an ancestor) defines
+        one (issue #452). The call is static: the definer's own body
+        runs, so the hook reads and writes the instance fields the way
+        CPython's does. A class that defines no `__post_init__` anywhere
+        in its MRO gets no call.
+        """
+        owner = self._definer(node.name, "__post_init__")
+        if owner is None:
+            return None
+        emit = self._emit_owner(node.name, "__post_init__")
+        sig = self.classes[owner]["methods"]["__post_init__"]
+        if sig[1] is not None and _type_kind(sig[1]) != "none":
+            self.fail(node, "PS1003", "__post_init__ returns None")
+        self_type = _class_type(node.name)
+        return _expr_stmt_node(
+            _function_call(f"cls.{emit}.__post_init__", [_name("self", self_type, span)], _leaf_type("none"), span),
+            span,
+        )
+
+    def _initless_field_store(
+        self, node: ast.ClassDef, field: dict[str, Any], span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """The store a `field(init=False)` field gets in the generated init.
+
+        CPython's `init=False` field with a default is not a constructor
+        parameter, but the generated `__init__` still writes the default
+        into the instance (issue #452). A factory field calls the factory
+        there, so every instance gets its own value. A field with no
+        default at all stays unset in CPython (the read raises
+        `AttributeError`); the lowered struct always has the slot, so
+        that shape fences instead of answering a wrong value.
+        """
+        self_type = _class_type(node.name)
+        target = _name("self", self_type, span)
+        if "factory" in field:
+            marker = field["factory"]
+            saved_prelude = self.prelude
+            self.prelude = []
+            try:
+                value = self._factory_default(marker, field["type"], node)
+            finally:
+                inner = self.prelude
+                self.prelude = saved_prelude
+            return [*inner, _setattr_node(target, field["name"], value, span)]
+        default = field.get("default")
+        if default is None:
+            self.fail(node, "PS2002", "field(init=False) needs a default")
+        if field.get("optdefault"):
+            value = self._opt_box(default, field["type"], span)
+        else:
+            value = default
+        return [_setattr_node(target, field["name"], value, span)]
+
     def _generated_method(self, node: ast.ClassDef, info: dict[str, Any]) -> dict[str, Any] | None:
         mode = info.get("generated_init")
         if mode is None:
@@ -1853,12 +2006,29 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self_type = _class_type(node.name)
         self.locals = {param["name"]: param["type"] for param in params}
         if mode == "dataclass":
-            body = [
-                _setattr_node(
-                    _name("self", self_type, span), field["name"], _name(field["name"], field["type"], span), span
+            # The dataclass base (issue #452): the base's fields are the
+            # instance's leading slots, so the generated init writes them
+            # before the child's own, the order the layout declares.
+            body: list[dict[str, Any]] = []
+            param_names = {param["name"] for param in params}
+            for field in info.get("declared_fields", info["own_fields"]):
+                if field["name"] not in param_names:
+                    # A `field(init=False)` field (issue #452): no
+                    # parameter exists, so the init writes the default
+                    # (the Optional cell for `None`) or calls the factory.
+                    body.extend(self._initless_field_store(node, field, span))
+                    continue
+                body.append(
+                    _setattr_node(
+                        _name("self", self_type, span),
+                        field["name"],
+                        _name(field["name"], field["type"], span),
+                        span,
+                    )
                 )
-                for field in info["own_fields"]
-            ]
+            post = self._dataclass_post_init(node, info, span)
+            if post is not None:
+                body.append(post)
         elif mode == "const-seed":
             # The seeding init: the class body's constant attributes fill
             # the instance slots before any method writes them (issue
@@ -1880,11 +2050,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         repr rows for list/dict/set); a field whose repr is outside the
         printable set keeps the `print` fence instead of emitting a wrong
         string. A written `__repr__` or `__str__` wins, as in CPython.
+        A field spelled `field(repr=False)` (issue #452) drops out of the
+        body, the way CPython's `repr` flag drops it.
         """
         mode = info.get("generated_init")
         if mode != "dataclass" or "__repr__" in info["methods"] or "__str__" in info["methods"]:
             return None
-        fields = info["own_fields"]
+        fields = [field for field in info.get("declared_fields", info["own_fields"]) if field.get("repr", True)]
         if any(not self._reprable_field(field["type"]) for field in fields):
             return None
         span = span_of(node, self.filename)
@@ -1919,11 +2091,12 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         so a container or nested-dataclass field compares by value. A
         written `__eq__` wins, as in CPython; `eq=False` on the decorator
         is a different decorator spelling and never reaches this class
-        lowering.
+        lowering. A field spelled `field(compare=False)` (issue #452)
+        drops out of the chain, the way CPython's `compare` flag drops it.
         """
         if not info.get("generated_eq"):
             return None
-        fields = info["own_fields"]
+        fields = [field for field in info.get("declared_fields", info["own_fields"]) if field.get("compare", True)]
         if any(not self._eq_comparable_field(field["type"], current=node.name) for field in fields):
             return None
         span = span_of(node, self.filename)
@@ -2400,7 +2573,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         inst["own_fields"] = [
             {**field, "type": self._subst(field["type"], mapping, node)} for field in inst.get("own_fields", [])
         ]
-        for field in inst["fields"] + inst["own_fields"]:
+        inst["declared_fields"] = [
+            {**field, "type": self._subst(field["type"], mapping, node)}
+            for field in inst.get("declared_fields", inst["own_fields"])
+        ]
+        for field in inst["fields"] + inst["own_fields"] + inst["declared_fields"]:
             default = field.get("default")
             if default is not None:
                 default["type"] = self._subst(default["type"], mapping, node)
