@@ -348,7 +348,11 @@ def test_self_census_ballpark() -> None:
     # functools.cached_property (D4b, #440): the descriptor lowering and
     # the functools lane add about 200 lines, taking the census to
     # 96,204, so the ceiling moves to 97k.
-    assert 11_000 <= census["lines"] <= 97_000
+    # The typed-record reads (R5, #829): the emit/llvm mixins read the
+    # kind tags and the type shapes off the typed `T` record instead of the
+    # raw dict keys, and the typed helpers add about 140 lines, taking the
+    # census to 96,139, so the ceiling moves to 98k.
+    assert 11_000 <= census["lines"] <= 98_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.

@@ -24,7 +24,7 @@ from pyscriptc.emit._ir import (
 from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import FitError, IRError
 from pyscriptc.ir import fits_i64
-from pyscriptc.tirserde import dict_to_node, node_to_dict
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
 
 def dict_to_dict(value: Any) -> dict[str, Any]:
@@ -100,6 +100,23 @@ def _type_dict_of(node: Any) -> dict[str, Any]:
     return out
 
 
+def _type_record(node: Any) -> Any:
+    """The `T` record a node's type spells, or None when it carries none.
+
+    The record is the typed shape: the kind tag, the element and value
+    types and the class name all come off it, so the type dispatch never
+    reads a raw `["kind"]` subscript (#829). A node the escape hatch kept
+    whole (a call with payload keys the typed record has no slot for) has
+    no record, so the dict spelling answers instead.
+    """
+    if isinstance(node, dict):
+        t: Any = node.get("type")
+        if t is None:
+            return None
+        return dict_to_type(t)
+    return node.type
+
+
 _FLIP = {"<": ">", "<=": ">=", ">": "<", ">=": "<=", "==": "==", "!=": "!="}
 
 
@@ -117,16 +134,10 @@ def _int_float_operands(node: Any) -> tuple[Any, Any, bool] | None:
 
 def _type_kind_of(node: Any) -> str:
     """The type kind of a typed node's `T` record (`any` when it has none)."""
-    if isinstance(node, dict):
-        t: Any = node.get("type")
-        if t is None:
-            return "any"
-        tk: Any = t["kind"]
-        return tk if isinstance(tk, str) else "any"
-    t = node.type
-    if t is None:
+    record: Any = _type_record(node)
+    if record is None:
         return "any"
-    kind: str = t.kind
+    kind: str = record.kind
     return kind
 
 
@@ -407,21 +418,25 @@ class ExprsMixin(EmitterBase):
         value = self.emit_expr(dict_to_dict(node.value))
         index = self.emit_expr(dict_to_dict(node.index))
         vt: dict[str, Any] = _type_dict_of(node.value)
-        kind: str = vt["kind"]
+        # The container's type reads through the typed `T` record: the kind
+        # tag and the element/value types come off the record, so the
+        # dispatch never reads a raw `["kind"]` subscript (#829).
+        vt_t: Any = dict_to_type(vt)
+        kind: str = vt_t.kind
         out_t: dict[str, Any] = _type_dict_of(node)
         if kind == "list":
             slot: dict[str, Any] = vt["elem"]
             self.needed.add("seq")
             out = self._alloca(_memory_type(out_t))
             self.line(f"call void @ps_seq_get(ptr {value}, i64 {index}, ptr {out})")
-            return self._widen_cell(out_t, out, slot if slot["kind"] == "any" else None)
+            return self._widen_cell(out_t, out, slot if vt_t.elem is not None and vt_t.elem.kind == "any" else None)
         if kind == "dict":
             slot = vt["value"]
             self.needed.add("map")
             key = self._stash_map_key(_type_dict_of(node.index), index)
             out = self._alloca(_memory_type(out_t))
             self.line(f"call void @ps_map_get(ptr {value}, ptr {key}, ptr {out})")
-            return self._widen_cell(out_t, out, slot if slot["kind"] == "any" else None)
+            return self._widen_cell(out_t, out, slot if vt_t.value is not None and vt_t.value.kind == "any" else None)
         if kind == "str":
             self.needed.add("str")
             length, ptr = self._buf_parts(value)
@@ -441,11 +456,14 @@ class ExprsMixin(EmitterBase):
     def emit_attr(self, expr: dict[str, Any]) -> str:
         node: Any = dict_to_node(expr)
         vt: dict[str, Any] = _type_dict_of(node.value)
-        if vt["kind"] == "exc":
+        # The class name and the kind tag come off the typed `T` record
+        # (#829): the dispatch never reads a raw `["kind"]` subscript.
+        vt_t: Any = dict_to_type(vt)
+        if vt_t.kind == "exc":
             # `except C as e` over a user exception class (issue #448): the
             # custom fields ride the record's payload, the class instance the
             # raise site built. Read the field at the class's static offset.
-            bound: str = vt.get("name", "")
+            bound: str = vt_t.name
             if bound == "":
                 raise IRError(f"exception has no attribute {node.name}")
             self._abi_decl("ps_exc_payload", "ptr", ["ptr"])
@@ -454,8 +472,8 @@ class ExprsMixin(EmitterBase):
             slot = self._field_ptr(bound, record, field)
             return self._widen_cell(_field_type(field), slot)
         obj = self.emit_expr(dict_to_dict(node.value))
-        field = self._field(vt["name"], node.name)
-        slot = self._field_ptr(vt["name"], obj, field)
+        field = self._field(vt_t.name, node.name)
+        slot = self._field_ptr(vt_t.name, obj, field)
         return self._widen_cell(_field_type(field), slot)
 
     def emit_contains(self, expr: dict[str, Any]) -> str:
@@ -463,7 +481,10 @@ class ExprsMixin(EmitterBase):
         needle = self.emit_expr(dict_to_dict(node.needle))
         hay = self.emit_expr(dict_to_dict(node.hay))
         ht: dict[str, Any] = _type_dict_of(node.hay)
-        hay_kind: str = ht["kind"]
+        # The container's type reads through the typed `T` record: the kind
+        # tag and the element type come off the record (#829).
+        ht_t: Any = dict_to_type(ht)
+        hay_kind: str = ht_t.kind
         if hay_kind in {"str", "bytes"}:
             self.needed.add("str")
             hay_len, hay_ptr = self._buf_parts(hay)
@@ -475,7 +496,7 @@ class ExprsMixin(EmitterBase):
             self.line(f"{flag} = icmp sge i64 {found}, 0")
         elif hay_kind == "list":
             self.needed.add("seq")
-            elem: str = ht["elem"]["kind"]
+            elem: str = ht_t.elem.kind if ht_t.elem is not None else "any"
             if elem == "int":
                 flag = self._call_ret("i32", "ps_seq_has_i64", [f"ptr {hay}", f"i64 {needle}"])
             elif elem == "float":
