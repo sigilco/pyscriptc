@@ -21,7 +21,6 @@ from pyscriptc.emit._ir import (
     _island_text,
     _island_want,
     _key_of,
-    _kind,
     _kind_or_none,
     _llvm_type,
     _memory_type,
@@ -43,7 +42,6 @@ from pyscriptc.emit._ir import (
     _spec_return,
     _thread_closure,
     _thread_size,
-    _type_name,
     _type_of,
     _value_of,
 )
@@ -52,6 +50,7 @@ from pyscriptc.emit.llvm._runtime import _prebaked_declarations
 from pyscriptc.emit.llvm._stmts import dict_to_dict
 from pyscriptc.errors import IRError
 from pyscriptc.stdmore import COMPARE_CLASSES
+from pyscriptc.tirserde import dict_to_type
 
 # The symbols `_declarations` already emits when their `needed` group is
 # active. A second declaration would be an invalid LLVM redefinition.
@@ -59,6 +58,39 @@ _PREBAKED_DECLS = list(_prebaked_declarations())
 
 
 class AbiMixin(EmitterBase):
+    def _t_kind(self, typ: Any) -> str:
+        """The kind tag of a type record, read through the typed `T` record.
+
+        The `T` record is the typed spelling of a type dict: `dict_to_type`
+        turns the dict into the record and the record's `kind` field is the
+        tag the marshalling dispatches on. The parameter is `Any` so the
+        record (not the dict) crosses the boundary: the shape lives in the
+        record, never in a raw `["kind"]` read here (#829).
+
+        A dict with no kind tag falls back to `"any"`: the shape is the
+        kind-less wrapper (the FFI `T | None` type dict, which carries only
+        `optional` and `elem`), and the dispatches that read it answer the
+        catch-all the `_kind` accessor raised on. A method, not a
+        module-level function, for the reason `_funcs`'s `_type_kind`
+        documents: the self-host subset lowers a method call on a lowered
+        class but not a call to a module-level function whose signature it
+        cannot prove, so a module-level helper fences every call site.
+        """
+        if isinstance(typ, dict) and "kind" not in typ:
+            return "any"
+        record: Any = dict_to_type(typ)
+        kind: str = record.kind
+        return kind
+
+    def _t_name(self, typ: Any) -> str:
+        """The class name of a class-typed type record, off the `T` record.
+
+        A method for the reason `_t_kind` documents.
+        """
+        record: Any = dict_to_type(typ)
+        name: str = record.name
+        return name
+
     def _ensure_arg_type(self) -> None:
         line = "%ps.arg = type { i32, i32, i64, double, %ps.buf }"
         globals_lines = self.globals
@@ -66,7 +98,7 @@ class AbiMixin(EmitterBase):
             globals_lines.append(line)
 
     def _store_ps_arg(self, base: str, value: str, typ: dict[str, Any]) -> None:
-        kind: str = _kind(typ)
+        kind: str = self._t_kind(typ)
         code: int = {"int": 1, "float": 2}.get(kind, 0)
         fmt: bool = _flag_of(typ, "fmt")
         if code == 0:
@@ -93,7 +125,7 @@ class AbiMixin(EmitterBase):
             return
         if kind == "dict":
             value_type: dict[str, Any] = _value_of(typ)
-            value_kind: str = _kind(value_type)
+            value_kind: str = self._t_kind(value_type)
             vkind: int = {"int": 1, "float": 2, "str": 3, "bytes": 6}[value_kind]
             # The `ordered` and `defaultdict` marks ride the two bits above
             # the value kind so `repr_map_into` spells `OrderedDict({...})`
@@ -138,11 +170,14 @@ class AbiMixin(EmitterBase):
         if island:
             return 7
         codes: dict[str, int] = self._ISLAND_ARG_CODES
-        kind: str = _kind(typ)
+        kind: str = self._t_kind(typ)
         return codes[kind]
 
     def _island_pad(self, want: dict[str, Any]) -> int:
         kind: str | None = _kind_or_none(want)
+        # The optional-shape read stays on the accessor: the `want` record
+        # is absent on an island call with no unmarshal type, and `_t_kind`
+        # requires a record (#829 keeps `_kind_or_none` for exactly this).
         if kind == "list":
             return self._island_code(_elem_of(want))
         if kind == "dict":
@@ -154,7 +189,7 @@ class AbiMixin(EmitterBase):
         kind_ptr = self.tmp()
         self.line(f"{kind_ptr} = getelementptr %ps.arg, ptr {base}, i32 0, i32 0")
         self.line(f"store i32 {code}, ptr {kind_ptr}")
-        kind: str = _kind(typ)
+        kind: str = self._t_kind(typ)
         if kind == "int":
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {base}, i32 0, i32 2")
@@ -572,7 +607,7 @@ class AbiMixin(EmitterBase):
         return self._load_island_result(out, want)
 
     def _load_island_result(self, out: str, want: dict[str, Any]) -> str:
-        kind: str = _kind(want)
+        kind: str = self._t_kind(want)
         if kind == "int":
             slot = self.tmp()
             self.line(f"{slot} = getelementptr %ps.arg, ptr {out}, i32 0, i32 2")
@@ -687,7 +722,7 @@ class AbiMixin(EmitterBase):
         return self._call_ret("ptr", "ps_alloc", [f"i64 {size}"])
 
     def _c_pieces(self, value: str, typ: dict[str, Any]) -> list[tuple[str, str]]:
-        kind: str = _kind(typ)
+        kind: str = self._t_kind(typ)
         if kind == "int":
             return [(f"i64 {value}", "i64")]
         if kind == "bool":
@@ -727,7 +762,7 @@ class AbiMixin(EmitterBase):
                 rendered.append(piece)
                 types.append(typ)
         ret: dict[str, Any] = _type_of(expr)
-        kind: str = _kind(ret)
+        kind: str = self._t_kind(ret)
         if kind in {"str", "bytes"}:
             abi_params: list[str] = list(types)
             abi_params.append("ptr")
@@ -833,12 +868,12 @@ class AbiMixin(EmitterBase):
                 write_fd = self.tmp()
                 self.line(f"{read_fd} = load i64, ptr {read_slot}")
                 self.line(f"{write_fd} = load i64, ptr {write_slot}")
-                mem = self._alloc_class(_type_name(ret))
+                mem = self._alloc_class(self._t_name(ret))
                 read_field = self.tmp()
-                self.line(f"{read_field} = getelementptr %cls.{_type_name(ret)}, ptr {mem}, i32 0, i32 0")
+                self.line(f"{read_field} = getelementptr %cls.{self._t_name(ret)}, ptr {mem}, i32 0, i32 0")
                 self.line(f"store i64 {read_fd}, ptr {read_field}")
                 write_field = self.tmp()
-                self.line(f"{write_field} = getelementptr %cls.{_type_name(ret)}, ptr {mem}, i32 0, i32 1")
+                self.line(f"{write_field} = getelementptr %cls.{self._t_name(ret)}, ptr {mem}, i32 0, i32 1")
                 self.line(f"store i64 {write_fd}, ptr {write_field}")
                 return mem
             if symbol == "ps_temp_mkstemp":
@@ -860,14 +895,14 @@ class AbiMixin(EmitterBase):
                 self.line(f"{path_len} = load i64, ptr {path_slot}")
                 self.line(f"{raw_ptr} = getelementptr %ps.buf, ptr {path_slot}, i32 0, i32 1")
                 self.line(f"{path_dat} = load ptr, ptr {raw_ptr}")
-                mem = self._alloc_class(_type_name(ret))
+                mem = self._alloc_class(self._t_name(ret))
                 fd_field = self.tmp()
-                self.line(f"{fd_field} = getelementptr %cls.{_type_name(ret)}, ptr {mem}, i32 0, i32 0")
+                self.line(f"{fd_field} = getelementptr %cls.{self._t_name(ret)}, ptr {mem}, i32 0, i32 0")
                 self.line(f"store i64 {fd}, ptr {fd_field}")
                 buf_field = self.tmp()
                 len_field = self.tmp()
                 dat_field = self.tmp()
-                self.line(f"{buf_field} = getelementptr %cls.{_type_name(ret)}, ptr {mem}, i32 0, i32 1")
+                self.line(f"{buf_field} = getelementptr %cls.{self._t_name(ret)}, ptr {mem}, i32 0, i32 1")
                 self.line(f"{len_field} = getelementptr %ps.buf, ptr {buf_field}, i32 0, i32 0")
                 self.line(f"{dat_field} = getelementptr %ps.buf, ptr {buf_field}, i32 0, i32 1")
                 self.line(f"store i64 {path_len}, ptr {len_field}")
@@ -893,7 +928,7 @@ class AbiMixin(EmitterBase):
                 self.line(f"{data} = getelementptr %ps.buf, ptr {out}, i32 0, i32 1")
                 data_ptr = self.tmp()
                 self.line(f"{data_ptr} = load ptr, ptr {data}")
-                mem = self._alloc_class(_type_name(ret))
+                mem = self._alloc_class(self._t_name(ret))
                 self._abi_decl("ps_path_new", "void", ["i64", "ptr", "ptr"])
                 self._call_void("ps_path_new", [f"i64 {length}", f"ptr {data_ptr}", f"ptr {mem}"])
                 return mem
@@ -925,7 +960,7 @@ class AbiMixin(EmitterBase):
             tail_params: list[str] = list(types)
             tail_params.append("ptr")
             self._abi_decl(symbol, "void", tail_params)
-            mem = self._alloc_class(_type_name(ret))
+            mem = self._alloc_class(self._t_name(ret))
             tail_args: list[str] = list(rendered)
             tail_args.append(f"ptr {mem}")
             self._call_void(symbol, tail_args)
@@ -991,7 +1026,7 @@ class AbiMixin(EmitterBase):
         wrap = f"ps.atexit.{self.atexit_n}"
         self.atexit_n = self.atexit_n + 1
         ret: dict[str, Any] = _return_type(fn)
-        ret_kind: str = _kind(ret)
+        ret_kind: str = self._t_kind(ret)
         if ret_kind == "none":
             body = f"  call void @{symbol}()\n  ret void\n"
         else:
@@ -1115,7 +1150,7 @@ class AbiMixin(EmitterBase):
     def _emit_class_cmp(self, expr: dict[str, Any], left: str, right: str) -> str:
         left_arg: dict[str, Any] = _node_left(expr)
         left_type: dict[str, Any] = _type_of(left_arg)
-        name: str = _type_name(left_type)
+        name: str = self._t_name(left_type)
         op: str = _node_op(expr)
         if name == "Path":
             left_ptr = self.tmp()
@@ -1144,12 +1179,12 @@ class AbiMixin(EmitterBase):
     def _emit_class_binary(self, expr: dict[str, Any], left: str, right: str) -> str:
         left_arg: dict[str, Any] = _node_left(expr)
         left_type: dict[str, Any] = _type_of(left_arg)
-        left_name: str = _type_name(left_type)
+        left_name: str = self._t_name(left_type)
         right_arg: dict[str, Any] = _node_right(expr)
         right_type: dict[str, Any] = _type_of(right_arg)
-        right_name: str = _type_name(right_type)
+        right_name: str = self._t_name(right_type)
         out_type: dict[str, Any] = _type_of(expr)
-        out_name: str = _type_name(out_type)
+        out_name: str = self._t_name(out_type)
         mem = self._alloc_class(out_name)
         op: str = _node_op(expr)
         sign: str = "1" if op == "+" else "-1"
@@ -1170,7 +1205,7 @@ class AbiMixin(EmitterBase):
         raise IRError(f"cannot emit {op} on {left_name}")
 
     def _emit_minmax(self, name: str, values: list[str], arg_types: list[dict[str, Any]]) -> str:
-        kind: str = _kind(arg_types[0])
+        kind: str = self._t_kind(arg_types[0])
         left, right = values
         if kind == "int":
             pred = "sle" if name == "min" else "sge"
@@ -1308,7 +1343,7 @@ class AbiMixin(EmitterBase):
         spec_bound: list[dict[str, Any]] = _spec_bound(spec)
         spec_params: list[dict[str, Any]] = _spec_params(spec)
         spec_return: dict[str, Any] = _spec_return(spec)
-        key: str = repr((spec_bound, spec_params, _kind(spec_return)))
+        key: str = repr((spec_bound, spec_params, self._t_kind(spec_return)))
         symbol: str | None = self.partial_keys.get(key, None)
         if symbol is None:
             symbol = f"pa.partial.{self.partial_n}"
@@ -1327,7 +1362,7 @@ class AbiMixin(EmitterBase):
         spec_bound: list[dict[str, Any]] = _spec_bound(spec)
         spec_params: list[dict[str, Any]] = _spec_params(spec)
         spec_return: dict[str, Any] = _spec_return(spec)
-        key: str = repr((spec_bound, spec_params, _kind(spec_return)))
+        key: str = repr((spec_bound, spec_params, self._t_kind(spec_return)))
         symbol: str | None = self.thread_keys.get(key, None)
         if symbol is None:
             symbol = f"ps.thread.{self.thread_n}"
@@ -1390,7 +1425,7 @@ class AbiMixin(EmitterBase):
             # The result travels into the record: the worker stores it, the
             # loop hands it back to the awaiting frame. A str result narrows
             # to the 16-byte prefix the record cell holds.
-            spec_return_kind: str = _kind(spec_return)
+            spec_return_kind: str = self._t_kind(spec_return)
             if spec_return_kind in {"str", "bytes"}:
                 out_lines.append("  %slot = alloca %ps.buf")
                 out_lines.append("  %rn = extractvalue %ps.str %r, 0")
@@ -1412,7 +1447,7 @@ class AbiMixin(EmitterBase):
         needed = self.needed
         needed.add("alloc")
         cell = self._call_ret("ptr", "ps_alloc", [f"i64 {_elem_size(typ)}"])
-        kind: str = _kind(typ)
+        kind: str = self._t_kind(typ)
         if kind in {"str", "bytes"}:
             length = self.tmp()
             ptr = self.tmp()

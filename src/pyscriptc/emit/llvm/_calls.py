@@ -14,7 +14,6 @@ from pyscriptc.emit._ir import (
     _callee_tuple,
     _elem_of,
     _elem_size,
-    _kind,
     _mark_fmt,
     _memory_type,
     _node_args,
@@ -33,7 +32,7 @@ from pyscriptc.emit.llvm._base import EmitterBase
 
 # boxed:end
 from pyscriptc.errors import IRError
-from pyscriptc.tirserde import dict_to_type
+from pyscriptc.tirserde import dict_to_node, dict_to_type
 
 
 def _has(expr: dict[str, Any], key: str) -> bool:
@@ -41,31 +40,89 @@ def _has(expr: dict[str, Any], key: str) -> bool:
     return _ir_has(expr, key)
 
 
+def _raw_callee_view(raw: dict[str, Any]) -> tuple[str, str, str, str]:
+    """The `(kind, name, module, receiver)` tuple of a dict-spelled callee.
+
+    The dict spelling carries `module` only on a module callee and
+    `receiver` only on a method callee, so the optional reads stay
+    conditional: the accessor raises on a missing key.
+    """
+    kind: str = _callee_kind(raw)
+    name: str = _callee_name(raw)
+    module: str = _callee_module(raw) if "module" in raw else ""
+    receiver: str = _callee_receiver(raw) if "receiver" in raw else ""
+    return kind, name, module, receiver
+
+
+def _callee_view(expr: dict[str, Any]) -> tuple[str, str, str, str]:
+    """The `(kind, name, module, receiver)` tuple of a call's callee.
+
+    The callee reads through the typed `_irnode` record (#829): the record
+    carries the callee's kind and its name, module or receiver. A call the
+    escape hatch kept whole (the island call's payload keys, print's
+    `sep`/`end`, sys.exit's `exitMessage`) has no record, so the dict
+    spelling answers instead — the tag itself is the one shape both
+    spellings agree on.
+    """
+    node: Any = dict_to_node(expr)
+    if isinstance(node, dict):
+        # The escape hatch kept the call whole: the callee is still a dict.
+        return _raw_callee_view(_node_callee(expr))
+    callee: Any = node.callee
+    if callee is None:
+        return _raw_callee_view(_node_callee(expr))
+    ckind: str = callee.kind
+    cname: str = callee.name
+    cmodule: str = callee.module
+    creceiver: str = callee.receiver
+    return ckind, cname, cmodule, creceiver
+
+
+def _callee_tuple_name(expr: dict[str, Any]) -> str:
+    """The tuple class a method call packs its result into.
+
+    The record carries the tuple class in its `tuple_` field; the dict
+    spelling carries it in `tuple`. A method call without the spelling
+    packs nothing, so the name is empty.
+    """
+    node: Any = dict_to_node(expr)
+    if isinstance(node, dict):
+        raw: dict[str, Any] = _node_callee(expr)
+        return _callee_tuple(raw) if "tuple" in raw else ""
+    callee: Any = node.callee
+    if callee is None:
+        raw = _node_callee(expr)
+        return _callee_tuple(raw) if "tuple" in raw else ""
+    return callee.tuple_
+
+
 class CallsMixin(EmitterBase):
     def emit_call(self, expr: dict[str, Any]) -> str:
-        callee: dict[str, Any] = _node_callee(expr)
+        # The dispatch reads the callee through the typed `_irnode` record
+        # (#829): the callee's kind and name come off the record, never off
+        # the raw dict keys. The `expr` dict still feeds the child paths —
+        # `emit_expr` on the argument dicts — the same transitional boundary
+        # the _stmts slice documents.
+        ckind, cname, _cmodule, _creceiver = _callee_view(expr)
         args: list[dict[str, Any]] = _node_args(expr)
         values: list[str] = [self.emit_expr(arg) for arg in args]
-        kind: str = _callee_kind(callee)
-        if kind == "builtin":
+        if ckind == "builtin":
             arg_types: list[dict[str, Any]] = [_arg_type(arg) for arg in args]
-            return self.emit_builtin(_callee_name(callee), values, arg_types, expr)
-        if kind == "module":
+            return self.emit_builtin(cname, values, arg_types, expr)
+        if ckind == "module":
             return self.emit_module_call(expr, values)
-        if kind == "method":
+        if ckind == "method":
             return self.emit_method(expr, values)
-        if kind == "class":
-            return self.emit_constructor(_callee_name(callee), values)
-        if kind == "value":
+        if ckind == "class":
+            return self.emit_constructor(cname, values)
+        if ckind == "value":
             return self.emit_value_call(expr, values)
-        fn: dict[str, Any] | None = self.functions.get(_callee_name(callee))
+        fn: dict[str, Any] | None = self.functions.get(cname)
         if fn is None:
             # Refs #641: the defining module planned the callee for the
             # island and the merged module emits no body for it. A crash
             # here is a planning hole; name the callee instead.
-            raise IRError(
-                f"call to {_callee_name(callee)} has no lowered body (its module planned it for the island floor)"
-            )
+            raise IRError(f"call to {cname} has no lowered body (its module planned it for the island floor)")
         return self.call_function(fn, values)
 
     def emit_builtin(self, name: str, values: list[str], arg_types: list[dict[str, Any]], expr: dict[str, Any]) -> str:
@@ -73,9 +130,11 @@ class CallsMixin(EmitterBase):
             self._emit_print(values, arg_types, expr)
             return ""
         # The kind of the first argument, read only for the builtins that
-        # dispatch on it.
+        # dispatch on it. The `T` record carries the tag; the dict stays
+        # for the `_llvm_type` family the sibling mixins still spell.
         at0: dict[str, Any] = arg_types[0]
-        arg_kind: str = dict_to_type(at0).kind
+        at0_t: Any = dict_to_type(at0)
+        arg_kind: str = at0_t.kind
         if name == "len" and arg_kind == "str":
             # The code-point count: field 2 (field 0 is the byte length).
             reg = self.tmp()
@@ -93,7 +152,7 @@ class CallsMixin(EmitterBase):
             needed = self.needed
             needed.add("map")
             return self._call_ret("i64", "ps_map_len", [f"ptr {values[0]}"])
-        if name == "len" and arg_kind == "class" and dict_to_type(at0).name == "Deque":
+        if name == "len" and arg_kind == "class" and at0_t.name == "Deque":
             self._abi_decl("ps_deque_len", "i64", ["ptr"])
             return self._call_ret("i64", "ps_deque_len", [f"ptr {values[0]}"])
         if name == "id":
@@ -163,15 +222,13 @@ class CallsMixin(EmitterBase):
             if kind == "exc":
                 self._abi_decl("ps_exc_str", "void", ["ptr", "ptr"])
                 return self._buf_out("ps_exc_str", [f"ptr {values[0]}"])
-            if kind == "class" and dict_to_type(at0).name == "Path":
+            if kind == "class" and at0_t.name == "Path":
                 self._abi_decl("ps_path_posix", "void", ["ptr", "ptr"])
                 return self._buf_out("ps_path_posix", [f"ptr {values[0]}"])
         raise IRError(f"no LLVM lowering for builtin {name}")
 
     def emit_module_call(self, expr: dict[str, Any], values: list[str]) -> str:
-        callee: dict[str, Any] = _node_callee(expr)
-        module: str = _callee_module(callee)
-        name: str = _callee_name(callee)
+        _ckind, name, module, _creceiver = _callee_view(expr)
         args: list[dict[str, Any]] = _node_args(expr)
         typ: dict[str, Any] = _type_of(expr)
         if _has(expr, "fn"):
@@ -343,6 +400,9 @@ class CallsMixin(EmitterBase):
                 self.line(f"{voff_ptr} = getelementptr %cls.{tname}, ptr null, i32 0, i32 1")
                 self.line(f"{voff} = ptrtoint ptr {voff_ptr} to i64")
                 self._abi_decl("ps_dict_items", "ptr", ["ptr", "i64", "i64"])
+                # The elem type reads through the `T` record: `tname` is the
+                # class name, and the element record the `_elem_of` walk
+                # spells is the same one `dict_to_type` returns.
                 return self._call_ret("ptr", "ps_dict_items", [f"ptr {values[0]}", f"i64 {voff}", f"i64 {size}"])
             if symbol == "ps_email_items":
                 # The element is the synthetic (str, str) tuple class; the
@@ -461,7 +521,7 @@ class CallsMixin(EmitterBase):
                 # A bytes input decodes through ps_json_loads_bytes: the
                 # buffer is validated as UTF-8 the way CPython's decode does
                 # before the parse; a str is already a UTF-8 buffer.
-                loads_symbol = "ps_json_loads_bytes" if _kind(_arg_type(args[0])) == "bytes" else "ps_json_loads"
+                loads_symbol = "ps_json_loads_bytes" if self._t_kind(_arg_type(args[0])) == "bytes" else "ps_json_loads"
                 return self._emit_json_loads(values[0], typ, loads_symbol)
             json_arg: dict[str, Any] = args[0]
             json_typ: dict[str, Any] = _arg_type(json_arg)
@@ -486,11 +546,11 @@ class CallsMixin(EmitterBase):
         raise IRError(f"no LLVM lowering for {module}.{name}")
 
     def emit_method(self, expr: dict[str, Any], values: list[str]) -> str:
-        callee: dict[str, Any] = _node_callee(expr)
-        name: str = _callee_name(callee)
+        _ckind, name, _cmodule, receiver = _callee_view(expr)
         kind: str = "str"
-        if _has(callee, "receiver"):
-            kind = _callee_receiver(callee)
+        if receiver:
+            kind = receiver
+        tuple_name: str = _callee_tuple_name(expr)
         needed: set[str] = self.needed
         needed.add("str")
         parts6: tuple[str, str] = self._buf_parts(values[0])
@@ -550,7 +610,7 @@ class CallsMixin(EmitterBase):
             parts8: tuple[str, str] = self._buf_parts(values[1])
             sep_len: str = parts8[0]
             sep_ptr: str = parts8[1]
-            tname: str = _callee_tuple(callee)
+            tname: str = tuple_name
             mem = self._alloc_class(tname)
             right: str = "0"
             if name == "rpartition":

@@ -6,13 +6,9 @@ from __future__ import annotations
 
 from typing import Any
 
+from pyscriptc._irnode import F_TOPT
 from pyscriptc.emit._ir import (
-    _elem_kind,
-    _elem_type,
-    _is_optional,
-    _kind,
     _llvm_type,
-    _map_value_type,
     _node_args,
     _type_of,
 )
@@ -20,9 +16,42 @@ from pyscriptc.emit.llvm._base import EmitterBase
 from pyscriptc.errors import IRError
 from pyscriptc.sigrec import sig_for
 from pyscriptc.stdlib_queue import MATH_FUNCTIONS
+from pyscriptc.tirserde import dict_to_type
 
 
 class StdlibMixin(EmitterBase):
+    def _t_elem_of(self, typ: Any) -> Any:
+        """The element `T` record a list or optional type carries, or None.
+
+        The kind tag read lives on `AbiMixin._t_kind` (the emitter is one
+        class, so the mixins share the typed-record helpers); only the
+        shape walks the JSON and copy tables need stay here.
+
+        A dict with no kind tag is the kind-less wrapper (the FFI `T |
+        None` type dict, which carries only `optional` and `elem`); its
+        element is the dict's own `elem` key.
+        """
+        if isinstance(typ, dict) and "kind" not in typ:
+            return typ.get("elem", None)
+        record: Any = dict_to_type(typ)
+        return record.elem
+
+    def _t_map_value(self, typ: Any) -> Any:
+        """The value `T` record of a dict type, or None."""
+        record: Any = dict_to_type(typ)
+        return record.value
+
+    def _t_is_optional(self, typ: Any) -> bool:
+        """Whether a type record spells the `X | None` optional bit.
+
+        The `T` record carries the bit as the `F_TOPT` flag word; the
+        kind-less wrapper spells it as the `optional` key.
+        """
+        if isinstance(typ, dict) and "kind" not in typ:
+            return bool(typ.get("optional", False))
+        record: Any = dict_to_type(typ)
+        return bool(record.flags & F_TOPT)
+
     def _emit_math(self, name: str, values: list[str]) -> str:
         spec = sig_for(MATH_FUNCTIONS[name])
         if name == "isnan":
@@ -207,7 +236,7 @@ class StdlibMixin(EmitterBase):
     def _emit_struct(self, name: str, values: list[str], args: list[dict[str, Any]], typ: dict[str, Any]) -> str:
         if name == "pack":
             return self._emit_struct_pack(values, args)
-        elem = _elem_kind(typ)
+        elem = self._t_kind(self._t_elem_of(typ))
         want = {"int": 1, "float": 2, "bytes": 3}[elem]
         fmt_len, fmt_ptr = self._buf_parts(values[0])
         data_len, data_ptr = self._buf_parts(values[1])
@@ -253,7 +282,7 @@ class StdlibMixin(EmitterBase):
         return self._buf_out("ps_struct_pack", [f"i64 {fmt_len}", f"ptr {fmt_ptr}", f"ptr {arg_ptr}", f"i64 {packed}"])
 
     def _emit_json_loads(self, text: str, typ: dict[str, Any], symbol_name: str = "ps_json_loads") -> str:
-        if _kind(typ) == "dynval":
+        if self._t_kind(typ) == "dynval":
             # The dynamic annotation (issue #1267): no shape table, the
             # parser assigns the arm as it reads. The result is the cell
             # pointer the type already carries.
@@ -269,7 +298,7 @@ class StdlibMixin(EmitterBase):
         return self._json_read(typ, slot)
 
     def _emit_json_dumps(self, value: str, typ: dict[str, Any], flags: int = 0) -> str:
-        if _kind(typ) == "dynval":
+        if self._t_kind(typ) == "dynval":
             # The dynamic value's dump walks the tagged tree (issue #1267);
             # the flag word is the typed writer's (sort keys, indent), so
             # the closed dumps subset rides the same way.
@@ -290,7 +319,7 @@ class StdlibMixin(EmitterBase):
         def add(node: dict[str, Any]) -> int:
             idx = len(entries)
             entries.append(None)
-            kind = _kind(node)
+            kind = self._t_kind(node)
             if kind == "int":
                 entries[idx] = (1, 0)
             elif kind == "bool":
@@ -298,10 +327,10 @@ class StdlibMixin(EmitterBase):
             elif kind == "str":
                 entries[idx] = (3, 0)
             elif kind == "list":
-                child = add(_elem_type(node))
+                child = add(self._t_elem_of(node))
                 entries[idx] = (4, child)
             elif kind == "dict":
-                child = add(_map_value_type(node))
+                child = add(self._t_map_value(node))
                 entries[idx] = (5, child)
             elif kind == "float":
                 entries[idx] = (6, 0)
@@ -310,8 +339,8 @@ class StdlibMixin(EmitterBase):
                 # `dict[str, object]` value). The runtime cell already
                 # carries the arm, so the table entry is the bare kind.
                 entries[idx] = (8, 0)
-            elif _is_optional(node):
-                child = add(_elem_type(node))
+            elif self._t_is_optional(node):
+                child = add(self._t_elem_of(node))
                 entries[idx] = (7, child)
             else:
                 raise IRError(f"no JSON type for {kind}")
@@ -335,7 +364,7 @@ class StdlibMixin(EmitterBase):
         return symbol, root
 
     def _json_alloca(self, typ: dict[str, Any]) -> str:
-        kind = _kind(typ)
+        kind = self._t_kind(typ)
         if kind == "bool":
             return self._alloca("i32")
         if kind in {"list", "dict"}:
@@ -343,7 +372,7 @@ class StdlibMixin(EmitterBase):
         return self._alloca(_llvm_type(typ))
 
     def _json_read(self, typ: dict[str, Any], slot: str) -> str:
-        kind = _kind(typ)
+        kind = self._t_kind(typ)
         if kind == "bool":
             raw = self._load("i32", slot)
             reg = self.tmp()
@@ -355,7 +384,7 @@ class StdlibMixin(EmitterBase):
 
     def _json_write(self, typ: dict[str, Any], value: str) -> str:
         slot = self._json_alloca(typ)
-        kind = _kind(typ)
+        kind = self._t_kind(typ)
         if kind == "bool":
             wide = self.tmp()
             self.line(f"{wide} = zext i1 {value} to i32")
@@ -379,7 +408,7 @@ class StdlibMixin(EmitterBase):
         def add(node: dict[str, Any]) -> int:
             idx = len(entries)
             entries.append(None)
-            kind = _kind(node)
+            kind = self._t_kind(node)
             if kind == "int":
                 entries[idx] = (1, 0)
             elif kind == "float":
@@ -389,10 +418,10 @@ class StdlibMixin(EmitterBase):
             elif kind == "bytes":
                 entries[idx] = (4, 0)
             elif kind == "list":
-                child = add(_elem_type(node))
+                child = add(self._t_elem_of(node))
                 entries[idx] = (5, child)
             elif kind == "dict":
-                child = add(_map_value_type(node))
+                child = add(self._t_map_value(node))
                 entries[idx] = (6, child)
             else:
                 raise IRError(f"no copy type for {kind}")

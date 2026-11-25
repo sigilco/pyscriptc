@@ -16,6 +16,7 @@ from __future__ import annotations
 from typing import Any
 
 from pyscriptc.errors import IRError
+from pyscriptc.tirserde import dict_to_node
 
 # The dtype codes, the order the runtime's enum spells.
 _DTYPE_CODES = {"int32": 0, "int64": 1, "float32": 2, "float64": 3}
@@ -152,8 +153,14 @@ class NdArrayMixin:
         return self._call_ret("ptr", symbol, rendered)
 
     def _to_double(self, expr: dict[str, Any], index: int, value: str) -> str:
-        """One arg as a double: an int arg widens, a float arg passes."""
-        if expr["args"][index]["type"]["kind"] == "int":
+        """One arg as a double: an int arg widens, a float arg passes.
+
+        The argument's type reads through the typed `T` record (#829): the
+        kind tag comes off the record, not off a raw `["kind"]` subscript.
+        """
+        arg: Any = dict_to_node(expr).args[index]
+        arg_type: Any = arg.type
+        if arg_type is not None and arg_type.kind == "int":
             reg = self.tmp()
             self.line(f"{reg} = sitofp i64 {value} to double")
             return reg
@@ -254,9 +261,12 @@ class NdArrayMixin:
         the array through."""
         self._abi_decl(symbol, "ptr", ["ptr", "i64", "i64"])
         arr = self._call_ret("ptr", symbol, [f"ptr {values[0]}", f"i64 {values[1]}", f"i64 {values[2]}"])
-        if expr["type"]["kind"] == "class":
+        # The result type reads through the typed `T` record (#829).
+        result_type: Any = dict_to_node(expr).type
+        result_kind: str = result_type.kind if result_type is not None else "any"
+        if result_kind == "class":
             return arr
-        if expr["type"]["kind"] == "int":
+        if result_kind == "int":
             self._abi_decl("ps_nd_scalar_i64", "i64", ["ptr"])
             return self._call_ret("i64", "ps_nd_scalar_i64", [f"ptr {arr}"])
         self._abi_decl("ps_nd_scalar", "double", ["ptr"])
