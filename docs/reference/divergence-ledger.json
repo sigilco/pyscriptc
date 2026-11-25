@@ -2020,11 +2020,11 @@
       "status": "identical"
     },
     {
-      "id": "D106",
+      "id": "D107",
       "seam": "a typing.NamedTuple class lowers as a tuple record: construction, field reads, subscripts and unpack work, but _fields, _asdict and _replace are not lowered and the class object itself is not a value, so those reads stop the compile",
       "listed": true,
-      "docs": "docs/reference/divergences.md#106",
-      "probe": "probes/divergences/d106_namedtuple_fields.py",
+      "docs": "docs/reference/divergences.md#107",
+      "probe": "probes/divergences/d107_namedtuple_fields.py",
       "note": "the construction, field reads, subscripts and unpack are the differential probe (probes/differential/namedtuple_class_base.py) and are byte-identical",
       "cpython": {
         "stage": "run",
@@ -2036,7 +2036,7 @@
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d106_namedtuple_fields.py:11:7: PS2001: Point._fields is not a field\n  print(p._fields)\n        ^\nprobes/divergences/d106_namedtuple_fields.py:12:7: PS2001: Point._asdict is not a method\n  print(p._asdict())\n        ^\nprobes/divergences/d106_namedtuple_fields.py:13:7: PS2001: Point._replace is not a method\n  print(p._replace(y=\"z\"))\n        ^\n"
+        "stderr": "probes/divergences/d107_namedtuple_fields.py:11:7: PS2001: Point._fields is not a field\n  print(p._fields)\n        ^\nprobes/divergences/d107_namedtuple_fields.py:12:7: PS2001: Point._asdict is not a method\n  print(p._asdict())\n        ^\nprobes/divergences/d107_namedtuple_fields.py:13:7: PS2001: Point._replace is not a method\n  print(p._replace(y=\"z\"))\n        ^\n"
       },
       "status": "fenced"
     }

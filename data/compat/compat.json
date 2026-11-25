@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-25",
-  "commit": "89ac9d3add2f7b0aca45b79b71ab17333a94d66d",
+  "commit": "078aea1771b20cac141b07b8e6d6385c2126442f",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-25",
-    "commit": "89ac9d3add2f7b0aca45b79b71ab17333a94d66d",
+    "commit": "078aea1771b20cac141b07b8e6d6385c2126442f",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3824
+    "fences": 3807
   },
   "builtins": [
     {
@@ -1621,7 +1621,7 @@
       "status": "partial",
       "count": 2,
       "unsupported": [
-        "Any annotation, bare Callable, optional of a multi-arm union, multi-arm union as a later arm's value, Literal annotation, Self return, a nominal subclass that adds a field, a subclass value in a base-annotated parameter, PEP 695 type alias, PEP 695 TypeVar parameter, unresolvable forward reference string, TypedDict class base, NamedTuple class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read"
+        "Any annotation, bare Callable, optional of a multi-arm union, multi-arm union as a later arm's value, Literal annotation, Self return, a nominal subclass that adds a field, a subclass value in a base-annotated parameter, PEP 695 type alias, PEP 695 TypeVar parameter, unresolvable forward reference string, TypedDict class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read"
       ],
       "fences": [
         "PS1003",
@@ -1775,15 +1775,19 @@
       "island": "runs",
       "plane": {
         "definitions": 75,
-        "native": 25,
+        "native": 26,
         "island": 0,
-        "blocked": 50
+        "blocked": 49
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 124,
+      "fences": 123,
       "definitions": 75,
-      "fenced_definitions": 44,
+      "fenced_definitions": 43,
       "top_families": [
+        {
+          "family": "construct-other",
+          "count": 25
+        },
         {
           "family": "name-resolution",
           "count": 24
@@ -1791,16 +1795,12 @@
         {
           "family": "unlowered-call",
           "count": 24
-        },
-        {
-          "family": "construct-other",
-          "count": 24
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 82
+          "count": 81
         },
         {
           "code": "PS1106",
@@ -1821,14 +1821,14 @@
       "island": "runs",
       "plane": {
         "definitions": 641,
-        "native": 378,
+        "native": 379,
         "island": 4,
-        "blocked": 259
+        "blocked": 258
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 694,
+      "fences": 693,
       "definitions": 641,
-      "fenced_definitions": 243,
+      "fenced_definitions": 242,
       "top_families": [
         {
           "family": "name-resolution",
@@ -1846,7 +1846,7 @@
       "codes": [
         {
           "code": "PS2002",
-          "count": 405
+          "count": 403
         },
         {
           "code": "PS2001",
@@ -1959,35 +1959,35 @@
       "island": "runs",
       "plane": {
         "definitions": 34,
-        "native": 23,
+        "native": 24,
         "island": 0,
-        "blocked": 11
+        "blocked": 10
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 12,
+      "fences": 7,
       "definitions": 34,
-      "fenced_definitions": 7,
+      "fenced_definitions": 6,
       "top_families": [
-        {
-          "family": "name-resolution",
-          "count": 3
-        },
         {
           "family": "optional-types",
           "count": 2
         },
         {
-          "family": "unlowered-call",
-          "count": 2
+          "family": "generators",
+          "count": 1
+        },
+        {
+          "family": "construct-other",
+          "count": 1
         }
       ],
       "codes": [
         {
-          "code": "PS2002",
-          "count": 7
+          "code": "PS1102",
+          "count": 2
         },
         {
-          "code": "PS1102",
+          "code": "PS2002",
           "count": 2
         },
         {
@@ -2112,7 +2112,7 @@
         },
         {
           "family": "construct-other",
-          "count": 6
+          "count": 7
         },
         {
           "family": "call-arity",
@@ -2143,32 +2143,32 @@
       "island": "runs",
       "plane": {
         "definitions": 558,
-        "native": 274,
+        "native": 279,
         "island": 0,
-        "blocked": 284
+        "blocked": 279
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 633,
+      "fences": 625,
       "definitions": 558,
-      "fenced_definitions": 271,
+      "fenced_definitions": 266,
       "top_families": [
         {
           "family": "name-resolution",
-          "count": 98
+          "count": 101
         },
         {
           "family": "unlowered-type-name",
-          "count": 94
+          "count": 95
         },
         {
           "family": "field-lookup",
-          "count": 76
+          "count": 75
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 252
+          "count": 242
         },
         {
           "code": "PS2001",
@@ -2176,7 +2176,7 @@
         },
         {
           "code": "PS1106",
-          "count": 94
+          "count": 95
         }
       ],
       "pypi": "https://pypi.org/project/packaging/"
@@ -2469,14 +2469,14 @@
       "island": "unmeasured",
       "plane": {
         "definitions": 617,
-        "native": 382,
+        "native": 384,
         "island": 2,
-        "blocked": 233
+        "blocked": 231
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 578,
+      "fences": 576,
       "definitions": 617,
-      "fenced_definitions": 218,
+      "fenced_definitions": 216,
       "top_families": [
         {
           "family": "name-resolution",
@@ -2484,21 +2484,21 @@
         },
         {
           "family": "unlowered-type-name",
-          "count": 75
+          "count": 77
         },
         {
           "family": "construct-other",
-          "count": 57
+          "count": 58
         }
       ],
       "codes": [
         {
           "code": "PS2002",
-          "count": 344
+          "count": 339
         },
         {
           "code": "PS1106",
-          "count": 75
+          "count": 77
         },
         {
           "code": "PS2001",
@@ -2721,7 +2721,7 @@
     {
       "code": "PS2002",
       "title": "construct not supported",
-      "count": 1979,
+      "count": 1956,
       "packages": 19
     },
     {
@@ -2739,13 +2739,13 @@
     {
       "code": "PS1106",
       "title": "annotation names a type the compiler does not take",
-      "count": 352,
+      "count": 356,
       "packages": 12
     },
     {
       "code": "PS1103",
       "title": "generic alias annotation",
-      "count": 157,
+      "count": 158,
       "packages": 11
     },
     {
@@ -2763,7 +2763,7 @@
     {
       "code": "PS1102",
       "title": "Optional annotation",
-      "count": 59,
+      "count": 60,
       "packages": 8
     },
     {
@@ -2839,12 +2839,12 @@
     },
     {
       "date": "2026-11-25",
-      "commit": "89ac9d3add2f7b0aca45b79b71ab17333a94d66d",
+      "commit": "078aea1771b20cac141b07b8e6d6385c2126442f",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3824
+      "fences": 3807
     }
   ]
 }

@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-25",
-  "commit": "89ac9d3add2f7b0aca45b79b71ab17333a94d66d",
+  "commit": "078aea1771b20cac141b07b8e6d6385c2126442f",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -859,7 +859,7 @@
       "label": "`typing`, `typing_extensions`",
       "status": "\ud83d\udfe1",
       "count": 2,
-      "missing": "Any annotation, bare Callable, optional of a multi-arm union, multi-arm union as a later arm's value, Literal annotation, Self return, a nominal subclass that adds a field, a subclass value in a base-annotated parameter, PEP 695 type alias, PEP 695 TypeVar parameter, unresolvable forward reference string, TypedDict class base, NamedTuple class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read",
+      "missing": "Any annotation, bare Callable, optional of a multi-arm union, multi-arm union as a later arm's value, Literal annotation, Self return, a nominal subclass that adds a field, a subclass value in a base-annotated parameter, PEP 695 type alias, PEP 695 TypeVar parameter, unresolvable forward reference string, TypedDict class base, NewType value, ParamSpec value, cast value, get_type_hints reflection, isinstance with a generic, __annotations__ read",
       "codes": [
         "PS1003",
         "PS1102",
@@ -959,15 +959,15 @@
       "name": "python-dotenv",
       "version": "1.2.4",
       "status": "\ud83d\udd34",
-      "ratio": "44/75",
-      "blocking": "name-resolution (24), unlowered-call (24), construct-other (24)",
+      "ratio": "43/75",
+      "blocking": "construct-other (25), name-resolution (24), unlowered-call (24)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "243/641",
+      "ratio": "242/641",
       "blocking": "name-resolution (189), construct-other (109), field-lookup (60)",
       "codes": "PS2002, PS2001, PS1103"
     },
@@ -991,9 +991,9 @@
       "name": "iniconfig",
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
-      "ratio": "7/34",
-      "blocking": "name-resolution (3), optional-types (2), unlowered-call (2)",
-      "codes": "PS2002, PS1102, PS2001"
+      "ratio": "6/34",
+      "blocking": "optional-types (2), generators (1), construct-other (1)",
+      "codes": "PS1102, PS2002, PS2001"
     },
     {
       "name": "jmespath",
@@ -1016,15 +1016,15 @@
       "version": "0.1.2",
       "status": "\ud83d\udfe1",
       "ratio": "6/12",
-      "blocking": "name-resolution (16), construct-other (6), call-arity (4)",
+      "blocking": "name-resolution (16), construct-other (7), call-arity (4)",
       "codes": "PS2002, PS2003, PS2001"
     },
     {
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "271/558",
-      "blocking": "name-resolution (98), unlowered-type-name (94), field-lookup (76)",
+      "ratio": "266/558",
+      "blocking": "name-resolution (101), unlowered-type-name (95), field-lookup (75)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
@@ -1087,8 +1087,8 @@
       "name": "urllib3",
       "version": "2.8.0",
       "status": "\ud83d\udfe1",
-      "ratio": "218/617",
-      "blocking": "name-resolution (97), unlowered-type-name (75), construct-other (57)",
+      "ratio": "216/617",
+      "blocking": "name-resolution (97), unlowered-type-name (77), construct-other (58)",
       "codes": "PS2002, PS1106, PS2001"
     },
     {
