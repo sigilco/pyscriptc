@@ -908,6 +908,13 @@ class StmtAMixin:
         typ = value["type"]
         if _type_kind(typ) == "class" and self.classes.get(typ["name"], {}).get("tuple"):
             return self._unpack_fixed(node, elts, star, value, span)
+        if _type_kind(typ) == "class" and not typ.get("island"):
+            # A user iterable class unpacks through the shared resolver: the
+            # elements materialize into a list (the eager model) and the
+            # sized unpack applies (issue #446).
+            pair = self._class_iterable_value(node, value, span)
+            if pair is not None:
+                return self._unpack_sized(elts, star, pair[0], span)
         if _type_kind(typ) == "list" and not typ.get("set"):
             return self._unpack_sized(elts, star, value, span)
         self.fail(node, "PS2002", "unpacking needs a tuple or list value")

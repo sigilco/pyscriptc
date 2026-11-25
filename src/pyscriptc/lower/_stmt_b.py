@@ -1670,7 +1670,7 @@ class StmtBMixin:
                 self.fail(call, "PS2003", "enumerate start given more than once")
             start_node = call.args[1]
         source = self._expr(call.args[0])
-        elem = self._pair_source_elem(call, source, "enumerate")
+        source, elem = self._pair_source(call, source, "enumerate")
         start = _const_int(0, span)
         if start_node is not None:
             start = self._expr(start_node, {"kind": "int"})
@@ -1685,25 +1685,39 @@ class StmtBMixin:
             self.fail(call, "PS2003", "zip takes at least 2 lists")
         sources = [self._expr(arg) for arg in call.args]
         elems: list[dict[str, Any]] = []
+        resolved: list[dict[str, Any]] = []
         for source in sources:
-            elems.append(self._pair_source_elem(call, source, "zip"))
-        return self._for_pairs(stmt, span, sources, elems, None, "zip")
+            got, elem = self._pair_source(call, source, "zip")
+            resolved.append(got)
+            elems.append(elem)
+        return self._for_pairs(stmt, span, resolved, elems, None, "zip")
 
-    def _pair_source_elem(self, call: ast.Call, source: dict[str, Any], what: str) -> dict[str, Any]:
-        """The element type one enumerate/zip source iterates, or a fence.
+    def _pair_source(
+        self, call: ast.Call, source: dict[str, Any], what: str
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """The source an enumerate/zip loop reads, with its element type.
 
-        A source is a non-set `list` of scalars or a `str` (which iterates
-        its one-character strs); anything else keeps the PS2002 fence.
+        A source is a non-set `list` of scalars, a `str` (which iterates
+        its one-character strs) or a user iterable class (the shared
+        resolver materializes its elements); anything else keeps the
+        PS2002 fence.
         """
         kind = _node_type_kind(source)
         if kind == "str":
-            return {"kind": "str"}
+            return source, {"kind": "str"}
+        if kind == "class" and not source["type"].get("island"):
+            pair = self._class_iterable_value(call, source, span_of(call, self.filename))
+            if pair is not None:
+                elem = pair[1]
+                if _type_kind(elem) not in _SCALAR | {"bool"}:
+                    self.fail(call, "PS2002", f"{what}() of {_show(elem)} is not lowered")
+                return pair[0], elem
         if kind != "list" or source["type"].get("set"):
             self.fail(call, "PS2002", f"{what}() takes lists")
         elem = source["type"]["elem"]
         if _type_kind(elem) not in _SCALAR | {"bool"}:
             self.fail(call, "PS2002", f"{what}() of list[{_show(elem)}] is not lowered")
-        return elem
+        return source, elem
 
     def _for_pairs(
         self,

@@ -1220,6 +1220,12 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 self.fail(node, "PS1001", "an empty set needs a set annotation")
             return node_to_dict(_ir.list_lit([], _mk_type(expect), _mk_span(span)))
         source = self._expr(node.args[0])
+        if _node_type_kind(source) == "class" and not source["type"].get("island"):
+            # set(it) over a user iterable class: the shared resolver
+            # materializes the elements (issue #446).
+            pair = self._class_iterable_value(node, source, span)
+            if pair is not None:
+                source = pair[0]
         if _node_type_kind(source) != "list":
             self.fail(node, "PS2002", "set() takes a list of int or str")
         elem = source["type"]["elem"]
@@ -1428,6 +1434,18 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 ]
             )
             return _name(out, typ, span)
+        if _type_kind(src_t) == "class" and not src_t.get("island"):
+            # list(it) on a user iterable class: the shared resolver drains
+            # the remaining elements (the eager model, issue #446).
+            pair = self._class_iterable_value(node, source, span)
+            if pair is not None:
+                got, elem = pair
+                if _type_kind(elem) == "bool":
+                    self.fail(node, "PS2002", "list[bool] is not lowered")
+                typ = _t_list(elem)
+                if expect is not None and _type_kind(expect) == "list":
+                    self._expect(node, typ, expect, "list")
+                return got
         if _type_kind(src_t) != "list":
             self.fail(node, "PS2002", "list() takes a list, a set, or *args")
         elem = src_t["elem"]
@@ -1619,11 +1637,33 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
         if isinstance(arg, (ast.GeneratorExp, ast.ListComp)):
             return self._all_any_comp(arg, span, want_all)
         source = self._expr(arg)
+        if _node_type_kind(source) == "class" and not source["type"].get("island"):
+            # any/all over a user iterable class: the shared resolver
+            # materializes the elements (issue #446), then the list scan
+            # answers.
+            pair = self._class_iterable_value(node, source, span)
+            if pair is not None:
+                source, elem_pair = pair
+                elem = elem_pair
+                if _type_kind(elem) not in {"bool", "int", "float", "str", "bytes", "list", "dict", "class"}:
+                    self.fail(node, "PS2002", f"{label}() of {_show(elem)} is not lowered")
+                return self._all_any_scan(source, elem, span, want_all, label)
         if _node_type_kind(source) != "list":
             self.fail(node, "PS2002", f"{label}() takes a list")
         elem = source["type"]["elem"]
         if _type_kind(elem) not in {"bool", "int", "float", "str", "bytes", "list", "dict"}:
             self.fail(node, "PS2002", f"{label}() of {_show(elem)} is not lowered")
+        return self._all_any_scan(source, elem, span, want_all, label)
+
+    def _all_any_scan(
+        self,
+        source: dict[str, Any],
+        elem: dict[str, Any],
+        span: dict[str, Any],
+        want_all: bool,
+        label: str,
+    ) -> dict[str, Any]:
+        """The list scan behind `all` and `any`."""
         int_t = _t_leaf("int")
         bool_t = _t_leaf("bool")
         seq = self._temp("seq")

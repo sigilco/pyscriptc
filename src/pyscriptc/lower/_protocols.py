@@ -37,9 +37,10 @@ from pyscriptc.lower._core import (
     _node_type_kind,
     _raise_value,
     _show,
+    _zero,
 )
 from pyscriptc.lower._expr_compare import _assign_node, _if_node, _unary_node, _while_node
-from pyscriptc.tirserde import dict_to_node, node_to_dict
+from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 
 
 class ProtocolsMixin:
@@ -303,6 +304,97 @@ class ProtocolsMixin:
             if not types_equal(needle["type"], elem):
                 return None
         return _contains_node(haystack, needle, span, negated=negated)
+
+    def _materialize_iterable(
+        self,
+        node: ast.AST,
+        resolved: dict[str, Any],
+        elem: dict[str, Any],
+        span: dict[str, Any],
+    ) -> dict[str, Any] | None:
+        """Drain a resolved iterable into a `list[elem]` value.
+
+        The drain drives the iterator's `__next__` and stops at the
+        `StopIteration` the drain raises, the same shape the `for` loop
+        over a `__next__` class uses. The eager model of the compiler
+        applies: the elements materialize before the consumer sees them.
+        """
+        kind = _node_type_kind(resolved)
+        if kind == "list":
+            return resolved
+        if kind == "dict":
+            keys = self._abi_call(
+                "builtins", "dict.keys", [resolved], {"kind": "list", "elem": elem}, "ps_dict_keys", span
+            )
+            return keys
+        if kind != "class":
+            return None
+        it_t = resolved["type"]
+        itn = self._temp("it")
+        self.locals[itn] = it_t
+        flag = self._temp("itr")
+        self.locals[flag] = {"kind": "bool"}
+        dest = self._temp("mat")
+        list_t: dict[str, Any] = {"kind": "list", "elem": elem}
+        self.locals[dest] = list_t
+        item = self._temp("item")
+        self.locals[item] = elem
+        step = self._dunder_call(node, _name(itn, it_t, span), "__next__", [], span)  # type: ignore[attr-defined]
+        if step is None:
+            return None
+        self.prelude.extend(
+            [
+                _assign_node(itn, resolved, span),
+                _assign_node(flag, _const_bool(False, span), span),
+                _assign_node(dest, _zero(list_t, span), span),
+            ]
+        )
+        push = node_to_dict(
+            _ir.expr_stmt(
+                _ir.call(
+                    _ir.module_callee("builtins", "list.append"),
+                    [dict_to_node(_name(dest, list_t, span)), dict_to_node(_name(item, elem, span))],
+                    dict_to_type({"kind": "none"}),
+                    _mk_span(span),
+                    "ps_list_push",
+                    "",
+                    -1,
+                ),
+                _mk_span(span),
+            )
+        )
+        body = [_assign_node(item, step, span), push]
+        self.prelude.append(
+            _while_node(
+                _unary_node("not", _name(flag, {"kind": "bool"}, span), {"kind": "bool"}, span),
+                [_try_stop_body(body, [_assign_node(flag, _const_bool(True, span), span)], span)],
+                span,
+            )
+        )
+        return _name(dest, list_t, span)
+
+    def _class_iterable_value(
+        self,
+        node: ast.AST,
+        value: dict[str, Any],
+        span: dict[str, Any],
+    ) -> tuple[dict[str, Any], dict[str, Any]] | None:
+        """A class operand as a materialized list, or None.
+
+        The pair is the list value and its element type. A class operand
+        without an `__iter__` definer is not iterable: the caller keeps
+        its own fence.
+        """
+        resolved = self._iter_resolve(node, value, span)
+        if resolved is None:
+            return None
+        elem = self._iter_elem_type(resolved)
+        if elem is None:
+            return None
+        materialized = self._materialize_iterable(node, resolved, elem, span)
+        if materialized is None:
+            return None
+        return materialized, elem
 
 
 
