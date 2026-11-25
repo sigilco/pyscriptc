@@ -32,7 +32,7 @@ import sys
 from pathlib import Path
 
 import pytest
-from tests.test_gates import ROOT, compile_run, oracle, run_cli, write_case
+from tests.test_gates import ROOT, compile_run, run_cli, write_case
 from tests.test_runtime_divergences import compile_and_run
 
 from pyscriptc.coverage import family_of
