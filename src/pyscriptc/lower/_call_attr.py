@@ -15,13 +15,15 @@ unchanged: the IR and diagnostics are byte-identical.
 from __future__ import annotations
 
 import ast
+import copy
 from typing import Any
 
 from pyscriptc import _irnode as _ir
 from pyscriptc._irnode import t_leaf
 from pyscriptc.builtins import EXCEPTIONS, method_spec
 from pyscriptc.coro import DONE, STATE
-from pyscriptc.ir import types_equal
+from pyscriptc.ir import type_key, types_equal
+from pyscriptc.lower._annotations import _type_slug
 from pyscriptc.lower._core import (
     Fence,
     _any_accepts,
@@ -243,7 +245,7 @@ class CallAttrMixin:
                     # here the way `_bind_one_export` does for the named form.
                     name = str(item["name"])
                     pending: list[Fence] = []
-                    self._install_class_export(name, item, node, pending)
+                    self._install_class_export(name, item, node, pending, module)
                     if pending:
                         raise pending[0]
                     return self._construct(node, span, name)
@@ -792,8 +794,68 @@ class CallAttrMixin:
         else:
             owner = self._emit_owner(class_name, method)
             params = [param for param in sig[0] if param["name"] != "self"]
-            args = [receiver, *self._fill_args(node, params, f"{class_name}.{method}")]
+            filled = self._fill_args(node, params, f"{class_name}.{method}")
+            if filled is None:
+                # A generator frame crossed into an iterator-shaped
+                # parameter: the frame-specialized method copy answers the
+                # call (issue #441).
+                return self._frame_method_call(node, span, class_name, owner, method, params, sig[1])
+            args = [receiver, *filled]
         return _function_call_node(f"cls.{owner}.{method}", args, sig[1], span)
+
+    def _frame_method_call(
+        self,
+        node: ast.Call,
+        span: dict[str, Any],
+        class_name: str,
+        owner: str,
+        method: str,
+        params: list[dict[str, Any]],
+        ret: dict[str, Any],
+    ) -> dict[str, Any]:
+        """`obj.m(...)` whose frame argument crossed into an iterator-shaped
+        parameter: lower to the method's frame-specialized copy.
+
+        The copy is the method's own body with the parameter's type
+        replaced by the frame; it emits beside the original method under
+        the same `cls.{owner}.{method}.copy` shape the specialization
+        queue drains. The receiver still rides slot 0, so the copied body
+        sees `self` unchanged.
+        """
+        stmt = self.method_nodes.get((class_name, method))
+        if stmt is None:
+            self.fail(
+                node,
+                "PS2002",
+                f"a generator frame as {class_name}.{method} argument is not lowered yet: "
+                "the parameter keeps the cursor layout and the frame cannot cross the call "
+                "boundary (bind it to a local)",
+            )
+        node.args = self._expand_starred(node)
+        if node.keywords:
+            self.fail(node, "PS2002", "keyword arguments on a frame-parameter call are not lowered")
+        frame_slot: int | None = None
+        frame_t: dict[str, Any] | None = None
+        args: list[dict[str, Any]] = [self._expr(a) for a in node.args]
+        for index, value in enumerate(args):
+            if (
+                frame_slot is None
+                and index < len(params)
+                and self._needs_frame_copy(params[index]["type"], value["type"])
+            ):
+                frame_slot, frame_t = index, value["type"]
+        if frame_slot is None or frame_t is None:
+            self.fail(node, "PS2002", f"a generator frame as {class_name}.{method} argument is not lowered")
+        emit_key = (class_name, method, frame_slot, type_key(frame_t))
+        emit = self.frame_method_fns.get(emit_key)
+        if emit is None:
+            emit = f"{method}.{_type_slug(frame_t)}"
+            self.frame_method_fns[emit_key] = emit
+            self.frame_method_queue.append((class_name, owner, method, emit, stmt, frame_slot, copy.deepcopy(frame_t)))
+        receiver = self._expr(node.func.value) if isinstance(node.func, ast.Attribute) else None
+        if receiver is None:
+            self.fail(node, "PS2002", "the receiver did not lower")
+        return _function_call_node(f"cls.{owner}.{emit}", [receiver, *args], ret, span)
 
     def _concrete_protocol_impl(self, protocol_name: str, method: str) -> str | None:
         """A subclass of `protocol_name` that owns its own `method` body.

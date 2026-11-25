@@ -189,6 +189,7 @@ class ModuleDriverMixin:
                 params, ret = self.sigs[fn.name]
                 if _has_typevar(ret) or any(_has_typevar(param["type"]) for param in params):
                     self.generic_fns[fn.name] = fn
+                self.module_fns[fn.name] = fn
         self._pin_call_site_params(functions, fences)
         if self.deferred_module:
             self._bind_deferred_module(fences)
@@ -397,6 +398,10 @@ class ModuleDriverMixin:
                 self.typevars = saved_typevars
                 self.typevar_bounds = saved_bounds
         self._drain_instances(lowered, lowered_classes, fences)
+        self._drain_frames(lowered, fences)
+        # The frame-specialized method copies queue from the call sites of
+        # the bodies that just lowered, so the drain comes after them.
+        self._drain_frame_methods(lowered_classes, fences)
         lowered.extend(self.nested_fns)
         # The class-attribute initializers (issue #732) join the module's
         # lowered functions: their bodies are already the IR statements, so

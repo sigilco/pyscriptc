@@ -535,6 +535,10 @@ class StmtMixin(StmtAMixin, StmtBMixin):
         if isinstance(stmt, ast.Return):
             if self.inst_sig is not None:
                 _params, ret = self.inst_sig
+            elif self.frame_sig is not None:
+                # The frame-specialized copy keeps the original return type;
+                # the emitted name is not in `sigs`.
+                _params, ret = self.frame_sig
             elif self.function in self.sigs:
                 _params, ret = self.sigs[self.function or ""]
             else:

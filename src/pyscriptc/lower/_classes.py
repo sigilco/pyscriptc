@@ -301,7 +301,14 @@ _REFUSED_HOOKS: dict[str, str] = {
 
 
 class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
-    def _install_class_export(self, local: str, item: dict[str, Any], stmt: ast.AST, fences: list[Fence]) -> None:
+    def _install_class_export(
+        self,
+        local: str,
+        item: dict[str, Any],
+        stmt: ast.AST,
+        fences: list[Fence],
+        module: str | None = None,
+    ) -> None:
         name = str(item["name"])
         if name in self.classes and not self.classes[name].get("imported"):
             fences.append(Fence("PS2002", f"{local} is already bound", span_of(stmt, self.filename), None))
@@ -314,6 +321,36 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self.known_classes.add(name)
         self.declared.add(local)
         self.declared.add(name)
+        if module is not None:
+            self._install_frame_exports(module, info, stmt, fences)
+
+    def _install_frame_exports(self, module: str, info: dict[str, Any], stmt: ast.AST, fences: list[Fence]) -> None:
+        """Install the frame classes a resumable method's outward type names.
+
+        A generator method returns its frame class (`gen.C.m`), so a
+        consumer that calls the method but never names the frame still has
+        to type the loop local and dispatch `__iter__`/`__next__` on it. The
+        frame class rides the export table next to the owner class (the
+        defining module emits it), and the consumer installs it here, the
+        way `_install_return_class` does for a generator function's frame
+        (issue #441).
+        """
+        methods = info.get("methods")
+        if not isinstance(methods, dict):
+            return
+        for _mname, sig in methods.items():
+            if not isinstance(sig, (list, tuple)) or len(sig) != 2:
+                continue
+            ret = sig[1]
+            if not isinstance(ret, dict) or ret.get("kind") != "class":
+                continue
+            frame = str(ret.get("name", ""))
+            if not frame.startswith(("gen.", "cm.")) or frame in self.classes:
+                continue
+            item = self._export_lookup(module, frame)
+            if item is None or item.get("kind") != "class" or item.get("island"):
+                continue
+            self._install_class_export(frame, item, stmt, fences, module)
 
     def _install_synthetics(self, class_nodes: list[ast.ClassDef], fences: list[Fence]) -> None:
         self.synthetics.update(ALWAYS_CLASSES)
@@ -1341,6 +1378,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         for stmt in node.body:
             if not isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
                 continue
+            self.method_nodes.setdefault((own, stmt.name), stmt)
             if info["method_owner"].get(stmt.name) != own:
                 continue
             emitted = self._emit_class_method(own, stmt, info, own_names)
@@ -1493,6 +1531,82 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if _type_kind(ret) != "none" and not _always_returns(body):
             self.fail(stmt, "PS1004", f"{stmt.name} can fall off the end and return None")
         return self._method_ir(stmt.name, params, ret, body, span_of(stmt, self.filename))
+
+    def _drain_frame_methods(self, lowered_classes: list[dict[str, Any]], fences: list[Fence]) -> None:
+        """Lower every queued frame-specialized copy of a method.
+
+        A generator frame passed into an iterator-shaped method parameter
+        needs the method's own slot to carry the frame's layout, not the
+        synthetic `iter_` cursor ({seq, idx}): the cursor read as a frame
+        dereferences the frame's fields as a list cell and segfaults
+        (issue #441). The copy is the same body with one parameter's type
+        replaced by the frame type, so the copied body's `for`/`next()`
+        dispatch on the frame's real `__iter__`/`__next__` methods.
+
+        The copy is a method of the same class under its own name, so the
+        original method keeps its own signature and the two coexist: a
+        call site that passes a frame calls the copy, every other call
+        site calls the original.
+        """
+        while self.frame_method_queue:
+            class_name, owner, method, emit, stmt, slot, frame_t = self.frame_method_queue.pop(0)
+            info = self.classes.get(class_name)
+            if info is None:
+                continue
+            sig = info["methods"].get(method)
+            if sig is None:
+                continue
+            params = [param for param in sig[0] if param["name"] != "self"]
+            if slot >= len(params):
+                fences.append(Fence("PS2002", "the frame parameter is gone", span_of(stmt, self.filename), method))
+                continue
+            self.function = f"{class_name}.{emit}"
+            self.temp_n = 0
+            self.prelude = []
+            # boxed:begin
+            self.island_modules = {}
+            self.island_class_handles = {}
+            # boxed:end
+            self.caught = []
+            self.fn_globals = self._globals_for(stmt.body)
+            self.fn_nonlocals = set()
+            self.captures = {}
+            copy_params = [dict(param) for param in params]
+            copy_params[slot]["type"] = frame_t
+            copy_params = [_self_param(class_name), *copy_params]
+            ret = sig[1]
+            self.frame_sig = (copy_params, ret)
+            self.locals = {param["name"]: param["type"] for param in copy_params}
+            self.frozen_names = set()
+            self.fn_body = list(stmt.body)
+            saved_bindings = dict(self.bindings)
+            saved_aliases = dict(self.type_aliases)
+            saved_declared = set(self.declared)
+            saved_typevars = dict(self.typevars)
+            saved_bounds = dict(self.typevar_bounds)
+            saved_cls_class = self.cls_class
+            self.cls_class = None
+            try:
+                body = self._body(list(stmt.body))
+            finally:
+                self.cls_class = saved_cls_class
+                self.bindings = saved_bindings
+                self.type_aliases = saved_aliases
+                self.declared = saved_declared
+                self.typevars = saved_typevars
+                self.typevar_bounds = saved_bounds
+                self.frame_sig = None
+            if self.caught:
+                fences.extend(self.caught)
+                continue
+            record = self._method_ir(emit, copy_params, ret, body, span_of(stmt, self.filename))
+            target = next((cls for cls in lowered_classes if cls["name"] == class_name), None)
+            if target is None:
+                fences.append(
+                    Fence("PS2002", "the frame-specialized method has no class", span_of(stmt, self.filename), method)
+                )
+                continue
+            target["methods"].append(record)
 
     def _seed_const_fields(
         self, class_name: str, info: dict[str, Any], body: list[dict[str, Any]], span: dict[str, Any]
