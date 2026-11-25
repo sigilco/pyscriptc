@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-24",
-  "commit": "3dfbd9b209ddc89f97f68117630a207fff7c2ae5",
+  "commit": "7f98fad0c4b8405eba324c413d2067d3c56afad0",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-24",
-    "commit": "3dfbd9b209ddc89f97f68117630a207fff7c2ae5",
+    "commit": "7f98fad0c4b8405eba324c413d2067d3c56afad0",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -32,7 +32,7 @@
     "packages_partial": 11,
     "packages_none": 8,
     "weighted_pass": 0.0,
-    "fences": 3843
+    "fences": 3842
   },
   "builtins": [
     {
@@ -2240,7 +2240,7 @@
         "blocked": 142
       },
       "evidence": "benchmarks/compat/top100/island_probe.py",
-      "fences": 246,
+      "fences": 245,
       "definitions": 388,
       "fenced_definitions": 134,
       "top_families": [
@@ -2268,7 +2268,7 @@
         },
         {
           "code": "PS2001",
-          "count": 23
+          "count": 22
         }
       ],
       "pypi": "https://pypi.org/project/platformdirs/"
@@ -2727,7 +2727,7 @@
     {
       "code": "PS2001",
       "title": "stdlib name not supported",
-      "count": 430,
+      "count": 429,
       "packages": 18
     },
     {
@@ -2757,7 +2757,7 @@
     {
       "code": "PS1003",
       "title": "type mismatch",
-      "count": 101,
+      "count": 102,
       "packages": 12
     },
     {
@@ -2775,7 +2775,7 @@
     {
       "code": "PS2004",
       "title": "operator or operand not supported",
-      "count": 39,
+      "count": 38,
       "packages": 10
     },
     {
@@ -2830,12 +2830,12 @@
   "history": [
     {
       "date": "2026-11-24",
-      "commit": "3dfbd9b209ddc89f97f68117630a207fff7c2ae5",
+      "commit": "7f98fad0c4b8405eba324c413d2067d3c56afad0",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3843
+      "fences": 3842
     }
   ]
 }

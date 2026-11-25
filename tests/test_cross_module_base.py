@@ -90,7 +90,9 @@ def _compare(tmp_path: Path, root: Path) -> str:
     binary, comp = _compile(tmp_path, root)
     assert comp.returncode == 0, comp.stderr
     got = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, cwd=tmp_path)
-    want = subprocess.run([sys.executable, str(root / "__main__.py")], capture_output=True, text=True, timeout=60, cwd=root)
+    want = subprocess.run(
+        [sys.executable, str(root / "__main__.py")], capture_output=True, text=True, timeout=60, cwd=root
+    )
     assert (got.returncode, got.stdout, got.stderr) == (want.returncode, want.stdout, want.stderr)
     return got.stdout
 
@@ -148,14 +150,7 @@ def test_a_method_inherited_through_two_modules_keeps_its_owner(tmp_path: Path) 
     the method is inherited with its real owner and the call site reaches
     the body the base's module emits.
     """
-    mid = (
-        "from base import Base\n"
-        "\n"
-        "\n"
-        "class Mid(Base):\n"
-        "    def label(self) -> str:\n"
-        '        return "mid"\n'
-    )
+    mid = 'from base import Base\n\n\nclass Mid(Base):\n    def label(self) -> str:\n        return "mid"\n'
     child = (
         "from mid import Mid\n"
         "\n"
