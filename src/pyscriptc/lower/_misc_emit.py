@@ -320,7 +320,9 @@ class MiscEmitMixin:
             emit = self._setter_emit_owner(class_name, target.attr)
             return _expr_node(_function_call(f"cls.{emit}.{target.attr}.__set__", [obj, value], ret, span), span)
         hook = self._setattr_hook(class_name)
-        if hook is not None and not (self.in_setattr_hook and isinstance(target.value, ast.Name) and target.value.id == "self"):
+        if hook is not None and not (
+            self.in_setattr_hook and isinstance(target.value, ast.Name) and target.value.id == "self"
+        ):
             # D3 (issue #436): every write on a class whose MRO defines the
             # `__setattr__` hook dispatches to it, the way CPython routes
             # `c.a = v` through the hook before any descriptor or class
