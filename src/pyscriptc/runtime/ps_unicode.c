@@ -473,7 +473,26 @@ void ps_unicode_lookup(int64_t n, const char *s, PsBuf *out) {
             return;
         }
     }
-    ps_raise_cstr(PS_VALUE, "undefined character name");
+    /* CPython raises a KeyError whose argument is the message
+       `undefined character name 'NOPE'`; the runtime prints a KeyError
+       argument as its repr, so the message carries no outer quotes. The
+       name is quoted with the single quotes, the way CPython spells it. */
+    {
+        char msg[256];
+        int64_t w = snprintf(msg, sizeof msg, "undefined character name '");
+        for (int64_t i = 0; i < n && w < (int64_t)sizeof msg - 8; i++) {
+            char c = s[i];
+            if (c == '\'' || c == '\\') {
+                msg[w++] = '\\';
+                if (w >= (int64_t)sizeof msg - 8) {
+                    break;
+                }
+            }
+            msg[w++] = c;
+        }
+        snprintf(msg + w, sizeof msg - (size_t)w, "'");
+        ps_raise_cstr(PS_KEY, msg);
+    }
 }
 
 void ps_unicode_version(PsBuf *out) {
