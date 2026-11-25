@@ -40,6 +40,20 @@ def _has(expr: dict[str, Any], key: str) -> bool:
     return _ir_has(expr, key)
 
 
+def _raw_callee_view(raw: dict[str, Any]) -> tuple[str, str, str, str]:
+    """The `(kind, name, module, receiver)` tuple of a dict-spelled callee.
+
+    The dict spelling carries `module` only on a module callee and
+    `receiver` only on a method callee, so the optional reads stay
+    conditional: the accessor raises on a missing key.
+    """
+    kind: str = _callee_kind(raw)
+    name: str = _callee_name(raw)
+    module: str = _callee_module(raw) if "module" in raw else ""
+    receiver: str = _callee_receiver(raw) if "receiver" in raw else ""
+    return kind, name, module, receiver
+
+
 def _callee_view(expr: dict[str, Any]) -> tuple[str, str, str, str]:
     """The `(kind, name, module, receiver)` tuple of a call's callee.
 
@@ -51,11 +65,12 @@ def _callee_view(expr: dict[str, Any]) -> tuple[str, str, str, str]:
     spellings agree on.
     """
     node: Any = dict_to_node(expr)
+    if isinstance(node, dict):
+        # The escape hatch kept the call whole: the callee is still a dict.
+        return _raw_callee_view(_node_callee(expr))
     callee: Any = node.callee
     if callee is None:
-        # The escape hatch kept the call whole: the callee is still a dict.
-        raw: dict[str, Any] = _node_callee(expr)
-        return _callee_kind(raw), _callee_name(raw), _callee_module(raw), _callee_receiver(raw)
+        return _raw_callee_view(_node_callee(expr))
     ckind: str = callee.kind
     cname: str = callee.name
     cmodule: str = callee.module
@@ -71,10 +86,13 @@ def _callee_tuple_name(expr: dict[str, Any]) -> str:
     packs nothing, so the name is empty.
     """
     node: Any = dict_to_node(expr)
+    if isinstance(node, dict):
+        raw: dict[str, Any] = _node_callee(expr)
+        return _callee_tuple(raw) if "tuple" in raw else ""
     callee: Any = node.callee
     if callee is None:
-        raw: dict[str, Any] = _node_callee(expr)
-        return _callee_tuple(raw)
+        raw = _node_callee(expr)
+        return _callee_tuple(raw) if "tuple" in raw else ""
     return callee.tuple_
 
 
