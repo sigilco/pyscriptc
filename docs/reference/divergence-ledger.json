@@ -2015,7 +2015,7 @@
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d106_namedtuple_fields.py:10:7: PS2001: Point._fields is not a field\n  print(p._fields)\n        ^\nprobes/divergences/d106_namedtuple_fields.py:11:7: PS2001: Point._asdict is not a method\n  print(p._asdict())\n        ^\nprobes/divergences/d106_namedtuple_fields.py:12:7: PS2001: Point._replace is not a method\n  print(p._replace(y=\"z\"))\n        ^\n"
+        "stderr": "probes/divergences/d106_namedtuple_fields.py:11:7: PS2001: Point._fields is not a field\n  print(p._fields)\n        ^\nprobes/divergences/d106_namedtuple_fields.py:12:7: PS2001: Point._asdict is not a method\n  print(p._asdict())\n        ^\nprobes/divergences/d106_namedtuple_fields.py:13:7: PS2001: Point._replace is not a method\n  print(p._replace(y=\"z\"))\n        ^\n"
       },
       "status": "fenced"
     }
