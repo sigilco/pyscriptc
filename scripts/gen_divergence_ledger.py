@@ -872,6 +872,17 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#103",
     ),
     _row(
+        "D104",
+        "the G3b generator shapes (issue #442): a generator def nested inside a plain function lifts "
+        "to the enclosing module's scope (the captured names ride the closure environment), a nested "
+        "generator drives the send protocol, and a pass-through-decorated generator keeps the "
+        "frame-returning callable type, so a for over a call to the decorated name dispatches on the "
+        "frame's real __iter__/__next__; a generator def nested inside a resumable and a lambda that "
+        "carries yield keep the PS2002 fence, and a decorator that is not a pass-through keeps its own",
+        "d104_generator_g3b.py",
+        docs=f"{DOC}#104",
+    ),
+    _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT
     ),
     _row(

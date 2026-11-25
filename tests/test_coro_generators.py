@@ -1357,3 +1357,239 @@ def test_differential_generator_send_probe_matches_cpython(tmp_path: Path) -> No
     want = oracle_run(tmp_path, "gen_send", source)
     assert got == want
     assert got[0] == b"0 2 5 done\n"
+
+
+# --- G3b: pass-through decorators and nested generator defs (issue #442) -----
+
+NESTED = """\
+from typing import Iterator
+
+
+def outer(n: int) -> str:
+    def inner(start: int) -> Iterator[int]:
+        i: int = start
+        while i < n:
+            yield i
+            i += 1
+
+    out: str = ""
+    for v in inner(1):
+        out += str(v) + ","
+    return out
+
+
+print(outer(4))
+"""
+
+NESTED_SEND = """\
+from typing import Generator, Optional
+
+
+def outer(base: int) -> str:
+    def echo() -> Generator[Optional[int], Optional[int], None]:
+        got: Optional[int] = None
+        while True:
+            got = yield got
+            if got is None:
+                return
+
+    g: Generator[Optional[int], Optional[int], None] = echo()
+    out: str = ""
+    nxt: Optional[int] = None
+    got: Optional[int] = g.send(nxt)
+    out += str(got) + ";"
+    got = g.send(base + 2)
+    out += str(got) + ";"
+    got = g.send(base * 10)
+    out += str(got)
+    return out
+
+
+print(outer(3))
+"""
+
+NESTED_CAPTURE = """\
+from typing import Iterator
+
+
+def make(prefix: str, count: int) -> Iterator[str]:
+    tag: str = prefix + ":"
+
+    def gen() -> Iterator[str]:
+        i: int = 0
+        while i < count:
+            yield tag + str(i)
+            i += 1
+
+    return gen()
+
+
+out: str = ""
+for v in make("k", 3):
+    out += v + " "
+print(out)
+"""
+
+DECO_PASSTHROUGH = """\
+from typing import Callable, Iterator
+
+
+def twice(fn: Callable[[], Iterator[int]]) -> Iterator[int]:
+    out: str = ""
+    for v in fn():
+        out += str(v) + ","
+    for v in fn():
+        out += str(v) + ","
+    print(out)
+    return fn()
+
+
+def register(fn: Callable[[], Iterator[int]]) -> Callable[[], Iterator[int]]:
+    return fn
+
+
+@register
+def upto() -> Iterator[int]:
+    i: int = 0
+    while i < 3:
+        yield i
+        i += 1
+
+
+g: Iterator[int] = twice(upto)
+for v in g:
+    print(v)
+"""
+
+DECO_TWICE = """\
+from typing import Callable, Iterator
+
+
+def double_call(fn: Callable[[int], Iterator[int]]) -> Callable[[int], Iterator[int]]:
+    return fn
+
+
+@double_call
+def upto(n: int) -> Iterator[int]:
+    i: int = 0
+    while i < n:
+        yield i
+        i += 1
+
+
+out: str = ""
+for v in upto(3):
+    out += str(v)
+for v in upto(2):
+    out += str(v)
+print(out)
+"""
+
+DECO_CLOSURE_DECO = """\
+from typing import Callable, Iterator
+
+
+def deco(fn: Callable[[int], Iterator[int]]) -> Callable[[int], Iterator[int]]:
+    return fn
+
+
+@deco
+def outer(n: int) -> Iterator[int]:
+    def inner() -> Iterator[int]:
+        i: int = 0
+        while i < n:
+            yield i
+            i += 1
+
+    out: str = ""
+    for v in inner():
+        out += str(v) + ","
+    print(out)
+    yield n
+
+
+for v in outer(3):
+    print(v)
+"""
+
+
+@pytest.mark.parametrize(
+    ("name", "source"),
+    [("nested", NESTED), ("nested_send", NESTED_SEND), ("nested_capture", NESTED_CAPTURE), ("deco", DECO_PASSTHROUGH)],
+)
+def test_g3b_matches_cpython(tmp_path: Path, name: str, source: str) -> None:
+    got, expected = _run_both(tmp_path, name, source)
+    assert got == expected
+
+
+@pytest.mark.parametrize("source", [NESTED, NESTED_CAPTURE, DECO_PASSTHROUGH, DECO_TWICE])
+def test_g3b_ir_is_plain_classes(source: str) -> None:
+    module = lower_source(source, "g3b.py")
+    assert module["fences"] == []
+    validate_module(module)
+    assert YIELD_MARKER not in json.dumps(module)
+    frames = {cls["name"] for cls in module["classes"] if cls["name"].startswith("gen.")}
+    assert frames
+    for frame in module["classes"]:
+        if frame["name"].startswith("gen."):
+            assert {m["name"] for m in frame["methods"]} >= {"__iter__", "__next__", "close"}
+
+
+def test_g3b_lifted_frame_and_closure_names() -> None:
+    module = lower_source(NESTED, "nested.py")
+    assert module["fences"] == []
+    frames = {cls["name"] for cls in module["classes"] if cls["name"].startswith("gen.")}
+    assert frames == {"gen.outer.inner"}
+    fns = {fn["name"] for fn in module["functions"]}
+    assert any(name.startswith("outer.inner") for name in fns)
+
+
+def test_g3b_decorated_generator_wraps_through_callable() -> None:
+    module = lower_source(DECO_TWICE, "deco.py")
+    assert module["fences"] == []
+    frames = {cls["name"] for cls in module["classes"] if cls["name"].startswith("gen.")}
+    assert frames == {"gen.upto"}
+
+
+def test_g3b_reserved_decorators_still_fence() -> None:
+    source = """\
+from typing import Iterator
+
+
+@property
+def g() -> Iterator[int]:
+    yield 1
+"""
+    module = lower_source(source, "reserved.py")
+    assert any(f["code"] == "PS2002" for f in module["fences"])
+
+
+def test_g3b_nested_generator_inside_a_resumable_still_fences() -> None:
+    """A generator def nested inside a *resumable* stays fenced (G3b's
+    scope): the resumable's body is re-entered through its frame, and the
+    nested generator's closure env has no home there yet."""
+    module = lower_source(DECO_CLOSURE_DECO, "dcd.py")
+    assert any(f["code"] == "PS2002" for f in module["fences"])
+
+
+def test_g3b_lambda_with_yield_still_fences() -> None:
+    source = """\
+from typing import Callable, Iterator
+
+fn: Callable[[], Iterator[int]] = lambda: (yield 1)
+"""
+    module = lower_source(source, "lam.py")
+    assert any(f["code"] == "PS2002" for f in module["fences"])
+
+
+def test_differential_g3b_probe_matches_cpython(tmp_path: Path) -> None:
+    """`probes/differential/generator_g3b.py` is the AGENTS.md differential
+    probe for the G3b lift: the compiled program matches CPython on
+    stdout, stderr and the exit code."""
+    from tests.test_gates import ROOT
+    from tests.test_runtime_divergences import compile_and_run, oracle_run
+
+    source = (ROOT / "probes" / "differential" / "generator_g3b.py").read_text(encoding="utf-8")
+    got = compile_and_run(tmp_path, "gen_g3b", source)
+    want = oracle_run(tmp_path, "gen_g3b", source)
+    assert got == want

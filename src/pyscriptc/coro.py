@@ -177,6 +177,7 @@ class FramePlan:
     send: dict[str, Any] = field(default_factory=lambda: dict(_NONE))  # the Generator[T, S, R] send type
     manager: str = ""  # `@contextmanager` wrapper class (`cm.<name>`), "" for a plain generator
     ret: dict[str, Any] = field(default_factory=lambda: dict(_NONE))  # the Generator[T, S, R] return type
+    lifted: bool = False  # G3b: the plan drives a nested def's env-first closure, not a module function
 
 
 def enabled() -> bool:
@@ -216,6 +217,57 @@ def _own_nodes(body: list[ast.stmt]):
         stack.extend(reversed(list(ast.iter_child_nodes(node))))
 
 
+def _tag_owners(tree: ast.Module) -> None:
+    """Record, on every nested def, whether its owner chain holds a class.
+
+    `_lift_nested` reads the tags: a generator def whose immediate owner is a
+    class body plans through the generator-method path; one owned by a
+    function (with no class in between and no enclosing resumable) is the
+    G3b lift. Only the nested-in-function shape lifts; a generator def
+    inside a class inside a function plans in its class scope first (the
+    same method table a class-level method uses), and a deeper nesting
+    keeps the standing fence. Tags ride attributes the pass clears after
+    the signature pass, so no compiled artifact carries them.
+    """
+    for node in ast.walk(tree):
+        if isinstance(node, ast.ClassDef):
+            for stmt in node.body:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    stmt._g3b_owners = ("class",)  # type: ignore[attr-defined]
+        elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+            has_class = any(isinstance(item, ast.ClassDef) for item in _own_nodes(node.body))
+            for stmt in node.body:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    stmt._g3b_owners = ("class",) if has_class else ("fn",)  # type: ignore[attr-defined]
+
+
+def _lift_nested(
+    fn: ast.FunctionDef | ast.AsyncFunctionDef, coro_kind: str
+) -> ast.FunctionDef | ast.AsyncFunctionDef | None:
+    """The nested resumable to plan in the enclosing module's scope, or None.
+
+    A generator `def` nested inside a non-resumable enclosing function is the
+    G3b lift: the nested body keeps its own AST (parameters, annotations,
+    decorators), the plan is keyed `outer.inner` (the same key shape a
+    generator method uses), and `_coro_plan_lifted` synthesizes the
+    environment-first wrapper that allocates the frame and hands out the
+    captured names through the closure env. A generator method (the owner is
+    a class body) and a module function plan in their own scope paths, so
+    only the nested-in-function shape reaches here.
+    """
+    if fn.decorator_list:
+        return None
+    parents = getattr(fn, "_g3b_owners", None)
+    if not parents:
+        return None
+    # The immediate owner is a class body: the method path plans it.
+    if parents[-1] == "class":
+        return None
+    if not (is_generator(fn) or isinstance(fn, ast.AsyncFunctionDef)):
+        return None
+    return fn
+
+
 def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, str] | None:
     """The first body construct outside today's resumable scope, or None.
 
@@ -232,6 +284,21 @@ def _shape_error(fn: ast.FunctionDef | ast.AsyncFunctionDef) -> tuple[ast.AST, s
     def visit(stmts: list[ast.stmt], in_try: bool, in_with: bool) -> tuple[ast.AST, str] | None:
         for stmt in stmts:
             if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+                if isinstance(stmt, ast.ClassDef):
+                    return stmt, "a nested def or class in a resumable is not lowered yet"
+                # G3b: a generator def nested inside a plain function lifts
+                # to the enclosing module's scope (the plan path), and its
+                # own shape check runs when the pass plans it. A nested def
+                # inside a *resumable* (this fn carries yield and the nested
+                # one is a plain def) is still outside the scope: the body
+                # is re-entered through the frame, and a plain nested def
+                # binds there today only through the closure path the
+                # resumable body does not lower. A generator def inside a
+                # resumable keeps the fence for the same reason: the
+                # resumable's body is re-entered through its frame, and the
+                # nested generator's closure env has no home there yet.
+                if getattr(stmt, "_g3b_owners", None) == ("fn",) and is_generator(stmt) and not is_generator(fn):
+                    continue
                 return stmt, "a nested def or class in a resumable is not lowered yet"
             if isinstance(stmt, ast.Return):
                 if in_try or in_with:
@@ -302,12 +369,35 @@ class CoroMixin:
         self, fn: ast.FunctionDef | ast.AsyncFunctionDef
     ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
         """The outward signature of a module-level resumable, or None for any
-        other function (the caller then uses `_signature` as before)."""
+        other function (the caller then uses `_signature` as before).
+
+        A decorated generator (`@deco def g(...)` where `deco` is neither the
+        stdlib `@contextmanager` nor an erased/synthesis decorator) keeps the
+        G3b plan path: the frame plan registers and the outward signature is
+        the closure's func type (params to `Iterator[elem]`), so the deferred
+        decorator pass applies the pass-through wrap to the frame-returning
+        closure exactly the way it wraps a plain function. A decorated
+        coroutine, or a generator under a decorator the wrap pass cannot
+        type, falls through: the caller's own paths fence or erase it.
+        """
         if not enabled():
             return None
-        manager = not fn.decorator_list or self._is_coro_contextmanager(fn)
-        if not manager or fn.decorator_list and len(fn.decorator_list) > 1:
-            return None
+        coroutine = isinstance(fn, ast.AsyncFunctionDef)
+        if fn.decorator_list and not self._is_coro_contextmanager(fn):
+            # A non-`contextmanager` decorator on a resumable: G3b plans a
+            # generator through the pass-through decorator path (the wrap
+            # pass applies to the frame-returning closure); a decorated
+            # coroutine and a reserved decorator (`property` and friends)
+            # keep the caller's paths.
+            if coroutine or len(fn.decorator_list) > 1 or self._decorator_is_reserved(fn) or not is_generator(fn):
+                return None
+            _, _elem, params = self._coro_plan_module(fn)
+            # The outward type is the plain generator's: the closure value
+            # the global binds returns the frame, and the decorator wrap
+            # proves its parameter against that shape (the pass-through
+            # narrowing in `_apply_decorator`).
+            plan = self._coro_plans()[fn.name]
+            return (params, {"kind": "class", "name": plan.frame})
         if self.cataloguing and not (is_generator(fn) or isinstance(fn, ast.AsyncFunctionDef)):
             return None
         if not isinstance(fn, (ast.FunctionDef, ast.AsyncFunctionDef)) or not (
@@ -567,6 +657,171 @@ class CoroMixin:
         plan = self._coro_plans().get(f"{class_name}.{method}")
         self.__dict__["_coro_active"] = plan
         return (params, dict(_NONE)) if plan is not None else (params, ret)
+
+    def _coro_plan_lifted(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        """Plan a generator def nested inside a plain enclosing function (G3b).
+
+        The nested def gets the same treatment a module-level resumable gets:
+        its element/send/return types come from its own annotation, its frame
+        class is synthesized in the enclosing module's class table (named
+        `gen.<outer>.<inner>`, the dotted shape a generator method uses), and
+        the plan is keyed `outer.inner`. The difference is the wrapper: the
+        lowered record is the closure body the enclosing function binds
+        (`env`-first), so `inner` reads as a callable value that allocates
+        the frame and returns it. The captured names ride the closure env;
+        the IR pass stores every env entry into the frame it allocates, so
+        the resume body reads them as frame locals. A plain def (no yield)
+        returns False: the existing nested-def path lowers it unchanged.
+        """
+        if not enabled() or isinstance(fn, ast.AsyncFunctionDef) or not is_generator(fn):
+            return False
+        owner = self.function or ""
+        key = f"{owner}.{fn.name}"
+        if key in self._coro_plans():
+            return False
+        elem, send, ret = self._coro_types(fn)
+        shape = _shape_error(fn)
+        if shape is not None:
+            self.fail(shape[0], "PS2002", shape[1])
+        plain = copy.copy(fn)
+        plain.returns = ast.Constant(value=None)
+        plain.decorator_list = []
+        params, _ = self._signature(plain, None, "method")
+        from pyscriptc.lower._core import _has_typevar
+
+        if _has_typevar(elem) or any(_has_typevar(param["type"]) for param in params):
+            self.fail(fn, "PS2002", "a generic resumable is not lowered yet")
+        frame = f"gen.{key}"
+        frame_t = {"kind": "class", "name": frame}
+        self_t = [{"name": "self", "type": frame_t}]
+        methods: dict[str, Any] = {
+            "__iter__": (self_t, frame_t),
+            "__next__": (self_t, elem),
+            "close": (self_t, _NONE),
+        }
+        if send.get("kind") != "none":
+            methods["send"] = (self_t + [{"name": ".ps_value", "type": send}], elem)
+        self.classes[frame] = {
+            "fields": [],
+            "own_fields": [],
+            "methods": methods,
+            "method_kind": {},
+            "method_owner": {},
+            "base": None,
+            "coro": "generator",
+            "coro_elem": copy.deepcopy(elem),
+        }
+        self.known_classes.add(frame)
+        self._coro_plans()[key] = FramePlan(
+            "generator",
+            key,
+            frame,
+            elem,
+            params,
+            "",
+            send,
+            "",
+            ret,
+            True,
+        )
+        return True
+
+    def _coro_lifted_body_sig(
+        self, key: str, params: list[dict[str, Any]], ret: dict[str, Any]
+    ) -> tuple[list[dict[str, Any]], dict[str, Any]] | None:
+        """The signature a lifted generator's closure body lowers under.
+
+        The body returns None (the frame carries the values) and takes the
+        closure env as its leading parameter, so the callable-value call
+        sites bind it as `Callable[..., Iterator[elem]]`. The plain path
+        answers None and the caller lowers the body unchanged.
+        """
+        plan = self._coro_plans().get(key)
+        if plan is None:
+            return None
+        self.__dict__["_coro_active"] = plan
+        if self._coro_current() is None:
+            return None
+        return ([{"name": ".ps_env", "type": dict(_NONE)}, *params], dict(_NONE))
+
+    def _coro_plan_module(
+        self, fn: ast.FunctionDef | ast.AsyncFunctionDef
+    ) -> tuple[str, dict[str, Any], list[dict[str, Any]]]:
+        """Plan a module-level pass-through-decorated generator (G3b).
+
+        The frame class, the plan table entry and the body signature are the
+        plain generator's (the decorator never touches the body); the
+        caller's outward signature is the closure func type the wrap pass
+        applies to. The return is (function name, element type, body
+        params).
+        """
+        if not enabled() or isinstance(fn, ast.AsyncFunctionDef) or not is_generator(fn):
+            self.fail(fn, "PS2002", "yield is not lowered")
+        elem, send, ret = self._coro_types(fn)
+        shape = _shape_error(fn)
+        if shape is not None:
+            self.fail(shape[0], "PS2002", shape[1])
+        plain = copy.copy(fn)
+        plain.decorator_list = []
+        plain.returns = ast.Constant(value=None)
+        params, _ = self._signature(plain, None, "method")
+        from pyscriptc.lower._core import _has_typevar
+
+        if _has_typevar(elem) or any(_has_typevar(param["type"]) for param in params):
+            self.fail(fn, "PS2002", "a generic resumable is not lowered yet")
+        frame = f"gen.{fn.name}"
+        frame_t = {"kind": "class", "name": frame}
+        self_t = [{"name": "self", "type": frame_t}]
+        methods: dict[str, Any] = {
+            "__iter__": (self_t, frame_t),
+            "__next__": (self_t, elem),
+            "close": (self_t, _NONE),
+        }
+        if send.get("kind") != "none":
+            methods["send"] = (self_t + [{"name": ".ps_value", "type": send}], elem)
+        self.classes[frame] = {
+            "fields": [],
+            "own_fields": [],
+            "methods": methods,
+            "method_kind": {},
+            "method_owner": {},
+            "base": None,
+            "coro": "generator",
+            "coro_elem": copy.deepcopy(elem),
+        }
+        self.known_classes.add(frame)
+        self._coro_plans()[fn.name] = FramePlan(
+            "generator",
+            fn.name,
+            frame,
+            elem,
+            params,
+            self._ir_name(fn.name),
+            send,
+            "",
+            ret,
+        )
+        return fn.name, elem, params
+
+    def _decorator_is_reserved(self, fn: ast.FunctionDef | ast.AsyncFunctionDef) -> bool:
+        """True when any decorator in the stack is one the generator path
+        must not claim: `property`/`classmethod` (module fences), the
+        erased typing names, or a behavior-synthesizing stdlib member.
+
+        Those keep the caller's standing paths (a fence, or the advisory
+        erase of divergence 54). A plain pass-through decorator (a user
+        function typed as a callable, or a stdlib member outside the
+        synthesis set) is claimable.
+        """
+        for dec in fn.decorator_list:
+            if self._erased_deco_name(dec) is not None or self._shadow_deco_name(dec) is not None:
+                return True
+            if self._is_method_synthesis_deco(dec):
+                return True
+            target = dec.func if isinstance(dec, ast.Call) and not dec.args and not dec.keywords else dec
+            if isinstance(target, ast.Name) and target.id in {"property", "classmethod", "staticmethod"}:
+                return True
+        return False
 
     def _coro_current(self) -> FramePlan | None:
         plan = self.__dict__.get("_coro_active")
@@ -1148,9 +1403,25 @@ def lower_resumables(module: dict[str, Any], plans: dict[str, FramePlan]) -> dic
             functions.append(fn)
             continue
         try:
+            if plan.lifted:
+                # G3b: a lifted nested generator's own record IS the
+                # env-first closure body; the frame rebuild swaps it for the
+                # frame's resume body and the synthesized wrapper replaces
+                # the record in place (the closure's env entries ride the
+                # wrapper, so the island-plan fence the plain build raises
+                # never applies to a lifted nested generator).
+                fn.pop("boxed", None)
+                wrapper, frame, _forwarder = _Frame(fn, plan, _KINDS[plan.kind], plans).build()
+                wrapper["name"] = name
+                wrapper["env"] = fn.get("env", [])
+                functions.append(wrapper)
+                classes.append(frame)
+                continue
             wrapper, frame, forwarder = _Frame(fn, plan, _KINDS[plan.kind], plans).build()
         except CoroError as exc:
             fences.append({"code": "PS2002", "message": exc.message, "function": name, "span": exc.span})
+            if plan.lifted:
+                functions.append(fn)
             continue
         functions.append(wrapper)
         if forwarder is not None:
@@ -1463,7 +1734,12 @@ class _Frame:
         self.plans = plans or {}
         self.span = fn["span"]
         self.frame_t = {"kind": "class", "name": plan.frame}
-        self.locals = [dict(local) for local in fn["locals"]]
+        # The captured names (G3b, the lifted nested generator): the closure
+        # env entries bind ahead of the body's own locals, and the frame
+        # carries each one so the resume body reads it after the wrapper's
+        # store.
+        self.captured = [dict(item) for item in (fn.get("env") or [])]
+        self.locals = [*self.captured, *[dict(local) for local in fn["locals"]]]
         self.local_names = {local["name"] for local in self.locals}
         self.temps: list[dict[str, Any]] = []
         self.points = 0
@@ -1508,8 +1784,8 @@ class _Frame:
 
     # build
     def build(self) -> tuple[dict[str, Any], dict[str, Any]]:
-        if self.fn.get("boxed") or self.fn.get("env"):
-            raise CoroError("a resumable whose locals a closure captures is not lowered yet", self.span)
+        if self.fn.get("boxed"):
+            raise CoroError("a resumable whose locals an island plan owns is not lowered yet", self.span)
         span = self.span
         body = self._block(self.fn["body"])
         prologue = [
@@ -1582,11 +1858,22 @@ class _Frame:
 
     def _wrapper(self) -> dict[str, Any]:
         span = self.span
+        lifted = bool(self.captured)
         slot = ".ps_coro_frame"
         make = _call_node({"kind": "class", "name": self.plan.frame}, [], self.frame_t, span)
         target = _name(slot, self.frame_t, span)
         body = [_assign(slot, make, span)]
+        if lifted:
+            # The G3b lift: the wrapper is the env-first closure body, so
+            # the captured names read through the env pointer the emitter
+            # binds by name, and every parameter (the closure's own) comes
+            # in as a plain argument. Each captured name and each parameter
+            # stores into the frame; the resume body reads them there.
+            for item in self.captured:
+                body.append(_attr_set(target, item["name"], _name(item["name"], item["type"], span), span))
         for param in self.fn["params"]:
+            if param["name"] == ".ps_env":
+                continue
             body.append(_attr_set(target, param["name"], _name(param["name"], param["type"], span), span))
         if self.plan.kind == "coroutine":
             # The run loop reaches the resume body through this cell
@@ -1620,10 +1907,10 @@ class _Frame:
                 "span": span,
             }
         body.append(_return_node(target, span))
-        params_locals = [{"name": p["name"], "type": p["type"]} for p in self.fn["params"]]
+        params_locals = [{"name": p["name"], "type": p["type"]} for p in self.fn["params"] if p["name"] != ".ps_env"]
         return {
             "name": self.fn["name"],
-            "params": self.fn["params"],
+            "params": [p for p in self.fn["params"] if p["name"] != ".ps_env"],
             "returnType": self.frame_t,
             "locals": [*params_locals, {"name": slot, "type": self.frame_t}],
             "body": body,

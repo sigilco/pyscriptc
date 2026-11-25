@@ -205,6 +205,18 @@ class AnnotationMixin:
             covariant = self._covariant_return_type(fn, ret)
             if covariant is not None:
                 ret = covariant
+            # The generator-frame return (G3b, issue #442): a def whose
+            # every `return` hands back one generator frame under an
+            # iterator-shaped annotation keeps the frame as the signature's
+            # return type, exactly the way the covariant subclass keeps its
+            # concrete class. Dispatch is static: an `iter_`-cursor return
+            # type would make the call site's `for`/`next()` read the
+            # frame's fields as a list cell (the #441 segfault shape), and
+            # the annotation stays the accepted contract through the
+            # `_accepts_protocol` iterator arm.
+            narrowed = self._generator_return_type(fn, ret)
+            if narrowed is not None:
+                ret = narrowed
         # A callable return is heap-allocated (`ps_alloc` pair + env), so it
         # escapes the frame safely.
         if class_name is not None and fn.name == "__init__" and ret["kind"] != "none":

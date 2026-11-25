@@ -85,6 +85,12 @@ class ModuleDriverMixin:
                 "fences": [fence.as_dict()],
             }
         tree = self._desugar(tree)
+        # The G3b owner tags: a nested generator def plans in the enclosing
+        # module's scope (`_coro_plan_lifted`) when no class body owns it;
+        # the tags ride attributes and every consumer is the coro pass.
+        from pyscriptc.coro import _tag_owners
+
+        _tag_owners(tree)
         fences: list[Fence] = []
         functions: list[ast.FunctionDef] = []
         class_nodes: list[ast.ClassDef] = []
@@ -174,6 +180,16 @@ class ModuleDriverMixin:
                 continue
             try:
                 kind = "static" if self._is_module_staticmethod(fn) else "method"
+                # G3b: the nested generator defs plan in the enclosing
+                # module's scope before the body lowers (the plan table is
+                # the signature pass's output); a failure here is the
+                # nested def's own fence, not the owner's.
+                for stmt in fn.body:
+                    if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                        try:
+                            self._coro_plan_lifted(stmt)
+                        except Fence:
+                            pass
                 self.sigs[fn.name] = self._coro_signature(fn) or self._signature(fn, None, kind)
             except Fence as exc:
                 fences.append(exc)
@@ -345,6 +361,7 @@ class ModuleDriverMixin:
             self.fn_globals = self._globals_for(fn.body)
             self.fn_nonlocals = set()
             self.captures = {}
+            saved_plans = dict(self._coro_plans())
             params, ret = self._coro_body_sig(fn.name)
             self.locals = {param["name"]: param["type"] for param in params}
             self.frozen_names = set()
@@ -397,6 +414,16 @@ class ModuleDriverMixin:
                 self.declared = saved_declared
                 self.typevars = saved_typevars
                 self.typevar_bounds = saved_bounds
+                # A nested body's plan is its own scope (G3b): the parent's
+                # walk never sees the nested def's plan, and a plan that
+                # stayed set here would rewrite the parent's own body. Only
+                # the lifted plans drop: a plan the body registered for
+                # itself (the `asyncio.to_thread` coroutine frame, issue
+                # #400) belongs to the module, not to the body.
+                plans = self._coro_plans()
+                for key, plan in list(plans.items()):
+                    if key not in saved_plans and plan.lifted:
+                        del plans[key]
         self._drain_instances(lowered, lowered_classes, fences)
         self._drain_frames(lowered, fences)
         # The frame-specialized method copies queue from the call sites of

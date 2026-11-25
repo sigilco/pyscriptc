@@ -560,6 +560,12 @@ class StmtMixin(StmtAMixin, StmtBMixin):
             # static call would answer the base's body, so the return
             # fences here instead.
             self._expect_return(stmt, value["type"], ret)
+            # A generator frame returned through an iterator-shaped
+            # annotation keeps the frame type (the same narrow a local
+            # binds with): every later read of the call's value dispatches
+            # on the frame's real `__iter__`/`__next__`.
+            if self._narrows_to_generator(ret, value["type"]):
+                value = {**value, "type": dict(value["type"])}
             # A returned handle transfers ownership to the caller: the scope
             # exit must not free it too (issue #224).
             if _node_kind(value) == "name" and is_handle_type(value["type"]):

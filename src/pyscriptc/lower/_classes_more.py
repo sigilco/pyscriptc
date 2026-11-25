@@ -516,7 +516,7 @@ class ClassesMoreMixin:
         concrete value: the write site stamps what it wrote, and the read
         site proves its own type."""
         if _type_kind(want) != "class" or _type_kind(got) != "class":
-            return _any_accepts(want, got)
+            return self._accepts_protocol_value(want, got)
         want_name = want.get("name")
         got_name = got.get("name")
         if not isinstance(want_name, str) or not isinstance(got_name, str):
@@ -536,6 +536,117 @@ class ClassesMoreMixin:
         if not self.classes.get(want_name, {}).get("protocol"):
             return False
         return self._is_subclass_name(got_name, want_name)
+
+    def _callable_frame_return(self, frame_t: dict[str, Any], ret: dict[str, Any]) -> dict[str, Any]:
+        """The return type a frame-returning callable's copy keeps.
+
+        G3b (issue #442): the copy's parameter is the frame-returning
+        callable, so the body hands the frame back. The copy's return type
+        is the frame, the way a local keeps the frame type under an
+        iterator-shaped annotation: the cursor layout would make the
+        caller's `for` read the frame's fields as a list cell.
+        """
+        got = frame_t.get("return")
+        if not isinstance(got, dict) or _type_kind(got) != "class":
+            return ret
+        got_name = got.get("name")
+        if not isinstance(got_name, str):
+            return ret
+        frame = self.classes.get(got_name)
+        if frame is None or frame.get("coro") != "generator":
+            return ret
+        if _type_kind(ret) != "class" or not self.classes.get(ret.get("name", ""), {}).get("iterator"):
+            return ret
+        next_ret = frame["methods"].get("__next__", (None, None))[1]
+        elem = ret.get("elem")
+        if next_ret is None or elem is None or not types_equal(next_ret, elem):
+            return ret
+        return dict(got)
+
+    def _accepts_protocol_value(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
+        """The value-shaped half of `_accepts_protocol`.
+
+        A `Callable[..., Iterator[T]]` parameter accepts a frame-returning
+        callable (G3b, issue #442): the parameter's return annotation is
+        the iterator cursor, the callable hands back a generator frame, and
+        the frame's element proves against the annotation's element. The
+        parameters themselves must agree: the callable takes the same
+        arguments the parameter declares.
+        """
+        if _type_kind(want) != "func" or _type_kind(got) != "func":
+            return _any_accepts(want, got)
+        want_params = want.get("params")
+        got_params = got.get("params")
+        if not isinstance(want_params, list) or not isinstance(got_params, list):
+            return False
+        if len(want_params) != len(got_params):
+            return False
+        if not all(types_equal(a, b) for a, b in zip(want_params, got_params, strict=True)):
+            return False
+        return self._accepts_protocol(want.get("return", {}), got.get("return", {}))
+
+    def _generator_return_type(
+        self, fn: ast.FunctionDef | ast.AsyncFunctionDef, want: dict[str, Any]
+    ) -> dict[str, Any] | None:
+        """The generator frame a def returns under an iterator annotation.
+
+        G3b (issue #442): a def that returns a generator frame under an
+        `Iterator[T]`-shaped annotation keeps the frame as its signature
+        return type. The synthetic `iter_` cursor is a materialized list
+        with an index, so a call site that took the annotation's type
+        would read the frame's fields as a list cell (the #441 segfault
+        shape). Every `return` must hand back the same frame class, or
+        the carve-out proves nothing and the caller keeps the annotation.
+
+        The annotation stays the accepted contract: the return site checks
+        it through `_accepts_protocol`'s iterator arm, which proves the
+        frame's element against the annotation's element.
+        """
+        if _type_kind(want) != "class" or want.get("elem") is None:
+            return None
+        want_name = want.get("name")
+        if not isinstance(want_name, str) or not self.classes.get(want_name, {}).get("iterator"):
+            return None
+        found: set[str] = set()
+        for node in ast.walk(fn):
+            if not isinstance(node, ast.Return) or node.value is None:
+                continue
+            name = self._returned_frame_name(node.value)
+            if name is None:
+                return None
+            found.add(name)
+        if len(found) != 1:
+            return None
+        frame_name = found.pop()
+        frame = self.classes.get(frame_name)
+        if frame is None or frame.get("coro") != "generator":
+            return None
+        next_ret = frame["methods"].get("__next__", (None, None))[1]
+        if next_ret is None or not types_equal(next_ret, want["elem"]):
+            return None
+        return {"kind": "class", "name": frame_name}
+
+    def _returned_frame_name(self, node: ast.expr) -> str | None:
+        """The generator frame class a returned expression produces, or None.
+
+        The expression is a call to a generator function (the frame the
+        call allocates) or a name bound to one. Anything else returns
+        None: the carve-out never guesses a frame.
+        """
+        if isinstance(node, ast.Call) and isinstance(node.func, ast.Name):
+            name = node.func.id
+        elif isinstance(node, ast.Name):
+            name = node.id
+        else:
+            return None
+        plans = self._coro_plans()
+        # The lifted nested generator (G3b) is keyed `owner.inner`; the
+        # module-level one is keyed by its own name.
+        for key in (name, f"{self.function or ''}.{name}"):
+            plan = plans.get(key)
+            if plan is not None and plan.kind == "generator":
+                return plan.frame
+        return None
 
     def _narrows_to_generator(self, want: dict[str, Any], got: dict[str, Any]) -> bool:
         """True when an iterator-shaped annotation holds a generator frame.

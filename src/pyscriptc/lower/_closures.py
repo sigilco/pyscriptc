@@ -9,6 +9,7 @@ import ast
 from typing import Any
 
 from pyscriptc import _irnode as _ir
+from pyscriptc.coro import _lift_nested
 from pyscriptc.errors import span_of
 from pyscriptc.ir import types_equal
 from pyscriptc.lower._core import Fence, _assign, _mk_span, _mk_type, _name
@@ -86,6 +87,9 @@ class ClosuresMixin:
     def _nested_def(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, span: dict[str, Any]) -> list[dict[str, Any]]:
         if isinstance(fn, ast.AsyncFunctionDef):
             self.fail(fn, "PS2002", "async functions are not lowered")
+        lifted = _lift_nested(fn, "")
+        if lifted is not None:
+            return self._nested_generator_def(fn, span)
         params, ret = self._signature(fn, None, "static")
         ftype = _func_type([param["type"] for param in params], ret)
         # Bind the name before building the env so the def can capture itself
@@ -99,6 +103,50 @@ class ClosuresMixin:
         stmts = [_assign(fn.name, node_to_dict(_closure_node(name, env, ftype, span)), span)]
         stmts.extend(self._decorators(fn, span))
         return stmts
+
+    def _nested_generator_def(
+        self, fn: ast.FunctionDef | ast.AsyncFunctionDef, span: dict[str, Any]
+    ) -> list[dict[str, Any]]:
+        """The G3b lift: a nested generator def binds as a callable value.
+
+        `_coro_plan_lifted` registered the frame class and the plan (keyed
+        `outer.inner`); this lowers the nested body as a closure the
+        existing env machinery carries: the captured names ride the env
+        (`_build_callable`'s free-name scan sees them, and every captured
+        local becomes heap storage), the body returns None (the frame
+        carries the values, the same body shape a generator method
+        lowers), and the pass's lifted wrapper (`_wrapper` for the plan,
+        rekeyed to the closure's own name) allocates the frame, stores the
+        env entries and every parameter into it and returns it. The
+        callable's type is params -> the frame (a generator frame iterates
+        through its own `__iter__`/`__next__`).
+        """
+        owner = self.function or ""
+        key = f"{owner}.{fn.name}"
+        plan = self._coro_plans().get(key)
+        if plan is None:
+            self.fail(fn, "PS2002", "a nested generator def is not lowered yet")
+        # The body lowers under the closure's own name (the plan's key stays
+        # `outer.inner`); the active plan makes every yield in the body plan
+        # through the frame (`_coro_current` matches on the plan's function).
+        frame_t: dict[str, Any] = {"kind": "class", "name": plan.frame}
+        ftype = _func_type([param["type"] for param in plan.params], frame_t)
+        self.locals[fn.name] = ftype
+        self.local_sigs[id(ftype)] = (ftype, plan.params)
+        saved_active = self.__dict__.get("_coro_active")
+        self.__dict__["_coro_active"] = plan
+        try:
+            built = self._build_callable(fn.name, plan.params, {"kind": "none"}, fn.body, fn)
+        finally:
+            if saved_active is None:
+                self.__dict__.pop("_coro_active", None)
+            else:
+                self.__dict__["_coro_active"] = saved_active
+        if built is None:
+            return [_pass_stmt(span)]
+        name, env, _ = built
+        plan.ir_name = name
+        return [_assign(fn.name, node_to_dict(_closure_node(name, env, ftype, span)), span)]
 
     def _decorators(self, fn: ast.FunctionDef | ast.AsyncFunctionDef, span: dict[str, Any]) -> list[dict[str, Any]]:
         """`@dec` on a nested def rewrites the just-bound name to `name =
@@ -134,17 +182,40 @@ class ClosuresMixin:
                 f"decorator {ast.unparse(dec)} is not a lowered callable",
             )
         params = dec_expr["type"]["params"]
-        if (
-            len(params) != 1
-            or not types_equal(params[0], value["type"])
-            or dec_expr["type"]["return"]["kind"] != "func"
-        ):
+        result: dict[str, Any] = dec_expr["type"]["return"]
+        if len(params) != 1 or dec_expr["type"]["return"]["kind"] != "func":
             self.fail(dec, "PS2002", "user decorators are not lowered")
+        if not types_equal(params[0], value["type"]):
+            # G3b (issue #442): a pass-through decorator's parameter spells
+            # the iterator annotation (`Callable[[int], Iterator[int]]`),
+            # while the value it wraps is the generator's frame-returning
+            # closure. The frame narrows to the annotation the same way a
+            # direct call argument does (`_narrows_to_generator`), so the
+            # wrap type-checks — and the wrap result keeps the truthful
+            # frame-returning callable type: a pass-through decorator hands
+            # the same callable back, and a `for` over a call to the bound
+            # name dispatches on the frame's real `__iter__`/`__next__`.
+            param_t = params[0]
+            value_t = value["type"]
+            same_params = (
+                isinstance(param_t.get("params"), list)
+                and isinstance(value_t.get("params"), list)
+                and len(param_t["params"]) == len(value_t["params"])
+                and all(types_equal(a, b) for a, b in zip(param_t["params"], value_t["params"], strict=True))
+            )
+            if not (
+                param_t.get("kind") == "func"
+                and value_t.get("kind") == "func"
+                and same_params
+                and self._narrows_to_generator(param_t.get("return", {}), value_t.get("return", {}))
+            ):
+                self.fail(dec, "PS2002", "user decorators are not lowered")
+            result = value_t
         return node_to_dict(
             _ir.call(
                 _ir.value_callee(dict_to_node(dec_expr)),
                 [dict_to_node(value)],
-                _mk_type(dec_expr["type"]["return"]),
+                _mk_type(result),
                 _mk_span(span),
                 "",
                 "",
