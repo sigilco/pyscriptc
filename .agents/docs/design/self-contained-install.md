@@ -39,9 +39,14 @@ newer glibc; zig only guarantees the exact pin for `--target` builds).
 
 ## What `pyscriptc[zig]` provides today
 
-It does not exist yet. `pyproject.toml` has no `zig` extra: the optional
-dependencies are the deprecated oracle lanes (`oracle-mypy`, `oracle-pyright`).
-Zig reaches the wheel user through two mechanisms, both already built:
+It exists (#1196, landed 2026-11-11, before this note): `pyproject.toml` carries
+`zig = ["ziglang>=0.16,<0.18"]` beside the deprecated oracle lanes
+(`oracle-mypy`, `oracle-pyright`), so `uv tool install "pyscriptc[zig]"` and
+`pip install "pyscriptc[zig]"` are the one-command routes. The note was written
+against the state before that extra landed; the option analysis below still
+holds, because the extra is opt-in and does not make a plain install
+self-contained. Zig reaches the wheel user through two mechanisms, both already
+built:
 
 - `src/pyscriptc/zigshim.py`: when `shutil.which("zig")` misses but the
   `ziglang` package is importable (checked against `sys.executable`, then
@@ -60,6 +65,15 @@ Zig reaches the wheel user through two mechanisms, both already built:
   error (`cli/_main.py:_require_toolchain`) already names `pip install ziglang`
   in its hint (`zigshim.install_hint`), before any compile work runs
   (asserted by `tests/test_first_run.py`).
+
+The code PR for this note (issue #1291, branch `work/1291-self-contained`) lands
+the shape-aware hint the recommendation asks for: `zigshim.install_command(shape)`
+and `zigshim.install_hint(shape)` lead with the one command that reaches the
+install the user actually has (`uv tool install pyscriptc --with ziglang --force`
+for a uv tool environment, `pipx install "pyscriptc[zig]" --force` for pipx,
+`pip install ziglang` for a plain venv install), `doctor` exposes it as
+`toolchain.fix` on its `toolchain:` line, and the up-front compile check uses
+the same hint.
 
 ## Wheel sizes on PyPI (`ziglang` 0.17.1, fetched from the PyPI JSON API)
 

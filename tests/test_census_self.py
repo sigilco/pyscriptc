@@ -351,6 +351,9 @@ def test_self_census_ballpark() -> None:
     # The typed-record reads (R5, #829): the emit/llvm mixins read the
     # kind tags and the type shapes off the typed `T` record instead of the
     # raw dict keys, and the typed helpers add about 140 lines.
+    # The shape-aware first-run toolchain hint (#1291): install_command,
+    # toolchain_fix and toolchain_found plus their tests' surface in
+    # doctor.py and zigshim.py add about 90 lines.
     # The tagged dynamic value's str() and class-attribute surface (#1226):
     # the `str()` of a dynval in lower/_calls.py, the dynval slot and
     # class-attribute handling in lower/_class_attrs.py and
