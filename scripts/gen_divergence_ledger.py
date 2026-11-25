@@ -873,15 +873,15 @@ ROWS: list[dict[str, Any]] = [
         docs=AUDIT,
     ),
     _row(
-        "D102",
+        "D103",
         "object and Any are not interchangeable (issue #1226): CPython treats the two as aliases for the top "
         "type and pyscriptc gives them two meanings, object lowers as the tagged dynamic value (the closed "
         "sum None | bool | int | float | str | list | dict) while Any keeps the unresolved slot with its "
         "PS1107 read fence and a bare Any annotation keeps the PS1104 fence; a value whose arm is outside "
         "the sum (bytes, a tuple, a set, a user class instance) refuses the box with PS2002 where CPython "
         "accepts everything",
-        "d102_object_any_not_interchangeable.py",
-        docs=f"{DOC}#102",
+        "d103_object_any_not_interchangeable.py",
+        docs=f"{DOC}#103",
         note="the running surface (the container reads, the isinstance narrowing, the class attribute and "
         "the JSON round trip in the probe) is byte-identical; the seams are the compile-time fences, so "
         "the probe runs the compiling side and the fences are reviewed in the prose",
