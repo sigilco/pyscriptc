@@ -753,7 +753,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             else:
                                 default = self._expr(stmt.value, None if typ.get("optional") else typ)
                         finally:
-                            saved_prelude = self.prelude
+                            self.prelude = saved_prelude
                         if _record_kind(default) == "factory-default":
                             # The factory default: the field takes the
                             # factory's value per construction, so the
