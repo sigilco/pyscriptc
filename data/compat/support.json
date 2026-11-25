@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-24",
-  "commit": "073240dbee9edbe9d9e543df18debde976df2225",
+  "commit": "1970e5dc2998547825be8c112d3256b0a8ebbcaf",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -992,7 +992,7 @@
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
       "ratio": "9/34",
-      "blocking": "construct-other (3), optional-types (2), local-inference (2)",
+      "blocking": "construct-other (3), optional-types (2), unlowered-call (2)",
       "codes": "PS2002, PS1102, PS1001"
     },
     {
