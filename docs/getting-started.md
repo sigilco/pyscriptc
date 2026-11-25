@@ -85,7 +85,7 @@ For a tool install that command reinstalls the tool with the wheel included:
 uv tool install pyscriptc --with ziglang --force
 ```
 
-For a plain `pip` install into a venv, it is `pip install ziglang` in the same environment. `pyscriptc doctor` prints the same fix on its `toolchain:` line, and `doctor --json` carries it in `toolchain.fix`.
+For a `pipx` install it is `pipx install "pyscriptc[zig]" --force`, and for a plain `pip` install into a venv it is `pip install ziglang` in the same environment. `pyscriptc doctor` prints the same fix on its `toolchain:` line, and `doctor --json` carries it in `toolchain.fix`.
 
 Two lanes never work through zig, whatever is installed: a mobile library build (`--emit lib`) needs the system clang with the Android NDK or the Apple SDK, and a sanitizer build needs a clang that links the sanitizer runtime.
 

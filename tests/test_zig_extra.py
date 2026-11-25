@@ -61,12 +61,21 @@ def test_the_install_hint_is_shaped_to_the_install() -> None:
 
     tool = zigshim.install_hint("tool")
     assert "uv tool install pyscriptc --with ziglang --force" in tool, tool
+    pipx = zigshim.install_hint("pipx")
+    assert 'pipx install "pyscriptc[zig]" --force' in pipx, pipx
     wheel = zigshim.install_hint("wheel")
     assert "pip install ziglang" in wheel, wheel
     # The generic alternatives stay behind the shaped command.
-    for hint in (tool, wheel):
+    for hint in (tool, pipx, wheel):
         assert "brew install zig" in hint, hint
         assert "pyscriptc[zig]" in hint, hint
+
+
+def test_the_install_shape_knows_the_tool_environments() -> None:
+    """A uv tool and a pipx environment need different reinstall commands."""
+    from pyscriptc import doctor
+
+    assert doctor.install_shape() in {"wheel", "tool", "pipx", "binary", "source"}
 
 
 def zigshim_install_hint() -> str:

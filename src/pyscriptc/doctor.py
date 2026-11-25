@@ -56,12 +56,14 @@ def _zig_tool() -> dict[str, Any]:
 
 
 def install_shape() -> str:
-    """One of `binary`, `tool`, `source`, `wheel`."""
+    """One of `binary`, `tool`, `pipx`, `source`, `wheel`."""
     if getattr(sys, "frozen", False):
         return "binary"
     prefix = Path(sys.prefix).as_posix()
-    if "/uv/tools/" in prefix or "/pipx/venvs/" in prefix:
+    if "/uv/tools/" in prefix:
         return "tool"
+    if "/pipx/venvs/" in prefix:
+        return "pipx"
     try:
         raw = metadata.distribution("pyscriptc").read_text("direct_url.json")
         if raw and json.loads(raw).get("dir_info", {}).get("editable"):

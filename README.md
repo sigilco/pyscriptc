@@ -79,7 +79,7 @@ uv tool install "pyscriptc[zig]"
 
 The extra pulls the `ziglang` wheel; pyscriptc installs a `zig` PATH shim over it, so `--driver zig` and cross-compilation work with no other setup. See [Getting started](https://pyscriptc.pages.dev/getting-started/) for the full toolchain setup.
 
-A plain install carries no C toolchain (the wheel is about 100 MB per platform). If the first compile finds neither `zig` nor `clang`, it stops and names the command for your install: `uv tool install pyscriptc --with ziglang --force` for a tool install, `pip install ziglang` for a plain venv install. `pyscriptc doctor` prints the same command on its `toolchain:` line.
+A plain install carries no C toolchain (the wheel is about 100 MB per platform). If the first compile finds neither `zig` nor `clang`, it stops and names the command for your install: `uv tool install pyscriptc --with ziglang --force` for a tool install, `pipx install "pyscriptc[zig]" --force` for pipx, `pip install ziglang` for a plain venv install. `pyscriptc doctor` prints the same command on its `toolchain:` line.
 
 </details>
 

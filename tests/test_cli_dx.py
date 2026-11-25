@@ -116,7 +116,7 @@ def test_doctor_json_reports_toolchain() -> None:
     assert got.returncode == 0, got.stderr
     info = json.loads(got.stdout)
     assert info["checker"]["source"] in {"env", "interpreter", "user-scheme", "path", "-m-fallback"}
-    assert info["install"] in {"wheel", "tool", "binary", "source"}
+    assert info["install"] in {"wheel", "tool", "pipx", "binary", "source"}
     assert {"clang", "zig", "cache_dir", "default_target"} <= info.keys()
 
 

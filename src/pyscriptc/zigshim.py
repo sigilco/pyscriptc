@@ -208,14 +208,17 @@ def install_command(shape: str) -> str | None:
 
     The shapes are `doctor.install_shape()`: `binary` (no package manager
     involved, so nothing to append to), `source` (editable/checkout, the
-    dev's own `uv sync --extra zig`), `tool` (a uv/pipx tool environment,
-    which `pip install` into the ambient interpreter would not touch) and
-    `wheel` (a plain pip/venv install, where `pip install ziglang` lands in
-    the same environment). This is what makes the first-run hint actionable
-    instead of generic (issue #1291).
+    dev's own `uv sync --extra zig`), `tool` (a uv tool environment, which
+    `pip install` into the ambient interpreter would not touch), `pipx` (a
+    pipx environment, which reinstalls with the extra) and `wheel` (a plain
+    pip/venv install, where `pip install ziglang` lands in the same
+    environment). This is what makes the first-run hint actionable instead
+    of generic (issue #1291).
     """
     if shape == "tool":
         return "uv tool install pyscriptc --with ziglang --force"
+    if shape == "pipx":
+        return 'pipx install "pyscriptc[zig]" --force'
     if shape == "wheel":
         return "pip install ziglang"
     return None
