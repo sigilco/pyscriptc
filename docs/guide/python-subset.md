@@ -180,6 +180,9 @@ A file may raise its own level with a pragma comment, which is inert for CPython
 The pragma may only raise the level over the config, never lower it, so a strict configuration holds: a file that wants less has to be taken out of the strict globs, not downgraded in place.
 The findings surface in `pyscriptc infer --report` and `pyscriptc assess`; see [Config](../reference/config.md) for the table.
 
+The report is a floor, not a replay of the compiler: it reads the shapes statically, so it names every annotation the compiler would fence and may name one the compiler later proves away (a local the compiler types from a call result, for instance).
+The compiler is still the authority on what compiles; a level never changes that.
+
 For background on the typing system itself, the upstream references are the best source and pyscriptc does not re-explain them:
 
 - [The typing module](https://docs.python.org/3/library/typing.html) and [Type hints cheat sheet](https://mypy.readthedocs.io/en/stable/cheat_sheet_py3.html) from the mypy docs

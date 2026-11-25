@@ -245,15 +245,23 @@ class C:
 """
     )
     codes = [c for c, _fam, _line in findings]
-    # `x`, `self_y`, `f`, `m` and `n`: self and cls are not counted.
-    assert codes.count("PS1001") == 5
+    # `x` and `self_y` are unannotated parameters and `f` has no return
+    # annotation: three findings. `self` and `cls` are not counted, and
+    # the bodies of `m` and `n` prove `None`, so their missing return
+    # annotation is not a fence (the lowerer's own return peek).
+    assert codes.count("PS1001") == 3
+    assert [fam for _code, fam, _line in findings] == [
+        "param-inference",
+        "return-inference",
+        "param-inference",
+    ]
 
 
 def test_scan_defaults_count_as_annotated() -> None:
     findings = _scan('def h(a, b="x"):\n    pass\n')
-    # The defaulted `b` counts as annotated; the bare `a` and the missing
-    # return do not.
-    assert [fam for _code, fam, _line in findings] == ["param-inference", "return-inference"]
+    # The defaulted `b` counts as annotated; the bare `a` does not. The
+    # body proves `None`, so the missing return is not a fence.
+    assert [fam for _code, fam, _line in findings] == ["param-inference"]
 
 
 def test_scan_construct_forms() -> None:
@@ -295,9 +303,11 @@ def test_scan_reads_the_lowerers_tables() -> None:
 
     from pyscriptc.typinglevels import _lowerer_tables
 
-    taken, dynamic = _lowerer_tables()
-    for name in ("Sequence", "Iterable", "Callable", "Optional", "Union", "Final", "Annotated", "NoReturn"):
-        assert name in taken, name
+    taken_bare, subscripted, dynamic = _lowerer_tables()
+    for name in ("NoReturn", "TextIO", "BinaryIO"):
+        assert name in taken_bare, name
+    for name in ("Sequence", "Iterable", "Callable", "Optional", "Union", "Final", "Annotated", "List", "Dict"):
+        assert name in subscripted, name
     for name in ("Any", "Protocol", "TypeVar", "Generic"):
         assert name in dynamic, name
     # `NoReturn` is taken bare and never a dynamic annotation.
@@ -316,6 +326,99 @@ def f(x: Sequence) -> Sequence:
 """
     )
     assert [f for f in findings if f[0] != "PS1001"] == []
+
+
+def test_scan_separates_the_bare_and_the_subscripted_aliases() -> None:
+    """A name may be taken in one shape and fenced in the other.
+
+    The lowerer reads `Sequence` bare as a name it does not lower
+    (PS1103) and `Sequence[int]` as a container it takes; the report
+    has to name the same code the compiler does.
+    """
+
+    bare = _scan("from typing import Sequence\ndef f(a: Sequence) -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in bare] == ["PS1103"]
+    subscripted = _scan("from typing import Sequence\ndef f(a: Sequence[int]) -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in subscripted] == []
+
+
+def test_scan_reads_the_never_aliases_and_the_io_handles_bare() -> None:
+    """The never aliases and the IO handles are taken as whole names."""
+
+    never = _scan("from typing import NoReturn\ndef f(a: NoReturn) -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in never] == []
+    handle = _scan("from typing import TextIO\ndef f(a: TextIO) -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in handle] == []
+    # The subscripted spelling of either is not taken.
+    sub = _scan("from typing import TextIO\ndef f(a: TextIO[int]) -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in sub] == ["PS1103"]
+
+
+def test_scan_names_the_dynamic_aliases() -> None:
+    """The dynamic names fence PS1104, the `typing` spelling included."""
+
+    for name in ("Any", "Protocol", "TypeVar", "Generic"):
+        findings = _scan(f"from typing import {name}\ndef f(a: {name}) -> int:\n    return 1\n")
+        assert [c for c, _fam, _line in findings] == ["PS1104"], name
+    # The builtin `object` is not the typing spelling of it: it erases to
+    # the tagged dynamic value and is taken.
+    builtin = _scan("def f(a: object) -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in builtin] == []
+
+
+def test_scan_fences_a_name_the_module_never_defines() -> None:
+    """A plain name the module does not define is the PS1106 case."""
+
+    findings = _scan("def f(a: Undefined) -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in findings] == ["PS1106"]
+    assert [fam for _c, fam, _line in findings] == ["unlowered-type-name"]
+
+
+def test_scan_takes_a_class_the_module_defines() -> None:
+    """A class the module defines is a name the compiler lowers."""
+
+    findings = _scan("class C:\n    pass\ndef f(a: C) -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in findings] == []
+
+
+def test_scan_resolves_a_quoted_forward_reference() -> None:
+    """A quoted name the module defines resolves; one it does not fences."""
+
+    resolved = _scan("class Node:\n    pass\ndef f(a: 'Node') -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in resolved] == []
+    unresolved = _scan("def f(a: 'Nope') -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in unresolved] == ["PS1105"]
+
+
+def test_scan_fences_the_bare_display_locals() -> None:
+    """A local the body never pins keeps the PS1001 fence."""
+
+    unpinned = _scan("def f() -> int:\n    counts = {}\n    return 1\n")
+    assert [c for c, _fam, _line in unpinned] == ["PS1001"]
+    assert [fam for _c, fam, _line in unpinned] == ["local-inference"]
+    # The body pins it, so the local is fine.
+    pinned = _scan("def f() -> int:\n    counts = {}\n    counts['a'] = 1\n    return 1\n")
+    assert [c for c, _fam, _line in pinned] == []
+
+
+def test_scan_reads_the_return_peek() -> None:
+    """A body that proves its return type needs no return annotation."""
+
+    proven = _scan("def f(a: int):\n    return a + 1\n")
+    assert [c for c, _fam, _line in proven] == []
+    # A bare `return` proves nothing beyond `None`, and mixing it with a
+    # valued return means the paths disagree.
+    mixed = _scan("def f(c: bool):\n    if c:\n        return 1\n    return None\n")
+    assert [c for c, _fam, _line in mixed] == ["PS1001"]
+
+
+def test_scan_reports_the_vararg_and_the_kwarg() -> None:
+    """The `*args` and `**kwargs` parameters need an annotation too."""
+
+    vararg = _scan("def f(*args) -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in vararg] == ["PS1001"]
+    kwarg = _scan("def f(**kwargs) -> int:\n    return 1\n")
+    assert [c for c, _fam, _line in kwarg] == ["PS1202"]
 
 
 def test_scan_file_tolerates_a_bad_file(tmp_path: Path) -> None:
