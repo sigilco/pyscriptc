@@ -1,3 +1,4 @@
+# SPDX-License-Identifier: Apache-2.0
 """`typing.NamedTuple` as a class base (#1369).
 
 `class P(NamedTuple)` collects the body's annotated fields as the positional
