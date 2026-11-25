@@ -268,7 +268,8 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D35",
-        "__getattr__ compiles for unknown-name reads only; the rest of the dynamic attribute protocol is refused",
+        "__getattr__ compiles for unknown-name reads only and __setattr__ for writes only (one plain-method "
+        "shape each); the rest of the dynamic attribute protocol is refused",
         "d35_setattr.py",
         docs=f"{DOC}#35",
     ),
@@ -926,6 +927,18 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#107",
         note="the construction, field reads, subscripts and unpack are the differential probe "
         "(probes/differential/namedtuple_class_base.py) and are byte-identical",
+    ),
+    _row(
+        "D108",
+        "the __setattr__ hook's store (issue #436): every write dispatches to the hook, and the hook body's "
+        "self-write is a plain field store that bypasses the hook and lands on the spelled field, where "
+        "CPython re-enters the hook through the body's write (a RecursionError); the store target is the "
+        "body's spelled field, not the write site's name, so a hook that spells `self.x = value` answers "
+        "`c.y = 7` by writing `x`, where CPython's object.__setattr__ creates the attribute `y`",
+        "d108_setattr_hook_store.py",
+        docs=f"{DOC}#108",
+        note="the hook dispatch itself is byte-identical (probes/differential/setattr_hook.py); the store "
+        "seam is the rest of the entry",
     ),
 ]
 
