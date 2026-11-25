@@ -13,7 +13,7 @@ from typing import Any
 
 from pyscriptc import rtcache, zigshim
 from pyscriptc.check import _resolve_pyrefly
-from pyscriptc.emit._ir import _flag_of, _name_list, _opt_int, _opt_record, _opt_str, _opt_str_or_none
+from pyscriptc.emit._ir import _flag_of, _name_list, _opt_int, _opt_str, _opt_str_or_none
 from pyscriptc.log import log_dir
 
 
