@@ -654,7 +654,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                         const = self._module_fold(stmt.value)
                         if const is None or const.get("kind") not in {"const", "tuple-const"}:
                             typ = self._annotation(stmt.annotation)
-                            if _type_kind(typ) not in {"str", "int", "list", "dict"}:
+                            if _type_kind(typ) not in {"str", "int", "list", "dict", "dynval"}:
                                 self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
                             if stmt.target.id in seen or stmt.target.id in inherited_types:
                                 self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
@@ -664,6 +664,17 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             seen.add(stmt.target.id)
                             continue
                         typ = self._annotation(stmt.annotation)
+                        if _type_kind(typ) == "dynval":
+                            # A dynval-annotated class attribute (issue #1226):
+                            # the tagged cell has no const spelling, so the
+                            # value lowers in the runtime-attribute pass like
+                            # any other computed class body value and reads
+                            # through the slot.
+                            if stmt.target.id in seen or stmt.target.id in inherited_types:
+                                self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
+                            runtime_attrs.append((stmt.target.id, stmt))
+                            seen.add(stmt.target.id)
+                            continue
                         if const.get("kind") == "tuple-const":
                             # A fixed-shape tuple constant (issue #444): the
                             # class attribute holds the tuple, and the
