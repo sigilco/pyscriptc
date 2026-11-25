@@ -853,6 +853,16 @@ ROWS: list[dict[str, Any]] = [
         "the value/name reads, the enum methods and properties and the StrEnum and flag bases are byte-identical",
     ),
     _row(
+        "D102",
+        "a write to a cached property name is a compile fence (issue #440): CPython stores the value into "
+        "the instance __dict__ and the name then answers the stored value without ever running the getter, "
+        "where the lowered program keeps the cached value in the struct slot and has no instance dictionary "
+        "to write; the class-level read C.y returns the descriptor there and fences here, the same rule "
+        "every method name follows",
+        "d102_cached_property_write.py",
+        docs=f"{DOC}#102",
+    ),
+    _row(
         "AUDIT-D11", "json.dumps does not escape non-ASCII (audit D11)", "ad11_json_ascii.py", listed=False, docs=AUDIT
     ),
     _row(

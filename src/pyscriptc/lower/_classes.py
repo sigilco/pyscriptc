@@ -57,6 +57,7 @@ from pyscriptc.stdmore import (
     ALWAYS_CLASSES,
     CLASS_FIELDS,
     DEFERRED_CLASSES,
+    PTR_CLASSES,
     RESERVED_CODE_EXCEPTIONS,
     SYNTHETIC_EXCEPTION_PARENTS,
     SYNTHETIC_EXCEPTIONS,
@@ -634,6 +635,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         # attribute reads through a runtime slot keyed `C.x`. The statements
         # are recorded here; `_lower_class_attrs` lowers them.
         runtime_attrs: list[tuple[str, ast.stmt]] = []
+        # The cached properties of this class (issue #440): each one owns a
+        # hidden value slot and a hidden computed flag in the class's struct
+        # layout, so the value survives the first read per instance.
+        cached_props: list[str] = []
+        cached_names: set[str] = set()
         for stmt in node.body:
             if _is_docstring(stmt) or isinstance(stmt, ast.Pass):
                 continue
@@ -651,6 +657,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                             if _type_kind(typ) not in {"str", "int", "list", "dict"}:
                                 self.fail(stmt, "PS1204", "class fields are declared with an annotation and no value")
                             if stmt.target.id in seen or stmt.target.id in inherited_types:
+                                self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
+                            if stmt.target.id in cached_names:
                                 self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                             runtime_attrs.append((stmt.target.id, stmt))
                             seen.add(stmt.target.id)
@@ -680,6 +688,8 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                         const_types[stmt.target.id] = typ
                         continue
                     if stmt.target.id in seen or stmt.target.id in inherited_types:
+                        self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
+                    if stmt.target.id in cached_names:
                         self.fail(stmt, "PS2002", f"duplicate field {stmt.target.id}")
                     typ = self._annotation(stmt.annotation)
                     if _type_kind(typ) == "func":
@@ -752,9 +762,20 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     kind = self._method_decorator(stmt)  # type: ignore[arg-type]
                     if stmt.name == "__init__" and kind != "method":
                         self.fail(stmt, "PS1201", "decorators are not lowered")
+                    if kind == "cached_property":
+                        cached_props.append(stmt.name)
+                        # The name is the compiler's: a same-named field or
+                        # class constant would shadow the slot protocol.
+                        if stmt.name in seen or stmt.name in inherited_types:
+                            self.fail(stmt, "PS2002", f"cached property {stmt.name} clashes with a field")
+                        cached_names.add(stmt.name)
                     methods.append((stmt, kind))  # type: ignore[arg-type]
                     continue
                 if isinstance(stmt, ast.Assign) and len(stmt.targets) == 1 and isinstance(stmt.targets[0], ast.Name):
+                    if stmt.targets[0].id in cached_names:
+                        # A cached property owns the name (issue #440): a
+                        # class-body assignment of it has no slot protocol.
+                        self.fail(stmt, "PS2002", f"duplicate field {stmt.targets[0].id}")
                     const = self._module_fold(stmt.value)
                     if const is not None and const.get("kind") == "const":
                         class_constants[stmt.targets[0].id] = const
@@ -844,6 +865,23 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     const_types,
                 )
             )
+        # The cached properties' hidden struct slots (issue #440): the value
+        # slot rides the getter's proven return type, the flag is the one
+        # byte `ps_alloc`'s calloc zero-fills (false = never computed). The
+        # slots join the class's struct layout after the declared fields, so
+        # the declared layout is never reordered; `own_fields` stays the
+        # declared set, so `__repr__`, the dataclass `__eq__` and the export
+        # table never see them.
+        hidden_fields: list[dict[str, Any]] = []
+        for name in cached_props:
+            sig = method_sigs.get(name)
+            if sig is None:
+                continue
+            ret = sig[1]
+            if not self._cached_slot_type(ret):
+                self.fail(node, "PS2002", f"cached property {name} needs a storable return type")
+            hidden_fields.append({"name": f"__cached_{name}", "type": ret})
+            hidden_fields.append({"name": f"__cached_{name}_set", "type": _leaf_type("bool")})
         generated: str | None = None
         generated_eq = False
         init_target: str | None = None
@@ -940,7 +978,7 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                     class_constants[field["name"]] = default
         exception = bool(base and (_base_kind(base) == "exception" or (parent and parent.get("exception"))))
         info: dict[str, Any] = {
-            "fields": [*inherited, *fields],
+            "fields": [*inherited, *fields, *hidden_fields],
             "own_fields": fields,
             "constants": class_constants,
             "const_types": const_types,
@@ -953,6 +991,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             "node": node,
             "class_id": self._class_ids.assign(node.name),
         }
+        if cached_props:
+            # The cached properties of this class (issue #440): the read
+            # site calls the synthesized accessor, and the accessor owns
+            # the one-shot compute.
+            info["cached_props"] = cached_props
         if generated is not None:
             info["generated_init"] = generated
             info["init_target"] = init_target
@@ -1417,6 +1460,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         generated_eq = self._generated_eq(node, info)
         if generated_eq is not None:
             methods.append(generated_eq)
+        # The cached-property accessors (issue #440): one method per cached
+        # property, after the getter itself, so the emitter's function list
+        # carries both.
+        for name in info.get("cached_props", []):
+            accessor = self._cached_accessor(node, info, name)
+            if accessor is not None:
+                methods.append(accessor)
         record = {
             "name": own,
             "fields": info["fields"],
@@ -1685,6 +1735,69 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             "body": body,
             "span": span,
         }
+
+    def _cached_slot_type(self, typ: dict[str, Any]) -> bool:
+        """True when a value of this type can live in a cached property's slot.
+
+        The slot is a struct field, so it takes the field types the struct
+        layout carries: `str`, `int`, `list`, `dict` and the pointer
+        classes. A `float`, a `bool` and a tuple have no field form, so the
+        cached property keeps its fence.
+        """
+        kind = _type_kind(typ)
+        if kind in {"str", "int", "list", "dict"}:
+            return True
+        if kind == "class":
+            return bool(typ.get("name") in PTR_CLASSES)
+        return False
+
+    def _cached_accessor(self, node: ast.ClassDef, info: dict[str, Any], name: str) -> dict[str, Any] | None:
+        """The accessor method a cached property's read site calls.
+
+        The accessor owns the whole protocol (issue #440): the first read
+        calls the getter once, stores the value in the class's hidden slot
+        and marks the slot computed; every later read answers the stored
+        value. The getter itself stays an ordinary method (`cls.{C}.{name}`),
+        so the accessor calls it the way a `@property` read calls its getter.
+        """
+        sig = info["methods"].get(name)
+        if sig is None:
+            return None
+        ret = sig[1]
+        span = span_of(node, self.filename)
+        self_type = _class_type(node.name)
+        self_n = _name("self", self_type, span)
+        value_slot = f"__cached_{name}"
+        flag_slot = f"__cached_{name}_set"
+        flag = _attr_node(self_n, flag_slot, _leaf_type("bool"), span)
+        value = _attr_node(self_n, value_slot, ret, span)
+        owner = info["method_owner"].get(name, node.name)
+        getter = _function_call(f"cls.{owner}.{name}", [self_n], ret, span)
+        # The computed value rides a local: the store writes the slot and
+        # the return answers the same value, the way CPython's descriptor
+        # stores the getter's result and returns it.
+        computed = f"__cached_{name}_value"
+        params = [_self_param(node.name)]
+        saved_locals = dict(self.locals)
+        self.locals = {param["name"]: param["type"] for param in params}
+        self.locals[computed] = ret
+        try:
+            body = [
+                _if_node(
+                    flag,
+                    [_return_node(value, span)],
+                    [
+                        _assign_node(computed, getter, span),
+                        _setattr_node(self_n, value_slot, _name(computed, ret, span), span),
+                        _setattr_node(self_n, flag_slot, _const_bool(True, span), span),
+                        _return_node(_name(computed, ret, span), span),
+                    ],
+                    span,
+                ),
+            ]
+            return self._method_ir(f"__cached_{name}", params, ret, body, span)
+        finally:
+            self.locals = saved_locals
 
     def _generated_method(self, node: ast.ClassDef, info: dict[str, Any]) -> dict[str, Any] | None:
         mode = info.get("generated_init")
@@ -2510,6 +2623,13 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             sig = info["methods"][name]
             owner = self._emit_owner(class_name, name)
             return _function_call(f"cls.{owner}.{name}", [obj], sig[1], span)
+        if info.get("method_kind", {}).get(name) == "cached_property":
+            # The cached property's read (issue #440): the accessor method
+            # owns the first-read compute and every later read answers the
+            # instance slot, the way CPython's descriptor does.
+            owner = self._emit_owner(class_name, name)
+            sig = info["methods"][name]
+            return _function_call(f"cls.{owner}.__cached_{name}", [obj], sig[1], span)
         hook = self._getattr_hook(class_name)
         if hook is not None:
             return self._getattr_hook_call(hook, obj, name, span, node, expect)

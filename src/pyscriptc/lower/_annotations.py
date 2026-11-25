@@ -106,9 +106,12 @@ class AnnotationMixin:
         pos_marks = [True] * len(fn.args.posonlyargs) + [False] * len(fn.args.args)
         args = list(fn.args.posonlyargs) + list(fn.args.args)
         params: list[dict[str, Any]] = []
-        if kind == "property":
+        if kind in {"property", "cached_property"}:
             if fn.args.vararg is not None or fn.args.kwarg is not None or len(args) != 1 or args[0].arg != "self":
-                self.fail(fn, "PS2002", "a property's only parameter is self")
+                code = "a property's only parameter is self"
+                if kind == "cached_property":
+                    code = "a cached property's only parameter is self"
+                self.fail(fn, "PS2002", code)
             if args[0].annotation is not None:
                 self.fail(args[0], "PS2002", "self is not annotated")
             if class_name is None:

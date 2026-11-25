@@ -154,6 +154,13 @@ _METHOD_SYNTHESIS_DECORATORS = {
     ("contextlib", "contextmanager"),
 }
 
+# The method decorators that lower as their own method kind: the closed
+# builtin set (`property`, `staticmethod`, `classmethod`) plus the stdlib
+# decorator whose behavior the compiler synthesizes in the class lowering
+# itself (issue #440). `cached_property` never takes the advisory erase:
+# erasing it would turn the one-shot compute into a per-read method call.
+_LOWERING_METHOD_DECORATORS = {("functools", "cached_property")}
+
 
 class ClassesMoreMixin:
     def _class_decorator(self, node: ast.ClassDef) -> str | None:
@@ -306,6 +313,40 @@ class ClassesMoreMixin:
             return (resolved[1], resolved[2]) in _CLASS_SYNTHESIS_DECORATORS
         return False
 
+    def _is_cached_property_deco(self, dec: ast.expr) -> bool:
+        """True when the decorator is the lowered `functools.cached_property`.
+
+        Both spellings (`@cached_property` after `from functools import
+        cached_property` and `@functools.cached_property`) resolve through
+        the same binding tables the synthesis guard reads.
+        """
+        target = dec.func if isinstance(dec, ast.Call) else dec
+        if isinstance(target, ast.Name):
+            binding = self.bindings.get(target.id)
+            if binding is not None:
+                return (binding.module, binding.attr) in _LOWERING_METHOD_DECORATORS
+            imported = self.stdlib_imports.get(target.id)
+            return imported is not None and imported in _LOWERING_METHOD_DECORATORS
+        if isinstance(target, ast.Attribute):
+            resolved = self._resolve_module(target)
+            if resolved is None:
+                return False
+            return (resolved[1], resolved[2]) in _LOWERING_METHOD_DECORATORS
+        return False
+
+    def _is_cached_property_call(self, dec: ast.expr) -> bool:
+        """True when the decorator calls the member: `@cached_property()`.
+
+        CPython raises a `TypeError` there (the descriptor takes the getter
+        as its constructor argument, so the call form is not a spelling it
+        accepts), and pyscriptc refuses it the same way: the name never
+        takes the advisory erase, because erasing it would silently lower
+        a program CPython refuses at class creation.
+        """
+        if not isinstance(dec, ast.Call):
+            return False
+        return self._is_cached_property_deco(dec)
+
     def _method_decorator(self, fn: ast.FunctionDef) -> str:
         # Erased typing decorators (`@abstractmethod`) drop out first, so
         # `@property @abstractmethod` still resolves to a property. A user
@@ -328,6 +369,21 @@ class ClassesMoreMixin:
             return "method"
         if any(self._is_method_synthesis_deco(d) for d in decos):
             self.fail(fn, "PS1201", "decorators are not lowered")
+        if any(self._is_cached_property_call(d) for d in decos):
+            # `@cached_property()` is not a spelling CPython accepts: the
+            # descriptor takes the getter as its constructor argument. The
+            # name refuses it instead of erasing the decorator and lowering
+            # a program CPython rejects at class creation.
+            self.fail(fn, "PS1201", "decorators are not lowered")
+        if any(self._is_cached_property_deco(d) for d in decos):
+            # `@cached_property` (issue #440): the compiler lowers the
+            # one-shot compute itself, so the decorator is not erased and
+            # the stack may not carry another member (the cached value's
+            # slot and the getter's body are the whole contract).
+            if len(decos) != 1:
+                self.fail(fn, "PS1201", "decorators are not lowered")
+            fn.decorator_list = []
+            return "cached_property"
         if any(self._is_descriptor_deco(d) for d in decos):
             # A descriptor-style decorator (`@v.setter`, `@v.deleter`) does
             # not wrap the function: it mutates the descriptor the getter

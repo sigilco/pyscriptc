@@ -2234,6 +2234,16 @@ def _class_export(info: dict[str, Any]) -> dict[str, Any]:
         for aname in raw_runtime:
             runtime_attr_types[aname] = raw_runtime[aname]
     exported["runtime_attr_types"] = runtime_attr_types
+    cached_props: list[str] = []
+    if "cached_props" in info:
+        raw_cached: list[str] = info["cached_props"]
+        for cname in raw_cached:
+            cached_props.append(cname)
+    if cached_props:
+        # The cached properties (issue #440): the read site on the consumer
+        # side resolves to the defining module's accessor, and the hidden
+        # slots ride the exported field list.
+        exported["cached_props"] = cached_props
     base: str = ""
     if "base" in info:
         base = info["base"]

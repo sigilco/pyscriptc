@@ -345,10 +345,13 @@ def test_self_census_ballpark() -> None:
     # format dispatch in lower/_classes.py and the call-site hooks add
     # about 750 lines, taking the census to 94,071, so the ceiling moves
     # to 96k.
+    # functools.cached_property (D4b, #440): the descriptor lowering and
+    # the functools lane add about 200 lines, taking the census to
+    # 96,204.
     # The shape-aware first-run toolchain hint (#1291): install_command,
     # toolchain_fix and toolchain_found plus their tests' surface in
     # doctor.py and zigshim.py add about 90 lines, taking the census to
-    # 96,091, so the ceiling moves to 98k.
+    # about 96,294, so the ceiling moves to 98k.
     assert 11_000 <= census["lines"] <= 98_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add

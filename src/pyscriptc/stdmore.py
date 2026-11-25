@@ -1901,6 +1901,10 @@ CALL_FENCES: dict[tuple[str, str], str] = {
     ("functools", "wraps"): "decorators are not lowered",
     ("functools", "lru_cache"): "decorators are not lowered",
     ("functools", "cmp_to_key"): "functools.cmp_to_key is not lowered",
+    # `cached_property` lowers as a decorator only (issue #440): the
+    # decorator form is the class-body spelling, and a call of it has no
+    # meaning in the subset.
+    ("functools", "cached_property"): "decorators are not lowered",
     ("itertools", "count"): "infinite iterators are not lowered",
     ("itertools", "cycle"): "infinite iterators are not lowered",
     ("operator", "itemgetter"): "operator.itemgetter is not a value",
