@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-26",
-  "commit": "d582f45d64392d4bed37644905c9139dee9654f7",
+  "commit": "310e14770fab72c7704cf29db6d9f522483a1859",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -967,9 +967,9 @@
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "242/641",
+      "ratio": "240/641",
       "blocking": "name-resolution (189), construct-other (109), field-lookup (60)",
-      "codes": "PS2002, PS2001, PS1103"
+      "codes": "PS2002, PS2001, PS1106"
     },
     {
       "name": "h11",
@@ -991,9 +991,9 @@
       "name": "iniconfig",
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
-      "ratio": "5/34",
-      "blocking": "optional-types (2), generators (1), annotation-other (1)",
-      "codes": "PS1102, PS2002, PS1001"
+      "ratio": "4/34",
+      "blocking": "optional-types (2), annotation-other (1), call-arity (1)",
+      "codes": "PS1102, PS1001, PS2003"
     },
     {
       "name": "jmespath",
@@ -1023,7 +1023,7 @@
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "266/558",
+      "ratio": "265/558",
       "blocking": "name-resolution (101), unlowered-type-name (95), field-lookup (75)",
       "codes": "PS2002, PS2001, PS1106"
     },
