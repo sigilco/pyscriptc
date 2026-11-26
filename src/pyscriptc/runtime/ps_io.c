@@ -6,6 +6,7 @@ File writes are flushed so a later open sees them. OS errors are RuntimeError.
 
 #include "ps_rt.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -35,6 +36,7 @@ typedef struct PsIO {
 /* The mode word `open` hands over: the low nibble is the mode code and the
    next nibble the text codec (`encoding=`). */
 #define PS_ENC_SHIFT 4
+#define PS_ENC_UTF8 0
 #define PS_ENC_ASCII 1
 #define PS_ENC_LATIN1 2
 
@@ -160,6 +162,46 @@ PsIO *ps_io_open(int64_t n, const char *path, int64_t mode) {
     io->how = how;
     io->enc = enc;
     return io;
+}
+
+/* `open` with an `encoding=` value (issue #415, the library receipt): the
+   codec is a runtime fact, so it rides as its own argument instead of the
+   mode word's nibble. The mode word keeps the mode code alone. */
+PsIO *ps_io_open_enc(int64_t n, const char *path, int64_t mode, int64_t enc) {
+    int32_t codec = (int32_t)(enc & ((1 << PS_ENC_SHIFT) - 1));
+    return ps_io_open(n, path, (mode & ((1 << PS_ENC_SHIFT) - 1)) | (codec << PS_ENC_SHIFT));
+}
+
+/* The codec of an `encoding=` name at runtime (issue #415, the library
+   receipt): the encoding is a value, so the codec is a runtime fact.
+   CPython's codec lookup is case-insensitive and treats `_` as `-`, and
+   an unknown name is a LookupError. The three codecs the handle carries
+   are UTF-8 (the default), ASCII and Latin-1; every other name refuses
+   the way CPython's LookupError does. */
+int64_t ps_io_codec(int64_t n, const char *s) {
+    char name[64];
+    int64_t i;
+    size_t len = (size_t)(n < 0 ? 0 : n);
+    if (len >= sizeof name) {
+        ps_raise_cstr(PS_VALUE, "unknown encoding");
+    }
+    for (i = 0; i < (int64_t)len; i++) {
+        char c = s[i];
+        name[i] = c == '_' ? '-' : (char)tolower((unsigned char)c);
+    }
+    name[len] = '\0';
+    if (strcmp(name, "utf-8") == 0 || strcmp(name, "utf8") == 0 || strcmp(name, "u8") == 0) {
+        return PS_ENC_UTF8;
+    }
+    if (strcmp(name, "ascii") == 0 || strcmp(name, "us-ascii") == 0) {
+        return PS_ENC_ASCII;
+    }
+    if (strcmp(name, "latin-1") == 0 || strcmp(name, "latin1") == 0 || strcmp(name, "iso-8859-1") == 0 ||
+        strcmp(name, "iso8859-1") == 0 || strcmp(name, "l1") == 0) {
+        return PS_ENC_LATIN1;
+    }
+    ps_raise_cstr(PS_VALUE, "unknown encoding");
+    return 0;
 }
 
 static int ps_can_read(PsIO *io) {

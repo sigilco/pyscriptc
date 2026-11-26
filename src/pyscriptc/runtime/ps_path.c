@@ -266,6 +266,15 @@ void ps_os_getcwd(PsBuf *out) {
     ps_buf_copy(out, buf, (int64_t)strlen(buf));
 }
 
+void ps_os_fspath(int64_t n, const char *s, PsBuf *out) {
+    /* CPython's os.fspath() on a str argument is the identity: the str must
+       not contain a NUL, which ps_cstr already rejects on the way in, and
+       the path spells itself. A Path argument answers __fspath__ at the
+       lowering (the Path row reads the str field), so the runtime sees the
+       str either way. */
+    ps_buf_copy(out, s, n);
+}
+
 void ps_path_abs(int64_t n, const char *s, PsBuf *out) {
     PsBuf cwd;
     PsBuf joined;

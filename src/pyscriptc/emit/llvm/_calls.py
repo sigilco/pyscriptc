@@ -254,6 +254,12 @@ class CallsMixin(EmitterBase):
                 self._abi_decl(symbol, "double", ["double"] * len(values))
                 self.needed.add("math")
                 return self._call_ret("double", symbol, [f"double {value}" for value in values])
+            if symbol == "ps_exc_payload":
+                # str(e) over a user exception class (issue #448): the class
+                # instance the record carries as its payload, the receiver
+                # the lowered `__str__` call reads its fields off.
+                self._abi_decl("ps_exc_payload", "ptr", ["ptr"])
+                return self._call_ret("ptr", "ps_exc_payload", [f"ptr {values[0]}"])
             if symbol == "ps_path_join":
                 return self._emit_join(values)
             if symbol in {"ps_deque_append", "ps_deque_appendleft"}:
@@ -435,6 +441,12 @@ class CallsMixin(EmitterBase):
                 length: str = parts4[0]
                 ptr: str = parts4[1]
                 return self._call_ret("ptr", "ps_os_walk", [f"i64 {length}", f"ptr {ptr}", f"i64 {size}"])
+            if symbol == "ps_os_fspath":
+                self._abi_decl("ps_os_fspath", "void", ["i64", "ptr", "ptr"])
+                parts5: tuple[str, str] = self._buf_parts(values[0])
+                length5: str = parts5[0]
+                ptr5: str = parts5[1]
+                return self._buf_out("ps_os_fspath", [f"i64 {length5}", f"ptr {ptr5}"])
             if symbol == "ps_str_format":
                 # args[0] is the format string; the rest marshal into %ps.arg.
                 count = len(values) - 1
