@@ -254,6 +254,7 @@ PROBES: list[Probe] = [
     _p("fnmatch", "filter", "paths", "print(len(fnmatch.filter(['a.py', 'b.txt', 'c.py'], '*.py')))"),
     # os
     _p("os", "getcwd", "os", "print(os.getcwd().startswith('/'))"),
+    _p("os", "fspath", "os", "print(os.fspath('a/b.txt'))"),
     _p("os", "listdir", "os", "print(len(os.listdir(os_dir)) >= 1)"),
     _p("os", "getenv", "os", "print(os.getenv('PYSC_DIFFTAB_UNSET') is None)"),
     _p(
@@ -626,8 +627,8 @@ def test_every_table_row_has_a_probe() -> None:
     extra = sorted(probed - inventory)
     assert not missing, f"call-table rows without a differential probe: {missing}"
     assert not extra, f"probes without a call-table row: {extra}"
-    assert len(inventory) == 198
-    assert len(PROBES) == 198
+    assert len(inventory) == 199
+    assert len(PROBES) == 199
 
 
 def _group_source(group: str) -> str:

@@ -60,10 +60,12 @@ def test_real_pyjwt_hmac_tree_still_fences() -> None:
     # `prepare_key`/`algorithm` method table assignment no longer fences.
     # 66 after the erased unions, forward references and type aliases (#413):
     # the vendored tree's multi-arm union annotations lower now.
+    # 65 after the library-receipt slices (#415): the assigned-type narrowing
+    # (`if x is None: x = v`) clears one more fence in the vendored tree.
     # Shrinking means a backlog lowering cleared fences here; update the pin
     # when that happens. `compile` prints at most 3 root fences and counts the rest.
     assert proc.stderr.count("PS") == 3
-    assert "(and 66 more fences)" in proc.stderr
+    assert "(and 65 more fences)" in proc.stderr
 
 
 @pytest.mark.linux_container  # HEAVY=1 docker/run.sh

@@ -42,6 +42,7 @@ from pyscriptc.lower._core import (
     _show,
     _sig_typevars,
 )
+from pyscriptc.lower._expr import _builtin_call, _name_node
 from pyscriptc.lower._expr_compare import _assign_node, _compare_node, _if_node, _unary_node
 from pyscriptc.lower._ndarray import _dtype_of as _nd_dtype_of
 from pyscriptc.lower._protocols import _exit_returns_bool
@@ -338,6 +339,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         if name in self.classes and not self.classes[name].get("imported"):
             fences.append(Fence("PS2002", f"{local} is already bound", span_of(stmt, self.filename), None))
             return
+        if item.get("island") or "info" not in item:
+            # An island class row carries no shape (the defining module plans
+            # the body for its own island floor), so there is nothing to
+            # install here; the call site fences it on its own.
+            return
         info = copy.deepcopy(item["info"])
         info["imported"] = True
         # The export table carries the MRO list and the primary-base spine
@@ -355,6 +361,40 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         self.declared.add(name)
         if module is not None:
             self._install_frame_exports(module, info, stmt, fences)
+        # The reachable surface: a method signature that names a class the
+        # consumer never imports (`ini["s"]` returns a SectionWrapper the
+        # program never spells) still needs that class's shape, or the
+        # dunder dispatch on the result fences. The install recurses: the
+        # method's own signatures may name further classes.
+        for method_sig in info.get("methods", {}).values():
+            self._install_signature_classes(module, method_sig[0], stmt, fences)
+            self._install_signature_classes(module, [method_sig[1]], stmt, fences)
+
+    def _install_signature_classes(
+        self, module: str | None, types: list[dict[str, Any]], stmt: ast.AST, fences: list[Fence]
+    ) -> None:
+        """Install the class exports a lowered signature names (issue #415).
+
+        A method that takes or returns a class (`__getitem__` answers a
+        `SectionWrapper`) needs that class's shape on the consumer side, the
+        way `_install_return_class` brings a generator's frame class over:
+        the defining module still emits it, the consumer sees it imported.
+        Recursion walks the newly installed class's own signatures, so a
+        chain (`ini["s"]` -> SectionWrapper -> `sw["k"]` -> str) pulls in
+        everything the reachable surface dispatches on.
+        """
+        for typ in types:
+            if _maybe_type_kind(typ) != "class":
+                continue
+            name = str(typ["name"])
+            if name in self.classes:
+                continue
+            if module is None:
+                continue
+            item = self._export_lookup(module, name)
+            if item is None or _record_kind(item) != "class":
+                continue
+            self._install_class_export(name, item, stmt, fences, module)
 
     def _install_frame_exports(self, module: str, info: dict[str, Any], stmt: ast.AST, fences: list[Fence]) -> None:
         """Install the frame classes a resumable method's outward type names.
@@ -982,8 +1022,20 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         # tell them apart.
         body_fences = len(self.caught)
         sig_fences = 0
+        # The signature fences a dependency module's class tolerates: the
+        # method drops out of the record, so the class lowers without it.
+        tolerated_sigs = 0
         setters: dict[str, tuple[ast.FunctionDef, list[dict[str, Any]], dict[str, Any]]] = {}
         for method, kind in methods:
+            if self._resumable_shape_refused(method):
+                # A resumable method whose body shape the frame pass refuses
+                # (a nested def inside a generator, say) drops out of the
+                # class the way a fenced module function follows: it does
+                # not export, its siblings still do. The class and its
+                # remaining methods keep lowering, and a call site of the
+                # dropped method fences "not a method".
+                self._tolerated_methods.append((node.name, method.name))
+                continue
             try:
                 if kind == "setter":
                     sig = self._coro_method_signature(method, node.name) or self._signature(method, node.name, "method")
@@ -999,17 +1051,42 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
                 if method.name == "__init__":
                     wrote_init = True
             except Fence as exc:
-                self.caught.append(exc)
-                sig_fences += 1
+                # A signature fence in a *dependency* module's class is a
+                # property of the method, not of the class: the method drops
+                # out of the class record (both passes), the class and its
+                # other methods keep lowering, and a call site of the dropped
+                # method fences "not a method" — the same rule a fenced
+                # module function follows. The fence stays out of the
+                # module's fence list: the module lowers, and the method is
+                # simply not there (issue #415, the library receipt).
+                #
+                # The program's own classes keep today's strict rule: the
+                # fence lands in the module fence list, both passes abort the
+                # class export, and a shape the subset cannot spell is never
+                # silently dropped from user code.
+                if self.module_name in self.program_roots:
+                    sig_fences += 1
+                    tolerated_sigs += 1
+                    self._tolerated_methods.append((node.name, method.name))
+                    self._tolerated_method_fences.append(exc)
+                else:
+                    self.caught.append(exc)
+                    sig_fences += 1
         # The catalog pass still exports the shape when only method signatures
         # fenced: the fenced methods drop out and the rest resolves, the same
         # rule a fenced module function follows (it does not export, its
         # siblings still do). Without this, a mixin or base class with one
         # unlowerable annotation is invisible to every module that subclasses
-        # it, and the import fences as "not exported by this package". The
-        # lowering pass keeps the strict abort so an emitted class stays
-        # all-or-nothing.
-        if len(self.caught) > body_fences + sig_fences or (sig_fences and not self.cataloguing):
+        # it, and the import fences as "not exported by this package".
+        #
+        # The lowering pass keeps the strict abort for the program's own
+        # classes, so an emitted class stays all-or-nothing there; a
+        # dependency module's class lowers without the fenced method (the
+        # tolerance above), so the abort only fires on a fence that is not a
+        # tolerated method signature.
+        if len(self.caught) > body_fences + (sig_fences - tolerated_sigs) or (
+            sig_fences - tolerated_sigs and not self.cataloguing
+        ):
             return
         if wrote_init and deco != "dataclass":
             # A written `__init__` is the field declaration the corpus
@@ -1418,6 +1495,72 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         emit = self._emit_owner(class_name, name)
         return _function_call(f"cls.{emit}.{name}", [receiver, *args], ret, span)
 
+    def _exc_str_dispatch(self, node: ast.AST, receiver: dict[str, Any], span: dict[str, Any]) -> dict[str, Any] | None:
+        """`str(e)` over a bound user exception value: the class's `__str__`.
+
+        The handler binding carries the class name on the exc type; a
+        class that defines `__str__` answers it (CPython calls
+        `type(e).__str__(e)` first), and anything else — a builtin
+        exception, a handler over several classes — keeps the base
+        message the runtime record holds.
+        """
+        class_name = receiver["type"].get("name")
+        if not class_name or receiver["type"].get("optional"):
+            return None
+        info = self.classes.get(class_name)
+        if info is None or not info.get("exception"):
+            return None
+        if self._definer(class_name, "__str__") is None:
+            return None
+        # The call's receiver is the class instance the exception record
+        # carries as its payload: the `__str__` body reads `self.path`
+        # off the instance, and the runtime record is not the instance.
+        # The payload load is the same one the attribute read uses.
+        instance = self._abi_call(
+            "builtins",
+            "exc.payload",
+            [receiver],
+            {"kind": "class", "name": class_name},
+            "ps_exc_payload",
+            span,
+        )
+        return self._dunder_call(node, instance, "__str__", [], span)
+
+    def _opt_print(self, arg: dict[str, Any], node: ast.AST, span: dict[str, Any]) -> dict[str, Any] | None:
+        """print of a tagged optional: the payload's str or `None`.
+
+        CPython prints `x` as `str(x)` and `None` for a missing value
+        (`lineof` answers `int | None`). The tag decides; the payload
+        lowers through the same scalar/class print walk. None means the
+        payload shape is not printable and the caller keeps its fence.
+        """
+        typ = arg["type"]
+        elem = typ.get("elem")
+        if not isinstance(elem, dict):
+            return None
+        res = self._temp("optprint")
+        self.locals[res] = {"kind": "str"}
+        self.prelude.append(_assign_node(res, _const_str("None", span), span))
+        tag = _attr_node(arg, "_tag", {"kind": "bool"}, span)
+        inner: dict[str, Any] | None = None
+        if _type_kind(elem) in {"str", "int", "float", "bool", "bytes"}:
+            inner = self._as_str(_attr_node(arg, "_val", elem, span), node)
+        elif _type_kind(elem) == "class" and not elem.get("optional"):
+            inner = self._dunder_call(
+                node, _attr_node(arg, "_val", elem, span), "__str__", [], span
+            ) or self._dunder_call(node, _attr_node(arg, "_val", elem, span), "__repr__", [], span)
+        elif _type_kind(elem) == "exc":
+            dispatched = self._exc_str_dispatch(node, _attr_node(arg, "_val", elem, span), span)
+            inner = (
+                dispatched
+                if dispatched is not None
+                else _builtin_call("str", [_attr_node(arg, "_val", elem, span)], {"kind": "str"}, span)
+            )
+        if inner is None:
+            return None
+        self.prelude.append(_if_node(tag, [_assign_node(res, inner, span)], [], span))
+        return _name_node(res, {"kind": "str"}, span)
+
     def _definer(self, class_name: str, name: str) -> str | None:
         """The first mro class defining `name` as a plain method, or None.
 
@@ -1648,6 +1791,23 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             marker["factory"] = value
             marker["factory_ast"] = None
 
+    def _resumable_shape_refused(self, method: ast.FunctionDef) -> bool:
+        """True when a resumable method's body shape is outside today's scope.
+
+        The frame pass (the generator machinery) refuses a body shape it
+        cannot suspend through: a nested def inside a generator, a `return`
+        inside a `try`, a `yield` as an expression. The refusal is a property
+        of the method, not of the class: the method drops out of the class
+        record and the class and its other methods keep lowering. The check
+        is the frame pass's own shape rule, read without the refusal.
+        """
+        from pyscriptc.coro import _shape_error, is_generator  # noqa: PLC0415  # local import avoids the cycle
+
+        if not is_generator(method):
+            return False
+        shape = _shape_error(method)
+        return shape is not None
+
     def _lower_class(self, node: ast.ClassDef, emit_name: str | None = None) -> dict[str, Any] | None:
         own = emit_name or node.name
         info = self.classes[own]
@@ -1669,6 +1829,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # The getter and the setter share the property name, so the
             # def's identity is what tells them apart.
             if id(stmt) in setter_stmts:
+                continue
+            # A method whose signature fenced (the collect pass dropped it
+            # from the class record) does not lower: the class keeps its
+            # remaining methods and the call site fences "not a method".
+            if (own, stmt.name) in self._tolerated_methods:
                 continue
             emitted = self._emit_class_method(own, stmt, info, own_names)
             if emitted is not None:
@@ -1860,6 +2025,29 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             self.typevar_bounds = saved_bounds
             self.in_setattr_hook = saved_in_setattr_hook
         if self.caught:
+            # The method body fenced. A body fence in a *dependency* module's
+            # class is a property of the method, not of the class: the method
+            # drops out of the class record, the class and its other methods
+            # keep lowering, and a call site of the dropped method fences
+            # "not a method" — the same rule a fenced module function follows
+            # (issue #415, the library receipt: a package class whose one
+            # method is outside the lowered subset still lowers, and the
+            # program uses the methods that are there).
+            #
+            # The program's own classes keep the strict abort: user code is
+            # the whole-tree rule, and a fence there still refuses, so a
+            # shape the subset cannot spell is never silently dropped.
+            if self.module_name in self.program_roots:
+                for fence in self.caught:
+                    import os as _os
+
+                    if _os.environ.get("PYSC_DBG_TOL"):
+                        print(
+                            "BODYFENCE", class_name, stmt.name, fence.code, fence.message, file=__import__("sys").stderr
+                        )
+                    self._tolerated_method_fences.append(fence)
+                self._tolerated_methods.append((class_name, stmt.name))
+                self.caught = []
             return None
         if stmt.name == "__init__":
             assigned = _assigned_fields(stmt.body)

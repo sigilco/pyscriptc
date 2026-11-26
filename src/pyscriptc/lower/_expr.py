@@ -92,6 +92,23 @@ _INT_BIN = {
 _FLOAT_BIN = {ast.Add: "+", ast.Sub: "-", ast.Mult: "*", ast.Div: "/", ast.Mod: "%", ast.FloorDiv: "//"}
 
 
+def _is_empty_display(node: ast.expr) -> bool:
+    """True for an expression that proves no type of its own.
+
+    An empty list, dict or set display types from its context alone, so it
+    needs the sibling arm's type (or an annotation) to lower. A non-empty
+    display carries its own element type and never needs the rescue.
+    """
+
+    if isinstance(node, ast.List):
+        return not node.elts
+    if isinstance(node, ast.Dict):
+        return not node.keys
+    if isinstance(node, ast.Set):
+        return not node.elts
+    return False
+
+
 def _const_node(value: Any, typ: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     """The const node one dict-IR const spells."""
     kind = typ["kind"]
@@ -685,6 +702,15 @@ class ExprMixin(ExprCompareMixin):
         return _name(acc, int_t, span)
 
     def _list(self, node: ast.List, span: dict[str, Any], expect: dict[str, Any] | None) -> dict[str, Any]:
+        # An optional-of-list expectation (`list[str] | None`, a NamedTuple
+        # field, a parameter default) proves the same shape the bare list
+        # does: the display builds the tagged cell's payload. The unwrap is
+        # local to the display, so the optional itself still wraps the
+        # result at the assignment (issue #415, iniconfig's ParsedLine).
+        if expect is not None and expect.get("optional") and isinstance(expect.get("elem"), dict):
+            inner = expect["elem"]
+            if inner.get("kind") == "list":
+                expect = inner
         if not node.elts:
             if expect is None or expect["kind"] != "list":
                 self.fail(node, "PS1001", "an empty list needs a list annotation")
@@ -1221,8 +1247,24 @@ class ExprMixin(ExprCompareMixin):
             body = self._narrowed(when_true, node, lambda: self._expr(node.body, expect))
             body_pre = self.prelude
             self.prelude = []
-            orelse = self._narrowed(when_false, node, lambda: self._expr(node.orelse, expect))
+            # An empty display (`[]`, `{}`, `set()`) says nothing on its own;
+            # the other arm's type is the proof, the same rule an annotated
+            # assignment target follows. The first arm lowers first, and an
+            # empty-display sibling re-lowers against its type (issue #415:
+            # iniconfig's `[data] if data else []`).
+            orelse_expect = expect
+            if _is_empty_display(node.orelse) and not _is_empty_display(node.body):
+                orelse_expect = body["type"]
+            orelse = self._narrowed(when_false, node, lambda: self._expr(node.orelse, orelse_expect))
             orelse_pre = self.prelude
+            if _is_empty_display(node.body) and not _is_empty_display(node.orelse):
+                # The empty display sat in the true arm: re-lower both sides
+                # with the false arm's type as the expectation. The lowered
+                # true-arm nodes are discarded; the peek-free re-lower keeps
+                # the effects on the right side.
+                self.prelude = []
+                body = self._narrowed(when_true, node, lambda: self._expr(node.body, orelse["type"]))
+                body_pre = self.prelude
         finally:
             self.prelude = saved
         if not types_equal(body["type"], orelse["type"]):

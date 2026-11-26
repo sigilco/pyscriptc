@@ -1745,6 +1745,9 @@ REST_FIXED: dict[str, dict[str, Sig]] = {
     },
     "os": {
         "getcwd": sig([], _S, "ps_os_getcwd"),
+        # CPython's os.fspath() on a str is the identity; a Path argument
+        # answers through its own row (the Path read lowers the str field).
+        "fspath": sig([_S], _S, "ps_os_fspath"),
         "listdir": sig([_S], _LS, "ps_os_listdir"),
         "getenv": sig([_S], _S, "ps_os_getenv"),
         "remove": sig([_S], _N, "ps_os_remove"),

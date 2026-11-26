@@ -9,16 +9,20 @@ from typing import Any
 from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS, USER_EXC_BASE
 from pyscriptc.emit._ir import (
     _field_type,
+    _fn_symbol,
     _has,
     _items,
     _llvm_field_type,
+    _llvm_type,
     _maybe_node_kind,
     _node_id,
     _node_target,
     _opt_excslot,
     _opt_node_code,
+    _opt_record,
     _opt_str,
     _opt_str_or_none,
+    _return_type,
     _span_of,
     _type_of,
 )
@@ -479,6 +483,37 @@ class StmtsMixin(EmitterBase):
         self._abi_decl("ps_exc_set_cause", "void", ["ptr", "ptr"])
         self._call_void("ps_exc_set_cause", [f"ptr {made}", f"ptr {cause_value}"])
 
+    def _payload_str_message(self, payload: dict[str, Any]) -> str | None:
+        """The `__str__` result of the raised instance, or None.
+
+        CPython's uncaught report prints `Name: str(e)`, and for a class
+        that defines `__str__` the str is the class's own method over the
+        instance the raise built (iniconfig's ParseError shape). A class
+        without one keeps the base message, so the record's message stays
+        empty here and the runtime prints the class name alone.
+        """
+        callee = dict_to_dict(payload).get("callee") or {}
+        if callee.get("kind") != "class":
+            return None
+        class_name = str(callee.get("name") or "")
+        record = _opt_record(self.class_index, class_name)
+        if record is None:
+            return None
+        methods = {str(_opt_str(method, "name")) for method in _items(record, "methods")}
+        if "__str__" not in methods:
+            return None
+        symbol = f"cls.{class_name}.__str__"
+        fn = self.functions.get(symbol)
+        if fn is None:
+            return None
+        instance = self.emit_call(dict_to_dict(payload))
+        ret = _llvm_type(_return_type(fn))
+        if ret == "void":
+            return None
+        reg = self.tmp()
+        self.line(f"{reg} = call {ret} @{_fn_symbol(symbol)}(ptr {instance})")
+        return reg
+
     def emit_raise(self, stmt: dict[str, Any]) -> None:
         self.needed.add("exc")
         node: Any = dict_to_node(stmt)
@@ -521,11 +556,22 @@ class StmtsMixin(EmitterBase):
             self._abi_decl("ps_exc_set_payload", "void", ["ptr", "ptr"])
             self._abi_decl("ps_raise_exc", "void", ["ptr"])
             made = self._call_ret("ptr", "ps_exc_make", [f"i32 {code}", "i64 0", "ptr null"])
-            if raise_message is not None:
+            instance = self.emit_call(dict_to_dict(node.payload))
+            if raise_message is None:
+                # A class whose own `__str__` answers (iniconfig's
+                # ParseError shape): CPython's uncaught report prints
+                # `Name: str(e)`, and the str is the class's `__str__`
+                # over the built instance, not the base message. The
+                # message is computed before the record is made, so the
+                # report and a caught str(e) read the same bytes.
+                str_msg = self._payload_str_message(node.payload)
+                if str_msg is not None:
+                    mlen, mptr = self._buf_parts(str_msg)
+                    made = self._call_ret("ptr", "ps_exc_make", [f"i32 {code}", f"i64 {mlen}", f"ptr {mptr}"])
+            elif raise_message is not None:
                 msg = self.emit_expr(raise_message)
                 mlen, mptr = self._buf_parts(msg)
                 made = self._call_ret("ptr", "ps_exc_make", [f"i32 {code}", f"i64 {mlen}", f"ptr {mptr}"])
-            instance = self.emit_call(dict_to_dict(node.payload))
             self._call_void("ps_exc_set_payload", [f"ptr {made}", f"ptr {instance}"])
             if node.cause is not None:
                 self._emit_raise_cause(node, made)

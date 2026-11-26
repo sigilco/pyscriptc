@@ -160,9 +160,17 @@ def _print(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
             continue
         if not _printable(lo, _node_type(arg)):
             if _node_type_kind(arg) == "class":
-                called = lo._dunder_call(node, arg, "__str__", [], _node_span(arg)) or lo._dunder_call(
-                    node, arg, "__repr__", [], _node_span(arg)
-                )
+                called = None
+                if _node_type(arg).get("optional"):
+                    # An optional value (`lineof` answers `int | None`):
+                    # print unwraps the tag and prints the payload or
+                    # `None`, the way CPython prints the value (issue
+                    # #415, the library receipt).
+                    called = lo._opt_print(arg, node, span)
+                if called is None:
+                    called = lo._dunder_call(node, arg, "__str__", [], _node_span(arg)) or lo._dunder_call(
+                        node, arg, "__repr__", [], _node_span(arg)
+                    )
                 if called is not None:
                     args[index] = called
                     continue
@@ -261,11 +269,20 @@ def _open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     if any(kw.arg is None for kw in node.keywords):
         lo.fail(node, "PS2002", "**kwargs are not lowered")
     codec = 0
+    codec_expr: ast.expr | None = None
     for kw in node.keywords:
         if kw.arg == "encoding":
             found = _open_encoding(kw.value.value) if isinstance(kw.value, ast.Constant) else None
-            if len(node.args) > 2 or found is None:
+            if len(node.args) > 2:
                 lo.fail(kw, "PS2001", "open encoding= is utf-8, ascii, or latin-1")
+            if found is None:
+                # A variable encoding (issue #415, the library receipt): the
+                # codec is a runtime fact, so the name lowers to the
+                # runtime's codec lookup and the open takes the codec as its
+                # own argument. The name must be a str.
+                if not isinstance(kw.value, ast.Name):
+                    lo.fail(kw, "PS2001", "open encoding= is utf-8, ascii, or latin-1")
+                codec_expr = kw.value
             else:
                 codec = found
         elif kw.arg == "mode":
@@ -290,5 +307,15 @@ def _open(lo: Any, node: ast.Call, span: dict[str, Any]) -> dict[str, Any]:
     cls = "BytesIO" if "b" in mode else "TextIO"
     if codec and "b" in mode:
         lo.fail(node, "PS2001", "binary mode doesn't take an encoding argument")
+    if codec_expr is not None:
+        # The variable encoding (issue #415, the library receipt): the
+        # codec lookup is a runtime fact, and the open takes the codec
+        # beside the mode. The name must be a str.
+        name = lo._expr(codec_expr)
+        if _node_type_kind(name) != "str":
+            lo.fail(codec_expr, "PS2001", "open encoding= is utf-8, ascii, or latin-1")
+        codec_value = lo._abi_call("io", "codec", [name], _t_leaf("int"), "ps_io_codec", span)
+        code = _const_int(_OPEN[mode], span)
+        return lo._abi_call("io", "open", [path, code, codec_value], _class(cls), "ps_io_open_enc", span)
     code = _const_int(_OPEN[mode] | (codec << _ENC_SHIFT), span)
     return lo._abi_call("io", "open", [path, code], _class(cls), "ps_io_open", span)

@@ -264,6 +264,10 @@ class CallAttrMixin:
                     return self._construct(node, span, name)
                 if item["kind"] != "func":
                     self.fail(node, "PS2002", f"{dotted} is not a function")
+                pending: list[Fence] = []
+                self._install_return_class(module, item["return"], node, pending)
+                if pending:
+                    raise pending[0]
                 return self._linked_call(node, span, item, dotted, expect)
             if status == "queued":
                 self._queued(node, dotted)
@@ -708,8 +712,22 @@ class CallAttrMixin:
             # The builtin base takes the message and nothing else. A super
             # call that lands on a user exception base keeps its own
             # arity: that base's `__init__` takes it.
+            #
+            # CPython's `Exception.__init__(*args)` takes any number of
+            # arguments (they become `e.args`), so the one-scalar floor is
+            # the lowering's, not the base's. A class that answers its own
+            # `__str__` never shows the base message, so the extra
+            # arguments lower as a no-op there: the raise site computes the
+            # `__str__` result and the base message never surfaces
+            # (iniconfig's ParseError shape). A class without the `__str__`
+            # keeps the one-scalar floor: `str(e)` reads the base message,
+            # and the runtime's one scalar slot cannot carry CPython's
+            # tuple-of-args spelling.
             if len(ancestors) == 1 and len(node.args) > 1:
-                self.fail(node, "PS2003", "exception takes one scalar argument")
+                info = self.classes.get(self_t)
+                defines_str = info is not None and "__str__" in info.get("methods", {})
+                if not defines_str:
+                    self.fail(node, "PS2003", "exception takes one scalar argument")
             return _const_none(span)
         ancestor = next((name for name in ancestors if method in self.classes.get(name, {}).get("methods", {})), None)
         if ancestor is None:
