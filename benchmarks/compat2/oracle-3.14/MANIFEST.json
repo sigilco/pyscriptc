@@ -23,10 +23,10 @@
       "exception": 172,
       "function": 1852,
       "method": 5275,
-      "module": 191
+      "module": 204
     }
   },
-  "cpython": "3.14.8",
+  "cpython": "3.14.9",
   "cpython_pin": "3.14",
   "excluded_methods": [
     {
@@ -59,16 +59,16 @@
     "expr-assign": 67,
     "expr-cond": 67,
     "expr-loop": 67,
-    "float": 99,
-    "handle": 2363,
-    "import": 385,
+    "float": 100,
+    "handle": 2362,
+    "import": 398,
     "int": 2992,
     "len": 345,
     "mention": 1234,
     "none": 556,
     "raise-except": 236,
     "raises": 1994,
-    "recv-handle": 996,
+    "recv-handle": 994,
     "recv-len": 11,
     "recv-seq-int": 5,
     "seq-int": 74,
@@ -76,14 +76,14 @@
     "shape": 132,
     "stmt-function": 78,
     "stmt-method": 78,
-    "str": 793
+    "str": 795
   },
   "interpreters": {
     "3.10": "3.10.22",
     "3.11": "3.11.17",
     "3.12": "3.12.15",
     "3.13": "3.13.16",
-    "3.14": "3.14.8"
+    "3.14": "3.14.9"
   },
   "kinds": {
     "builtins/class/raises": 1,
@@ -103,12 +103,12 @@
     "surface/exception/mention": 6,
     "surface/exception/value": 166,
     "surface/function/mention": 20,
-    "surface/function/raises": 531,
-    "surface/function/value": 1301,
+    "surface/function/raises": 529,
+    "surface/function/value": 1303,
     "surface/method/mention": 1184,
-    "surface/method/raises": 1273,
-    "surface/method/value": 2818,
-    "surface/module/value": 191
+    "surface/method/raises": 1275,
+    "surface/method/value": 2816,
+    "surface/module/value": 204
   },
   "language": {
     "absent_in_oracle": [],
@@ -221,7 +221,7 @@
     "unstable across axis runs": 7
   },
   "mypy": "2.4.0",
-  "total": 14274,
+  "total": 14287,
   "versions": {
     "axis": [
       "3.10",
@@ -253,11 +253,11 @@
         "3.14": 190
       },
       "surface": {
-        "3.10": 11422,
-        "3.11": 11968,
-        "3.12": 12343,
-        "3.13": 12680,
-        "3.14": 13166
+        "3.10": 11436,
+        "3.11": 11979,
+        "3.12": 12354,
+        "3.13": 12691,
+        "3.14": 13180
       }
     },
     "process_dependent": [
@@ -266,10 +266,11 @@
       "stdlib.os.getppid",
       "stdlib.posix.getcwd",
       "stdlib.posix.getcwdb",
-      "stdlib.posix.getppid",
+      "stdlib.posix.getppid"
+    ],
+    "seed_dependent": [
       "stdlib.sys.getunicodeinternedsize"
     ],
-    "seed_dependent": [],
     "unverified_on_oracle": [
       "stdlib.configparser.ConfigParser.read",
       "stdlib.configparser.RawConfigParser.read",
@@ -322,7 +323,6 @@
       "stdlib.venv.EnvBuilder.ensure_directories",
       "stdlib.venv.EnvBuilder.symlink_or_copy",
       "stdlib.venv.create",
-      "stdlib.venv.main",
       "stdlib.wave.Wave_read",
       "stdlib.winreg",
       "stdlib.winsound",
