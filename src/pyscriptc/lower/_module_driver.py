@@ -578,4 +578,10 @@ class ModuleDriverMixin:
             module["globals"] = self.global_inits
         if self.module_notes:
             module["_notes"] = [*module.get("_notes", []), *self.module_notes]
+        # Issue #1309: the specialization report rows ride the module
+        # record, so the CLI, `assess` and the package merge read the same
+        # rows the lowering built. The section is absent when the source
+        # marks nothing.
+        if self.specialization_rows:
+            module["specializations"] = self.specialization_rows
         return self._coro_finish(module)

@@ -41,6 +41,7 @@ A code is never reused or renumbered; the stability contract is in [Stability an
 | `PS1204` | A class body holds only annotated fields without values, method definitions, assignments whose value has a runtime form (a call, a container, a comprehension, a name bound at module scope), and assignments whose value folds to a constant. | Move an assignment the compiler cannot compute into __init__, or declare the field with an annotation only. |
 | `PS1205` | `except E as name` and bare `except:` are not supported. | Use a compiled exception class and drop the `as` binding. |
 | `PS1206` | `with ... as name` compiles only for a closed set of context managers. | Use a supported context manager without the binding, or open and close explicitly. |
+| `PS1207` | The `@specialize` marker of the `pyscriptc._annotations` shadow module asserts that the definition is monomorphized per call site, but this definition carries no TypeVar (a class declares no TypeVar parameter), so the compiler emits exactly one copy and there is nothing to specialize. | Mark a generic definition (a `TypeVar` in its signature, or a `Generic[T]` class), or drop the marker. The marker never changes what the definition means; it only states the intent. |
 
 ### Constructs and calls
 
