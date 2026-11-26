@@ -1,0 +1,12 @@
+lock-version = "1.0"
+created-by = "uv"
+requires-python = ">=3.14"
+
+[[packages]]
+name = "iniconfig"
+version = "2.3.1"
+wheels = [{ url = "https://files.pythonhosted.org/packages/56/43/4ca9e49d27a1fcf6bece6f6aec0ea46bb9112489b93d4b688fb415457bdb/iniconfig-2.3.1-py3-none-any.whl", upload-time = 2026-10-06T22:48:36Z, size = 7552, hashes = { sha256 = "9121e2c1fdb355232495be3194c8dfe87ccc2d5dee45947b78e68f499790d7a7" } }]
+
+[tool.pyscriptc]
+input-digest = "2ba8779d41e4d5b7d42cd408b667cb069948fc5d0ddff360131fb5829b4ff4b3"
+python = "3.14"
