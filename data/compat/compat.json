@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-26",
-  "commit": "54c0ec0abd60c0651a862994045f3da053308825",
+  "commit": "9ede2c8fb34470caa3e28130f0cdb3f243fbc326",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-26",
-    "commit": "54c0ec0abd60c0651a862994045f3da053308825",
+    "commit": "9ede2c8fb34470caa3e28130f0cdb3f243fbc326",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -2595,10 +2595,10 @@
       "label": "Vendored real script",
       "corpus": "benchmarks/real_scripts/scripts",
       "total": 39,
-      "passed": 2,
-      "rate": 0.0513,
-      "fences": 294,
-      "date": "2026-11-13",
+      "passed": 3,
+      "rate": 0.0769,
+      "fences": 273,
+      "date": "2026-11-26",
       "blockers": [
         {
           "family": "keyword-args",
@@ -2619,15 +2619,9 @@
           "scriptsAlone": 1
         },
         {
-          "family": "stdlib:os",
-          "rootCause": "stdlib-surface",
-          "scriptsBlocked": 2,
-          "scriptsAlone": 1
-        },
-        {
           "family": "construct-other",
           "rootCause": "statements",
-          "scriptsBlocked": 9,
+          "scriptsBlocked": 10,
           "scriptsAlone": 2
         },
         {
@@ -2639,25 +2633,31 @@
         {
           "family": "call-arity",
           "rootCause": "call-table",
-          "scriptsBlocked": 19,
+          "scriptsBlocked": 17,
           "scriptsAlone": 0
         },
         {
           "family": "field-lookup",
           "rootCause": "classes",
-          "scriptsBlocked": 6,
-          "scriptsAlone": 0
-        },
-        {
-          "family": "forward-reference",
-          "rootCause": "inference",
-          "scriptsBlocked": 1,
+          "scriptsBlocked": 4,
           "scriptsAlone": 0
         },
         {
           "family": "generic-alias",
           "rootCause": "inference",
           "scriptsBlocked": 1,
+          "scriptsAlone": 0
+        },
+        {
+          "family": "local-inference",
+          "rootCause": "inference",
+          "scriptsBlocked": 10,
+          "scriptsAlone": 0
+        },
+        {
+          "family": "name-resolution",
+          "rootCause": "inference",
+          "scriptsBlocked": 21,
           "scriptsAlone": 0
         }
       ],
@@ -2673,10 +2673,6 @@
         {
           "cause": "inference",
           "scriptsReleased": 2
-        },
-        {
-          "cause": "stdlib-surface",
-          "scriptsReleased": 1
         }
       ],
       "history": [
@@ -2697,6 +2693,12 @@
           "passed": 2,
           "total": 39,
           "rate": 0.0513
+        },
+        {
+          "date": "2026-11-26",
+          "passed": 3,
+          "total": 39,
+          "rate": 0.0769
         }
       ]
     }
@@ -2832,7 +2834,7 @@
     },
     {
       "date": "2026-11-26",
-      "commit": "54c0ec0abd60c0651a862994045f3da053308825",
+      "commit": "9ede2c8fb34470caa3e28130f0cdb3f243fbc326",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,

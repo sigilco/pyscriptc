@@ -57,15 +57,15 @@
     ]
   },
   "r0": {
-    "date": "2026-11-13",
+    "date": "2026-11-26",
     "rung": "R0",
     "label": "Vendored real script",
     "corpus": "benchmarks/real_scripts/scripts",
     "total": 39,
-    "compiled": 2,
-    "passed": 2,
-    "rate": 0.0513,
-    "fences": 294,
+    "compiled": 3,
+    "passed": 3,
+    "rate": 0.0769,
+    "fences": 273,
     "blockers": [
       {
         "family": "keyword-args",
@@ -86,15 +86,9 @@
         "scriptsAlone": 1
       },
       {
-        "family": "stdlib:os",
-        "rootCause": "stdlib-surface",
-        "scriptsBlocked": 2,
-        "scriptsAlone": 1
-      },
-      {
         "family": "construct-other",
         "rootCause": "statements",
-        "scriptsBlocked": 9,
+        "scriptsBlocked": 10,
         "scriptsAlone": 2
       },
       {
@@ -106,25 +100,31 @@
       {
         "family": "call-arity",
         "rootCause": "call-table",
-        "scriptsBlocked": 19,
+        "scriptsBlocked": 17,
         "scriptsAlone": 0
       },
       {
         "family": "field-lookup",
         "rootCause": "classes",
-        "scriptsBlocked": 6,
-        "scriptsAlone": 0
-      },
-      {
-        "family": "forward-reference",
-        "rootCause": "inference",
-        "scriptsBlocked": 1,
+        "scriptsBlocked": 4,
         "scriptsAlone": 0
       },
       {
         "family": "generic-alias",
         "rootCause": "inference",
         "scriptsBlocked": 1,
+        "scriptsAlone": 0
+      },
+      {
+        "family": "local-inference",
+        "rootCause": "inference",
+        "scriptsBlocked": 10,
+        "scriptsAlone": 0
+      },
+      {
+        "family": "name-resolution",
+        "rootCause": "inference",
+        "scriptsBlocked": 21,
         "scriptsAlone": 0
       }
     ],
@@ -140,10 +140,6 @@
       {
         "cause": "inference",
         "scriptsReleased": 2
-      },
-      {
-        "cause": "stdlib-surface",
-        "scriptsReleased": 1
       }
     ],
     "history": [
@@ -164,6 +160,12 @@
         "passed": 2,
         "total": 39,
         "rate": 0.0513
+      },
+      {
+        "date": "2026-11-26",
+        "passed": 3,
+        "total": 39,
+        "rate": 0.0769
       }
     ]
   }
