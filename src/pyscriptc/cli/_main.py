@@ -2045,7 +2045,6 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # import off the island; there is no opt-out flag.
         island_ctx = island_policy(island_names, True, config.native_pinned_imports())
         # boxed:end
-        # boxed:end
         dep_roots, checker_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
         binary: Path = Path(args.output) if args.output else _artifact_base(args, source_path)
         if ((args.target and "windows" in args.target) or sys.platform == "win32") and not binary.suffix:
