@@ -105,6 +105,16 @@ class ModuleDriverMixin:
         self._island_marked = set(island_marked_definitions(tree))
         self._island_marked_spellings = island_marker_spellings(tree)
         # boxed:end
+        # Issue #1309: the `@specialize` marker is read from the same tree,
+        # beside the `@island` marker. The generic-check pass after the
+        # signature pass fences a marked definition the assertion does not
+        # hold for, and the report builder reads the marked nodes for the
+        # definition lines.
+        from pyscriptc.boxed import specialize_marked_definitions, specialize_marked_nodes, specialize_marker_spellings
+
+        self._specialize_marked = set(specialize_marked_definitions(tree))
+        self._specialize_marked_spellings = specialize_marker_spellings(tree)
+        self._specialize_marked_nodes = specialize_marked_nodes(tree)
         live = self._live_statements(list(tree.body), fences)
         # The import pass may have installed slots imported from other
         # modules (a cross-module global read). The scan of the module's own
@@ -429,6 +439,12 @@ class ModuleDriverMixin:
         # The frame-specialized method copies queue from the call sites of
         # the bodies that just lowered, so the drain comes after them.
         self._drain_frame_methods(lowered_classes, fences)
+        # Issue #1309: the `@specialize` marker asserts the monomorphization
+        # the compiler already performs. The check runs after the drains, so
+        # the instantiation tables hold every copy the module emitted, and
+        # the report reads those same tables.
+        self._specialize_check(fences)
+        self._specialize_report(lowered, lowered_classes)
         lowered.extend(self.nested_fns)
         # The class-attribute initializers (issue #732) join the module's
         # lowered functions: their bodies are already the IR statements, so
