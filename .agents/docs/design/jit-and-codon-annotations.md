@@ -1,6 +1,6 @@
 # JIT and Codon-style annotations in pyscriptc (issue #1283)
 
-Status: design note, first written 2026-11-17, updated 2026-11-26 after the annotation-surface cluster landed. Not a decision. The decision row at the end of this note is what turns it into one.
+Status: design note, first written 2026-11-17, updated 2026-11-26 after the annotation-surface cluster landed. The decision row at the end of this note is appended to `.agents/decisions.md` in the same PR.
 
 The issue asks whether typed annotations could drive a JIT or a Codon-like specialization path alongside the AOT compiler, and asks for a note comparing Codon, Numba and the annotation-as-lowering-input model pyscriptc already has. This note answers that, plus the question the issue implies: what would a `@codon.jit`-shaped or `@par`-shaped annotation give a pyscriptc user that the compiler does not already give them.
 
@@ -177,9 +177,9 @@ Done when: each slice lowers with a named diagnostic where it cannot, the jinja2
 
 Explicitly out of scope: the JIT (candidate A), `@par` (candidate B), and any change to the island tier's routing granularity. The class-base wall (94 PS2002 fences on jinja2) stays with the successor note's N1 per-class demotion plan, which is the strategic track and not a typing slice.
 
-## A proposed decisions.md row (not appended)
+## The decisions.md row
 
-The row below is proposed, not appended. The 2026-10-28 cleanup moved the full prose of each decision into git history and kept the table one row per decision, newest last, so appending it is an owner action.
+The row below is the decision this note recommends. It is appended to `.agents/decisions.md` in the same PR, because the recommendation is clear and the owner ratifies it by merging. If the owner wants a different call, the row is the thing to edit.
 
 | Date | Decision | Why (one line) | Rejected alternatives | Detail |
 | --- | --- | --- | --- | --- |
