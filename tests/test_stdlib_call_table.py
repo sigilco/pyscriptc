@@ -388,18 +388,21 @@ PROBES: list[Probe] = [
         "os.symlink(os_file, p_rl)",
         "print(os.readlink(p_rl) == os_file)",
     ),
+    # Signal 0 delivers nothing on every platform. A literal signal number is
+    # not portable: 19 is SIGCONT on macOS and SIGSTOP on Linux, where the
+    # group call stopped the whole test runner.
     _p(
         "os",
         "kill",
         "os",
-        "os.kill(os.getpid(), 19)",
+        "os.kill(os.getpid(), 0)",
         "print(True)",
     ),
     _p(
         "os",
         "killpg",
         "os",
-        "os.killpg(0, 19)",
+        "os.killpg(0, 0)",
         "print(True)",
     ),
     # shutil and tempfile
