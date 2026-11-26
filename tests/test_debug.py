@@ -52,7 +52,11 @@ def test_debug_dir_writes_artifacts(tmp_path: Path) -> None:
     assert (dbg / "out.ll").read_text() == out.read_text()
     summary = json.loads((dbg / "summary.json").read_text())
     assert summary["status"] == "ok"
+    # `infer` and `bridge` lead the list since the call-site pins became
+    # the default (issue #1305): the engine runs on every compile.
     assert [stage["name"] for stage in summary["stages"]] == [
+        "infer",
+        "bridge",
         "lower",
         "check",
         "validate",

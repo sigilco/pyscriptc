@@ -80,7 +80,7 @@ Two read-only checks run when the `verify` topic is on (bare `--debug`,
 | `ir.json` | The lowered module, identical to the `<out>.ir.json` next to the output. |
 | `out.ll` | The emitted LLVM text (present for `--emit llvm` and `--emit bin`). |
 | `cc.sh` | The exact cc invocations, one per line (only when linking ran). |
-| `summary.json` | Stage timings (`timings` maps every stage and sub-step to ms; `stageStats` adds per-stage `rssKb`, `nodes` and `functions` for the compile stages), fence dicts, cc commands, output paths, verification verdicts (`verify.ir` list, `verify.llvm` object), final status (`ok` / `fences` / `error`), and with `--infer` the `infer` dict (`skipped`, `pins`, `callSites`, `ms`). |
+| `summary.json` | Stage timings (`timings` maps every stage and sub-step to ms; `stageStats` adds per-stage `rssKb`, `nodes` and `functions` for the compile stages), fence dicts, cc commands, output paths, verification verdicts (`verify.ir` list, `verify.llvm` object), final status (`ok` / `fences` / `error`), and the `infer` dict (`skipped`, `pins`, `callSites`, `ms`; inference is on by default since issue #1305). |
 
 Artifacts are written in a `finally`, so a fenced or failed compile still
 leaves `ir.json` and `summary.json` for inspection.
