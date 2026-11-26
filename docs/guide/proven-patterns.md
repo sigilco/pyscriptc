@@ -120,6 +120,7 @@ The yt-dlp hot leaf it would replace, `FormatSorter._calculate_field_preference_
 The profitable direction is native calls island, and only for bodies heavy enough to pay the crossing of 0.44 to 0.59 us.
 
 **Inferring types into untyped code.** The compiler infers what it can prove and refuses the rest: a missing annotation is a `PS1001` fence, never a guessed `Any`.
+The call-site pins now run on every compile (issue [#1305](https://github.com/sigilco/pyscriptc/issues/1305)), so a parameter every call site agrees on lowers without a written annotation; the fence stands for a parameter the call sites disagree on.
 An annotation overlay applied to yt-dlp's untyped parameters moved 66 of 7,646 fenced definitions to native on the `url`-shaped parameters alone, and 223 when every remaining parameter was annotated `str`, because the wrong annotations create type-mismatch and name-resolution fences of their own.
 A class-body constant table (3,949 fences) is the larger lever, but it is a compiler feature, not an inference one.
 The [libraries and fallback guide](libraries.md) is the reference for what the fallback tier does and does not do.

@@ -88,7 +88,7 @@ pyscriptc is ahead-of-time and whole-program: the compile happens once, before d
 No annotations are written, but the inference requires each variable to hold one type, and the supported standard-library slice is documented per module.
 Output is a CPython extension module or a standalone binary; the project describes itself as experimental.
 
-pyscriptc differs in demanding the types be written (they steer the lowering instead of being inferred once) and in routing what it cannot compile to embedded CPython rather than leaving the program without a path.
+pyscriptc differs in demanding the types be written (they steer the lowering instead of being inferred once), in pinning an unannotated parameter from the type its call sites agree on rather than inferring a whole program, and in routing what it cannot compile to embedded CPython rather than leaving the program without a path.
 
 ### scriptc
 
