@@ -75,7 +75,8 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D3",
-        "str model mid-migration: is* predicates needing Unicode category tables raise NotImplementedError",
+        "code-point str model: the is* predicates that need the Unicode category tables "
+        "(isalpha/isalnum/isspace) raise NotImplementedError on a code point above Latin-1",
         "d03_str_predicates.py",
         docs=f"{DOC}#3",
     ),
