@@ -6,7 +6,7 @@ The issue asks whether typed annotations could drive a JIT or a Codon-like speci
 
 The short answer: pyscriptc already does the part of Codon that matters for a typed subset (compile-time specialization from annotations, monomorphization per call site, a native binary with no interpreter in the loop), and it deliberately refuses the part of Codon that trades CPython semantics away. A JIT would trade away the parity contract that the whole project is built on, and the `@par` annotation would need a memory model and a loop-lower that the project has not built yet. The cheapest real answer is the one that landed: making the specialization the compiler already performs visible, as `@specialize` plus a specialization report.
 
-What changed since the first version of this note: the recommendation has been executed. The shadow annotation module (#1306), the `@island` demotion notes (#1307), the island-imports lane table (#1308) and the `@specialize` marker plus the `--specializations` report (#1309, PR #1409) all landed between 2026-11-18 and 2026-11-26. The note below is updated to say what the compiler does today, what the measurement against a real library target says, and what the next scoped issue would be.
+What changed since the first version of this note: the recommendation has been executed. The shadow annotation module (#1306), the `@island` demotion notes (#1307), the default island routing for imports outside the closed table (#1308) and the `@specialize` marker plus the `--specializations` report (#1309, PR #1409) all landed between 2026-11-18 and 2026-11-26. The note below is updated to say what the compiler does today, what the measurement against a real library target says, and what the next scoped issue would be.
 
 ## What Codon gives a user, in two pieces
 
@@ -100,7 +100,7 @@ The recommendation above was executed as four small PRs, one per issue in the an
 | --- | --- | --- |
 | #1306 | The inert shadow module `pyscriptc._annotations`: importable and a no-op on plain CPython and PyPy, erased like a `typing` import under the compiler, so a decorated definition runs unmodified outside pyscriptc | `src/pyscriptc/_annotations.py` |
 | #1307 | `@island`: a deliberate demotion marker. Under `--fallback=cpython` the marked definition routes to the embedded CPython on purpose and the compile and `assess` name the routing instead of fencing | `src/pyscriptc/boxed.py`, `src/pyscriptc/lower/` |
-| #1308 | `--fallback-island-imports` plus the per-module lane table: an unknown import routes to the island by default instead of refusing | `src/pyscriptc/imports.py`, `src/pyscriptc/config.py` |
+| #1308 | The default island routing: the closed import table stopped being an admission gate, so an import of a module outside it (an unknown name, a third-party package, a stdlib module the table does not carry) routes to the island lane with no flag and no opt-out, and the closed-table refusal became an advisory note. An explicit `[tool.pyscriptc.imports]` lane still wins over the default | `src/pyscriptc/imports.py`, `src/pyscriptc/config.py`, `src/pyscriptc/lower/_stdlib_bind.py` |
 | #1309 | `@specialize` plus the specialization report: the marker asserts the per-call-site monomorphization the lowering already performs, and `pyscriptc compile FILE --specializations` prints the emitted copies and their TypeVar substitutions | `src/pyscriptc/lower/_specialize.py`, `src/pyscriptc/cli/_main.py` |
 
 The design rules the shipped code follows, which are the ones this note proposed:
