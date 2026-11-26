@@ -78,8 +78,10 @@ no = [["float(bool)", 'y: float = float(t)', "PS2003"]]
 
 [[builtin]]
 names = ["str"]
-ok = ['y: str = str(n)', 'y: str = str(x)', 'y: str = str(b)', 'y: str = str(None)']
-no = [["str of a user class", 'y: str = str(p)', "PS2003"]]
+label = "`str` and the `str` methods"
+note = "a str is a sequence of Unicode code points stored as UTF-8 bytes (divergence 3): the length, the index, the slice and the find/count family count code points, the case family applies the full Unicode 16.0.0 mappings, and the text I/O is UTF-8. The category-table predicates raise NotImplementedError at run time on a code point above Latin-1 (a compile, so not a `no` row); isnumeric, isdecimal, isprintable, istitle, iscapitalize, translate and maketrans with the lowered shape are the fences below."
+ok = ['y: str = str(n)', 'y: str = str(x)', 'y: str = str(b)', 'y: str = str(None)', 'y: str = s.upper()', 'y: str = s.lower()', 'y: str = s.strip()', 'y: str = s.replace("a", "b")', 'y: list[str] = s.split("a")', 'y: int = s.find("a")', 'y: int = s.count("a")', 'y: str = s[1:3]', 'y: bool = s.startswith("a")', 'y: str = s.join(ss)', 'y: bytes = s.encode()', 'y: str = b.decode()']
+no = [["str of a user class", 'y: str = str(p)', "PS2003"], ["isnumeric, isdecimal, isprintable, istitle, iscapitalize", 'y: bool = s.isnumeric()', "PS2001"], ["encode/decode lower the utf-8 encoding only", 'y: bytes = s.encode("latin-1")', "PS2003"], ["translate", 'y: str = s.translate(ss)', "PS2001"]]
 
 [[builtin]]
 names = ["list"]
