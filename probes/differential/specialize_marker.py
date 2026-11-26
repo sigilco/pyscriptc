@@ -1,3 +1,4 @@
+# ruff: noqa: UP046, UP047 - the PEP 484 TypeVar spelling is the construct under test (PEP 695 fences PS1106)
 """Differential probe: the `@specialize` marker of the shadow annotation module.
 
 `pyscriptc._annotations.specialize` is the identity on plain CPython, so the
