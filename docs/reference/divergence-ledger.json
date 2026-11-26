@@ -360,13 +360,13 @@
         "stage": "run",
         "exit": 1,
         "stdout": "",
-        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d20_gen_throw.py\", line 9, in <module>\n    g.throw(ValueError(\"x\"))\n    ~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"probes/divergences/d20_gen_throw.py\", line 4, in gen\n    def gen() -> Generator[int, None, None]:\nValueError: x\n"
+        "stderr": "Traceback (most recent call last):\n  File \"probes/divergences/d20_gen_throw.py\", line 12, in <module>\n    g.throw(ValueError(\"x\"))\n    ~~~~~~~^^^^^^^^^^^^^^^^^\n  File \"probes/divergences/d20_gen_throw.py\", line 7, in gen\n    def gen() -> Generator[int, None, None]:\nValueError: x\n"
       },
       "pyscriptc": {
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d20_gen_throw.py:9:1: PS2002: generator.throw takes one exception class\n  g.throw(ValueError(\"x\"))\n  ^\n"
+        "stderr": "probes/divergences/d20_gen_throw.py:12:1: PS2002: generator.throw takes one exception class\n  g.throw(ValueError(\"x\"))\n  ^\n"
       },
       "status": "fenced"
     },
@@ -2101,7 +2101,7 @@
         "stage": "compile",
         "exit": 3,
         "stdout": "",
-        "stderr": "probes/divergences/d110_throw_instance.py:12:5: PS2002: generator.throw takes one exception class\n      g.throw(ValueError(\"x\"))\n      ^\n"
+        "stderr": "probes/divergences/d110_throw_instance.py:15:5: PS2002: generator.throw takes one exception class\n      g.throw(ValueError(\"x\"))\n      ^\n"
       },
       "status": "fenced"
     }
