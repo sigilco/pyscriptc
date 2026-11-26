@@ -15,12 +15,7 @@ import tomllib
 
 def main() -> None:
     d: dict[str, str] = tomllib.loads(
-        'a = "\\u00e9"\n'
-        'b = "\\U0001f600"\n'
-        'c = "\\u4e2d"\n'
-        'd = "caf\\u00e9"\n'
-        'e = "raw é"\n'
-        'f = "\\u007f"\n'
+        'a = "\\u00e9"\nb = "\\U0001f600"\nc = "\\u4e2d"\nd = "caf\\u00e9"\ne = "raw é"\nf = "\\u007f"\n'
     )
     print(d["a"])
     print(d["b"])

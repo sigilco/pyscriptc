@@ -14,14 +14,7 @@ import yaml
 
 def main() -> None:
     d: dict[str, str] = yaml.safe_load(
-        'a: "\\u00e9"\n'
-        'b: "\\U0001f600"\n'
-        'c: "\\u4e2d"\n'
-        'd: "\\x41"\n'
-        'e: "\\x80"\n'
-        'f: "\\xff"\n'
-        'g: raw é\n'
-        'h: "quoted é"\n'
+        'a: "\\u00e9"\nb: "\\U0001f600"\nc: "\\u4e2d"\nd: "\\x41"\ne: "\\x80"\nf: "\\xff"\ng: raw é\nh: "quoted é"\n'
     )
     print(d["a"])
     print(d["b"])

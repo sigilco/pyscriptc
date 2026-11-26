@@ -19,7 +19,7 @@ import shutil
 import sys
 
 import pytest
-from tests.test_gates import ROOT, write_case
+from tests.test_gates import write_case
 from tests.test_runtime_divergences import compile_and_run, oracle_run
 
 ZIG = shutil.which("zig") is not None
@@ -259,9 +259,7 @@ def test_yaml_matches_pyyaml(tmp_path) -> None:
     import subprocess
 
     path = write_case(tmp_path, "yaml_string_escapes.py", YAML_STRING_ESCAPES)
-    want = subprocess.run(
-        [sys.executable, str(path)], capture_output=True, timeout=120, cwd=tmp_path, check=True
-    )
+    want = subprocess.run([sys.executable, str(path)], capture_output=True, timeout=120, cwd=tmp_path, check=True)
     got = compile_and_run(tmp_path, "yaml_string_escapes.py", YAML_STRING_ESCAPES)
     assert got == (want.stdout, want.stderr, want.returncode)
 
@@ -303,8 +301,6 @@ def test_orjson_pack_writes_the_raw_utf8(tmp_path) -> None:
     import subprocess
 
     path = write_case(tmp_path, "orjson_raw_utf8.py", ORJSON_RAW_UTF8)
-    want = subprocess.run(
-        [sys.executable, str(path)], capture_output=True, timeout=120, cwd=tmp_path, check=True
-    )
+    want = subprocess.run([sys.executable, str(path)], capture_output=True, timeout=120, cwd=tmp_path, check=True)
     got = compile_and_run(tmp_path, "orjson_raw_utf8.py", ORJSON_RAW_UTF8)
     assert got == (want.stdout, want.stderr, want.returncode)

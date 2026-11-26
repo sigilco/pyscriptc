@@ -25,7 +25,7 @@ for code in [0x20, 0x7E, 0x80, 0xE9, 0x7FF, 0x800, 0xFFFF, 0x10000, 0x10FFFF]:
     print(json.dumps(ch, ensure_ascii=False))
 
 # The two-character escapes and the short forms.
-for text in ["a\"b", "a\\b", "a/b", "a\nb", "a\rb", "a\tb", "a\x08b", "a\x0cb"]:
+for text in ['a"b', "a\\b", "a/b", "a\nb", "a\rb", "a\tb", "a\x08b", "a\x0cb"]:
     print(json.dumps(text))
     print(json.dumps(text, ensure_ascii=False))
 
