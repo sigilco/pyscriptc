@@ -363,6 +363,10 @@ class Lowerer(
         self.server_callbacks: dict[str, str] = {}
         self.temp_n = 0
         self.caught: list[Fence] = []
+        # The method bodies a class lowering tolerated (the fenced body
+        # dropped out of the record instead of dropping the class): the
+        # (class, method) pairs, recorded for the caller's diagnostic.
+        self._tolerated_methods: list[tuple[str, str]] = []
         self.prelude: list[dict[str, Any]] = []
         self.constants: dict[str, dict[str, Any]] = {}
         self.type_aliases: dict[str, str] = {}

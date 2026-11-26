@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-26",
-  "commit": "7bcbd7ad0fd7d66c9aa532b10c94ac0f4bbcaf05",
+  "commit": "d582f45d64392d4bed37644905c9139dee9654f7",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -991,9 +991,9 @@
       "name": "iniconfig",
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
-      "ratio": "6/34",
-      "blocking": "optional-types (2), generators (1), construct-other (1)",
-      "codes": "PS1102, PS2002, PS2001"
+      "ratio": "5/34",
+      "blocking": "optional-types (2), generators (1), annotation-other (1)",
+      "codes": "PS1102, PS2002, PS1001"
     },
     {
       "name": "jmespath",

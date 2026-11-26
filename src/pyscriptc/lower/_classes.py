@@ -984,6 +984,15 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         sig_fences = 0
         setters: dict[str, tuple[ast.FunctionDef, list[dict[str, Any]], dict[str, Any]]] = {}
         for method, kind in methods:
+            if self._resumable_shape_refused(method):
+                # A resumable method whose body shape the frame pass refuses
+                # (a nested def inside a generator, say) drops out of the
+                # class the way a fenced module function follows: it does
+                # not export, its siblings still do. The class and its
+                # remaining methods keep lowering, and a call site of the
+                # dropped method fences "not a method".
+                self._tolerated_methods.append((node.name, method.name))
+                continue
             try:
                 if kind == "setter":
                     sig = self._coro_method_signature(method, node.name) or self._signature(method, node.name, "method")
@@ -1648,6 +1657,23 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             marker["factory"] = value
             marker["factory_ast"] = None
 
+    def _resumable_shape_refused(self, method: ast.FunctionDef) -> bool:
+        """True when a resumable method's body shape is outside today's scope.
+
+        The frame pass (the generator machinery) refuses a body shape it
+        cannot suspend through: a nested def inside a generator, a `return`
+        inside a `try`, a `yield` as an expression. The refusal is a property
+        of the method, not of the class: the method drops out of the class
+        record and the class and its other methods keep lowering. The check
+        is the frame pass's own shape rule, read without the refusal.
+        """
+        from pyscriptc.coro import _shape_error, is_generator  # noqa: PLC0415  # local import avoids the cycle
+
+        if not is_generator(method):
+            return False
+        shape = _shape_error(method)
+        return shape is not None
+
     def _lower_class(self, node: ast.ClassDef, emit_name: str | None = None) -> dict[str, Any] | None:
         own = emit_name or node.name
         info = self.classes[own]
@@ -1669,6 +1695,11 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # The getter and the setter share the property name, so the
             # def's identity is what tells them apart.
             if id(stmt) in setter_stmts:
+                continue
+            # A method whose signature fenced (the collect pass dropped it
+            # from the class record) does not lower: the class keeps its
+            # remaining methods and the call site fences "not a method".
+            if (own, stmt.name) in self._tolerated_methods:
                 continue
             emitted = self._emit_class_method(own, stmt, info, own_names)
             if emitted is not None:
