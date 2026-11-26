@@ -104,7 +104,10 @@ jobs:
           # The R0 rung (the vendored real scripts) rides in the same ladder
           # document, with its 30-value trend. Design: benchmarks/real_scripts/.
           mkdir -p nightly
-          uv run python -m benchmarks.real_scripts.measure --quiet --json nightly/r0.json
+          # The report is rewritten from the same measurement: the contract test
+          # holds the published r0 rate equal to it, so the two move together.
+          uv run python -m benchmarks.real_scripts.measure --quiet --json nightly/r0.json \
+            --markdown benchmarks/real_scripts/REPORT.md
           uv run python scripts/r0_lane.py --json data/compat/ladder.json --measure nightly/r0.json
           # The island receipts first, so the compat file carries fresh
           # verdicts. A probe failure keeps the old receipts: the file then
@@ -170,11 +173,12 @@ jobs:
           branch="bot/compat-snapshot"
           git config user.name 'github-actions[bot]'
           git config user.email 'github-actions[bot]@users.noreply.github.com'
-          git add data/compat/compat.json data/compat/ladder.json data/compat/island.json
+          git add data/compat/compat.json data/compat/ladder.json data/compat/island.json \
+            benchmarks/real_scripts/REPORT.md
           git commit -m "ci: nightly compat snapshot ${DATE}"
           git push --force origin "HEAD:${branch}"
           body="$(mktemp)"
-          printf 'Nightly compat snapshot for %s.\n\nThis PR carries only `data/compat/compat.json`, rebuilt from the tree by `scripts/build_compat_json.py`.\nThe nightly already validated it through the site build and the compat seams before opening this PR. The commit is the bot identity, so the owner merges it without review; a bad change is reverted with one revert commit.\n' "${DATE}" > "$body"
+          printf 'Nightly compat snapshot for %s.\n\nThis PR carries the compat data under `data/compat/` and `benchmarks/real_scripts/REPORT.md`, rebuilt from the tree by the nightly.\nThe nightly already validated it through the site build and the compat seams before opening this PR. The commit is the bot identity, so the owner merges it without review; a bad change is reverted with one revert commit.\n' "${DATE}" > "$body"
           number="$(gh pr list --repo "$REPO" --head "$branch" --state open \
             --json number --jq '.[0].number // empty')"
           if [ -n "$number" ]; then
