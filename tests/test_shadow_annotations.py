@@ -23,7 +23,10 @@ def _fences(source: str) -> list[tuple[str, str]]:
 
 
 _DECORATED = """
+from typing import Generic, TypeVar
 from pyscriptc._annotations import island, specialize
+
+T = TypeVar("T")
 
 
 @island
@@ -32,7 +35,7 @@ def f(x: int) -> int:
 
 
 @specialize
-class C:
+class C(Generic[T]):
     @island
     def m(self) -> int:
         return 2
@@ -99,7 +102,11 @@ def f(x: int) -> int:
 def probe() -> int:
     return f(1)
 """
-    assert _fences(source) == []
+    # Issue #1309: the dotted `@specialize` spelling marks `f`, and `f` is
+    # not generic, so the marker's PS1207 fence names it. The import still
+    # binds and erases: the fence is the marker's check, not the import.
+    fences = _fences(source)
+    assert len(fences) == 1 and fences[0][0] == "PS1207"
 
 
 def test_nested_and_class_scope_decorators_erase() -> None:
