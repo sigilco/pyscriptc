@@ -7,6 +7,14 @@ from dataclasses import dataclass
 
 INT_LIMIT = 2**62
 
+# The expressions whose value depends on the invocation, not on the construct under test.
+# `sys.argv[0]` is '-c' under the scorer's CPython oracle (`python -c`) and the binary's
+# own path natively; `sys.path[0]` is the interpreter's own path. A fold over the length
+# of the head can never match across the two sides, so these rows fold over the element
+# count and the non-emptiness of the head instead. See the recorded decision
+# 2026-11-08-sys-argv-probe-rewrite (#924).
+PATH_DEPENDENT: frozenset[str] = frozenset({"sys.argv", "sys.path", "sys.orig_argv"})
+
 
 @dataclass(frozen=True)
 class Desc:
@@ -84,8 +92,12 @@ def _big(value: object) -> bool:
     return isinstance(value, int) and abs(value) >= INT_LIMIT
 
 
-def fold_lines(desc: Desc, var: str, value: object) -> list[str]:
-    """Statements (unindented) that return an int derived from `var`."""
+def fold_lines(desc: Desc, var: str, value: object, expr: str = "") -> list[str]:
+    """Statements (unindented) that return an int derived from `var`.
+
+    `expr` is the expression the value came from; it decides the fold for the
+    path-dependent rows (see PATH_DEPENDENT).
+    """
     match desc.fold:
         case "int":
             return [f"return {var} % 1000003"] if _big(value) else [f"return {var}"]
@@ -116,6 +128,13 @@ def fold_lines(desc: Desc, var: str, value: object) -> list[str]:
         case "seq-int":
             return [f"return len({var}) * 1000003 + {var}[0] % 1000003"]
         case "seq-str":
+            if expr in PATH_DEPENDENT:
+                # The element count and the non-emptiness of the head are the two facts
+                # about these sequences that survive every invocation; the length of the
+                # head does not. The recorded decision 2026-11-08-sys-argv-probe-rewrite
+                # (#924) fixed this by hand for `sys.argv`; the fold carries it now, so a
+                # regeneration keeps the fix instead of reverting it.
+                return [f"return len({var}) * 1000003 + (1 if len({var}[0]) > 0 else 0)"]
             return [f"return len({var}) * 1000003 + len({var}[0])"]
         case "len":
             return [f"return len({var})"]
