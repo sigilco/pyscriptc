@@ -1,0 +1,95 @@
+# pyscriptc-frame: the pandas replacement pack in the #377 pack format.
+#
+# The identity block follows section 2 of .agents/docs/spec/pack-format.md.
+# The pack mirrors the slice-1 subset of issue #497 under the
+# pyscriptc_frame import name; `import pandas` resolves here through
+# native_packages.json so a user who writes the pandas spelling gets the
+# pack, while `import pyscriptc_frame` is the explicit one.
+#
+# The pack's runtime is the compiler's in-tree ps_frame.c over the
+# ndarray buffers (ps_ndarray.c / ps_ndbuffer.h), so no C is vendored
+# here: the [[ffi.fn]] rows name the runtime symbols the in-tree lowering
+# already binds, and the conformance suite ships with slice 2 (the
+# expected values are generated from real pandas under CPython then).
+
+[pack]
+name = "pyscriptc-frame"        # distribution name, equals the directory name
+version = "0.1.0"               # the pack's own SemVer release (slice 1)
+replaces = "pandas"             # the PyPI distribution whose imports it covers
+replaces-version = ">=1.5,<3"   # the upstream versions the surface mirrors
+ps-abi = 1                      # the compiler/runtime ABI epoch (ffi_manifest.CURRENT_PS_ABI)
+format = 1                      # this schema's version (pack-format spec)
+
+[[imports]]                     # import names the pack binds; native_packages.json
+name = "pandas"                 # maps pandas onto this pack
+
+[[imports]]
+name = "pyscriptc_frame"
+
+[[platform]]                    # platform targets; one row per shipped triple
+triple = "aarch64-apple-darwin"
+wheel-tag = "macosx_11_0_arm64"
+
+[[platform]]
+triple = "x86_64-unknown-linux-musl"
+wheel-tag = "manylinux_2_17_x86_64"
+
+[ffi]
+# [[ffi.source]]: none. The pack's implementation is the compiler runtime's
+# ps_frame.c over the ndarray buffers, so no source is vendored here.
+# [[ffi.handle]]: the frame record is a runtime class carrier, not a
+# manifest handle; the rows stay empty.
+# [[ffi.const]]: the surface has no constants in slice 1.
+
+[[ffi.fn]]
+name = "DataFrame"
+# The slice-1 constructor: `DataFrame(data: dict[str, list[int] | list[float]]) -> DataFrame`.
+# The FFI type vocabulary has no union (section 3 of the spec reuses the
+# vocabulary as it is), so the validator refuses this row today; the gap
+# rides the ndarray pack's `Any` row on #377 and the pack does not paper
+# over it.
+py = "(data: dict[str, list[Any]]) -> DataFrame"
+c_symbol = "ps_frame_new"
+abi = "ps_pack_frame_dataframe"
+
+[[ffi.fn]]
+name = "columns"
+py = "(df: DataFrame) -> list[str]"
+c_symbol = "ps_frame_columns"
+abi = "ps_pack_frame_columns"
+
+[[ffi.fn]]
+name = "ncols"
+py = "(df: DataFrame) -> int"
+c_symbol = "ps_frame_ncols"
+abi = "ps_pack_frame_ncols"
+
+[[ffi.fn]]
+name = "getcol"
+py = "(df: DataFrame, name: str) -> ndarray"
+c_symbol = "ps_frame_getcol"
+abi = "ps_pack_frame_getcol"
+
+[[ffi.fn]]
+name = "setcol"
+py = "(df: DataFrame, name: str, values: ndarray) -> None"
+c_symbol = "ps_frame_setcol"
+abi = "ps_pack_frame_setcol"
+
+[[ffi.fn]]
+name = "head"
+py = "(df: DataFrame, n: int) -> DataFrame"
+c_symbol = "ps_frame_head"
+abi = "ps_pack_frame_head"
+
+[[ffi.fn]]
+name = "tail"
+py = "(df: DataFrame, n: int) -> DataFrame"
+c_symbol = "ps_frame_tail"
+abi = "ps_pack_frame_tail"
+
+[[ffi.fn]]
+name = "to_dict"
+py = "(df: DataFrame) -> dict[str, list[Any]]"
+c_symbol = "ps_frame_to_dict"
+abi = "ps_pack_frame_to_dict"

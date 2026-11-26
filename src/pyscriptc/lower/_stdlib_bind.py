@@ -124,6 +124,10 @@ class StdlibBindMixin:
                 # lower identically. The `numpy` alias is accepted only
                 # whole-module: `numpy.linalg` and friends stay outside.
                 bound_name = "pyscriptc_ndarray" if alias.name == "numpy" else alias.name
+                if alias.name == "pandas":
+                    # The pandas spelling rides the frame pack (issue #497):
+                    # the same whole-module rule the numpy alias has.
+                    bound_name = "pyscriptc_frame"
                 self.bindings[alias.asname or alias.name] = Binding("module", bound_name, "", False)
                 self._note_module(bound_name)
                 continue

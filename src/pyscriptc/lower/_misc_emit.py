@@ -23,16 +23,20 @@ from pyscriptc.lower._core import (
     _attr,
     _const_bool,
     _const_str,
+    _const_str_value,
     _dotted,
     _is_none_expr,
     _name,
     _node_kind,
+    _node_type,
     _node_type_kind,
     _show,
     _tuple_assign,
     _type_kind,
 )
+from pyscriptc.lower._ndarray import _dtype_of as _nd_dtype_of
 from pyscriptc.lower._ndarray import _is_ndarray as _nd_is_ndarray
+from pyscriptc.restlower._frame import _schema_of as _frame_schema_of
 from pyscriptc.tirserde import dict_to_node, dict_to_type, node_to_dict
 from pyscriptc.tirserde import dict_to_span as dict_to_span_local
 
@@ -230,6 +234,31 @@ class MiscEmitMixin:
                 self.fail(stmt, "PS1003", "an ndarray element is a number")
             call = self._abi_call(
                 "pyscriptc_ndarray", "setitem", [container, index, value], {"kind": "none"}, "ps_nd_setitem", span
+            )
+            return _expr_node(call, span)
+        if (
+            _node_type_kind(container) == "class"
+            and _node_type_kind(container) == "class"
+            and _node_type(container).get("name") == "DataFrame"
+            and not _node_type(container).get("handle")
+        ):
+            # `df["col"] = values` on a frame (issue #497, slice 1): the
+            # column replace. The name must be a literal in the schema and
+            # the value an ndarray of the same dtype; adding a column
+            # changes the schema label and waits for the schema-rebind
+            # slice, so it fences here rather than approximating.
+            if _node_type_kind(index) != "str":
+                self.fail(target, "PS1003", "a DataFrame subscript assignment is a column name (a str)")
+            name = _const_str_value(index)
+            schema = dict(_frame_schema_of(_node_type(container)))
+            if name not in schema:
+                self.fail(target, "PS2001", f"pyscriptc_frame: the frame has no column {name}")
+            value = self._expr(stmt.value)
+            dtype = schema[name]
+            if not (_nd_is_ndarray(value["type"]) and _nd_dtype_of(value["type"]) == dtype):
+                self.fail(stmt, "PS1003", f"the column {name} takes an ndarray[{dtype}]")
+            call = self._abi_call(
+                "pyscriptc_frame", "setcol", [container, index, value], {"kind": "none"}, "ps_frame_setcol", span
             )
             return _expr_node(call, span)
         if kind == "list" and container["type"].get("set"):

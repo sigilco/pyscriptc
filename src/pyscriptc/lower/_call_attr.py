@@ -62,6 +62,7 @@ from pyscriptc.restlower._asyncio_proc import _proc_method
 from pyscriptc.restlower._asyncio_server import _server_method
 from pyscriptc.restlower._asyncio_streams import _reader_method, _writer_method
 from pyscriptc.restlower._asyncio_sync import _prim_method
+from pyscriptc.restlower._frame import _frame_method
 from pyscriptc.restlower._httpserver import (
     handler_method as _http_handler_method,
 )
@@ -488,6 +489,17 @@ class CallAttrMixin:
                 node,
                 "PS2001",
                 f"pyscriptc_ndarray.{node.func.attr} is not in the lowered subset of pyscriptc_ndarray",
+            )
+        if kind == "class" and receiver["type"]["name"] == "DataFrame":
+            # The frame method surface (issue #497): the handler answers
+            # the names in the slice-1 subset and refuses the rest by name.
+            called = _frame_method(self, node, span, receiver, node.func.attr)
+            if called is not None:
+                return called
+            self.fail(
+                node,
+                "PS2001",
+                f"pyscriptc_frame.{node.func.attr} is not in the lowered subset of pyscriptc_frame",
             )
         if kind == "class" and receiver["type"]["name"] == "DefaultSelector":
             return _selector_method(self, node, span, receiver)

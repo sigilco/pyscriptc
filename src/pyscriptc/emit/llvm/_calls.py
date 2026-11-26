@@ -516,6 +516,12 @@ class CallsMixin(EmitterBase):
                 # The ndarray surface (issue #496): every call here carries
                 # the runtime symbol the lowering attached.
                 return self._nd_emit(expr, values)
+            if module == "pyscriptc_frame":
+                # The frame surface (issue #497): every call here carries
+                # the runtime symbol the lowering attached, and the ABI
+                # maps through the generic renderer (the frame record and
+                # the ndarray columns are pointers at the ABI).
+                return self._emit_abi(expr, values)
             return self._emit_abi(expr, values)
         if module == "math":
             return self._emit_math(name, values)

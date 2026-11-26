@@ -1126,3 +1126,28 @@ label = "container equality `==` and `!=`"
 names = ["==", "!="]
 ok = ['y: bool = xs == xs', 'y: bool = xs != [1]', 'y: bool = xs == []', 'y: bool = d == {}', 'y: bool = st == st', 'y: bool = xs == [1.0]']
 no = [["tuple of mixed element types", 'y: bool = (n, s) == (x, s)', "PS2004"]]
+
+[[stdlib]]
+names = ["pyscriptc_frame", "pandas"]
+imports = ["pyscriptc_frame", "pandas"]
+pack = true
+ok = [
+  'df = pyscriptc_frame.DataFrame({"a": [1, 2]})',
+  'df = pyscriptc_frame.DataFrame({"a": [1.0, 2.5]})',
+  "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\nn: int = len(df)",
+  "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\ncs = df.columns",
+  "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\nsh = df.shape",
+  "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\nnd = df['a']",
+  "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\nnd = df['a']\ndf['a'] = nd",
+  "df = pyscriptc_frame.DataFrame({'a': [1, 2, 3]})\ndf = df.head(2)",
+  "df = pyscriptc_frame.DataFrame({'a': [1, 2, 3]})\ndf = df.tail(2)",
+  "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\ntd = df.to_dict()\nn: int = td['a'][0]",
+]
+no = [
+  ["other module members (read_csv, to_csv, merge, concat)", "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\ndf = pyscriptc_frame.read_csv('f.csv')", "PS2001"],
+  ["other methods (sort_values, groupby, describe)", "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\ndf = df.sort_values('a')", "PS2001"],
+  ["a column name outside the schema", "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\nn: int = len(df['b'])", "PS2001"],
+  ["a new column (the schema label is fixed in slice 1)", "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\nnd = df['a']\ndf['b'] = nd", "PS2001"],
+  ["to_dict against a foreign value type", "df = pyscriptc_frame.DataFrame({'a': [1, 2]})\ndd: dict[str, list[str]] = df.to_dict()", "PS1003"],
+  ["a non-display constructor argument", "xs: dict[str, list[int]] = {'a': [1]}\ndf = pyscriptc_frame.DataFrame(xs)", "PS2003"],
+]

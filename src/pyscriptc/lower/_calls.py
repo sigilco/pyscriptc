@@ -247,6 +247,15 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 return self._abi_call("builtins", "dyn.str", [args[0]], _t_leaf("str"), "ps_dyn_str_form", span)
             if spec is None:
                 if name in {"str", "len"} and len(args) == 1 and _node_type_kind(args[0]) == "class":
+                    if (
+                        name == "len"
+                        and _node_type(args[0]).get("name") == "DataFrame"
+                        and not _node_type(args[0]).get("island")
+                    ):
+                        # `len(df)` on a frame (issue #497, slice 1): the row
+                        # count, the runtime read the ndarray len does not
+                        # cover (a frame has no `__len__` definer).
+                        return self._abi_call("pyscriptc_frame", "len", [args[0]], _t_leaf("int"), "ps_frame_len", span)
                     if name == "len" and not args[0]["type"].get("island"):
                         # The len resolution (decision 2026-11-23, O3b): the
                         # `__len__` definer with the negative-result check.

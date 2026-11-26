@@ -46,6 +46,9 @@ from pyscriptc.lower._core import (
     _type_kind,
     _zero,
 )
+from pyscriptc.lower._core import (
+    _const_str_value as _const_str_value_of,
+)
 from pyscriptc.lower._expr_compare import (
     _NUMERIC,
     ExprCompareMixin,
@@ -67,6 +70,7 @@ from pyscriptc.lower._ndarray import _is_ndarray as _nd_is_ndarray
 from pyscriptc.lower._ndarray import _ndarray_binary
 from pyscriptc.reflection import inspect_note, typing_note
 from pyscriptc.restlower._argparse import path_attribute
+from pyscriptc.restlower._frame import _schema_of as _frame_schema_of
 from pyscriptc.sigrec import type_to_dict
 from pyscriptc.stdlib_queue import (
     MATH_CONSTANTS,
@@ -896,6 +900,8 @@ class ExprMixin(ExprCompareMixin):
             self.fail(node, "PS2002", "a set has no subscript")
         if _nd_is_ndarray(value["type"]):
             return self._ndarray_subscript(node, value, index, span, expect)
+        if value["type"].get("kind") == "class" and value["type"].get("name") == "DataFrame":
+            return self._frame_subscript(node, value, index, span)
         if kind == "list":
             if index["type"]["kind"] != "int":
                 self.fail(node, "PS1003", "a list index is int")
@@ -1744,6 +1750,34 @@ class ExprMixin(ExprCompareMixin):
             [value, index],
             {"kind": "float"},
             "ps_nd_element",
+            span,
+        )
+
+    def _frame_subscript(
+        self, node: ast.Subscript, value: dict[str, Any], index: dict[str, Any], span: dict[str, Any]
+    ) -> dict[str, Any]:
+        """`df["col"]` on a frame (issue #497, slice 1): the column as the
+        ndarray the runtime owns.
+
+        The name is a str literal or a str value; the compiler checks the
+        literal against the schema label and fences a name outside it, so
+        a typo is a compile error, never a silent column read."""
+        if index["type"]["kind"] != "str":
+            self.fail(node, "PS1003", "a DataFrame subscript is a column name (a str)")
+        schema = dict(_frame_schema_of(value["type"]))
+        name = _const_str_value_of(index)
+        if name is not None and name not in schema:
+            self.fail(node, "PS2001", f"pyscriptc_frame: the frame has no column {name}")
+        dtype = schema.get(name) if name is not None else None
+        if dtype is None:
+            self.fail(node, "PS2001", "pyscriptc_frame: the column name must be a string literal (slice 1)")
+        col_type = {"kind": "class", "name": "ndarray", "label": f"ndarray[{dtype},1]"}
+        return self._abi_call(
+            "pyscriptc_frame",
+            "getcol",
+            [value, index],
+            col_type,
+            "ps_frame_getcol",
             span,
         )
 

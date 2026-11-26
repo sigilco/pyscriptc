@@ -1241,6 +1241,7 @@ ALWAYS_CLASSES: tuple[str, ...] = ("TextIO", "BytesIO")
 
 MODULE_CLASSES: dict[str, tuple[str, ...]] = {
     "pyscriptc_ndarray": ("ndarray",),
+    "pyscriptc_frame": ("DataFrame",),
     "datetime": ("Date", "DateTime", "Time", "TimeDelta"),
     "time": ("StructTime",),
     "pathlib": ("Path", "Stat"),
@@ -1289,6 +1290,9 @@ CLASS_FIELDS: dict[str, list[tuple[str, T]]] = {
     # The ndarray carrier (issue #496): the value is the pointer to the
     # runtime's record, so the class has no fields.
     "ndarray": [],
+    # The frame carrier (issue #497): the same shape, the value is the
+    # pointer to the runtime's PsFrame record.
+    "DataFrame": [],
     "Date": _plain_fields("year", "month", "day"),
     "DateTime": _plain_fields("year", "month", "day", "hour", "minute", "second", "microsecond"),
     "Time": _plain_fields("hour", "minute", "second", "microsecond"),
@@ -1517,6 +1521,7 @@ PTR_CLASSES: frozenset[str] = (
         "ZipFile",
         "EmailMessage",
         "Socket",
+        "DataFrame",
         "HTTPServer",
         "HttpServerRequest",
         "HttpServerResponse",
@@ -1528,6 +1533,7 @@ PTR_CLASSES: frozenset[str] = (
 
 TYPE_ALIAS: dict[tuple[str, str], str] = {
     ("pyscriptc_ndarray", "ndarray"): "ndarray",
+    ("pyscriptc_frame", "DataFrame"): "DataFrame",
     ("datetime", "date"): "Date",
     ("datetime", "datetime"): "DateTime",
     ("datetime", "time"): "Time",
@@ -1973,6 +1979,8 @@ REST_MODULES = frozenset(
         "jwt",
         "orjson",
         "pyscriptc_ndarray",
+        "pyscriptc_frame",
+        "pandas",
         "queue",
         "platform",
         "calendar",
@@ -2316,6 +2324,8 @@ def member_callable(module: str, member: str) -> bool:
     if module == "jwt" and member in {"encode", "decode"}:
         return True
     if module == "orjson" and member in {"dumps", "loads"}:
+        return True
+    if module == "pyscriptc_frame" and member == "DataFrame":
         return True
     if module == "pyscriptc_ndarray" and member in {
         "array",

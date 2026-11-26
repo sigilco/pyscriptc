@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-26",
-  "commit": "54c0ec0abd60c0651a862994045f3da053308825",
+  "commit": "c57879b2070ad18258db781bce6710e2791a16cd",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -15,7 +15,7 @@
     },
     "stdlib": {
       "green": 1,
-      "yellow": 74,
+      "yellow": 76,
       "red": 0
     },
     "operators": {
@@ -879,6 +879,17 @@
       "codes": [
         "PS2001",
         "PS2002"
+      ]
+    },
+    {
+      "label": "`pyscriptc_frame`, `pandas`",
+      "status": "\ud83d\udfe1",
+      "count": 2,
+      "missing": "other module members (read_csv, to_csv, merge, concat), other methods (sort_values, groupby, describe), a column name outside the schema, a new column (the schema label is fixed in slice 1), to_dict against a foreign value type, a non-display constructor argument",
+      "codes": [
+        "PS1003",
+        "PS2001",
+        "PS2003"
       ]
     }
   ],

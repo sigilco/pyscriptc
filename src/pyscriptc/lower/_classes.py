@@ -3082,6 +3082,28 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
         )
         raise AssertionError("unreachable")
 
+    def _frame_attr(self, obj: dict[str, Any], name: str, span: dict[str, Any], node: ast.AST) -> dict[str, Any]:
+        """The frame attribute surface (issue #497, slice 1): `columns`,
+        `shape` and `ncols`; any other name fences by name."""
+        if name == "columns":
+            return self._abi_call(
+                "pyscriptc_frame", "columns", [obj], {"kind": "list", "elem": {"kind": "str"}}, "ps_frame_columns", span
+            )
+        if name == "ncols":
+            return self._abi_call("pyscriptc_frame", "ncols", [obj], {"kind": "int"}, "ps_frame_ncols", span)
+        if name == "shape":
+            # `df.shape` is the tuple pandas spells: the two ints the
+            # runtime hands back, packed into the synthetic tuple class.
+            rows = self._abi_call("pyscriptc_frame", "nrows", [obj], {"kind": "int"}, "ps_frame_len", span)
+            cols = self._abi_call("pyscriptc_frame", "ncols", [obj], {"kind": "int"}, "ps_frame_ncols", span)
+            return self._materialize_tuple([rows, cols], span, node)
+        self.fail(
+            node,
+            "PS2001",
+            f"pyscriptc_frame.{name} is not in the lowered subset of pyscriptc_frame",
+        )
+        raise AssertionError("unreachable")
+
     def _http_handler_attr(
         self, node: ast.AST, obj: dict[str, Any], name: str, span: dict[str, Any]
     ) -> dict[str, Any] | None:
@@ -3175,6 +3197,10 @@ class ClassesMixin(ClassAttrsMixin, ClassesMoreMixin, AnnotationMixin):
             # The ndarray attribute surface (issue #496): the metadata reads
             # call the runtime; any other name fences.
             return self._ndarray_attr(obj, name, span, node)
+        if class_name == "DataFrame" and not obj["type"].get("handle"):
+            # The frame attribute surface (issue #497, slice 1): the
+            # metadata reads call the runtime; any other name fences.
+            return self._frame_attr(obj, name, span, node)
         if class_name == "Semaphore" and name == "_value":
             return self._abi_call("threading", "Semaphore._value", [obj], _leaf_type("int"), "ps_sem_value", span)
         if class_name == "AsyncSemaphore" and name == "_value":

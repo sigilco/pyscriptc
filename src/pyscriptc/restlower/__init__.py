@@ -60,6 +60,7 @@ from pyscriptc.restlower._datetime import _ints
 from pyscriptc.restlower._dotenv import _dotenv_call
 from pyscriptc.restlower._email import _email_call, _email_method
 from pyscriptc.restlower._folds import _eval_fold, _hash_fold, _static_builtin_fold
+from pyscriptc.restlower._frame import _frame_call
 from pyscriptc.restlower._functools import _reduce
 from pyscriptc.restlower._hashlib import _hashlib_call, _hashlib_method
 from pyscriptc.restlower._heapq import _heapq_call
@@ -239,6 +240,7 @@ _MODULES_AFTER_SPEC: dict[str, Handler] = {
     "jwt": lambda lo, node, span, expect, attr: _jwt_call(lo, node, span, expect, attr),
     "orjson": lambda lo, node, span, expect, attr: _orjson_call(lo, node, span, expect, attr),
     "pyscriptc_ndarray": lambda lo, node, span, expect, attr: _ndarray_call(lo, node, span, expect, attr),
+    "pyscriptc_frame": lambda lo, node, span, expect, attr: _frame_call(lo, node, span, expect, attr),
 }
 
 # Per-attribute handlers that run before keyword arguments are rejected.

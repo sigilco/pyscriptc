@@ -16,9 +16,11 @@
     },
     {
       "dist": "pandas",
-      "imports": ["pandas"],
-      "pack": null,
-      "note": "Cython core; the Python layer is a wrapper."
+      "imports": [
+       "pandas"
+      ],
+      "pack": "pyscriptc-frame",
+      "note": "Cython core; the Python layer is a wrapper. The pyscriptc-frame pack (issue #497) mirrors the closed columnar subset under the pyscriptc_frame import name."
     },
     {
       "dist": "polars",
