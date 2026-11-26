@@ -487,6 +487,22 @@ class StmtsMixin(EmitterBase):
         raise_message: dict[str, Any] | None = None
         if node.message is not None:
             raise_message = dict_to_dict(node.message)
+        # G2b (issue #438): a `throw`/`close` injects the exception code at
+        # the resume, so the code is a runtime value (the frame's pending
+        # code) rather than a literal. The dict-only `codeExpr` key rides
+        # outside the typed node (the `code` slot holds an int), the way the
+        # `suspend` and `recv` marker keys do.
+        code_expr = stmt.get("codeExpr")
+        if code_expr is not None:
+            value = self.emit_expr(dict_to_dict(code_expr))
+            # The code is an int (i64 in the IR); the runtime takes an i32.
+            narrow = self.tmp()
+            self.line(f"{narrow} = trunc i64 {value} to i32")
+            self._abi_decl("ps_raise_code", "void", ["i32"])
+            self.line(f"call void @ps_raise_code(i32 {narrow}) noreturn")
+            self.line("unreachable")
+            self.terminated = True
+            return
         if node.flags & 8:  # F_RERAISE
             slot = _opt_excslot(stmt)
             if slot is not None:

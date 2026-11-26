@@ -1,9 +1,12 @@
-from collections.abc import Iterator
+# SPDX-License-Identifier: Apache-2.0
+# ruff: noqa: UP035, UP043 - the typing.Generator spelling is the construct under test (the frame's throw and close methods exist only on a generator frame)
+
+from typing import Generator
 
 
-def gen() -> Iterator[int]:
+def gen() -> Generator[int, None, None]:
     yield 1
 
 
-g: Iterator[int] = gen()
+g: Generator[int, None, None] = gen()
 g.throw(ValueError("x"))

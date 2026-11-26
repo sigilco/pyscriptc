@@ -170,9 +170,14 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D20",
-        "generator.throw(E) raises E out of the call site; the generator's own except handlers never run",
+        "generator.throw(E) delivers E to the generator's own except handlers and the throw returns the "
+        "yield the handler answers (issue #438); the residual seams are the thrown instance's payload "
+        "(the class only, no instance or args) and throw(E) taking the exception class as a name, not "
+        'an instance like CPython\'s g.throw(ValueError("x"))',
         "d20_gen_throw.py",
         docs=f"{DOC}#20",
+        note="the class form is byte-identical (probes/differential/generator_throw_close.py); the probe "
+        "shows the instance form's PS2002 fence, the same seam as D108",
     ),
     _row(
         "D21",
@@ -197,11 +202,22 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D24",
-        "@contextmanager: the gen.throw path is unreachable, so the generator's except cannot see the exception",
+        "@contextmanager: the in-flight exception rides a done-flag path, not the generator's throw "
+        "(issue #438 landed the throw path), so the generator's except cannot see the exception the "
+        "with body raised and the body after the yield never runs",
         "d24_contextmanager.py",
         docs=f"{DOC}#24",
     ),
-    _row("D25", "a finally pending when a generator is abandoned does not run", "d25_gen_finally.py", docs=f"{DOC}#25"),
+    _row(
+        "D25",
+        "a finally pending when a generator is abandoned without close() does not run: close() runs it "
+        "(issue #438), but nothing drives the close of a generator the program drops, and there is no "
+        "interpreter-exit finalization to run the pending finally the way CPython's GC does",
+        "d25_gen_finally.py",
+        docs=f"{DOC}#25",
+        note="the close() lane is byte-identical since issue #438; the seam is the abandoned generator, "
+        "which this probe does not exercise",
+    ),
     _row(
         "D26",
         "second-thread threading is native-only; the wasm32 link refuses it",
@@ -951,6 +967,17 @@ ROWS: list[dict[str, Any]] = [
         note="the probe pins the three seams (creation-time side effects, the captured iterable and the "
         "single-use drain) on both sides; the read-only shapes (sum, list, a for over a genexp) stay "
         "byte-identical",
+    ),
+    _row(
+        "D110",
+        "generator.throw takes the exception class as a name, not an instance (issue #438): CPython's "
+        'g.throw(ValueError("x")) delivers the instance, so the handler reads its payload, where the '
+        "lowered throw carries the class code only and the instance form stops the compile with PS2002",
+        "d110_throw_instance.py",
+        docs=f"{DOC}#110",
+        note="the class form is byte-identical (probes/differential/generator_throw_close.py): the handler "
+        "runs, the throw answers the yield the handler makes and an unmatched code propagates out of the "
+        "call site; close() runs the pending finally and swallows the GeneratorExit",
     ),
 ]
 

@@ -71,7 +71,7 @@ from typing import Any
 
 from pyscriptc import _irnode as _ir
 from pyscriptc._irnode import Handler, IrNode, Span
-from pyscriptc.builtins import RESERVED_EXCEPTIONS
+from pyscriptc.builtins import EXCEPTIONS, RESERVED_EXCEPTIONS
 from pyscriptc.errors import span_of
 from pyscriptc.tirserde import dict_to_node, dict_to_span, dict_to_type, node_to_dict
 
@@ -108,6 +108,16 @@ RESUME = ".ps_rs"
 SEND = ".ps_send"
 GEN = ".ps_gen"
 VALUE = ".ps_val"
+# The exception code a `throw`/`close` injects at the next resume (G2b,
+# issue #438). 0 spells "no injection". The resume raises the code inside
+# its own body, so the generator's live `try` outline catches it the way
+# CPython's frame does, and a code nothing catches propagates out of the
+# `throw`/`close` call site.
+THROW = ".ps_throw"
+# CPython's sentinel: a generator that catches GeneratorExit and yields
+# again raises RuntimeError("generator raised StopIteration" is the close
+# variant's wording is "generator ignored GeneratorExit").
+GENEXIT_IGNORED = "generator ignored GeneratorExit"
 # The task handle class (asyncio.create_task). A class type with `elem`: the
 # coroutine's result type, so `task.result()` reads the right shape.
 TASK_CLASS = "Task"
@@ -432,6 +442,10 @@ class CoroMixin:
                 "__iter__": (self_t, frame_t),
                 "__next__": (self_t, elem),
                 "close": (self_t, _NONE),
+                # G2b (issue #438): `throw(code)` resumes the frame with the
+                # exception code pending. The code is an int (the call site
+                # resolves the exception class to its code).
+                "throw": (self_t + [{"name": ".ps_code", "type": _INT}], elem),
             }
             if send.get("kind") != "none":
                 methods["send"] = (self_t + [{"name": ".ps_value", "type": send}], elem)
@@ -587,6 +601,9 @@ class CoroMixin:
                 "__iter__": (self_t, frame_t),
                 "__next__": (self_t, elem),
                 "close": (self_t, _NONE),
+                # G2b (issue #438): `throw(code)` resumes the frame with the
+                # exception code pending.
+                "throw": (self_t + [{"name": ".ps_code", "type": _INT}], elem),
                 **(
                     {"send": (self_t + [{"name": ".ps_value", "type": send}], elem)}
                     if send.get("kind") != "none"
@@ -698,6 +715,9 @@ class CoroMixin:
             "__iter__": (self_t, frame_t),
             "__next__": (self_t, elem),
             "close": (self_t, _NONE),
+            # G2b (issue #438): `throw(code)` resumes the frame with the
+            # exception code pending.
+            "throw": (self_t + [{"name": ".ps_code", "type": _INT}], elem),
         }
         if send.get("kind") != "none":
             methods["send"] = (self_t + [{"name": ".ps_value", "type": send}], elem)
@@ -776,6 +796,9 @@ class CoroMixin:
             "__iter__": (self_t, frame_t),
             "__next__": (self_t, elem),
             "close": (self_t, _NONE),
+            # G2b (issue #438): `throw(code)` resumes the frame with the
+            # exception code pending.
+            "throw": (self_t + [{"name": ".ps_code", "type": _INT}], elem),
         }
         if send.get("kind") != "none":
             methods["send"] = (self_t + [{"name": ".ps_value", "type": send}], elem)
@@ -1627,13 +1650,20 @@ class _GeneratorKind(_Kind):
     """`__next__` returns the yielded value; completion raises StopIteration
     (code 8), which `_for_dunder` turns into the loop exit.
 
-    `close` marks the frame done (the next `__next__` raises StopIteration,
-    as CPython does after a close), and `throw` raises the given exception
-    out of the generator. Neither can be caught inside the generator: a
-    `yield` inside `try` is fenced, so no handler can surround a live
-    suspension point and CPython's "the generator catches it" outcome is
-    unreachable. Propagating out is therefore the exact semantics for
-    every program that lowers.
+    `throw` and `close` (G2b, issue #438) drive the frame the way CPython
+    does. `throw(E)` stores E's code on the frame and resumes: the resume
+    re-enters at the live suspension point and raises the code inside the
+    `try` outline the yield sits under, so the generator's own `except`
+    handler sees it. A handler that catches it and yields again makes
+    `throw` return that value; a code no handler matches propagates out of
+    the call site. `close()` is `throw(GeneratorExit)` with CPython's
+    swallow: the `finally` runs, an uncaught GeneratorExit is swallowed
+    and `close` returns None, and a generator that catches GeneratorExit
+    and yields again raises RuntimeError.
+
+    The exception codes are the reserved ones (issue #162): GeneratorExit
+    rides `PS_GENERATOR_EXIT`, the reserved code the runtime walks to the
+    builtin GeneratorExit, so `except GeneratorExit` matches it.
     """
 
     marker = YIELD_MARKER
@@ -1650,15 +1680,7 @@ class _GeneratorKind(_Kind):
             "span": span,
         }
         next_m = {**resume, "name": "__next__", "returnType": frame.plan.elem}
-        close_m = {
-            "name": "close",
-            "params": [{"name": SELF, "type": frame.frame_t}],
-            "returnType": dict(_NONE),
-            "locals": [{"name": SELF, "type": frame.frame_t}],
-            "body": [frame.field_set(STATE, _const(DONE, _INT, span), span)],
-            "span": span,
-        }
-        out = [iter_m, next_m, close_m]
+        out = [iter_m, next_m, *self._throw_close(frame, resume, span)]
         if frame.plan.send.get("kind") != "none":
             # `send(v)`: store v into the frame, then resume. A value sent to
             # a generator that never ran is ignored (a documented divergence:
@@ -1691,6 +1713,131 @@ class _GeneratorKind(_Kind):
 
     def finish(self, frame: _Frame, span: dict[str, Any]) -> list[dict[str, Any]]:
         return [_raise_node("StopIteration", span)]
+
+    # --- throw and close (G2b, issue #438) ---------------------------------
+
+    def _throw_close(self, frame: _Frame, resume: dict[str, Any], span: dict[str, Any]) -> list[dict[str, Any]]:
+        """The `throw` and `close` methods (G2b, issue #438).
+
+        `throw(code)` stores the exception code on the frame and resumes:
+        the resume re-enters at the live suspension point and raises the
+        code inside the `try` outline the yield sits under, so the
+        generator's own handler sees it. The value the resume returns (the
+        generator yielded again after catching the exception) is the
+        method's result, exactly as CPython's `throw` returns.
+
+        `close()` is `throw(GeneratorExit)` with CPython's two rules: an
+        uncaught GeneratorExit is swallowed (the method returns None), and
+        a generator that catches GeneratorExit and yields again raises
+        RuntimeError("generator ignored GeneratorExit").
+        """
+        this = frame.self_name(span)
+        state = frame.field_get(STATE, _INT, span)
+        done = _compare("==", state, _const(DONE, _INT, span), span)
+        pending = _compare("==", state, _const(PENDING, _INT, span), span)
+        next_call = _call_node(
+            {"kind": "function", "name": f"cls.{frame.plan.frame}.__next__"}, [this], frame.plan.elem, span
+        )
+        # The resume call, with the code stored on the frame first.
+        store = frame.field_set(THROW, _name(".ps_code", _INT, span), span)
+        # `throw` on a closed generator: CPython raises the thrown
+        # exception at the call site, so the code is raised directly.
+        closed = _raise_code_node(_name(".ps_code", _INT, span), span)
+        # `throw` on a generator that never ran: CPython raises the thrown
+        # exception at the call site without running the body (the
+        # suspension-point injection only reaches a started generator).
+        fresh = _raise_code_node(_name(".ps_code", _INT, span), span)
+        throw_body = [
+            _if(done, [closed], [], span),
+            _if(pending, [fresh], [], span),
+            store,
+            _return_node(next_call, span),
+        ]
+        throw_m = {
+            "name": "throw",
+            "params": [
+                {"name": SELF, "type": frame.frame_t},
+                {"name": ".ps_code", "type": _INT},
+            ],
+            "returnType": frame.plan.elem,
+            "locals": [
+                {"name": SELF, "type": frame.frame_t},
+                {"name": ".ps_code", "type": _INT},
+            ],
+            "body": throw_body,
+            "span": span,
+        }
+        # `close`: the GeneratorExit code, the resume, and CPython's rules.
+        # The `try` around the resume swallows the GeneratorExit that
+        # propagates out of the frame (the generator's `finally` already
+        # ran inside it) and the StopIteration of a generator that caught
+        # the GeneratorExit and finished; a generator that yields again
+        # after catching it makes the resume *return*, so the flag says
+        # "ignored" and the RuntimeError fires.
+        #
+        # The raise names the *bare builtin* GeneratorExit, not the reserved
+        # close-protocol code the field carries: the handler dispatch reads
+        # the raised record's code (`ps_exc_code`), and the injected code is
+        # the reserved one, so a handler spelled `except GeneratorExit`
+        # matches it. The `except` here spells the same name, so its code
+        # must be the bare one for `ps_exc_isa` to take the reserved code to
+        # its builtin parent (the isa walk the ps_rt.c reserved branch does).
+        genexit = _const(EXCEPTIONS["GeneratorExit"], _INT, span)
+        ignored = ".ps_ignored"
+        close_body = [
+            _if(
+                done,
+                [_return_node(_const(None, _NONE, span), span)],
+                [],
+                span,
+            ),
+            # A generator that never ran has nothing to unwind: CPython's
+            # close marks it closed without entering the body.
+            _if(
+                pending,
+                [frame.field_set(STATE, _const(DONE, _INT, span), span), _return_node(_const(None, _NONE, span), span)],
+                [],
+                span,
+            ),
+            frame.field_set(THROW, genexit, span),
+            _assign(ignored, _const(False, _BOOL, span), span),
+            _try_node(
+                [
+                    _expr_node(next_call, span),
+                    _assign(ignored, _const(True, _BOOL, span), span),
+                ],
+                [
+                    {
+                        "exc": ["GeneratorExit"],
+                        "body": [],
+                    },
+                    {
+                        "exc": ["StopIteration"],
+                        "body": [],
+                    },
+                ],
+                span,
+            ),
+            _if(
+                _name(ignored, _BOOL, span),
+                [_raise_node("RuntimeError", span, message=_const_str(GENEXIT_IGNORED, span))],
+                [],
+                span,
+            ),
+            _return_node(_const(None, _NONE, span), span),
+        ]
+        close_m = {
+            "name": "close",
+            "params": [{"name": SELF, "type": frame.frame_t}],
+            "returnType": dict(_NONE),
+            "locals": [
+                {"name": SELF, "type": frame.frame_t},
+                {"name": ignored, "type": _BOOL},
+            ],
+            "body": close_body,
+            "span": span,
+        }
+        return [throw_m, close_m]
 
 
 class _CoroutineKind(_Kind):
@@ -1783,6 +1930,32 @@ class _Frame:
         ]
 
     # build
+    def _throw_at_point(self, span: dict[str, Any]) -> dict[str, Any]:
+        """The conditional raise one suspension point performs on its resume.
+
+        The resume re-enters at this yield: a pending `.ps_throw` code (the
+        `throw`/`close` caller stored it) raises here, inside the `try`
+        outline the yield sits under, so the generator's handler sees it the
+        way CPython's frame does. The code lands in a temp first: the field
+        clears before the raise (the delivery is once, and a handler that
+        yields again resumes clean), so the raise reads the temp, not the
+        field it just cleared.
+        """
+        code = self.temp("throw", _INT)
+        read = _assign(code, self.field_get(THROW, _INT, span), span)
+        cleared = self.field_set(THROW, _const(0, _INT, span), span)
+        raise_node = _raise_node("Exception", span)
+        raise_node["codeExpr"] = _name(code, _INT, span)
+        return [
+            read,
+            _if(
+                _compare("!=", _name(code, _INT, span), _const(0, _INT, span), span),
+                [cleared, raise_node],
+                [],
+                span,
+            ),
+        ]
+
     def build(self) -> tuple[dict[str, Any], dict[str, Any]]:
         if self.fn.get("boxed"):
             raise CoroError("a resumable whose locals an island plan owns is not lowered yet", self.span)
@@ -1794,6 +1967,12 @@ class _Frame:
             self.field_set(STATE, _const(DONE, _INT, span), span),
             *self.copy_in(span),
         ]
+        # G2b: a `throw`/`close` left an exception code on the frame. The
+        # resume re-enters at the suspension point and raises the code
+        # there, so the generator's live `try` outline catches it the way
+        # CPython's frame does: a handler that matches runs, and a code
+        # nothing matches propagates out of the resume and out of the
+        # `throw`/`close` call site.
         resume = {
             "params": [{"name": SELF, "type": self.frame_t}],
             "locals": [
@@ -1825,6 +2004,11 @@ class _Frame:
             # can suspend inside a handler carry the field, so layouts that
             # never suspend inside a try stay byte-identical.
             fields.append({"name": EXC, "type": dict(_EXC)})
+        if self.plan.kind == "generator":
+            # G2b: the exception code a `throw`/`close` injects at the next
+            # resume. Only generator frames carry it, so a coroutine's layout
+            # stays byte-identical.
+            fields.append({"name": THROW, "type": _INT})
         fields.extend(self.locals)
         frame = {
             "name": self.plan.frame,
@@ -2040,6 +2224,17 @@ class _Frame:
                             span,
                         )
                     )
+                # G2b (issue #438): a `throw`/`close` left an exception code
+                # on the frame. The resume re-enters at this suspension
+                # point and raises the code here, inside the `try` outline
+                # that encloses the yield, so the generator's own handler
+                # sees it the way CPython's frame does. A code no handler
+                # matches propagates out of the resume and out of the
+                # `throw`/`close` call site. The resume id resets to 0
+                # *before* the raise: the handler the code lands in then
+                # runs as a fresh entry (its own guard reads `rs == 0`), the
+                # same way a `raise` in the try body reaches it.
+                arrive = [arrive[0], *self._throw_at_point(span), *arrive[1:]]
                 return [_if(self.fresh(span), leave, arrive, span)]
         if kind == "if":
             taken = self.temp("if", _BOOL)
@@ -2964,7 +3159,7 @@ def _restamp(out: Any, orig: Any) -> None:
         for item, orig_item in zip(out, orig, strict=True):
             _restamp(item, orig_item)
     elif isinstance(out, dict) and isinstance(orig, dict):
-        for key in ("suspend", "recv", "recvType"):
+        for key in ("suspend", "recv", "recvType", "codeExpr"):
             if key in orig and key not in out:
                 out[key] = orig[key]
         for key, value in out.items():
@@ -3013,6 +3208,21 @@ def _return_node(value: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
 def _raise_node(exc: str, span: dict[str, Any], message: dict[str, Any] | None = None) -> dict[str, Any]:
     """A `raise` statement; `message` None spells the explicit null key."""
     return node_to_dict(_ir.raise_stmt(exc, _mk_span(span), -1, dict_to_node(message)))
+
+
+def _raise_code_node(code: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
+    """A `raise` whose class code is a runtime value (G2b, issue #438).
+
+    The `throw`/`close` caller resolves the exception class to its code at
+    the call site, so the frame's `throw` method raises whatever the
+    caller stored. The dict-only `codeExpr` key rides outside the typed
+    node (the `code` slot holds an int literal), the way the `suspend` and
+    `recv` marker keys do; `_restamp` re-spells it and the emitter's
+    `emit_raise` reads it.
+    """
+    out = _raise_node("Exception", span)
+    out["codeExpr"] = code
+    return out
 
 
 def _try_node(

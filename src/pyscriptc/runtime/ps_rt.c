@@ -525,6 +525,22 @@ int32_t ps_exc_isa(int32_t raised, int32_t wanted) {
         if (code == wanted) {
             return 1;
         }
+        /* The reserved range sits above PS_USER_BASE, so this walk checks
+           it first: a reserved code would otherwise fall into the user
+           branch and read a registry index it never registered. */
+        if (code >= PS_RESERVED_BASE) {
+            /* A reserved code walks its CPython parent: the reserved
+               GeneratorExit (the close protocol raises it into the frame)
+               rides the builtin GeneratorExit, so `except GeneratorExit`
+               and `except BaseException` both match it; the queue
+               exceptions stay plain Exceptions. */
+            if (code == PS_GENERATOR_EXIT) {
+                code = PS_GENERATOREXIT;
+            } else {
+                code = PS_EXCEPTION;
+            }
+            continue;
+        }
         if (code >= PS_USER_BASE) {
             /* A user class: its parent is in the registry. */
             int32_t index = code - PS_USER_BASE;
@@ -532,12 +548,6 @@ int32_t ps_exc_isa(int32_t raised, int32_t wanted) {
                 return 0;
             }
             code = ps_user_exc[index].parent;
-            continue;
-        }
-        if (code >= PS_RESERVED_BASE) {
-            /* A reserved code: queue.Empty and queue.Full are plain
-               Exceptions, like every reserved class. */
-            code = PS_EXCEPTION;
             continue;
         }
         code = ps_exc_parent[code];
