@@ -479,11 +479,11 @@ void ps_to_thread_start(void *box, void *pair) {
 void ps_to_thread_pump(void) {
     PsThreadCall *call = ps_thread_calls;
     while (call != NULL) {
-        if (call->done && call->waiter != NULL) {
+        if (call->done) {
             pthread_mutex_lock(&call->lock);
             int64_t done = call->done ? 1 : 0;
             pthread_mutex_unlock(&call->lock);
-            if (done) {
+            if (done && call->waiter != NULL) {
                 void *waiter = call->waiter;
                 call->waiter = NULL;
                 ps_loop_wake_task(waiter);
@@ -500,15 +500,24 @@ void ps_to_thread_park(void *box) {
     if (call == NULL) {
         return;
     }
+    /* Re-arm unconditionally: the worker may already have marked the
+       record done before the parking task got here (issue #1296). The
+       parked task still re-queues, and the next pump clears the waiter it
+       re-armed, so the record never wakes a task twice. */
     call->waiter = ps_running_task();
 }
 
-/* True while a worker is still running: the loop keeps spinning until the
-   last one finishes. */
+/* True while a worker is still running, or a finished call still holds a
+   waiter the pump has not collected yet (issue #1296): a worker can mark
+   the record done during the drain, after that iteration's pump ran, and
+   the exit check would otherwise return with the parked task never woken.
+   The parked task re-queues itself when the poll sees the completion, so
+   the leftover waiter is only the suspended-task case; the next pump
+   clears it. */
 int32_t ps_threads_pending(void) {
     PsThreadCall *call = ps_thread_calls;
     while (call != NULL) {
-        if (!call->done) {
+        if (!call->done || call->waiter != NULL) {
             return 1;
         }
         call = call->next;
