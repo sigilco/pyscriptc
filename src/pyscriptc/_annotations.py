@@ -37,8 +37,11 @@ def island(fn: _F) -> _F:
 def specialize(fn: _F) -> _F:
     """Mark a definition the compiler monomorphizes on purpose.
 
-    Inert: returns the function unchanged. Under the compiler the marking
-    asserts the monomorphization the compiler already performs (the
-    specialization report is #1309's slice).
+    Inert: returns the function unchanged. Under the compiler the marker
+    asserts the per-call-site monomorphization the lowering already
+    performs for a generic definition (a `TypeVar` in the signature, a
+    `Generic[T]` class); a marked definition that is not generic fences
+    `PS1207`, and `pyscriptc compile FILE --specializations` prints the
+    specialization report (issue #1309).
     """
     return fn

@@ -57,6 +57,7 @@ from pyscriptc.lower._infer import TypeInferMixin
 from pyscriptc.lower._misc_emit import MiscEmitMixin
 from pyscriptc.lower._module_driver import ModuleDriverMixin
 from pyscriptc.lower._protocols import ProtocolsMixin
+from pyscriptc.lower._specialize import SpecializeMixin
 from pyscriptc.lower._stdlib import StdlibDispatchMixin
 from pyscriptc.lower._stmt import (
     StmtMixin,
@@ -278,6 +279,7 @@ class Lowerer(
     EntryMixin,
     BoxedResolveMixin,
     MiscEmitMixin,
+    SpecializeMixin,
     ModuleDriverMixin,
 ):
     def __init__(self, filename: str, source: str, target: str | None = None, config: Any = None) -> None:
@@ -459,6 +461,20 @@ class Lowerer(
         # spell, for the island seed's decorator strip.
         self._island_marked: set[str] = set()
         self._island_marked_spellings: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
+        # Issue #1309: the module-level definitions the source marks
+        # `@specialize`. The marker asserts the per-call-site
+        # monomorphization the compiler already performs, and the
+        # specialization report reads the lowering's own instantiation
+        # facts against it. The spellings tuple holds the import-bound
+        # names the marker decorator may spell.
+        self._specialize_marked: set[str] = set()
+        self._specialize_marked_spellings: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
+        # The marked definition nodes, name -> node (the check's spans and
+        # the report's lines read them).
+        self._specialize_marked_nodes: dict[str, Any] = {}
+        # The specialization report's rows: one per marked definition, read
+        # from the lowering's own instantiation bookkeeping (issue #1309).
+        self.specialization_rows: list[dict[str, Any]] = []
         # Refs #641: the cross-module island-refusal fences, parked so the
         # module's own island planning never drops them.
         self._boxed_sibling_fences: list[Fence] = []

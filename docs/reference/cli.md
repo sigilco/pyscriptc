@@ -40,6 +40,7 @@ pyscriptc compile SOURCE [options]
 | `--linker LINKER` | `clang\|zig` | driver for the final link step only; env PYSC_LINKER, defaults to --driver |
 | `--sanitize LIST` | `LIST` | comma list of sanitizers for the C runtime and the emitted code, e.g. address,undefined (env PYSC_SANITIZE); needs a binary, so --emit bin only |
 | `--debug-info` |  | emit DWARF debug metadata (source file and line per function and statement) so lldb/gdb can step in the Python source (env PYSC_DEBUG_INFO) |
+| `--specializations` |  | print the specialization report after lowering: per @specialize-marked definition, the concrete copies the compiler emitted and the TypeVar substitution each copy took; exits 0 without linking |
 | `--print PRINT_WHAT` | `diagnostics` | print JSON instead of compiling: diagnostics is the coverage report; exit 3 on a refusal |
 | `--skip-check` |  | skip the type-checker preflight |
 | `--checker CHECKER` | `pyrefly\|mypy\|pyright` | type-checker preflight; mypy and pyright are deprecated (default `pyrefly`) |
