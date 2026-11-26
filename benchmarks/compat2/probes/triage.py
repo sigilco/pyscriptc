@@ -87,6 +87,13 @@ FENCE_BUCKETS = ("probe wrong", "stricter than v1", "compiler gap")
 OUT_OF_SCOPE = "out of scope"
 UNCLASSIFIED = "unclassified"
 OTHER = "other"
+# A v1-lowered id the current probe set does not carry, named by
+# `CALIBRATION.json` `v1_lowered.v2_probe_missing`. The A1 pin moved the primary oracle to 3.12
+# (commit 78ed4ea6): the names the 3.12 primary oracle does not expose at generation time (the
+# kernel-dependent constants: errno E*, socket/stat/ssl flags, os SCHED/TFD/CLONE, inspect CO_*,
+# pathlib's errno re-exports) drop out of the generated probe set. They are not calibratable on
+# the primary oracle, which is the same shape the out-of-scope bucket covers (S7, #479).
+NOT_ON_PRIMARY = "not-on-the-primary-oracle"
 
 ZERO_ARG = frozenset({"bool", "dict", "float", "int", "list", "str", "hypot"})
 ITERATORS = frozenset({"enumerate", "range", "zip"})
@@ -143,6 +150,7 @@ class Report:
     cell_samples: tuple[tuple[str, int], ...] = ()
     oracle_version: str = ""
     per_id_fences: int = 0
+    missing_expected: int = 0
 
     @property
     def fences(self) -> tuple[Decision, ...]:
@@ -151,6 +159,14 @@ class Report:
     @property
     def out_of_scope(self) -> tuple[Decision, ...]:
         return tuple(item for item in self.decisions if item.bucket == OUT_OF_SCOPE)
+
+    @property
+    def build_error_rows(self) -> tuple[Decision, ...]:
+        return tuple(item for item in self.out_of_scope if item.rule != NOT_ON_PRIMARY)
+
+    @property
+    def missing_rows(self) -> tuple[Decision, ...]:
+        return tuple(item for item in self.out_of_scope if item.rule == NOT_ON_PRIMARY)
 
     @property
     def unclassified(self) -> tuple[Decision, ...]:
@@ -665,6 +681,8 @@ def build_report() -> Report:
     probes = _load_probes()
     v1equiv = _load_jsonl(HERE.parent / "continuity" / "v1equiv.jsonl")
     lowered = v1_lowered_ids()
+    missing_block = lowered_block.get("v2_probe_missing")
+    missing = set(missing_block) if isinstance(missing_block, list) else set()
     decisions: list[Decision] = []
     per_id_fences = 0
     for probe_id in sorted(lowered):
@@ -672,6 +690,11 @@ def build_report() -> Report:
         if outcome == "pass":
             continue
         row, ctx, error = _context(probe_id, probes, v1equiv, lowered)
+        if outcome == "absent" and probe_id in missing:
+            # The calibration names the absence (`v2_probe_missing`), and the probe set does not
+            # carry the id: the primary oracle does not expose the name at generation time.
+            decisions.append(_blank(probe_id, row, OUT_OF_SCOPE, NOT_ON_PRIMARY, "absent from the generated probe set"))
+            continue
         if outcome == "fence":
             per_id_fences += 1
             if ctx is None:
@@ -706,6 +729,7 @@ def build_report() -> Report:
         not_passing=len(decisions),
         fence_expected=int(aggregate.get("fence", 0)),
         build_error_expected=int(aggregate.get("build-error", 0)),
+        missing_expected=len(missing),
         build_error_cells=_build_error_cells(calibration),
         decisions=tuple(decisions),
         cell_samples=_cell_samples(calibration),
@@ -724,14 +748,17 @@ def problems(report: Report) -> list[str]:
         issues.append(f"per-id fences {report.per_id_fences} != calibration aggregate {report.fence_expected}")
     if len(report.fences) != report.fence_expected:
         issues.append(f"fence rows {len(report.fences)} != calibration {report.fence_expected}")
-    if len(report.out_of_scope) != report.build_error_expected:
-        issues.append(f"out of scope {len(report.out_of_scope)} != build-error {report.build_error_expected}")
+    build_error_rows = [item for item in report.out_of_scope if item.rule != NOT_ON_PRIMARY]
+    if len(build_error_rows) != report.build_error_expected:
+        issues.append(f"out of scope {len(build_error_rows)} != build-error {report.build_error_expected}")
     seen: set[str] = set()
     for item in report.decisions:
         if item.id in seen:
             issues.append(f"duplicate {item.id}")
         seen.add(item.id)
     for item in report.out_of_scope:
+        if item.rule == NOT_ON_PRIMARY:
+            continue
         if item.cell not in report.build_error_cells:
             issues.append(f"{item.id} is {item.cell}, build-error cells are {list(report.build_error_cells)}")
     accounted = len(report.fences) + len(report.out_of_scope) + len(report.unclassified) + len(report.others)
@@ -763,6 +790,9 @@ def render(report: Report) -> str:
         f"  build-error {report.build_error_expected}.",
         f"- Per-id outcomes name {report.not_passing} v1-lowered rows that are not pass. Fence rows are",
         "  classified from those outcomes. Build-error ids are out of scope because the file names them.",
+        f"- `CALIBRATION.json` `v1_lowered.v2_probe_missing` names {report.missing_expected} ids the",
+        "  primary oracle does not expose at generation time. They are out of scope for the same reason:",
+        "  the calibration file names them.",
         "- Cells with `build-error`: " + (", ".join(f"`{cell}`" for cell in report.build_error_cells) or "none") + ".",
         "",
         "## Counts",
@@ -775,7 +805,8 @@ def render(report: Report) -> str:
     lines += [
         f"| fence total | {len(report.fences)} |",
         f"| unclassified | {len(report.unclassified)} |",
-        f"| out of scope (build-error) | {len(report.out_of_scope)} |",
+        f"| out of scope (build-error) | {len(report.build_error_rows)} |",
+        f"| out of scope (not on the primary oracle) | {len(report.missing_rows)} |",
     ]
     if report.others:
         lines.append(f"| other non-pass | {len(report.others)} |")
@@ -809,7 +840,7 @@ def render(report: Report) -> str:
     lines += ["## Out of scope", ""]
     if not report.out_of_scope:
         lines.append("None.")
-    for item in report.out_of_scope:
+    for item in report.build_error_rows:
         lines += [
             f"`{item.id}` is `{item.cell}` and matches `{item.rule}`. {_cell_text(item.detail)}",
             "",
@@ -818,6 +849,17 @@ def render(report: Report) -> str:
             "when a value probe exits non-zero for a reason other than fence exit 3. The row is not a fence bucket.",
             "",
         ]
+    if report.missing_rows:
+        lines += [
+            "The ids below are named in `CALIBRATION.json` `v1_lowered.v2_probe_missing` and the probe set",
+            "does not carry them: the primary oracle does not expose the name at generation time (the",
+            "kernel-dependent errno/socket/stat/ssl/os/inspect constants). They are out of scope because",
+            "the calibration file names the absence, not because a shape rule guessed the id.",
+            "",
+        ]
+        for item in report.missing_rows:
+            lines.append(f"- `{item.id}`: {_cell_text(item.detail)}")
+        lines.append("")
     if report.others:
         lines += ["## Other non-pass", "", "| id | kind | category | outcome |", "| --- | --- | --- | --- |"]
         for item in sorted(report.others, key=lambda row: row.id):
