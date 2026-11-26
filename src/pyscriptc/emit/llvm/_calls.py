@@ -575,8 +575,15 @@ class CallsMixin(EmitterBase):
             self._abi_decl("ps_utf8_decode", "void", ["i64", "ptr", "ptr"])
             return self._buf_out("ps_utf8_decode", [f"i64 {length}", f"ptr {ptr}"])
         if name == "splitlines":
+            # The keepends flag rides the call: the 0-arg form is False.
+            # The compiler's bool is an i1, the runtime takes an i64.
+            keepends: str = "i64 0"
+            if len(values) > 1:
+                wide = self.tmp()
+                self.line(f"{wide} = zext i1 {values[1]} to i64")
+                keepends = f"i64 {wide}"
             self._abi_decl("ps_str_splitlines", "ptr", ["i64", "ptr", "i64"])
-            return self._call_ret("ptr", "ps_str_splitlines", [f"i64 {length}", f"ptr {ptr}", "i64 0"])
+            return self._call_ret("ptr", "ps_str_splitlines", [f"i64 {length}", f"ptr {ptr}", keepends])
         if name == "expandtabs":
             tabsize: str = "8"
             if len(values) > 1:
