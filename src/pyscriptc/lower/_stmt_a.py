@@ -153,6 +153,36 @@ def _unary_not(operand: dict[str, Any], span: dict[str, Any]) -> dict[str, Any]:
     return node_to_dict(_ir.unary("not", dict_to_node(operand), dict_to_type({"kind": "bool"}), _mk_span_of(span)))
 
 
+def _walk_assigns(body: list[ast.stmt]) -> list[ast.stmt]:
+    """The assignments in a branch body, nested `with`/`if` blocks included.
+
+    The assigned-type narrowing reads the value a branch leaves in the
+    name, and that value may sit inside a `with open(...) as fp:` block
+    (the iniconfig `if data is None:` shape). A nested `def` is not
+    walked: it has its own locals.
+    """
+    out: list[ast.stmt] = []
+    stack: list[ast.stmt] = list(body)
+    while stack:
+        stmt = stack.pop(0)
+        if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+            out.append(stmt)
+            continue
+        if isinstance(stmt, ast.For):
+            stack = [*stack, *stmt.body, *stmt.orelse]
+        elif isinstance(stmt, ast.While):
+            stack = [*stack, *stmt.body, *stmt.orelse]
+        elif isinstance(stmt, ast.If):
+            stack = [*stack, *stmt.body, *stmt.orelse]
+        elif isinstance(stmt, (ast.With, ast.AsyncWith)):
+            stack = [*stack, *stmt.body]
+        elif isinstance(stmt, ast.Try):
+            stack = [*stack, *stmt.body, *stmt.orelse, *stmt.finalbody]
+    return out
+
+
 class StmtAMixin:
     def _plain_class_elem(self, elem: dict[str, Any]) -> bool:
         """A user class iterates like any pointer element; synthetic runtime classes do not."""
@@ -253,6 +283,60 @@ class StmtAMixin:
                 return set().union(*trues), set.intersection(*falses)
             return set.intersection(*trues), set().union(*falses)
         return none, none
+
+    def _narrow_assigned_type(self, body: list[ast.stmt], name: str) -> dict[str, Any] | None:
+        """The tagged-optional type a branch leaves `name` at, or None.
+
+        The narrowing rule for `if x is None: x = <value>`: the value's
+        own type is the fact the branch leaves behind, so the name reads
+        as that type after the branch (the iniconfig
+        `if data is None: data = fp.read()` shape). The narrowed type is
+        the optional wrapper around the assigned type, because the read
+        projects the `_val` cell off the same tagged slot the branch
+        wrote into.
+
+        One assignment to the name decides; a branch that assigns the
+        name twice (or assigns it a type the narrowable optional's
+        payload does not match) proves nothing.
+        """
+        opt = self._narrow_opt_type(name)
+        if opt is None:
+            return None
+        payload = opt.get("elem")
+        if not isinstance(payload, dict):
+            return None
+        found: dict[str, Any] | None = None
+        for stmt in _walk_assigns(body):
+            if not isinstance(stmt, (ast.Assign, ast.AnnAssign)):
+                continue
+            target = stmt.targets[0] if isinstance(stmt, ast.Assign) else stmt.target
+            if not isinstance(target, ast.Name) or target.id != name:
+                continue
+            if found is not None:
+                # Two assignments: the branch's end value is not one type.
+                return None
+            if stmt.value is None:
+                return None
+            # The value's own type is the fact the branch leaves behind.
+            # The peek lowers it speculatively; a value the peek cannot
+            # type (an ABI call like `fp.read()`) falls back to the
+            # optional's payload: the assignment must be compatible with
+            # the declared `T | None`, and a `None` value would be a type
+            # error, so the branch leaves a `T` behind.
+            try:
+                found = self._infer_type_of(stmt.value)
+            except Fence:
+                found = None
+            if found is None:
+                found = payload
+        if found is None or found.get("optional") or found.get("kind") == "none":
+            return None
+        if not types_equal(found, payload):
+            # The branch assigned a type the optional does not carry: the
+            # tagged cell would hold a different shape, so the read stays
+            # the optional.
+            return None
+        return opt
 
     def _narrowed(self, names: set[str], scope: list[ast.stmt] | ast.expr, body: Any) -> Any:
         """Run `body()` with `names` narrowed, minus any name rebound in `scope`."""
@@ -917,6 +1001,18 @@ class StmtAMixin:
                 return self._unpack_sized(elts, star, pair[0], span)
         if _type_kind(typ) == "list" and not typ.get("set"):
             return self._unpack_sized(elts, star, value, span)
+        import os as _os
+
+        if _os.environ.get("PYSC_DBG_TOL"):
+            print(
+                "UNPACK",
+                typ.get("name"),
+                "in classes:",
+                typ.get("name") in self.classes,
+                "tuple:",
+                self.classes.get(typ.get("name", ""), {}).get("tuple"),
+                file=_os.sys.stderr,
+            )
         self.fail(node, "PS2002", "unpacking needs a tuple or list value")
         raise AssertionError("unreachable")
 
