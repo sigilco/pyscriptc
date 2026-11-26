@@ -1,9 +1,9 @@
-from collections.abc import Iterator
+from typing import Generator
 
 
-def gen() -> Iterator[int]:
+def gen() -> Generator[int, None, None]:
     yield 1
 
 
-g: Iterator[int] = gen()
+g: Generator[int, None, None] = gen()
 g.throw(ValueError("x"))
