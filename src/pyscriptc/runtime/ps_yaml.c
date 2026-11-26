@@ -157,9 +157,29 @@ static void yb_add(YParse *t, YBytes *b, char c) {
 }
 
 /* Parses a quoted scalar starting at the opening quote; returns arena bytes.
-   Single quotes double to escape; double quotes take YAML escapes. Only
-   Latin-1 results: a \\x, \\u or \\N escape above 0x7F is refused, matching
-   the json.loads text model. */
+   Single quotes double to escape; double quotes take YAML escapes. The
+   `\x`, `\u` and `\U` escapes name a code point and go out as the UTF-8 the
+   str model stores, so a code point above Latin-1 decodes the way PyYAML
+   decodes it. A surrogate or a value above U+10FFFF has no UTF-8 form and
+   raises. */
+static void yb_cp(YParse *t, YBytes *b, unsigned cp) {
+    if (cp < 0x80) {
+        yb_add(t, b, (char)cp);
+    } else if (cp < 0x800) {
+        yb_add(t, b, (char)(0xC0 | (cp >> 6)));
+        yb_add(t, b, (char)(0x80 | (cp & 0x3F)));
+    } else if (cp < 0x10000) {
+        yb_add(t, b, (char)(0xE0 | (cp >> 12)));
+        yb_add(t, b, (char)(0x80 | ((cp >> 6) & 0x3F)));
+        yb_add(t, b, (char)(0x80 | (cp & 0x3F)));
+    } else {
+        yb_add(t, b, (char)(0xF0 | (cp >> 18)));
+        yb_add(t, b, (char)(0x80 | ((cp >> 12) & 0x3F)));
+        yb_add(t, b, (char)(0x80 | ((cp >> 6) & 0x3F)));
+        yb_add(t, b, (char)(0x80 | (cp & 0x3F)));
+    }
+}
+
 static char *y_string(YParse *t, int64_t *outlen) {
     char q = t->p[t->i];
     t->i++;
@@ -220,10 +240,12 @@ static char *y_string(YParse *t, int64_t *outlen) {
                     cp = cp * 16 + (unsigned)h;
                     t->i++;
                 }
-                if (cp > 0x7F) {
-                    y_fail(t, "YAML: non-ASCII escape is not lowered");
+                /* A surrogate or a value above U+10FFFF has no UTF-8
+                   form; PyYAML refuses both. */
+                if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+                    y_fail(t, "YAML: unicode escape is not a scalar value");
                 }
-                yb_add(t, &b, (char)cp);
+                yb_cp(t, &b, cp);
             } else {
                 y_fail(t, "YAML: bad escape");
             }

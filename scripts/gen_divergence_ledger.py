@@ -83,7 +83,8 @@ ROWS: list[dict[str, Any]] = [
     _row(
         "D5",
         "json.dumps escapes the non-ASCII text like CPython's default and ensure_ascii=False writes it raw; "
-        "the reader accepts both forms and a lone surrogate in an escape raises the JSONDecodeError family",
+        "the reader accepts both forms, the control range escapes as \\u00XX in both modes, and a lone "
+        "surrogate in an escape raises the JSONDecodeError family",
         "d05_json_ascii.py",
         docs=f"{DOC}#5",
     ),
@@ -150,7 +151,8 @@ ROWS: list[dict[str, Any]] = [
     ),
     _row(
         "D17",
-        "yaml.safe_load covers a closed YAML subset, not all of PyYAML",
+        "yaml.safe_load covers a closed YAML subset, not all of PyYAML; the double-quoted scalar's "
+        "\\x, \\u and \\U escapes name a code point and decode to it",
         None,
         docs=f"{DOC}#17",
         note="the comparison is against PyYAML, which the pinned oracle does not ship",

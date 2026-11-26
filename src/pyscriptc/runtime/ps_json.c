@@ -493,6 +493,8 @@ static void ps_dump_str_raw(PsBuf buf, PsGrow *g, int32_t raw) {
         } else if (c == '\t') {
             ps_grow_add(g, "\\t", 2);
         } else if (c < 0x20) {
+            /* The `\u00XX` control forms: the C0 range. Both modes keep
+               them escaped, the way CPython does. */
             char tmp[7];
             snprintf(tmp, sizeof tmp, "\\u%04x", c);
             ps_grow_add(g, tmp, 6);
@@ -506,7 +508,16 @@ static void ps_dump_str_raw(PsBuf buf, PsGrow *g, int32_t raw) {
                 ps_grow_byte(g, (unsigned char)buf.data[k]);
             }
             i = end - 1;
-        } else if (c < 0x7f) {
+        } else if (c == 0x7f) {
+            /* DEL: a control code point, not a non-ASCII one. The default
+               escapes it as `\u007f`; the raw form keeps it as the byte
+               it is, the way CPython's ensure_ascii=False does. */
+            if (raw) {
+                ps_grow_byte(g, c);
+            } else {
+                ps_grow_add(g, "\\u007f", 6);
+            }
+        } else if (c < 0x80) {
             ps_grow_byte(g, c);
         } else {
             /* Escaped form: decode the code point, write it as `\uXXXX`,

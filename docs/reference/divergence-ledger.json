@@ -84,7 +84,7 @@
     },
     {
       "id": "D5",
-      "seam": "json.dumps escapes the non-ASCII text like CPython's default and ensure_ascii=False writes it raw; the reader accepts both forms and a lone surrogate in an escape raises the JSONDecodeError family",
+      "seam": "json.dumps escapes the non-ASCII text like CPython's default and ensure_ascii=False writes it raw; the reader accepts both forms, the control range escapes as \\u00XX in both modes, and a lone surrogate in an escape raises the JSONDecodeError family",
       "listed": true,
       "docs": "docs/reference/divergences.md#5",
       "probe": "probes/divergences/d05_json_ascii.py",
@@ -309,7 +309,7 @@
     },
     {
       "id": "D17",
-      "seam": "yaml.safe_load covers a closed YAML subset, not all of PyYAML",
+      "seam": "yaml.safe_load covers a closed YAML subset, not all of PyYAML; the double-quoted scalar's \\x, \\u and \\U escapes name a code point and decode to it",
       "listed": true,
       "docs": "docs/reference/divergences.md#17",
       "probe": null,
