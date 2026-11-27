@@ -1,7 +1,7 @@
 {
   "schema": "1",
-  "generated": "2026-11-26",
-  "commit": "838697c4627e1e1bba8f79cbe19bdefb4cd5a18e",
+  "generated": "2026-11-27",
+  "commit": "91c180be4a7c3552fe764bf14de59e407ecfd8e9",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -945,7 +945,7 @@
       "version": "3.5.2",
       "status": "\ud83d\udfe1",
       "ratio": "52/148",
-      "blocking": "name-resolution (42), construct-other (27), type-mismatch (20)",
+      "blocking": "name-resolution (40), construct-other (27), type-mismatch (17)",
       "codes": "PS2002, PS2001, PS1003"
     },
     {
@@ -968,9 +968,9 @@
       "name": "filelock",
       "version": "4.1.1",
       "status": "\ud83d\udfe1",
-      "ratio": "242/641",
+      "ratio": "240/641",
       "blocking": "name-resolution (189), construct-other (109), field-lookup (60)",
-      "codes": "PS2002, PS2001, PS1103"
+      "codes": "PS2002, PS2001, PS1106"
     },
     {
       "name": "h11",
@@ -992,9 +992,9 @@
       "name": "iniconfig",
       "version": "2.3.1",
       "status": "\ud83d\udfe1",
-      "ratio": "6/34",
-      "blocking": "optional-types (2), generators (1), construct-other (1)",
-      "codes": "PS1102, PS2002, PS2001"
+      "ratio": "2/34",
+      "blocking": "optional-types (2)",
+      "codes": "PS1102"
     },
     {
       "name": "jmespath",
@@ -1024,8 +1024,8 @@
       "name": "packaging",
       "version": "26.3",
       "status": "\ud83d\udfe1",
-      "ratio": "266/558",
-      "blocking": "name-resolution (101), unlowered-type-name (95), field-lookup (75)",
+      "ratio": "264/558",
+      "blocking": "name-resolution (99), unlowered-type-name (95), construct-other (75)",
       "codes": "PS2002, PS2001, PS1106"
     },
     {
@@ -1056,7 +1056,7 @@
       "name": "requests",
       "version": "2.34.2",
       "status": "\ud83d\udfe1",
-      "ratio": "123/319",
+      "ratio": "122/319",
       "blocking": "name-resolution (45), unlowered-type-name (42), construct-other (23)",
       "codes": "PS2002, PS1106, PS2001"
     },
