@@ -742,8 +742,9 @@ class AbiMixin(EmitterBase):
 
     def _emit_abi(self, expr: dict[str, Any], values: list[str]) -> str:
         symbol: str = _node_symbol(expr)
-        if symbol.startswith("ps_str_"):
-            # The str primitives live in the "str" declaration block.
+        if symbol.startswith("ps_str_") or symbol.startswith("ps_buf_"):
+            # The str and bytes primitives live in the "str" declaration
+            # block (`ps_buf_slice` rides beside `ps_buf_at`, #1416).
             needed = self.needed
             needed.add("str")
         if symbol.startswith("ps_hash_"):

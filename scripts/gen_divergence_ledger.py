@@ -981,6 +981,19 @@ ROWS: list[dict[str, Any]] = [
         "runs, the throw answers the yield the handler makes and an unmatched code propagates out of the "
         "call site; close() runs the pending finally and swallows the GeneratorExit",
     ),
+    _row(
+        "D111",
+        "a bytes slice or index applied code-point bounds over non-ASCII bytes (issue #1416): "
+        'b"caf\\xc3\\xa9 xyz"[2:4] returned the 3-byte split of the UTF-8 pair where CPython returns '
+        "b'f\\xc3'; the bytes kind lowered to the same ps_str_slice symbol as str, whose non-ASCII "
+        "path re-maps the bounds through the code-point scan",
+        "d111_bytes_slice_nonascii.py",
+        docs=f"{DOC}#111",
+        note="fixed in the same change that records the row: the bytes kind dispatches to ps_buf_slice, "
+        "the byte-bounds form (no ASCII fast path, no code-point scan), so len, indexing, stepped "
+        "slices and negative bounds count bytes; the row replays byte-identical and the probe "
+        "probes/differential/bytes_slice_nonascii.py pins the seam",
+    ),
 ]
 
 
