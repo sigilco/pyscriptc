@@ -491,6 +491,9 @@ void ps_grow_finish(PsGrow *g, PsBuf *out);
    keeps the object reachable at exit so LeakSanitizer stays silent. */
 void ps_own(void *obj);
 
+void ps_buf_slice(
+    int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
+);
 void ps_str_slice(
     int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
 );
