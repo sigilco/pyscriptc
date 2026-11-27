@@ -12,7 +12,6 @@ from __future__ import annotations
 
 import json
 import re
-from pathlib import Path
 
 from tests.test_gates import ROOT
 
