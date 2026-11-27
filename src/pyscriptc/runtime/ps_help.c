@@ -267,26 +267,43 @@ static void ps_int_bad_literal_bytes(int64_t n, const char *s) {
     ps_int_bad_literal_msg(n, s, 10, 1);
 }
 
-int64_t ps_int_from_bytes(int64_t n, const char *s) {
-    /* int(bytes): CPython strips the six ASCII whitespace bytes only
-       (#1424) — a high byte like U+00A0 stays literal and raises. */
-    static const char ws[6] = {' ', '\t', '\n', '\r', '\v', '\f'};
+static int ps_int_is_ws_byte(unsigned char c) {
+    /* The six ASCII whitespace bytes: the bytes-kind strip set (#1424). */
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+}
+
+/* The shared literal read: the digit loop, the underscore rule, the sign
+   and the range checks are common; the surrounding-whitespace strip and
+   the invalid-literal repr differ by kind. strip is 1 for the bytes kind
+   (ASCII byte set, byte-wise), 0 for the str kind (Unicode set). */
+
+/* The kind-aware invalid-literal raise for the digit loop. */
+static void ps_int_bad_literal_kind(int64_t n, const char *s, int strip) {
+    if (strip) {
+        ps_int_bad_literal_bytes(n, s);
+    } else {
+        ps_int_bad_literal(n, s);
+    }
+}
+static int64_t ps_int_read(int64_t n, const char *s, int strip) {
     int64_t i = 0;
     for (;;) {
-        if (i >= n) {
-            break;
-        }
-        int space = 0;
-        for (int k = 0; k < 6; k++) {
-            if (s[i] == ws[k]) {
-                space = 1;
+        uint32_t cp;
+        int64_t width = 0;
+        if (strip) {
+            if (i < n && ps_int_is_ws_byte((unsigned char)s[i])) {
+                width = 1;
+            }
+        } else {
+            width = ps_int_next_cp(n, s, i, &cp);
+            if (width != 0 && !ps_int_is_space(cp)) {
                 break;
             }
         }
-        if (!space) {
+        if (width == 0) {
             break;
         }
-        i++;
+        i += width;
     }
     int neg = 0;
     if (i < n && (s[i] == '+' || s[i] == '-')) {
@@ -296,40 +313,51 @@ int64_t ps_int_from_bytes(int64_t n, const char *s) {
     uint64_t mag = 0;
     int64_t end = n;
     for (;;) {
+        uint32_t cp;
         int64_t last = end - 1;
         if (last < i) {
             break;
         }
-        int space = 0;
-        for (int k = 0; k < 6; k++) {
-            if (s[last] == ws[k]) {
-                space = 1;
+        if (strip) {
+            if (!ps_int_is_ws_byte((unsigned char)s[last])) {
                 break;
             }
+            end = last;
+            continue;
         }
-        if (!space) {
+        /* Walk back over continuation bytes: start names the first byte. */
+        int64_t start = last;
+        while (start > i && ((unsigned char)s[start] & 0xC0) == 0x80) {
+            start--;
+        }
+        ps_int_next_cp(n, s, start, &cp);
+        if (!ps_int_is_space(cp)) {
             break;
         }
-        end = last;
+        end = start;
     }
     if (i >= end) {
-        ps_int_bad_literal_bytes(n, s);
+        if (strip) {
+            ps_int_bad_literal_bytes(n, s);
+        } else {
+            ps_int_bad_literal(n, s);
+        }
     }
     int digits = 0;
     for (; i < end; i++) {
         char c = s[i];
         if (c == '_') {
             if (digits == 0 || i + 1 >= end || s[i + 1] == '_') {
-                ps_int_bad_literal_bytes(n, s);
+                ps_int_bad_literal_kind(n, s, strip);
             }
             char nx = s[i + 1];
             if (nx < '0' || nx > '9') {
-                ps_int_bad_literal_bytes(n, s);
+                ps_int_bad_literal_kind(n, s, strip);
             }
             continue;
         }
         if (c < '0' || c > '9') {
-            ps_int_bad_literal_bytes(n, s);
+            ps_int_bad_literal_kind(n, s, strip);
         }
         digits++;
         if (mag > (UINT64_MAX - (uint64_t)(c - '0')) / 10) {
@@ -338,12 +366,25 @@ int64_t ps_int_from_bytes(int64_t n, const char *s) {
         mag = mag * 10 + (uint64_t)(c - '0');
     }
     if (digits == 0) {
-        ps_int_bad_literal_bytes(n, s);
+        ps_int_bad_literal_kind(n, s, strip);
     }
     if (!neg && mag > (uint64_t)INT64_MAX) {
         ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
     }
     return neg ? -(int64_t)(mag - 1) - 1 : (int64_t)mag;
+}
+
+/* int(bytes): CPython strips the six ASCII whitespace bytes only (#1424);
+   a high byte like U+00A0 stays literal and raises, and the invalid
+   literal reprs as b'...'. */
+int64_t ps_int_from_bytes(int64_t n, const char *s) {
+    return ps_int_read(n, s, 1);
+}
+
+/* int(str): the Unicode whitespace strip and the str repr, the base-10
+   form CPython shares with int(s, base). */
+int64_t ps_int_from_str(int64_t n, const char *s) {
+    return ps_int_read(n, s, 0);
 }
 
 /* int(s, base): CPython's literal read over the digit table, with the

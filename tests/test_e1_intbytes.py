@@ -120,8 +120,9 @@ def test_int_bytes_invalid_literal_raises_value_error(tmp_path: Path) -> None:
 
 
 def test_int_bytes_invalid_literal_message_carries_the_repr(tmp_path: Path) -> None:
-    # CPython 3.14 appends the repr'd literal: ": 'x'". The message is the
-    # runtime's own repr, quotes and escapes included.
+    # CPython 3.14 appends the repr'd literal: bytes quote as b'1x'
+    # (issue #1424), str quotes as 'x'. The message is the runtime's own
+    # repr, quotes and escapes included.
     path = write_case(
         tmp_path,
         "msg.py",
@@ -129,7 +130,7 @@ def test_int_bytes_invalid_literal_message_carries_the_repr(tmp_path: Path) -> N
     )
     got = run_cli("compile", str(path), "--run", "--emit", "bin", "--call", "main", "-o", str(tmp_path / "msg"))
     assert got.returncode != 0, got.stdout
-    assert "ValueError: invalid literal for int() with base 10: '1x'" in got.stderr, got.stderr
+    assert "ValueError: invalid literal for int() with base 10: b'1x'" in got.stderr, got.stderr
 
 
 def test_int_bytes_unicode_whitespace_matches_cpython(tmp_path: Path) -> None:

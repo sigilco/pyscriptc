@@ -170,11 +170,13 @@ class CallsMixin(EmitterBase):
             return self._emit_minmax(name, values, arg_types)
         if name == "int":
             if arg_kind in {"bytes", "str"}:
-                self._abi_decl("ps_int_from_bytes", "i64", ["i64", "ptr"])
+                # The bytes kind strips ASCII whitespace only (#1424).
+                isym: str = "ps_int_from_bytes" if arg_kind == "bytes" else "ps_int_from_str"
+                self._abi_decl(isym, "i64", ["i64", "ptr"])
                 parts1: tuple[str, str] = self._buf_parts(values[0])
                 length: str = parts1[0]
                 ptr: str = parts1[1]
-                return self._call_ret("i64", "ps_int_from_bytes", [f"i64 {length}", f"ptr {ptr}"])
+                return self._call_ret("i64", isym, [f"i64 {length}", f"ptr {ptr}"])
             needed = self.needed
             needed.add("math")
             return self._call_ret("i64", "ps_float_to_int", [f"double {values[0]}"])

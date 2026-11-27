@@ -537,6 +537,9 @@ void ps_f64_str(double v, PsBuf *out);
 int64_t ps_bisect_left(PsSeq *s, int64_t key);
 int64_t ps_bisect_right(PsSeq *s, int64_t key);
 int64_t ps_int_from_bytes(int64_t n, const char *s);
+/* int(str): the base-10 read over the Unicode whitespace strip; bytes
+   keeps the ASCII byte set (#1424). */
+int64_t ps_int_from_str(int64_t n, const char *s);
 
 /* The str primitives the emitter names in the "str" declaration block
    (the IR declarations table carries its own copies; these are for the
