@@ -494,6 +494,20 @@ void ps_own(void *obj);
 void ps_buf_slice(
     int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
 );
+/* The bytes forms of the search, predicate, case and partition helpers
+   (#1424): byte offsets, ASCII-only case and predicates. */
+int64_t ps_buf_find_from(int64_t n, const char *p, int64_t sn, const char *sp, int64_t start);
+int64_t ps_buf_rfind(int64_t n, const char *p, int64_t sn, const char *sp);
+int64_t ps_buf_index(int64_t n, const char *p, int64_t sn, const char *sp);
+int64_t ps_buf_count(int64_t n, const char *p, int64_t sn, const char *sp);
+int64_t ps_buf_isalpha(int64_t n, const char *p);
+int64_t ps_buf_isalnum(int64_t n, const char *p);
+int64_t ps_buf_isspace(int64_t n, const char *p);
+int64_t ps_buf_isupper(int64_t n, const char *p);
+int64_t ps_buf_islower(int64_t n, const char *p);
+void ps_buf_upper(int64_t n, const char *p, PsBuf *out);
+void ps_buf_lower(int64_t n, const char *p, PsBuf *out);
+void ps_buf_partition(int64_t n, const char *p, int64_t sn, const char *sp, int64_t right, PsBuf *out);
 void ps_str_slice(
     int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
 );
@@ -523,7 +537,10 @@ void ps_i64_str(int64_t v, PsBuf *out);
 void ps_f64_str(double v, PsBuf *out);
 int64_t ps_bisect_left(PsSeq *s, int64_t key);
 int64_t ps_bisect_right(PsSeq *s, int64_t key);
+/* int(str), despite the name: the base-10 read over the Unicode whitespace
+   strip. int(bytes) is ps_int_from_buf, over the ASCII byte set (#1424). */
 int64_t ps_int_from_bytes(int64_t n, const char *s);
+int64_t ps_int_from_buf(int64_t n, const char *s);
 
 /* The str primitives the emitter names in the "str" declaration block
    (the IR declarations table carries its own copies; these are for the
@@ -531,6 +548,13 @@ int64_t ps_int_from_bytes(int64_t n, const char *s);
 void ps_str_get(int64_t n, char *p, int64_t i, PsBuf *out);
 int64_t ps_buf_at(int64_t n, char *p, int64_t i);
 void ps_str_strip(int64_t n, char *p, PsBuf *out);
+/* The bytes forms (#1424): strip removes the six ASCII whitespace bytes
+   only, splitlines breaks on \n \r \r\n only, zfill and justify pad by
+   bytes. */
+void ps_buf_strip(int64_t n, const char *p, int64_t which, PsBuf *out);
+PsSeq *ps_buf_splitlines(int64_t n, const char *p, int64_t keepends);
+void ps_buf_zfill(int64_t n, const char *p, int64_t width, PsBuf *out);
+void ps_buf_justify(int64_t n, const char *p, int64_t width, int64_t fn, const char *fc, int64_t side, PsBuf *out);
 void ps_str_lstrip(int64_t n, char *p, PsBuf *out);
 void ps_str_rstrip(int64_t n, char *p, PsBuf *out);
 int32_t ps_str_startswith(int64_t n, char *p, int64_t pn, char *pp);

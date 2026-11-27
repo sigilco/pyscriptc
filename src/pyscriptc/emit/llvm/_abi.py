@@ -742,6 +742,13 @@ class AbiMixin(EmitterBase):
 
     def _emit_abi(self, expr: dict[str, Any], values: list[str]) -> str:
         symbol: str = _node_symbol(expr)
+        # Two runtime calls carry one IR symbol for str and bytes, so the
+        # type-IR hashes do not depend on the split: the first argument's kind
+        # picks the byte form here (#1424).
+        if symbol == "ps_int_from_bytes" or symbol == "ps_str_find_from":
+            operands: list[dict[str, Any]] = _node_args(expr)
+            if self._t_kind(_arg_type(operands[0])) == "bytes":
+                symbol = "ps_int_from_buf" if symbol == "ps_int_from_bytes" else "ps_buf_find_from"
         if symbol.startswith("ps_str_") or symbol.startswith("ps_buf_"):
             # The str and bytes primitives live in the "str" declaration
             # block (`ps_buf_slice` rides beside `ps_buf_at`, #1416).
