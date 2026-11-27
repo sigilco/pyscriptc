@@ -600,6 +600,15 @@ int64_t ps_buf_find_from(int64_t n, const char *p, int64_t sn, const char *sp, i
     return -1;
 }
 
+/* bytes.index: find from the start, raising where find answers -1. */
+int64_t ps_buf_index(int64_t n, const char *p, int64_t sn, const char *sp) {
+    int64_t at = ps_buf_find_from(n, p, sn, sp, 0);
+    if (at < 0) {
+        ps_raise_cstr(PS_VALUE, "subsection not found");
+    }
+    return at;
+}
+
 int64_t ps_buf_rfind(int64_t n, const char *p, int64_t sn, const char *sp) {
     if (sn == 0) {
         return n;

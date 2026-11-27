@@ -498,6 +498,7 @@ void ps_buf_slice(
    (#1424): byte offsets, ASCII-only case and predicates. */
 int64_t ps_buf_find_from(int64_t n, const char *p, int64_t sn, const char *sp, int64_t start);
 int64_t ps_buf_rfind(int64_t n, const char *p, int64_t sn, const char *sp);
+int64_t ps_buf_index(int64_t n, const char *p, int64_t sn, const char *sp);
 int64_t ps_buf_count(int64_t n, const char *p, int64_t sn, const char *sp);
 int64_t ps_buf_isalpha(int64_t n, const char *p);
 int64_t ps_buf_isalnum(int64_t n, const char *p);
@@ -536,10 +537,10 @@ void ps_i64_str(int64_t v, PsBuf *out);
 void ps_f64_str(double v, PsBuf *out);
 int64_t ps_bisect_left(PsSeq *s, int64_t key);
 int64_t ps_bisect_right(PsSeq *s, int64_t key);
+/* int(str), despite the name: the base-10 read over the Unicode whitespace
+   strip. int(bytes) is ps_int_from_buf, over the ASCII byte set (#1424). */
 int64_t ps_int_from_bytes(int64_t n, const char *s);
-/* int(str): the base-10 read over the Unicode whitespace strip; bytes
-   keeps the ASCII byte set (#1424). */
-int64_t ps_int_from_str(int64_t n, const char *s);
+int64_t ps_int_from_buf(int64_t n, const char *s);
 
 /* The str primitives the emitter names in the "str" declaration block
    (the IR declarations table carries its own copies; these are for the

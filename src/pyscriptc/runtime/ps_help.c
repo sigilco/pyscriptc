@@ -377,13 +377,13 @@ static int64_t ps_int_read(int64_t n, const char *s, int strip) {
 /* int(bytes): CPython strips the six ASCII whitespace bytes only (#1424);
    a high byte like U+00A0 stays literal and raises, and the invalid
    literal reprs as b'...'. */
-int64_t ps_int_from_bytes(int64_t n, const char *s) {
+int64_t ps_int_from_buf(int64_t n, const char *s) {
     return ps_int_read(n, s, 1);
 }
 
 /* int(str): the Unicode whitespace strip and the str repr, the base-10
-   form CPython shares with int(s, base). */
-int64_t ps_int_from_str(int64_t n, const char *s) {
+   form CPython shares with int(s, base). The name predates the split. */
+int64_t ps_int_from_bytes(int64_t n, const char *s) {
     return ps_int_read(n, s, 0);
 }
 

@@ -26,6 +26,22 @@ print(data.find(b"z", 4), data.find(b"z", 9))
 print(data.count(b""), data.count(b"a"), data.count(b"\xc3"))
 print(b"".count(b""), b"abc".count(b"b"), data.count(b"\xc3\xa9"))
 
+# find answers offset 0 and index raises where find answers -1, at module
+# level and inside a function.
+print(data.find(b"c"), data.index(b"c"), b"".find(b"a"), data.find(b"\xc3\xa9"))
+show("index", lambda: data.index(b"q"))
+show("index", lambda: b"".index(b"a"))
+
+
+def search(hay: bytes, needle: bytes) -> None:
+    print(hay.find(needle), hay.rfind(needle), hay.count(needle))
+    show("index", lambda: hay.index(needle))
+
+
+search(data, b"c")
+search(data, b"\xa9")
+search(data, b"q")
+
 # upper / lower are ASCII-only (issue rows 3-4).
 print(b"a\xc3\xa9a".upper(), b"A\xc3\x89A".lower(), b"abc".upper(), b"ABC".lower())
 

@@ -159,6 +159,7 @@ def _runtime_declarations(needed: set[str]) -> list[str]:
                 "declare void @ps_buf_slice(i64, ptr, i64, i64, i64, i64, i64, ptr)",
                 "declare i64 @ps_buf_find_from(i64, ptr, i64, ptr, i64)",
                 "declare i64 @ps_buf_rfind(i64, ptr, i64, ptr)",
+                "declare i64 @ps_buf_index(i64, ptr, i64, ptr)",
                 "declare i64 @ps_buf_count(i64, ptr, i64, ptr)",
                 "declare i32 @ps_buf_isalpha(i64, ptr)",
                 "declare i32 @ps_buf_isalnum(i64, ptr)",

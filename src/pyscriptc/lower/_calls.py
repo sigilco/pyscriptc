@@ -283,11 +283,7 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
                 if called is not None:
                     return called
             if name == "int" and _node_type_kind(args[0]) in {"bytes", "str"}:
-                # The bytes kind strips ASCII whitespace only and reprs its
-                # invalid literal as b'...' (#1424); str keeps the Unicode
-                # set and the str repr.
-                int_sym = "ps_int_from_bytes" if _node_type_kind(args[0]) == "bytes" else "ps_int_from_str"
-                return self._abi_call("builtins", "int", args, spec, int_sym, span)
+                return self._abi_call("builtins", "int", args, spec, "ps_int_from_bytes", span)
             return node_to_dict(
                 _ir.call(
                     _ir.builtin(name),

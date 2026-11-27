@@ -1,7 +1,7 @@
 """E1 item 3: `int(bytes)` parses at runtime.
 
 The builtin table gains one entry: `int` over a single `bytes` value lowers
-to `ps_int_from_bytes`, a pure parser in ps_help.c (base 10, CPython's
+to `ps_int_from_bytes` (the emitter calls `ps_int_from_buf`), a pure parser in ps_help.c (base 10, CPython's
 surrounding-whitespace strip, optional sign, all remaining bytes digits,
 i64 range). The other `int()` overloads keep their fence: the no-arg form
 stays PS2003, and #501 later added the `int(text, base)` row onto

@@ -170,8 +170,9 @@ class CallsMixin(EmitterBase):
             return self._emit_minmax(name, values, arg_types)
         if name == "int":
             if arg_kind in {"bytes", "str"}:
-                # The bytes kind strips ASCII whitespace only (#1424).
-                isym: str = "ps_int_from_bytes" if arg_kind == "bytes" else "ps_int_from_str"
+                # The bytes kind strips ASCII whitespace only (#1424); str
+                # keeps ps_int_from_bytes, the name the IR spells for both kinds.
+                isym: str = "ps_int_from_buf" if arg_kind == "bytes" else "ps_int_from_bytes"
                 self._abi_decl(isym, "i64", ["i64", "ptr"])
                 parts1: tuple[str, str] = self._buf_parts(values[0])
                 length: str = parts1[0]
@@ -722,16 +723,24 @@ class CallsMixin(EmitterBase):
         if name in {"find", "count", "index", "rfind"}:
             # The bytes search counts bytes and answers byte offsets (#1424);
             # str counts code points.
-            symbol: str = {
-                "find": "ps_buf_find_from" if kind == "bytes" else "ps_str_find",
-                "count": "ps_buf_count" if kind == "bytes" else "ps_str_count",
-                "index": "ps_buf_find_from" if kind == "bytes" else "ps_str_index",
-                "rfind": "ps_buf_rfind" if kind == "bytes" else "ps_str_rfind",
-            }[name]
+            search: list[str] = [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"]
+            if kind == "bytes":
+                # The "str" runtime block declares every ps_buf_* search form.
+                # `find` reads from offset 0; `index` is its raising sibling.
+                bsym: str = {
+                    "find": "ps_buf_find_from",
+                    "count": "ps_buf_count",
+                    "index": "ps_buf_index",
+                    "rfind": "ps_buf_rfind",
+                }[name]
+                if name == "find":
+                    search.append("i64 0")
+                return self._call_ret("i64", bsym, search)
+            symbol: str = f"ps_str_{name}"
             # ps_str_find is already declared by the "str" runtime block.
-            if not (kind == "bytes" and name in {"find", "index"}) and name != "find":
+            if name != "find":
                 self._abi_decl(symbol, "i64", ["i64", "ptr", "i64", "ptr"])
-            return self._call_ret("i64", symbol, [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"])
+            return self._call_ret("i64", symbol, search)
         if name in {"startswith", "endswith"}:
             flag = self._call_ret(
                 "i32", f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"]
