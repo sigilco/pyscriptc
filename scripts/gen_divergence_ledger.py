@@ -994,6 +994,22 @@ ROWS: list[dict[str, Any]] = [
         "slices and negative bounds count bytes; the row replays byte-identical and the probe "
         "probes/differential/bytes_slice_nonascii.py pins the seam",
     ),
+    _row(
+        "D112",
+        "bytes methods applied str semantics (issue #1424): find/rfind/index answered code-point "
+        "offsets, count of the empty needle counted code points, upper/lower ran the Unicode case "
+        "engine, isalpha/isalnum/isspace applied the Unicode tables (isspace fenced at run time), "
+        "partition/rpartition returned str parts, strip and splitlines used the str whitespace sets, "
+        "zfill/ljust/rjust/center padded by code points and int(bytes) stripped the Unicode whitespace "
+        "set; the bytes kind lowered to the same ps_str_* symbols as str",
+        "d112_bytes_methods_semantics.py",
+        docs=f"{DOC}#112",
+        note="fixed in the same change that records the row: the bytes kind dispatches to the "
+        "ps_buf_* byte forms (find_from/rfind/count, ASCII upper/lower, ASCII-only predicates, "
+        "byte partition, ASCII strip, ASCII splitlines, byte zfill/justify) and int(bytes) strips "
+        "the six ASCII whitespace bytes with a b'...' literal repr; the row replays byte-identical "
+        "and the probe probes/differential/bytes_methods_semantics.py pins every issue row",
+    ),
 ]
 
 
