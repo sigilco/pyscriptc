@@ -544,6 +544,13 @@ int64_t ps_int_from_bytes(int64_t n, const char *s);
 void ps_str_get(int64_t n, char *p, int64_t i, PsBuf *out);
 int64_t ps_buf_at(int64_t n, char *p, int64_t i);
 void ps_str_strip(int64_t n, char *p, PsBuf *out);
+/* The bytes forms (#1424): strip removes the six ASCII whitespace bytes
+   only, splitlines breaks on \n \r \r\n only, zfill and justify pad by
+   bytes. */
+void ps_buf_strip(int64_t n, const char *p, int64_t which, PsBuf *out);
+PsSeq *ps_buf_splitlines(int64_t n, const char *p, int64_t keepends);
+void ps_buf_zfill(int64_t n, const char *p, int64_t width, PsBuf *out);
+void ps_buf_justify(int64_t n, const char *p, int64_t width, int64_t fn, const char *fc, int64_t side, PsBuf *out);
 void ps_str_lstrip(int64_t n, char *p, PsBuf *out);
 void ps_str_rstrip(int64_t n, char *p, PsBuf *out);
 int32_t ps_str_startswith(int64_t n, char *p, int64_t pn, char *pp);

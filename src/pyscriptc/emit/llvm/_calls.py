@@ -574,6 +574,11 @@ class CallsMixin(EmitterBase):
             symbol: str = f"ps_buf_{name}" if kind == "bytes" else f"ps_str_{name}"
             self._abi_decl(symbol, "void", ["i64", "ptr", "ptr"])
             return self._buf_out(symbol, [f"i64 {length}", f"ptr {ptr}"])
+        if kind == "bytes" and name in {"strip", "lstrip", "rstrip"}:
+            # The bytes strip family removes ASCII whitespace only (#1424).
+            side: str = {"strip": "0", "lstrip": "1", "rstrip": "2"}[name]
+            self._abi_decl("ps_buf_strip", "void", ["i64", "ptr", "i64", "ptr"])
+            return self._buf_out("ps_buf_strip", [f"i64 {length}", f"ptr {ptr}", f"i64 {side}"])
         if name in {"strip", "lstrip", "rstrip", "title", "capitalize", "casefold", "swapcase"}:
             self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "ptr"])
             return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"])
@@ -600,8 +605,9 @@ class CallsMixin(EmitterBase):
                 wide = self.tmp()
                 self.line(f"{wide} = zext i1 {values[1]} to i64")
                 keepends = f"i64 {wide}"
-            self._abi_decl("ps_str_splitlines", "ptr", ["i64", "ptr", "i64"])
-            return self._call_ret("ptr", "ps_str_splitlines", [f"i64 {length}", f"ptr {ptr}", keepends])
+            sl_sym: str = "ps_buf_splitlines" if kind == "bytes" else "ps_str_splitlines"
+            self._abi_decl(sl_sym, "ptr", ["i64", "ptr", "i64"])
+            return self._call_ret("ptr", sl_sym, [f"i64 {length}", f"ptr {ptr}", keepends])
         if name == "expandtabs":
             tabsize: str = "8"
             if len(values) > 1:
@@ -609,8 +615,9 @@ class CallsMixin(EmitterBase):
             self._abi_decl("ps_str_expandtabs", "void", ["i64", "ptr", "i64", "ptr"])
             return self._buf_out("ps_str_expandtabs", [f"i64 {length}", f"ptr {ptr}", f"i64 {tabsize}"])
         if name == "zfill":
-            self._abi_decl("ps_str_zfill", "void", ["i64", "ptr", "i64", "ptr"])
-            return self._buf_out("ps_str_zfill", [f"i64 {length}", f"ptr {ptr}", f"i64 {values[1]}"])
+            zf_sym: str = "ps_buf_zfill" if kind == "bytes" else "ps_str_zfill"
+            self._abi_decl(zf_sym, "void", ["i64", "ptr", "i64", "ptr"])
+            return self._buf_out(zf_sym, [f"i64 {length}", f"ptr {ptr}", f"i64 {values[1]}"])
         if name in {"ljust", "rjust", "center"}:
             side: str = {"ljust": "0", "rjust": "1", "center": "2"}[name]
             fill_len: str = "1"
@@ -619,9 +626,10 @@ class CallsMixin(EmitterBase):
                 parts7: tuple[str, str] = self._buf_parts(values[2])
                 fill_len: str = parts7[0]
                 fill_ptr: str = parts7[1]
-            self._abi_decl("ps_str_justify", "void", ["i64", "ptr", "i64", "i64", "ptr", "i64", "ptr"])
+            jsym: str = "ps_buf_justify" if kind == "bytes" else "ps_str_justify"
+            self._abi_decl(jsym, "void", ["i64", "ptr", "i64", "i64", "ptr", "i64", "ptr"])
             return self._buf_out(
-                "ps_str_justify",
+                jsym,
                 [
                     f"i64 {length}",
                     f"ptr {ptr}",

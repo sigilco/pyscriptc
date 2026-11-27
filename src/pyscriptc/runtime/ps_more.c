@@ -323,6 +323,11 @@ PsSeq *ps_dict_items(PsMap *m, int64_t voff, int64_t csize) {
    are S4's data, and a wrong answer is worse than a loud stop. The
    ASCII output of a program that never mixes the ranges is unchanged. */
 
+/* The six ASCII whitespace bytes (bytes.strip, bytes.split). */
+static int ps_isspace_ascii(unsigned char c) {
+    return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+}
+
 static int ps_ws(unsigned char c) {
     return c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f' || c == 0x1c ||
            c == 0x1d || c == 0x1e || c == 0x1f || c == 0x85 || c == 0xa0;
@@ -1154,6 +1159,104 @@ void ps_buf_partition(int64_t n, const char *p, int64_t sn, const char *sp, int6
     ps_buf_copy(&out[0], p, at);
     ps_buf_copy(&out[1], sp, sn);
     ps_buf_copy(&out[2], p + at + sn, n - at - sn);
+}
+
+/* bytes.strip family (#1424): the six ASCII whitespace bytes only; str
+   additionally strips \x1c-\x1f, U+0085 and U+00A0. which: 0 both,
+   1 left, 2 right. */
+void ps_buf_strip(int64_t n, const char *p, int64_t which, PsBuf *out) {
+    int64_t i = 0;
+    int64_t j = n;
+    while (which != 2 && i < j && ps_isspace_ascii((unsigned char)p[i])) {
+        i++;
+    }
+    while (which != 1 && j > i && ps_isspace_ascii((unsigned char)p[j - 1])) {
+        j--;
+    }
+    if (i == 0 && j == n) {
+        ps_buf_copy(out, p, n);
+        return;
+    }
+    ps_buf_copy(out, p + i, j - i);
+}
+
+/* bytes.splitlines (#1424): \n \r \r\n only; str adds \v \f \x1c-\x1e
+   and \x85. keepends keeps the break bytes. */
+PsSeq *ps_buf_splitlines(int64_t n, const char *p, int64_t keepends) {
+    PsSeq *seq = ps_seq_new(sizeof(PsBuf), 0);
+    int64_t i = 0, start = 0;
+    while (i < n) {
+        unsigned char c = (unsigned char)p[i];
+        int isbreak = c == '\n' || c == '\r';
+        int64_t end;
+        if (!isbreak) {
+            i++;
+            continue;
+        }
+        end = i;
+        if (c == '\r' && i + 1 < n && p[i + 1] == '\n') {
+            i += 2;
+        } else {
+            i++;
+        }
+        if (keepends) {
+            ps_push_view(seq, p + start, i - start);
+        } else {
+            ps_push_view(seq, p + start, end - start);
+        }
+        start = i;
+    }
+    if (start < n) {
+        ps_push_view(seq, p + start, n - start);
+    }
+    return seq;
+}
+
+/* bytes.zfill (#1424): the width counts bytes (str counts code points). */
+void ps_buf_zfill(int64_t n, const char *p, int64_t width, PsBuf *out) {
+    if (width <= n) {
+        ps_buf_copy(out, p, n);
+        return;
+    }
+    int64_t pad = width - n;
+    int64_t s = 0;
+    char *q = malloc((size_t)(n + pad) + 1);
+    if (q == NULL) {
+        abort();
+    }
+    if (n > 0 && (p[0] == '+' || p[0] == '-')) {
+        q[0] = p[0];
+        s = 1;
+    }
+    memset(q + s, '0', (size_t)pad);
+    memcpy(q + s + pad, p + s, (size_t)(n - s));
+    out->len = n + pad;
+    out->data = q;
+}
+
+/* bytes.ljust / rjust / center (#1424): the width counts bytes. */
+void ps_buf_justify(int64_t n, const char *p, int64_t width, int64_t fn, const char *fc, int64_t side, PsBuf *out) {
+    if (width <= n) {
+        ps_buf_copy(out, p, n);
+        return;
+    }
+    int64_t pad = width - n;
+    int64_t left = side == 0 ? 0 : side == 1 ? pad : pad / 2 + (pad & width & 1);
+    if (fn <= 0) {
+        fn = 1;
+        fc = " ";
+    }
+    int64_t padb = pad * fn;
+    int64_t leftb = left * fn;
+    char *q = malloc((size_t)(n + padb) + 1);
+    if (q == NULL) {
+        abort();
+    }
+    memcpy(q, fc, (size_t)leftb);
+    memcpy(q + leftb, p, (size_t)n);
+    memset(q + leftb + n, fc[0], (size_t)(padb - leftb));
+    out->len = n + padb;
+    out->data = q;
 }
 
 /* R4/R5: repr of a bytes value (b'...' with escapes) and float(str). */
