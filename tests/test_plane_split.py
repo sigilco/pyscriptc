@@ -92,7 +92,7 @@ def test_three_module_program_splits_the_planes(tmp_path: Path) -> None:
                 "    main()\n"
             ),
             "clean.py": "def add(a: int, b: int) -> int:\n    return a + b\n",
-            "dirty.py": "def broken(s):\n    return s.upper()\n",
+            "dirty.py": "from typing import Any\n\n\ndef broken(s: Any):\n    return s.upper()\n",
         },
     )
     out = _compare(tmp_path, prog)
@@ -121,7 +121,7 @@ def test_split_keeps_the_native_definitions_in_the_binary(tmp_path: Path) -> Non
                 "    print(upper)\n"
             ),
             "clean.py": "def add(a: int, b: int) -> int:\n    return a + b\n",
-            "dirty.py": "def broken(s):\n    return s.upper()\n",
+            "dirty.py": "from typing import Any\n\n\ndef broken(s: Any):\n    return s.upper()\n",
         },
     )
     binary, comp = _compile(tmp_path, prog)
@@ -187,7 +187,7 @@ def test_fenced_module_with_a_native_sibling(tmp_path: Path) -> None:
                 "    main()\n"
             ),
             "mixed.py": (
-                "def clean_one(n: int) -> int:\n    return n + 1\n\n\ndef dirty_one(s):\n    return s.upper()\n"
+                "def clean_one(n: int) -> int:\n    return n + 1\n\n\ndef dirty_one(s: Any):\n    return s.upper()\n"
             ),
         },
     )
@@ -223,7 +223,7 @@ def test_island_definition_calling_a_native_sibling_refuses(tmp_path: Path) -> N
                 "    main()\n"
             ),
             "clean.py": "def add(a: int, b: int) -> int:\n    return a + b\n",
-            "dirty.py": "from clean import add\n\n\ndef broken(s):\n    return s.upper() + str(add(1, 1))\n",
+            "dirty.py": "from clean import add\n\n\ndef broken(s: Any):\n    return s.upper() + str(add(1, 1))\n",
         },
     )
     binary, comp = _compile(tmp_path, prog)
@@ -530,8 +530,12 @@ def test_module_owns_its_island_floor_namespace_in_split_mode(tmp_path: Path) ->
                 "    print(tripled)\n"
                 "\n"
                 "\n"
+                # An unlowered method call keeps `helper` on the island, so
+                # the entry module owns an island definition and the
+                # namespaced seam rides (issue #1305: the call-site pins
+                # never type a body the lowerer cannot lower).
                 "def helper(x):\n"
-                "    return x * 3\n"
+                "    return x.bit_length() * 3\n"
                 "\n"
                 "\n"
                 "if __name__ == '__main__':\n"
