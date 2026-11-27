@@ -25,6 +25,7 @@ from pyscriptc.coro import CoroMixin
 from pyscriptc.errors import format_diagnostic, span_of
 from pyscriptc.ffi_manifest import is_handle_type  # noqa: F401  # moved-verbatim import
 from pyscriptc.ir import IR_VERSION, SUBSET, cpython_version, types_equal
+from pyscriptc.lower._annotations import _type
 from pyscriptc.lower._boxed_resolve import BoxedResolveMixin
 from pyscriptc.lower._calls import CallsMixin
 from pyscriptc.lower._classes import ClassesMixin
@@ -57,6 +58,7 @@ from pyscriptc.lower._infer import TypeInferMixin
 from pyscriptc.lower._misc_emit import MiscEmitMixin
 from pyscriptc.lower._module_driver import ModuleDriverMixin
 from pyscriptc.lower._protocols import ProtocolsMixin
+from pyscriptc.lower._specialize import SpecializeMixin
 from pyscriptc.lower._stdlib import StdlibDispatchMixin
 from pyscriptc.lower._stmt import (
     StmtMixin,
@@ -278,6 +280,7 @@ class Lowerer(
     EntryMixin,
     BoxedResolveMixin,
     MiscEmitMixin,
+    SpecializeMixin,
     ModuleDriverMixin,
 ):
     def __init__(self, filename: str, source: str, target: str | None = None, config: Any = None) -> None:
@@ -361,6 +364,16 @@ class Lowerer(
         self.server_callbacks: dict[str, str] = {}
         self.temp_n = 0
         self.caught: list[Fence] = []
+        # The method bodies a class lowering tolerated (the fenced body
+        # dropped out of the record instead of dropping the class): the
+        # (class, method) pairs, recorded for the caller's diagnostic.
+        self._tolerated_methods: list[tuple[str, str]] = []
+        # The fence each tolerated (signature-fenced) method raised: the
+        # module keeps them out of its fence list, because the compile is
+        # not refused by a method the class record drops (the same rule a
+        # fenced module function follows: its fence does not refuse the
+        # module when nothing reaches the call site).
+        self._tolerated_method_fences: list[Any] = []
         self.prelude: list[dict[str, Any]] = []
         self.constants: dict[str, dict[str, Any]] = {}
         self.type_aliases: dict[str, str] = {}
@@ -459,6 +472,20 @@ class Lowerer(
         # spell, for the island seed's decorator strip.
         self._island_marked: set[str] = set()
         self._island_marked_spellings: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
+        # Issue #1309: the module-level definitions the source marks
+        # `@specialize`. The marker asserts the per-call-site
+        # monomorphization the compiler already performs, and the
+        # specialization report reads the lowering's own instantiation
+        # facts against it. The spellings tuple holds the import-bound
+        # names the marker decorator may spell.
+        self._specialize_marked: set[str] = set()
+        self._specialize_marked_spellings: tuple[frozenset[str], frozenset[str]] = (frozenset(), frozenset())
+        # The marked definition nodes, name -> node (the check's spans and
+        # the report's lines read them).
+        self._specialize_marked_nodes: dict[str, Any] = {}
+        # The specialization report's rows: one per marked definition, read
+        # from the lowering's own instantiation bookkeeping (issue #1309).
+        self.specialization_rows: list[dict[str, Any]] = []
         # Refs #641: the cross-module island-refusal fences, parked so the
         # module's own island planning never drops them.
         self._boxed_sibling_fences: list[Fence] = []
@@ -1225,13 +1252,111 @@ class Lowerer(
         class shape even when the user never names the class. The defining
         module still emits it; the consumer sees it imported, like any other
         class export.
+
+        A synthetic tuple class (`tuple_2_dict_str__dict_str__str_...`, the
+        return type of a function that answers a pair) is not an export:
+        synthetic classes never enter the table (package.py). Its shape is
+        the field list the tuple label spells, so the consumer declares the
+        record here the way `_tuple_type` would have — the defining module
+        still emits its own, and the two agree by name.
         """
         if _maybe_type_kind(typ) != "class" or typ["name"] in self.classes:
             return
         item = self._export_lookup(module, typ["name"])
-        if item is None or _record_kind(item) != "class":
+        if item is not None and _record_kind(item) == "class":
+            self._install_class_export(typ["name"], item, stmt, fences)
             return
-        self._install_class_export(typ["name"], item, stmt, fences)
+        self._install_synthetic_tuple(typ, stmt)
+
+    def _install_synthetic_tuple(self, typ: dict[str, Any], stmt: ast.AST) -> bool:
+        """Declare the consumer-side record of an exported function's tuple
+        return, or False when the type is not one.
+
+        The label is the shape contract: `tuple[dict[str, dict[str, str]],
+        dict[tuple[str, str | None], int]]` spells the field types in
+        order. The slug name must already agree (the export's return type
+        was lowered from the same annotation), so the record the consumer
+        builds from the label is byte-identical to the defining module's.
+        """
+        name = str(typ.get("name") or "")
+        label = str(typ.get("label") or "")
+        if not name.startswith("tuple_") or not label.startswith("tuple[") or not label.endswith("]"):
+            return False
+        fields = self._tuple_fields_from_label(label[len("tuple[") : -1], stmt)
+        if fields is None:
+            return False
+        self.classes[name] = {
+            "fields": [{"name": f"_{index}", "type": field} for index, field in enumerate(fields)],
+            "methods": {},
+            "synthetic": True,
+            "tuple": True,
+        }
+        self.declared.add(name)
+        return True
+
+    def _tuple_fields_from_label(self, text: str, stmt: ast.AST) -> list[dict[str, Any]] | None:
+        """The field types a tuple label spells, or None when it does not parse.
+
+        The label is the `_show` spelling of the field types, comma
+        separated at the top level. Nested brackets (`dict[str, str]`,
+        `tuple[str, str | None]`) stay inside one field, so the split
+        tracks depth.
+        """
+        parts: list[str] = []
+        depth = 0
+        current: list[str] = []
+        for ch in text:
+            if ch in "[(":
+                depth += 1
+            elif ch in "])":
+                depth -= 1
+            if ch == "," and depth == 0:
+                parts.append("".join(current).strip())
+                current = []
+                continue
+            current.append(ch)
+        parts.append("".join(current).strip())
+        if any(not part for part in parts):
+            return None
+        fields = [self._parse_type_label(part, stmt) for part in parts]
+        if any(field is None for field in fields):
+            return None
+        return fields
+
+    def _parse_type_label(self, text: str, stmt: ast.AST) -> dict[str, Any] | None:
+        """The type dict one label piece names, or None.
+
+        The label grammar is the `_show` surface: the scalar kinds, the
+        container shapes with brackets, and the `X | None` optional. A
+        piece outside the surface (a class the consumer has not installed
+        yet, a callable) refuses: the tuple stays uninstalled and the
+        call site keeps its fence.
+        """
+        text = text.strip()
+        if text.endswith(" | None"):
+            elem = self._parse_type_label(text[: -len(" | None")], stmt)
+            if elem is None:
+                return None
+            return self._opt_type(elem, stmt)
+        if text in {"str", "int", "float", "bool", "bytes", "none"}:
+            return _type({"kind": text})
+        if text.endswith("]") and "[" in text:
+            head, _, inner = text[:-1].partition("[")
+            head = head.strip()
+            inner_parts = self._tuple_fields_from_label(inner, stmt)
+            if inner_parts is None:
+                return None
+            if head in {"list", "List"}:
+                if len(inner_parts) != 1:
+                    return None
+                return _type({"kind": "list", "elem": inner_parts[0]})
+            if head in {"dict", "Dict", "Mapping", "MutableMapping"}:
+                if len(inner_parts) != 2:
+                    return None
+                return _type({"kind": "dict", "key": inner_parts[0], "value": inner_parts[1]})
+            if head in {"tuple", "Tuple"}:
+                return self._tuple_type(inner_parts, stmt)
+        return None
 
     def _package_root(self) -> str | None:
         if self.package is None or not self.module_name:
@@ -1347,6 +1472,18 @@ class Lowerer(
                     for name, arm in dyn_proven.items():
                         if not self._key_rebinds(name, rest):
                             self.dyn_narrow[name] = arm
+                    # `if x is None: x = <str>` (the arm assigns a concrete
+                    # value, the test proves the None arm was the only way
+                    # x stayed unset) narrows x to the assigned type for the
+                    # rest of this body. The rule covers the iniconfig
+                    # `if data is None: data = fp.read()` shape: the
+                    # assignment's type is the fact, and the test's None
+                    # arm is the only path that did not already hold a str.
+                    if not else_exits and not then_exits:
+                        for name in when_false:
+                            assigned = self._narrow_assigned_type(stmt.body, name)
+                            if assigned is not None and not self._key_rebinds(name, rest):
+                                self.opt_unwrap[name] = assigned
                 elif isinstance(stmt, ast.Assert):
                     # `assert x is not None` proves x set for the rest of
                     # this body, the same rule the if-exit arm applies.

@@ -385,6 +385,13 @@ def build_parser() -> argparse.ArgumentParser:
         "statement) so lldb/gdb can step in the Python source (env PYSC_DEBUG_INFO)",
     )
     compile_parser.add_argument(
+        "--specializations",
+        action="store_true",
+        help="print the specialization report after lowering: per @specialize-marked "
+        "definition, the concrete copies the compiler emitted and the TypeVar "
+        "substitution each copy took; exits 0 without linking",
+    )
+    compile_parser.add_argument(
         "--print",
         dest="print_what",
         choices=("diagnostics",),
@@ -2109,6 +2116,17 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         no_notes: list[Any] = []
         for note in module.pop("_notes", no_notes):
             print(note, file=sys.stderr)
+        if getattr(args, "specializations", False) and not module["fences"]:
+            # Issue #1309: the specialization report is a report, not a
+            # build: the lowering already ran (its rows ride the module
+            # record), so the compile answers the question and exits before
+            # the checker, the emit or the link. A fenced module takes the
+            # normal fence path instead: the PS1207 refusal is the answer
+            # the marker's assertion failed, and the report would hide it.
+            from pyscriptc.lower._specialize import render_specializations
+
+            print(render_specializations(module.get("specializations", [])))
+            return 0
         # boxed:begin
         fallback_map = module.get("fallback")
         from pyscriptc import boxed as _boxed

@@ -211,7 +211,10 @@ STR_METHODS: dict[str, dict[str, Any]] = {
     "zfill": {"params": ["int"], "return": "self"},
     "removeprefix": {"params": ["self"], "return": "self"},
     "removesuffix": {"params": ["self"], "return": "self"},
-    "splitlines": {"params": [], "return": "self_list"},
+    # `splitlines([keepends])`: the keepends argument is a bool, and the
+    # default (no argument) is the keepends=False form. The runtime's
+    # `ps_str_splitlines` takes the flag, so the argument rides the call.
+    "splitlines": {"params": [], "return": "self_list", "optional_bool": True},
 }
 
 LEN_KINDS = {"str", "bytes", "list", "dict"}
@@ -313,6 +316,15 @@ def method_spec(receiver: dict[str, Any], name: str, arg_types: list[dict[str, A
     spec = STR_METHODS[name]
     if receiver["kind"] not in spec.get("kinds", {"str", "bytes"}):
         return None
+    if spec.get("optional_bool"):
+        # One optional bool argument (the `keepends` flag).
+        if len(arg_types) > 1:
+            return None
+        if arg_types and arg_types[0]["kind"] != "bool":
+            return None
+        if spec["return"] == "self_list":
+            return {"kind": "list", "elem": {"kind": receiver["kind"]}}
+        return {"kind": spec["return"]}
     if len(arg_types) != len(spec["params"]):
         return None
     for got, want in zip(arg_types, spec["params"], strict=True):

@@ -28,6 +28,7 @@ Spell them from `typing` or `collections.abc` in any import shape (`from`, `impo
 `T = TypeVar("T")` at module level plus `def first(xs: list[T]) -> T` monomorphizes per call site, over scalars and user classes alike.
 `T | None`, `Callable[[T], U]`, a TypeVar key in `dict[K, V]` / `Mapping[K, V]`, a TypeVar field of a tuple (`tuple[T, int]`) and the homogeneous `tuple[T, ...]` monomorphize the same way; a bound `TypeVar` erases to its bound, and the bound may name a user class the module declares below the TypeVar; constraints and variance flags (`infer_variance` too) are accepted and not enforced.
 PEP 695 `def f[T](...)` fences (`PS1106`); `ParamSpec` and `TypeVar(..., default=...)` fence.
+A generic helper may carry the `@specialize` marker of the `pyscriptc._annotations` shadow module (`from pyscriptc._annotations import specialize`): it states the intent that the helper is monomorphized per call site, which is already what happens, and it changes nothing the definition means. The marker is checked, not ignored: marked on a definition that is not generic, it fences `PS1207`. `pyscriptc compile FILE --specializations` prints the copies the compiler emitted for the marked definitions.
 8. Abstract and structural bases erase.
 `class Shape(ABC)`, `@abstractmethod`, `Protocol` bases, `@overload` stubs: the class lowers as a plain class, stub bodies are skipped, there is no runtime enforcement (divergence 14), the preflight checker is the guard.
 Member reads through a protocol-typed name do not lower; read through a concrete-typed local.

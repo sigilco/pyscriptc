@@ -7041,7 +7041,7 @@
   "stdlib.os.fpathconf": "7d1ee8c98b76cfca800eba06e32794a80a859f8c5aec3b92294802eb3ce6b759",
   "stdlib.os.fsdecode": "2dee4f883c5e5ce4a6d43e658fe5202be51553d6a4ab7b5c8f63bc3dc369fd7f",
   "stdlib.os.fsencode": "0c9c5990723d2b7f3c7cac926eded991edfefec6df5bd275442e42f0973ccb9a",
-  "stdlib.os.fspath": "1c1c867f37781ec50adfdc21654f4d2fdced6674cfb4962efceb8ff34b908ea9",
+  "stdlib.os.fspath": "78d27b0a6c5d8cef6b863daef7d01f869b93d91e9ca92e633fc0bc8ba84ae9ad",
   "stdlib.os.fstat": "f9d2cfd6f8eabd7ba4e51ea2472009ffd2a434ea94913b0105bf133d972d06dd",
   "stdlib.os.fstatvfs": "59e63408361f8007ecfca0a4f3222fb60f596c101030cc34042007ccdcdb5aa9",
   "stdlib.os.fsync": "6f97dd525841f378b28fa7955d4e6e6bbbe653cba0b649b7a95ae24c139974ba",

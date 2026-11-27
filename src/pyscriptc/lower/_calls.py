@@ -272,6 +272,16 @@ class CallsMixin(CallsMoreMixin, CallAttrMixin):
             if name == "str" and _node_type_kind(args[0]) == "none":
                 # None is not a runtime value; str(None) folds at lowering.
                 return node_to_dict(_ir.const_node(_ir.P_STR, "None", _mk_type(spec), _mk_span(span)))
+            if name == "str" and _node_type_kind(args[0]) == "exc":
+                # str(e) over a user exception class: CPython calls the
+                # class's own `__str__`, and only a class without one
+                # falls back to the base message (issue #448, the
+                # iniconfig ParseError shape). The handler binds the
+                # class name on the exception type, so the dunder
+                # dispatch finds the class record.
+                called = self._exc_str_dispatch(node, args[0], span)
+                if called is not None:
+                    return called
             if name == "int" and _node_type_kind(args[0]) in {"bytes", "str"}:
                 return self._abi_call("builtins", "int", args, spec, "ps_int_from_bytes", span)
             return node_to_dict(

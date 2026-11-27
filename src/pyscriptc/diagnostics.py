@@ -193,6 +193,20 @@ _ENTRIES = (
         "Use a supported context manager without the binding, or open and close explicitly.",
     ),
     Diagnostic(
+        "PS1207",
+        "@specialize on a definition that is not generic",
+        (
+            "The `@specialize` marker of the `pyscriptc._annotations` shadow module asserts that the "
+            "definition is monomorphized per call site, but this definition carries no TypeVar (a class "
+            "declares no TypeVar parameter), so the compiler emits exactly one copy and there is nothing "
+            "to specialize."
+        ),
+        (
+            "Mark a generic definition (a `TypeVar` in its signature, or a `Generic[T]` class), or drop "
+            "the marker. The marker never changes what the definition means; it only states the intent."
+        ),
+    ),
+    Diagnostic(
         "PS2001",
         "stdlib name not supported",
         "The module imports, but this attribute is outside the surface the compiler takes. "

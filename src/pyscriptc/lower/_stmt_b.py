@@ -24,6 +24,7 @@ from pyscriptc.errors import span_of  # noqa: F401  # moved-verbatim import
 from pyscriptc.ir import types_equal  # noqa: F401  # moved-verbatim import
 from pyscriptc.lower._core import (
     _SCALAR,  # noqa: F401  # moved-verbatim import
+    Fence,  # noqa: F401  # moved-verbatim import
     _assign,  # noqa: F401  # moved-verbatim import
     _attr,  # noqa: F401  # moved-verbatim import
     _binary_int,  # noqa: F401  # moved-verbatim import
@@ -73,9 +74,32 @@ def _handler_names(lowerer: Lowerer, node: ast.expr) -> list[str]:
     for item in names:
         if isinstance(item, ast.Attribute):
             # A dotted spelling (urllib.error.HTTPError): resolve through the
-            # module chain and alias onto the synthetic class.
+            # module chain and alias onto the synthetic class. A package
+            # exception class (iniconfig.ParseError) is not an alias row:
+            # the attribute resolves to the package export and the installed
+            # class record answers the handler check (issue #415).
             resolved_attr = lowerer._resolve_module(item)
-            if resolved_attr is None or resolved_attr[3] != "lowered":
+            if resolved_attr is None:
+                lowerer.fail(item, "PS2002", "except names a lowered exception")
+            if resolved_attr[3] == "pkg":
+                # A package exception class (iniconfig.ParseError): the
+                # export table carries the class, so the handler installs it
+                # the way a from-import does and names the class it finds.
+                name = resolved_attr[2]
+                if name not in lowerer.classes:
+                    export = lowerer._export_lookup(resolved_attr[1], name)
+                    if export is None or export.get("kind") != "class":
+                        lowerer.fail(item, "PS2002", "except names a lowered exception")
+                    pending: list[Fence] = []
+                    lowerer._install_class_export(name, export, item, pending, resolved_attr[1])
+                    if pending:
+                        raise pending[0]
+                info = lowerer.classes.get(name)
+                if info is None or not info.get("exception"):
+                    lowerer.fail(item, "PS2002", "except names a lowered exception")
+                found.append(name)
+                continue
+            if resolved_attr[3] != "lowered":
                 lowerer.fail(item, "PS2002", "except names a lowered exception")
             alias = alias_name(resolved_attr[1], resolved_attr[2])
             if alias is None:

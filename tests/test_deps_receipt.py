@@ -94,26 +94,29 @@ PILOT2 = SCRIPT.parent / "iniconfig_pilot.py"
 
 # The reachable fence ceiling of the pilot, measured 2026-11-23 on iniconfig
 # 2.3.1: 33 on master `69b54156`, 27 once the bare-`Final` and optional-tuple
-# slices of #417 landed. Lower it as each follow-up slice lands; the strict
-# xfail below turns into a failure the day the profile reaches zero, so the
-# full CPython match gets promoted instead of staying silently expected.
-PILOT2_FENCE_CEILING = 27
+# slices of #417 landed, and 0 once the #415 slices landed (the dependency
+# class tolerance, the package exception handler, the optional print and the
+# empty-display conditional). The ceiling is 0 now: the pilot's reachable
+# profile is empty, so the full CPython match below is a plain test rather
+# than a strictly-xfailed one.
+PILOT2_FENCE_CEILING = 0
 
 
-def _pilot2_profile(tmp_path: Path) -> tuple[dict, Path]:
+def _pilot_profile(script: Path, tmp_path: Path) -> tuple[dict, Path]:
+    """The reachable fence profile of a PEP 723 script, and its source root."""
     from benchmarks.library.pilot2 import fence_profile
 
-    report = deps.run_deps(PILOT2)
+    report = deps.run_deps(script)
     (iniconfig,) = [p for p in report["packages"] if p["name"] == "iniconfig"]
     assert iniconfig["lane"] == "pure", iniconfig["reason"]
-    assert report["lockProvenance"] == "lock", "the committed pylock pins the pilot's resolution"
+    assert report["lockProvenance"] == "lock", "the committed pylock pins the resolution"
     source_root = Path(iniconfig["source_root"])
     # No vendoring and no path edits: the plain compile resolves the wheel
     # through the same multi-root path any PEP 723 consumer takes.
     cli.main(
         [
             "compile",
-            str(PILOT2),
+            str(script),
             "--skip-check",
             "--emit",
             "ir",
@@ -124,6 +127,10 @@ def _pilot2_profile(tmp_path: Path) -> tuple[dict, Path]:
         ]
     )
     return fence_profile(tmp_path / "dbg" / "ir.json", source_root), source_root
+
+
+def _pilot2_profile(tmp_path: Path) -> tuple[dict, Path]:
+    return _pilot_profile(PILOT2, tmp_path)
 
 
 @needs_network
@@ -140,11 +147,6 @@ def test_iniconfig_pilot_fence_profile_is_within_the_ceiling(tmp_path: Path, mon
 
 @needs_network
 @needs_toolchain
-@pytest.mark.xfail(
-    strict=True,
-    reason="#417 blockers: tuple dict keys #1368, exception init and fields #448, NamedTuple #1369, "
-    "None-initialised locals #1370, __getitem__/__contains__ dispatch #446",
-)
 def test_iniconfig_pilot_matches_cpython(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("PYSC_UV", raising=False)
     monkeypatch.setenv("PYSC_NO_TELEMETRY", "1")
@@ -159,6 +161,43 @@ def test_iniconfig_pilot_matches_cpython(tmp_path: Path, monkeypatch: pytest.Mon
     assert reference.returncode == 0, reference.stderr
     binary = tmp_path / "iniconfig-pilot"
     assert cli.main(["compile", str(PILOT2), "--skip-check", "--emit", "bin", "-o", str(binary)]) == 0
+    probe = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, check=False)  # noqa: S603
+    assert probe.stdout == reference.stdout, (probe.stdout, reference.stdout, probe.stderr)
+    assert probe.returncode == reference.returncode
+
+
+# The receipt (issue #415): the iniconfig program compiles with zero fences
+# and matches CPython byte for byte. The pilot's xfail above turns into this
+# test the day the profile reaches zero; the pilot stays for the fence
+# measurement, the receipt is the claim.
+RECEIPT = SCRIPT.parent / "iniconfig_receipt.py"
+
+
+@needs_network
+def test_iniconfig_receipt_fence_profile_is_zero(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYSC_UV", raising=False)
+    monkeypatch.setenv("PYSC_NO_TELEMETRY", "1")
+    monkeypatch.setenv("PYSC_CACHE_DIR", str(tmp_path / "cache"))
+    profile, _ = _pilot_profile(RECEIPT, tmp_path)
+    assert profile["total"] == 0, profile["fences"]
+
+
+@needs_network
+@needs_toolchain
+def test_iniconfig_receipt_matches_cpython(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.delenv("PYSC_UV", raising=False)
+    monkeypatch.setenv("PYSC_NO_TELEMETRY", "1")
+    monkeypatch.setenv("PYSC_CACHE_DIR", str(tmp_path / "cache"))
+    profile, source_root = _pilot_profile(RECEIPT, tmp_path)
+    assert profile["total"] == 0, profile["fences"]
+
+    env = {**os.environ, "PYTHONPATH": str(source_root)}
+    reference = subprocess.run(  # noqa: S603
+        [sys.executable, str(RECEIPT)], capture_output=True, text=True, env=env, timeout=60, check=False
+    )
+    assert reference.returncode == 0, reference.stderr
+    binary = tmp_path / "iniconfig-receipt"
+    assert cli.main(["compile", str(RECEIPT), "--skip-check", "--emit", "bin", "-o", str(binary)]) == 0
     probe = subprocess.run([str(binary)], capture_output=True, text=True, timeout=60, check=False)  # noqa: S603
     assert probe.stdout == reference.stdout, (probe.stdout, reference.stdout, probe.stderr)
     assert probe.returncode == reference.returncode

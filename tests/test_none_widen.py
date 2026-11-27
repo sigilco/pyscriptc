@@ -83,9 +83,11 @@ def test_a_none_after_a_concrete_binding_does_not_widen() -> None:
 
 
 def test_an_ifexp_with_a_none_arm_is_the_optional_itself() -> None:
-    # `x if c else None` is `T | None` on its own, with no widening needed.
+    # `x if c else None` is `T | None` on its own, with no widening needed,
+    # and print of the optional unwraps the tag the way CPython prints the
+    # value or `None` (issue #415).
     source = "def f(c: bool) -> None:\n    x = 1 if c else None\n    print(x)\n"
-    assert _codes(source) == ["PS2003"]
+    assert _codes(source) == []
 
 
 def test_the_probe_compiles_and_matches_cpython(tmp_path: Path) -> None:

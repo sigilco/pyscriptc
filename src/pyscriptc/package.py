@@ -341,6 +341,8 @@ def _lower_units(
     classes: list[dict[str, Any]] = []
     fences: list[dict[str, Any]] = []
     notes: list[str] = []  # boxed:begin N2: the advisory notes of every unit.
+    # Issue #1309: the specialization rows of every unit, in unit order.
+    specializations: list[dict[str, Any]] = []
     class_names: dict[str, dict[str, Any]] = {}
     exc_n = USER_EXC_BASE
     needs_island = False  # boxed
@@ -443,6 +445,9 @@ def _lower_units(
                 # not a fence, and the note rides the merged module so the
                 # CLI prints it.
                 notes.extend(_items(module, "_notes"))
+                # Issue #1309: the unit's specialization rows join the
+                # merge, unit order, like the notes.
+                specializations.extend(_items(module, "specializations"))
                 # boxed:end
             except Exception as exc:
                 if not _note_unit_failure(unit_failures, path, exc):
@@ -500,6 +505,11 @@ def _lower_units(
         "classes": classes,
         "fences": fences,
     }
+    # Issue #1309: the units' specialization rows merged above ride the
+    # merged module, so `compile DIR --specializations` reports the whole
+    # tree the way the merged IR reports the whole program.
+    if specializations:
+        merged["specializations"] = specializations
     # boxed:begin
     if island_modules or island_group:
         # The seeds run in the order CPython finishes the bodies: a seed

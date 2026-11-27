@@ -367,15 +367,15 @@ def test_self_census_ballpark() -> None:
     # taking the census to about 98,750, so the ceiling moves to 99k.
     # The G3b decorator and nested-generator lift (#442): the plan pass in
     # coro.py, the closure lowering in lower/_closures.py and the frame-copy
-    # hooks add about 400 lines.
-    # The tagged dynamic value's str() and class-attribute surface (#1226):
-    # the `str()` of a dynval in lower/_calls.py, the dynval slot and
-    # class-attribute handling in lower/_class_attrs.py and
-    # lower/_classes.py add about 44 lines.
-    # The property setters (D4a, #439): the setter lowering, the class-level
-    # property fences and the setter dispatch add about 260 lines, taking
-    # the census to about 99,900, so the ceiling stays at 101k.
-    assert 11_000 <= census["lines"] <= 101_000
+    # hooks add about 400 lines, taking the census to about 99,550, so the
+    # ceiling moves to 101k.
+    # The pure-dependency receipt slices (#415): the dependency-scoped method
+    # tolerance and the signature-class install in lower/_classes.py, the
+    # assigned-type narrowing in lower/_stmt_a.py, the synthetic-tuple install
+    # and the type-label parse in lower/__init__.py, the exception __str__
+    # dispatch and the runtime codec lookup add about 540 lines, taking the
+    # census to about 101,220, so the ceiling moves to 102k.
+    assert 11_000 <= census["lines"] <= 102_000
     # Relocated program data files (#665): the staged-data plumbing in
     # cli.py and package.py and the rebasing bootstrap in boxed.py add
     # about 200 lines and 2 self-host fences.

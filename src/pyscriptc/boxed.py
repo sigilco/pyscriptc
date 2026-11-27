@@ -259,6 +259,10 @@ def island_names(planes: dict[str, Any]) -> list[str]:
 # definition's plane is never computed twice from two rule sets.
 SHADOW_ANNOTATIONS_MODULE = "pyscriptc._annotations"
 ISLAND_MARKER = "island"
+# The `@specialize` marker (issue #1309): it asserts the per-call-site
+# monomorphization the compiler already performs, and the specialization
+# report reads the lowering's own instantiation facts against it.
+SPECIALIZE_MARKER = "specialize"
 
 
 def island_marker_spellings(tree: Any) -> tuple[frozenset[str], frozenset[str]]:
@@ -335,6 +339,92 @@ def _dotted_name(node: Any) -> str:
         parts.append(current.id)
         return ".".join(reversed(parts))
     return ""
+
+
+# boxed:end
+
+
+# The `@specialize` marker of the shadow annotation module (issue #1309).
+# Like the `@island` table above, the spellings are read once from the
+# source's own import, so the compile path and the report never disagree
+# about which decorator is the marker.
+def specialize_marker_spellings(tree: Any) -> tuple[frozenset[str], frozenset[str]]:
+    """The `@specialize` spellings the source's import binds: (members, modules).
+
+    Same rule as `island_marker_spellings`: a `from pyscriptc._annotations
+    import specialize` binds the member names (aliases included), an
+    `import pyscriptc._annotations` binds the dotted spellings, and a
+    decorator named `specialize` from anywhere else is in neither set.
+    """
+
+    members: set[str] = set()
+    modules: set[str] = set()
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                if alias.name != SHADOW_ANNOTATIONS_MODULE:
+                    continue
+                local = alias.asname or alias.name
+                root = local.split(".")[0]
+                modules.add(f"{root}.{SPECIALIZE_MARKER}")
+                modules.add(f"{root}.{SHADOW_ANNOTATIONS_MODULE.split('.', 1)[1]}.{SPECIALIZE_MARKER}")
+        elif isinstance(node, ast.ImportFrom):
+            if node.module != SHADOW_ANNOTATIONS_MODULE or node.level:
+                continue
+            for alias in node.names:
+                if alias.name == SPECIALIZE_MARKER:
+                    members.add(alias.asname or alias.name)
+    return frozenset(members), frozenset(modules)
+
+
+def _spells_marker(dec: Any, members: frozenset[str], modules: frozenset[str]) -> bool:
+    """True when one decorator expression spells the marker."""
+
+    target = dec.func if isinstance(dec, ast.Call) else dec
+    if isinstance(target, ast.Name):
+        return target.id in members
+    if isinstance(target, ast.Attribute):
+        return _dotted_name(target) in modules
+    return False
+
+
+def specialize_marked_definitions(tree: Any) -> list[str]:
+    """The module-level definition names the source marks `@specialize`.
+
+    The unit is the module-level definition, exactly like the `@island`
+    marker: a nested or method decorator marks its enclosing definition.
+    """
+
+    members, modules = specialize_marker_spellings(tree)
+    if not members and not modules:
+        return []
+    marked: list[str] = []
+    for node in getattr(tree, "body", []):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if any(_spells_marker(dec, members, modules) for dec in node.decorator_list):
+            marked.append(node.name)
+    return marked
+
+
+def specialize_marked_nodes(tree: Any) -> dict[str, Any]:
+    """The marked module-level definition nodes, name -> node.
+
+    The compile path needs the node (its decorators, its annotations) to
+    decide whether the marker's assertion holds; the report needs the
+    same nodes to name the definition's line.
+    """
+
+    members, modules = specialize_marker_spellings(tree)
+    if not members and not modules:
+        return {}
+    marked: dict[str, Any] = {}
+    for node in getattr(tree, "body", []):
+        if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            continue
+        if any(_spells_marker(dec, members, modules) for dec in node.decorator_list):
+            marked[node.name] = node
+    return marked
 
 
 # boxed:end

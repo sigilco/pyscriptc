@@ -254,6 +254,12 @@ class CallsMixin(EmitterBase):
                 self._abi_decl(symbol, "double", ["double"] * len(values))
                 self.needed.add("math")
                 return self._call_ret("double", symbol, [f"double {value}" for value in values])
+            if symbol == "ps_exc_payload":
+                # str(e) over a user exception class (issue #448): the class
+                # instance the record carries as its payload, the receiver
+                # the lowered `__str__` call reads its fields off.
+                self._abi_decl("ps_exc_payload", "ptr", ["ptr"])
+                return self._call_ret("ptr", "ps_exc_payload", [f"ptr {values[0]}"])
             if symbol == "ps_path_join":
                 return self._emit_join(values)
             if symbol in {"ps_deque_append", "ps_deque_appendleft"}:
@@ -435,6 +441,12 @@ class CallsMixin(EmitterBase):
                 length: str = parts4[0]
                 ptr: str = parts4[1]
                 return self._call_ret("ptr", "ps_os_walk", [f"i64 {length}", f"ptr {ptr}", f"i64 {size}"])
+            if symbol == "ps_os_fspath":
+                self._abi_decl("ps_os_fspath", "void", ["i64", "ptr", "ptr"])
+                parts5: tuple[str, str] = self._buf_parts(values[0])
+                length5: str = parts5[0]
+                ptr5: str = parts5[1]
+                return self._buf_out("ps_os_fspath", [f"i64 {length5}", f"ptr {ptr5}"])
             if symbol == "ps_str_format":
                 # args[0] is the format string; the rest marshal into %ps.arg.
                 count = len(values) - 1
@@ -575,8 +587,15 @@ class CallsMixin(EmitterBase):
             self._abi_decl("ps_utf8_decode", "void", ["i64", "ptr", "ptr"])
             return self._buf_out("ps_utf8_decode", [f"i64 {length}", f"ptr {ptr}"])
         if name == "splitlines":
+            # The keepends flag rides the call: the 0-arg form is False.
+            # The compiler's bool is an i1, the runtime takes an i64.
+            keepends: str = "i64 0"
+            if len(values) > 1:
+                wide = self.tmp()
+                self.line(f"{wide} = zext i1 {values[1]} to i64")
+                keepends = f"i64 {wide}"
             self._abi_decl("ps_str_splitlines", "ptr", ["i64", "ptr", "i64"])
-            return self._call_ret("ptr", "ps_str_splitlines", [f"i64 {length}", f"ptr {ptr}", "i64 0"])
+            return self._call_ret("ptr", "ps_str_splitlines", [f"i64 {length}", f"ptr {ptr}", keepends])
         if name == "expandtabs":
             tabsize: str = "8"
             if len(values) > 1:
