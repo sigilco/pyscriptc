@@ -1385,11 +1385,20 @@ class AbiMixin(EmitterBase):
         The env carries the bound arguments, the inner pair and the thread
         record. The stub calls the inner impl env-first with the bound
         arguments prepended, then copies the result into the record.
+
+        The stub is `void`: its only caller is `ps_to_thread_body` in the
+        runtime, which invokes it through `ps_call_fn` (`void (*)(void *)`)
+        and discards the return. Spelling a struct return would change the
+        calling convention — an aggregate wider than 16 bytes returns
+        through a hidden sret pointer in the first register, so the C call
+        site would hand the env in the second slot and the stub would read
+        garbage for the env (the macOS arm64 ABI keeps the env in x0 and
+        hides the sret pointer in x8, which is why the same binary
+        segfaults only on x86-64).
         """
         bound: list[dict[str, Any]] = _spec_bound(spec)
         params: list[dict[str, Any]] = _spec_params(spec)
         spec_return: dict[str, Any] = _spec_return(spec)
-        ret = _llvm_type(spec_return)
         plist: list[str] = ["ptr %env"]
         for index in range(len(params)):
             plist.append(f"{_llvm_type(params[index])} %p{index}")
@@ -1397,7 +1406,7 @@ class AbiMixin(EmitterBase):
         # runtime call it makes itself.
         self._abi_decl("ps_to_thread_store", "void", ["ptr", "ptr", "i64"])
         out_lines = self.out
-        out_lines.append(f"define internal {ret} @{symbol}({', '.join(plist)}) {{")
+        out_lines.append(f"define internal void @{symbol}({', '.join(plist)}) {{")
         out_lines.append("entry:")
         args: list[str] = []
         for index in range(len(bound)):
@@ -1425,7 +1434,10 @@ class AbiMixin(EmitterBase):
         call_args.extend(args)
         for index in range(len(params)):
             call_args.append(f"{_llvm_type(params[index])} %p{index}")
+        ret = _llvm_type(spec_return)
         if ret == "void":
+            # A None result: the record carries nothing, the store is the
+            # worker's done flag alone.
             out_lines.append(f"  call void %impl({', '.join(call_args)})")
             out_lines.append("  ret void")
         else:
@@ -1447,7 +1459,7 @@ class AbiMixin(EmitterBase):
                 out_lines.append(f"  store {ret} %r, ptr %slot")
             store_size: int = _elem_size(_spec_return(spec))
             out_lines.append(f"  call void @ps_to_thread_store(ptr %rec, ptr %slot, i64 {store_size})")
-            out_lines.append(f"  ret {ret} %r")
+            out_lines.append("  ret void")
         out_lines.append("}")
         out_lines.append("")
 
