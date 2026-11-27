@@ -35,7 +35,9 @@ That wraps `uv run python benchmarks/compat2/boxed_cost.py --window-commits 10`,
 
 It reports, per window, code share, churn share, bug share (`fix` commits) and iteration tax (commits that touch boxed code without naming boxed, island or fallback in the subject). Record the latest values and their trend here after each run.
 
-Latest measurement (2026-11-09, newest window `dcf6c8288b5d..74306324dfda`, 10 commits): code 5.4%, churn 5.2%, bug 50% (1 of 2), tax 0.0%, drop_flag TRUE (bug share above 25% in two consecutive windows: 50% then 33%, one boxed-area fix each (#1175 assess fix and #769 island binding fix) on denominators of 2 and 3 fix commits). The 2026-10-27 v0.7.0-boundary reading was code 5.0%, churn 7.7%, bug 20% (1 of 5), tax 10%, drop_flag false.
+Latest measurement (2026-11-27, v0.11.0 boundary, newest window `7b7e3dff2490..76c8d7188ae1`, 10 commits): code 4.3% (7,247 of 166,811 lines), churn 8.0%, bug 0.0% (0 of 4), tax 10.0%, drop_flag false. The two windows before it read code 4.3% and 4.4%, churn 0.0%, bug 0.0%, tax 0.0% and 10.0%, so code share and bugs are down from the 2026-11-09 reading.
+
+Previous measurement (2026-11-09, newest window `dcf6c8288b5d..74306324dfda`, 10 commits): code 5.4%, churn 5.2%, bug 50% (1 of 2), tax 0.0%, drop_flag TRUE (bug share above 25% in two consecutive windows: 50% then 33%, one boxed-area fix each (#1175 assess fix and #769 island binding fix) on denominators of 2 and 3 fix commits). The 2026-10-27 v0.7.0-boundary reading was code 5.0%, churn 7.7%, bug 20% (1 of 5), tax 10%, drop_flag false.
 
 Owner decision 2026-11-09: the raised drop flag is acknowledged and the island tier stays. The flagged bug share is tiny-sample noise during active island-floor construction for the v0.10.0 embed cluster (#666-#673 requires the tier), not a decay pattern: churn is 0–5% and tax 0%, and both flagged commits are already-merged small fixes. Re-measure at the v0.10.0 boundary; raise it again only if bug share stays above 25% on larger denominators after the embed cluster lands.
 
