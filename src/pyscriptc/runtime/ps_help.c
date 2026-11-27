@@ -232,9 +232,15 @@ static int ps_int_next_cp(int64_t n, const char *s, int64_t i, uint32_t *cp) {
    base form carries the same suffix with the caller's base. The repr is the
    runtime's own `ps_repr_str`, so the quoting and the escapes match
    CPython's `repr`. */
-static void ps_int_bad_literal_msg(int64_t n, const char *s, int64_t base) {
+static void ps_int_bad_literal_msg(int64_t n, const char *s, int64_t base, int bytes_kind) {
+    /* The repr'd literal: bytes literals quote as b'...' (CPython's
+       repr(bytes)); str keeps ps_repr_str (#1424). */
     PsBuf lit;
-    ps_repr_str(n, s, &lit);
+    if (bytes_kind) {
+        ps_repr_bytes(n, s, &lit);
+    } else {
+        ps_repr_str(n, s, &lit);
+    }
     char prefix[64];
     int plen = snprintf(prefix, sizeof prefix, "invalid literal for int() with base %lld: ", (long long)base);
     if (plen < 0) {
@@ -253,18 +259,34 @@ static void ps_int_bad_literal_msg(int64_t n, const char *s, int64_t base) {
 }
 
 static void ps_int_bad_literal(int64_t n, const char *s) {
-    ps_int_bad_literal_msg(n, s, 10);
+    ps_int_bad_literal_msg(n, s, 10, 0);
+}
+
+/* The bytes-kind form: the literal reprs as b'...' (#1424). */
+static void ps_int_bad_literal_bytes(int64_t n, const char *s) {
+    ps_int_bad_literal_msg(n, s, 10, 1);
 }
 
 int64_t ps_int_from_bytes(int64_t n, const char *s) {
+    /* int(bytes): CPython strips the six ASCII whitespace bytes only
+       (#1424) — a high byte like U+00A0 stays literal and raises. */
+    static const char ws[6] = {' ', '\t', '\n', '\r', '\v', '\f'};
     int64_t i = 0;
     for (;;) {
-        uint32_t cp;
-        int width = ps_int_next_cp(n, s, i, &cp);
-        if (width == 0 || !ps_int_is_space(cp)) {
+        if (i >= n) {
             break;
         }
-        i += width;
+        int space = 0;
+        for (int k = 0; k < 6; k++) {
+            if (s[i] == ws[k]) {
+                space = 1;
+                break;
+            }
+        }
+        if (!space) {
+            break;
+        }
+        i++;
     }
     int neg = 0;
     if (i < n && (s[i] == '+' || s[i] == '-')) {
@@ -274,44 +296,40 @@ int64_t ps_int_from_bytes(int64_t n, const char *s) {
     uint64_t mag = 0;
     int64_t end = n;
     for (;;) {
-        uint32_t cp;
         int64_t last = end - 1;
         if (last < i) {
             break;
         }
-        /* Walk back over continuation bytes: start names the first byte. */
-        int64_t start = last;
-        while (start > i && ((unsigned char)s[start] & 0xC0) == 0x80) {
-            start--;
+        int space = 0;
+        for (int k = 0; k < 6; k++) {
+            if (s[last] == ws[k]) {
+                space = 1;
+                break;
+            }
         }
-        ps_int_next_cp(n, s, start, &cp);
-        if (!ps_int_is_space(cp)) {
+        if (!space) {
             break;
         }
-        end = start;
+        end = last;
     }
     if (i >= end) {
-        ps_int_bad_literal(n, s);
+        ps_int_bad_literal_bytes(n, s);
     }
-    /* CPython's underscore digit separator: one '_' sits between two
-       digits, never at an end and never doubled ('1_0' parses; '_1', '1_',
-       '1__0' and '1_x' raise). `digits` guards the leading '_' and the
-       all-separator literal. */
     int digits = 0;
     for (; i < end; i++) {
         char c = s[i];
         if (c == '_') {
             if (digits == 0 || i + 1 >= end || s[i + 1] == '_') {
-                ps_int_bad_literal(n, s);
+                ps_int_bad_literal_bytes(n, s);
             }
             char nx = s[i + 1];
             if (nx < '0' || nx > '9') {
-                ps_int_bad_literal(n, s);
+                ps_int_bad_literal_bytes(n, s);
             }
             continue;
         }
         if (c < '0' || c > '9') {
-            ps_int_bad_literal(n, s);
+            ps_int_bad_literal_bytes(n, s);
         }
         digits++;
         if (mag > (UINT64_MAX - (uint64_t)(c - '0')) / 10) {
@@ -320,7 +338,7 @@ int64_t ps_int_from_bytes(int64_t n, const char *s) {
         mag = mag * 10 + (uint64_t)(c - '0');
     }
     if (digits == 0) {
-        ps_int_bad_literal(n, s);
+        ps_int_bad_literal_bytes(n, s);
     }
     if (!neg && mag > (uint64_t)INT64_MAX) {
         ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
@@ -367,7 +385,7 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
         if (want && p == want) {
             if (n - i >= 3 && s[i + 2] == '_') {
                 if (i + 3 >= n) {
-                    ps_int_bad_literal_msg(n, s, base);
+                    ps_int_bad_literal_msg(n, s, base, 0);
                 }
                 i += 3;
             } else {
@@ -406,7 +424,7 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
         if (c == '_') {
             int64_t j = i + 1;
             if (digits == 0 || j >= end || s[j] == '_') {
-                ps_int_bad_literal_msg(n, s, base);
+                ps_int_bad_literal_msg(n, s, base, 0);
             }
             char nx = s[j];
             int nxd;
@@ -417,10 +435,10 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
             } else if (nx >= 'A' && nx <= 'Z') {
                 nxd = nx - 'A' + 10;
             } else {
-                ps_int_bad_literal_msg(n, s, base);
+                ps_int_bad_literal_msg(n, s, base, 0);
             }
             if (nxd >= base) {
-                ps_int_bad_literal_msg(n, s, base);
+                ps_int_bad_literal_msg(n, s, base, 0);
             }
             continue;
         }
@@ -432,10 +450,10 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
         } else if (c >= 'A' && c <= 'Z') {
             d = c - 'A' + 10;
         } else {
-            ps_int_bad_literal_msg(n, s, base);
+            ps_int_bad_literal_msg(n, s, base, 0);
         }
         if (d >= base) {
-            ps_int_bad_literal_msg(n, s, base);
+            ps_int_bad_literal_msg(n, s, base, 0);
         }
         if (mag > (UINT64_MAX - (uint64_t)d) / (uint64_t)base) {
             ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");
@@ -443,7 +461,7 @@ int64_t ps_int_from_base(int64_t n, const char *s, int64_t base) {
         mag = mag * (uint64_t)base + (uint64_t)d;
     }
     if (digits == 0) {
-        ps_int_bad_literal_msg(n, s, base);
+        ps_int_bad_literal_msg(n, s, base, 0);
     }
     if (!neg && mag > (uint64_t)INT64_MAX) {
         ps_raise_cstr(PS_VALUE, "int() literal does not fit in i64");

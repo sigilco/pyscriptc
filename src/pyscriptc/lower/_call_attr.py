@@ -425,16 +425,18 @@ class CallAttrMixin:
                 if enc["kind"] != "const" or value != "utf8":
                     self.fail(node, "PS2003", f"{kind}.{attr} lowers the 'utf-8' encoding only")
             if attr == "find" and len(args) == 2:
-                # `s.find(needle, start)` (issue #1246): the runtime's
-                # ps_str_find_from owns the subscript-style start wrap.
+                # `s.find(needle, start)` (issue #1246): the runtime owns the
+                # subscript-style start wrap. The bytes kind counts bytes
+                # (#1424), so it names the byte-offset form.
                 self._expect(node, args[0]["type"], {"kind": kind}, "str.find needle")
                 self._expect(node, args[1]["type"], {"kind": "int"}, "str.find start")
+                find_sym = "ps_buf_find_from" if kind == "bytes" else "ps_str_find_from"
                 return self._abi_call(
                     "builtins",
-                    "str.find_from",
+                    f"{kind}.find_from",
                     [receiver, *args],
                     {"kind": "int"},
-                    "ps_str_find_from",
+                    find_sym,
                     span,
                 )
             spec = method_spec(receiver["type"], node.func.attr, [arg["type"] for arg in args])

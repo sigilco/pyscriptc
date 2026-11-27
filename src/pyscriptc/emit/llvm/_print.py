@@ -240,6 +240,12 @@ class PrintMixin(EmitterBase):
                     self._abi_decl("ps_repr_quoted", "void", ["i64", "ptr", "ptr"])
                     out = self._buf_out("ps_repr_quoted", [f"i64 {length}", f"ptr {ptr}"])
                     length, ptr = self._buf_parts(out)
+                elif ftype.kind == "bytes":
+                    # A bytes field reprs as b'...' (CPython's repr(bytes),
+                    # issue #1424).
+                    self._abi_decl("ps_repr_bytes", "void", ["i64", "ptr", "ptr"])
+                    out = self._buf_out("ps_repr_bytes", [f"i64 {length}", f"ptr {ptr}"])
+                    length, ptr = self._buf_parts(out)
                 self._print_fmt("str", b"%.*s", [f"i64 {length}", f"ptr {ptr}"], err=err)
             else:
                 loaded = self._load(_llvm_type(ftype_dict), slot)

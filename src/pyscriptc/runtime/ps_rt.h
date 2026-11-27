@@ -494,6 +494,19 @@ void ps_own(void *obj);
 void ps_buf_slice(
     int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
 );
+/* The bytes forms of the search, predicate, case and partition helpers
+   (#1424): byte offsets, ASCII-only case and predicates. */
+int64_t ps_buf_find_from(int64_t n, const char *p, int64_t sn, const char *sp, int64_t start);
+int64_t ps_buf_rfind(int64_t n, const char *p, int64_t sn, const char *sp);
+int64_t ps_buf_count(int64_t n, const char *p, int64_t sn, const char *sp);
+int64_t ps_buf_isalpha(int64_t n, const char *p);
+int64_t ps_buf_isalnum(int64_t n, const char *p);
+int64_t ps_buf_isspace(int64_t n, const char *p);
+int64_t ps_buf_isupper(int64_t n, const char *p);
+int64_t ps_buf_islower(int64_t n, const char *p);
+void ps_buf_upper(int64_t n, const char *p, PsBuf *out);
+void ps_buf_lower(int64_t n, const char *p, PsBuf *out);
+void ps_buf_partition(int64_t n, const char *p, int64_t sn, const char *sp, int64_t right, PsBuf *out);
 void ps_str_slice(
     int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
 );

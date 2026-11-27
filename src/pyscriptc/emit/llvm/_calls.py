@@ -568,15 +568,21 @@ class CallsMixin(EmitterBase):
         parts6: tuple[str, str] = self._buf_parts(values[0])
         length: str = parts6[0]
         ptr: str = parts6[1]
-        if name in {"strip", "lstrip", "rstrip", "upper", "lower"}:
-            self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "ptr"])
-            return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"])
-        if name in {"title", "capitalize", "casefold", "swapcase"}:
+        if name in {"upper", "lower"}:
+            # The bytes kind maps ASCII letters only (#1424); str keeps the
+            # Unicode case engine.
+            symbol: str = f"ps_buf_{name}" if kind == "bytes" else f"ps_str_{name}"
+            self._abi_decl(symbol, "void", ["i64", "ptr", "ptr"])
+            return self._buf_out(symbol, [f"i64 {length}", f"ptr {ptr}"])
+        if name in {"strip", "lstrip", "rstrip", "title", "capitalize", "casefold", "swapcase"}:
             self._abi_decl(f"ps_str_{name}", "void", ["i64", "ptr", "ptr"])
             return self._buf_out(f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"])
         if name in {"isdigit", "isalpha", "isalnum", "isspace", "isupper", "islower"}:
-            self._abi_decl(f"ps_str_{name}", "i32", ["i64", "ptr"])
-            return self._flag(self._call_ret("i32", f"ps_str_{name}", [f"i64 {length}", f"ptr {ptr}"]))
+            # The bytes predicates are ASCII-only (#1424); isdigit is the
+            # same ASCII digit test on both kinds.
+            psym: str = f"ps_buf_{name}" if kind == "bytes" and name != "isdigit" else f"ps_str_{name}"
+            self._abi_decl(psym, "i32", ["i64", "ptr"])
+            return self._flag(self._call_ret("i32", psym, [f"i64 {length}", f"ptr {ptr}"]))
         if name == "isascii":
             self._abi_decl("ps_str_isascii", "i32", ["i64", "ptr"])
             return self._flag(self._call_ret("i32", "ps_str_isascii", [f"i64 {length}", f"ptr {ptr}"]))
@@ -634,9 +640,11 @@ class CallsMixin(EmitterBase):
             right: str = "0"
             if name == "rpartition":
                 right = "1"
-            self._abi_decl("ps_str_partition", "void", ["i64", "ptr", "i64", "ptr", "i64", "ptr"])
+            # The bytes parts are byte slices (#1424); str keeps its form.
+            psplit: str = "ps_buf_partition" if kind == "bytes" else "ps_str_partition"
+            self._abi_decl(psplit, "void", ["i64", "ptr", "i64", "ptr", "i64", "ptr"])
             self._call_void(
-                "ps_str_partition",
+                psplit,
                 [
                     f"i64 {length}",
                     f"ptr {ptr}",
@@ -702,14 +710,16 @@ class CallsMixin(EmitterBase):
                 [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}", f"i64 {new_len}", f"ptr {new_ptr}"],
             )
         if name in {"find", "count", "index", "rfind"}:
+            # The bytes search counts bytes and answers byte offsets (#1424);
+            # str counts code points.
             symbol: str = {
-                "find": "ps_str_find",
-                "count": "ps_str_count",
-                "index": "ps_str_index",
-                "rfind": "ps_str_rfind",
+                "find": "ps_buf_find_from" if kind == "bytes" else "ps_str_find",
+                "count": "ps_buf_count" if kind == "bytes" else "ps_str_count",
+                "index": "ps_buf_find_from" if kind == "bytes" else "ps_str_index",
+                "rfind": "ps_buf_rfind" if kind == "bytes" else "ps_str_rfind",
             }[name]
             # ps_str_find is already declared by the "str" runtime block.
-            if name != "find":
+            if not (kind == "bytes" and name in {"find", "index"}) and name != "find":
                 self._abi_decl(symbol, "i64", ["i64", "ptr", "i64", "ptr"])
             return self._call_ret("i64", symbol, [f"i64 {length}", f"ptr {ptr}", f"i64 {arg_len}", f"ptr {arg_ptr}"])
         if name in {"startswith", "endswith"}:

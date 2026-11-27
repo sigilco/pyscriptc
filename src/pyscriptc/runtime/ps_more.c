@@ -568,6 +568,159 @@ int64_t ps_str_rfind(int64_t n, const char *p, int64_t sn, const char *sp) {
     return -1;
 }
 
+/* bytes forms of the search helpers (#1424): one index is one byte, so the
+   scan runs over n directly and the returned offset needs no code-point
+   conversion. The empty needle matches between bytes (len + 1 for count). */
+int64_t ps_buf_find_from(int64_t n, const char *p, int64_t sn, const char *sp, int64_t start) {
+    if (start < 0) {
+        start += n;
+        if (start < 0) {
+            start = 0;
+        }
+    }
+    if (start > n) {
+        return -1;
+    }
+    if (sn == 0) {
+        return start;
+    }
+    if (sn > n - start) {
+        return -1;
+    }
+    for (int64_t i = start; i + sn <= n; i++) {
+        if (memcmp(p + i, sp, (size_t)sn) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int64_t ps_buf_rfind(int64_t n, const char *p, int64_t sn, const char *sp) {
+    if (sn == 0) {
+        return n;
+    }
+    for (int64_t i = n - sn; i >= 0; i--) {
+        if (memcmp(p + i, sp, (size_t)sn) == 0) {
+            return i;
+        }
+    }
+    return -1;
+}
+
+int64_t ps_buf_count(int64_t n, const char *p, int64_t sn, const char *sp) {
+    int64_t hits = 0;
+    if (sn == 0) {
+        return n + 1;
+    }
+    int64_t i = 0;
+    while (i + sn <= n) {
+        if (memcmp(p + i, sp, (size_t)sn) == 0) {
+            hits++;
+            i += sn;
+        } else {
+            i++;
+        }
+    }
+    return hits;
+}
+
+/* The bytes predicates are ASCII-only per CPython: a high byte is simply
+   not alpha/alnum/space/cased, and empty is False. */
+static int64_t ps_buf_pred(int64_t n, const char *p, int kind) {
+    if (n == 0) {
+        return 0;
+    }
+    int cased = 0;
+    for (int64_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)p[i];
+        int ok = 0;
+        int is_cased = 0;
+        switch (kind) {
+        case 0: /* isalpha */
+            ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z');
+            break;
+        case 1: /* isalnum */
+            ok = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9');
+            break;
+        case 2: /* isspace */
+            ok = c == ' ' || c == '\t' || c == '\n' || c == '\r' || c == '\v' || c == '\f';
+            break;
+        case 3: /* isupper */
+            ok = (c >= 'a' && c <= 'z') ? 0 : ((c >= 'A' && c <= 'Z') ? 1 : 2);
+            is_cased = c >= 'a' && c <= 'z';
+            break;
+        default: /* islower */
+            ok = (c >= 'A' && c <= 'Z') ? 0 : ((c >= 'a' && c <= 'z') ? 1 : 2);
+            is_cased = c >= 'A' && c <= 'Z';
+            break;
+        }
+        if (kind < 3) {
+            if (!ok) {
+                return 0;
+            }
+        } else if (ok == 0) {
+            return 0;
+        } else if (ok == 1) {
+            cased = 1;
+        }
+        (void)is_cased;
+    }
+    if (kind >= 3 && !cased) {
+        return 0;
+    }
+    return 1;
+}
+
+int64_t ps_buf_isalpha(int64_t n, const char *p) {
+    return ps_buf_pred(n, p, 0);
+}
+
+int64_t ps_buf_isalnum(int64_t n, const char *p) {
+    return ps_buf_pred(n, p, 1);
+}
+
+int64_t ps_buf_isspace(int64_t n, const char *p) {
+    return ps_buf_pred(n, p, 2);
+}
+
+int64_t ps_buf_isupper(int64_t n, const char *p) {
+    return ps_buf_pred(n, p, 3);
+}
+
+int64_t ps_buf_islower(int64_t n, const char *p) {
+    return ps_buf_pred(n, p, 4);
+}
+
+/* bytes.upper / bytes.lower: only ASCII letters move; every other byte
+   copies through (#1424). */
+void ps_buf_upper(int64_t n, const char *p, PsBuf *out) {
+    char *q = malloc((size_t)n + 1);
+    if (q == NULL) {
+        abort();
+    }
+    for (int64_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)p[i];
+        q[i] = (char)(c >= 'a' && c <= 'z' ? c - 32 : c);
+    }
+    q[n] = '\0';
+    out->len = n;
+    out->data = q;
+}
+
+void ps_buf_lower(int64_t n, const char *p, PsBuf *out) {
+    char *q = malloc((size_t)n + 1);
+    if (q == NULL) {
+        abort();
+    }
+    for (int64_t i = 0; i < n; i++) {
+        unsigned char c = (unsigned char)p[i];
+        q[i] = (char)(c >= 'A' && c <= 'Z' ? c + 32 : c);
+    }
+    q[n] = '\0';
+    out->len = n;
+    out->data = q;
+}
+
 
 /* word scanner: fills lo/hi with word bounds. ascii=1 restricts whitespace
    to the six ASCII bytes (bytes.split); ascii=0 adds the str whitespace set. */
@@ -941,6 +1094,45 @@ void ps_str_partition(int64_t n, const char *p, int64_t sn, const char *sp, int6
         }
     } else {
         for (i = n - sn; i >= 0; i--) {
+            if (memcmp(p + i, sp, (size_t)sn) == 0) {
+                at = i;
+                break;
+            }
+        }
+    }
+    if (at < 0) {
+        if (!right) {
+            ps_buf_copy(&out[0], p, n);
+            ps_buf_copy(&out[1], "", 0);
+            ps_buf_copy(&out[2], "", 0);
+        } else {
+            ps_buf_copy(&out[0], "", 0);
+            ps_buf_copy(&out[1], "", 0);
+            ps_buf_copy(&out[2], p, n);
+        }
+        return;
+    }
+    ps_buf_copy(&out[0], p, at);
+    ps_buf_copy(&out[1], sp, sn);
+    ps_buf_copy(&out[2], p + at + sn, n - at - sn);
+}
+
+/* bytes.partition: byte offsets, byte parts (#1424). right = rpartition.
+   Empty sep raises ValueError. */
+void ps_buf_partition(int64_t n, const char *p, int64_t sn, const char *sp, int64_t right, PsBuf *out) {
+    int64_t at = -1;
+    if (sn == 0) {
+        ps_raise_cstr(PS_VALUE, "empty separator");
+    }
+    if (!right) {
+        for (int64_t i = 0; i + sn <= n; i++) {
+            if (memcmp(p + i, sp, (size_t)sn) == 0) {
+                at = i;
+                break;
+            }
+        }
+    } else {
+        for (int64_t i = n - sn; i >= 0; i--) {
             if (memcmp(p + i, sp, (size_t)sn) == 0) {
                 at = i;
                 break;
