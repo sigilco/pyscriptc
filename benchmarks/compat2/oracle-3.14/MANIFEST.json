@@ -253,10 +253,10 @@
         "3.14": 190
       },
       "surface": {
-        "3.10": 11436,
-        "3.11": 11979,
-        "3.12": 12354,
-        "3.13": 12691,
+        "3.10": 11437,
+        "3.11": 11980,
+        "3.12": 12355,
+        "3.13": 12692,
         "3.14": 13180
       }
     },
@@ -266,11 +266,10 @@
       "stdlib.os.getppid",
       "stdlib.posix.getcwd",
       "stdlib.posix.getcwdb",
-      "stdlib.posix.getppid"
-    ],
-    "seed_dependent": [
+      "stdlib.posix.getppid",
       "stdlib.sys.getunicodeinternedsize"
     ],
+    "seed_dependent": [],
     "unverified_on_oracle": [
       "stdlib.configparser.ConfigParser.read",
       "stdlib.configparser.RawConfigParser.read",
