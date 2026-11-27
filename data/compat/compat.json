@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-26",
-  "commit": "9ede2c8fb34470caa3e28130f0cdb3f243fbc326",
+  "commit": "98ad008790d44b8581baedbd97197e04219b2b4b",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-26",
-    "commit": "9ede2c8fb34470caa3e28130f0cdb3f243fbc326",
+    "commit": "98ad008790d44b8581baedbd97197e04219b2b4b",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -26,7 +26,7 @@
     "builtins_partial": 14,
     "builtins_none": 1,
     "stdlib_full": 1,
-    "stdlib_partial": 71,
+    "stdlib_partial": 72,
     "stdlib_none": 0,
     "packages_full": 2,
     "packages_partial": 11,
@@ -1652,6 +1652,26 @@
         "PS2002"
       ],
       "note": "annotation-only like typing: the abstract containers erase to the concrete list, dict and set; names used as values fence"
+    },
+    {
+      "id": "stdlib.pyscriptc-frame",
+      "kind": "stdlib",
+      "label": "`pyscriptc_frame`, `pandas`",
+      "names": [
+        "pyscriptc_frame",
+        "pandas"
+      ],
+      "status": "partial",
+      "count": 2,
+      "unsupported": [
+        "other module members (read_csv, to_csv, merge, concat), other methods (sort_values, groupby, describe), a column name outside the schema, a new column (the schema label is fixed in slice 1), to_dict against a foreign value type, a non-display constructor argument"
+      ],
+      "fences": [
+        "PS1003",
+        "PS2001",
+        "PS2003"
+      ],
+      "note": ""
     }
   ],
   "packages": [
@@ -2834,7 +2854,7 @@
     },
     {
       "date": "2026-11-26",
-      "commit": "9ede2c8fb34470caa3e28130f0cdb3f243fbc326",
+      "commit": "98ad008790d44b8581baedbd97197e04219b2b4b",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
