@@ -386,9 +386,13 @@ class StmtsMixin(EmitterBase):
         saved_hoist = self.hoisted_allocas
         saved_at = self.hoist_at
         # A `None`-typed local has no storage (it is the singleton), so it
-        # never travels in the env array.
-        stored = {name for name, (ptr, _) in self.slots.items() if ptr}
-        touched = sorted(_used_names(body) & stored)
+        # never travels in the env array. A slot the body only *mentions*
+        # (issue #1425: the frame's copy-out reads `.ps_awv_2`, whose type
+        # is `none` when the awaited task produces no result) still needs an
+        # entry, though: `load` answers the singleton through `self.slots`,
+        # so a missing entry is a KeyError instead of a no-op. Keep the env
+        # entry with a null pointer; the None path never dereferences it.
+        touched = sorted(_used_names(body) & set(self.slots))
         self.slot_order = touched
         self.slot_types = {name: self.slots[name][1] for name in touched}
         self.in_entry = True
@@ -430,7 +434,10 @@ class StmtsMixin(EmitterBase):
         ptrs = [self.slots[name][0] for name in order]
         if self.ret_ptr is not None:
             ptrs.append(self.ret_ptr)
-        return ptrs
+        # A None-typed slot carries no storage (issue #1425): it rides in
+        # the layout for the reads (`load` answers the singleton), so the
+        # callsite packs a null placeholder where a pointer would be.
+        return ["null" if not ptr else ptr for ptr in ptrs]
 
     def _pack_ptrs(self, ptrs: list[str]) -> str:
         if not ptrs:

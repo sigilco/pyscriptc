@@ -1653,7 +1653,10 @@ class ExprMixin(ExprCompareMixin):
         start = self._pin_slice_int(start, span)
         stop = self._pin_slice_int(stop, span)
         step = self._pin_slice_int(step, span)
-        symbol = "ps_seq_slice" if kind == "list" else "ps_str_slice"
+        # A bytes slice counts bytes; str counts code points (#1416). The
+        # symbols are otherwise shape-identical, so the emit paths key on
+        # the symbol, not on the value's type.
+        symbol = "ps_seq_slice" if kind == "list" else ("ps_buf_slice" if kind == "bytes" else "ps_str_slice")
         result = value["type"] if kind != "list" else value["type"]
         if kind == "str":
             result = {"kind": "str"}

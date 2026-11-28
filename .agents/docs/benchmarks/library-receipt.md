@@ -131,7 +131,7 @@ The PR lands two slices: the bare `Final` qualifier (`UTF8_BOM: Final = "..."`, 
 | tomli consumer, reachable | 81 | 68 |
 | compiler self-census (`tests/census_pins`) | | 49 fewer across 16 modules |
 
-The 27 remaining reachable fences are one root each in five blocker slices plus their cascades:
+After those two slices, 27 reachable fences remained, one root each in five blocker slices plus their cascades. All five issues are closed:
 
 | blocker | sites | issue |
 | --- | --- | --- |
@@ -143,4 +143,21 @@ The 27 remaining reachable fences are one root each in five blocker slices plus 
 
 Not on the pilot's path: `get`'s `_D | _T | str | None` optional of a multi-arm union (PS1102, `__init__.py:70`, `:228`) and `SectionWrapper.__iter__`'s nested def in a generator. Fenced methods do not export, so the class still lowers; the pilot leaves `get` out for that reason.
 
-`tests/test_deps_receipt.py` pins the ceiling (`PILOT2_FENCE_CEILING = 27`, master reads 33 and fails it) and carries the full CPython match as a strict xfail: the day the profile reaches zero, the xfail fails and the match gets promoted. Lower the ceiling as each slice lands.
+### Result (2026-11-27, master `76c8d718`, macOS arm64)
+
+The reachable profile is empty. `uv run python -m benchmarks.library.pilot2` exits 0: the binary built from the PyPI wheel matches CPython on stdout and exit code. `tests/test_deps_receipt.py` pins `PILOT2_FENCE_CEILING = 0` and runs the CPython match as a plain test (`-k iniconfig`: 4 passed).
+
+### Census delta over the library corpus (v0.11.0)
+
+The corpus is the five candidates of `.agents/docs/design/415-pure-dep-receipt.md`, at the versions recorded there. Both columns ran `pyscriptc coverage <wheel source root>/<package> --json` over the same wheel sources, before with the compiler at tag `v0.10.0` (`608df05b`) and after at master `76c8d718`.
+
+| package | root fences | all fences | native definitions |
+| --- | --- | --- | --- |
+| iniconfig 2.3.1 | 22 -> 2 | 23 -> 2 | 24 -> 32 of 34 |
+| tomli 2.5.0 | 44 -> 41 | 52 -> 49 | 9 -> 10 of 45 |
+| colorama 0.4.6 | 72 -> 72 | 82 -> 82 | 35 -> 35 of 77 |
+| shellingham 1.5.4 | 41 -> 40 | 46 -> 45 | 6 -> 6 of 25 |
+| wcwidth 0.9.5 | 423 -> 331 | 522 -> 420 | 41 -> 46 of 113 |
+| total | 602 -> 486 | 725 -> 598 | 115 -> 129 of 294 |
+
+This is a whole-tree count. The pilot compiles with two fenced definitions left in iniconfig because its program does not reach them.
