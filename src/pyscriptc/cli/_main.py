@@ -1958,14 +1958,17 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         dbg.end("check", module)
 
     try:
-        # Default inference (issue #1305): the pins run on every compile.
-        # The skip fast path (#1317) keeps a fully annotated tree free and
-        # the `noinfer` debug topic (`PYSC_DEBUG=noinfer`, issue #1305,
-        # developer bisect tool only) takes the engine out without a CLI
-        # flag; the topic is never silent (the stages row and the summary
-        # record it). Without a bridge the pins-only provider carries the
-        # proof, so the compile is never slower than the `--infer` lane
-        # was except for the one AST walk `has_unannotated_params` costs.
+        # Default inference (issue #1305): the pins run when the plain
+        # compile asks for them. The compile lowers the tree once with no
+        # bridge, reads the fences that pass produced, and runs the engine
+        # only when a fence is one the engine's proofs could clear
+        # (`pyscriptc.infergate`). A tree whose source already carries
+        # every annotation, and a tree whose fences the engine cannot
+        # touch, pay nothing for the engine: no checker server starts and
+        # the pins stay empty. The `noinfer` debug topic
+        # (`PYSC_DEBUG=noinfer`, issue #1305, developer bisect tool only)
+        # takes the engine out without a CLI flag; the topic is never
+        # silent (the stages row and the summary record it).
         infer_disabled = "noinfer" in dbg.topics
         if infer_disabled:
             dbg.infer_info = {
@@ -1974,62 +1977,6 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                 "callSites": 0,
                 "ms": 0,
             }
-        else:
-            from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
-
-            dbg.begin("bridge")
-            # The pins are a package-wide fact (`pyscriptc infer`): the
-            # checker proves the type of every argument at every call
-            # site, and the sites that agree pin the parameter. The
-            # checker then re-checks a pinned copy of each module, so
-            # the return and local types it derives from a pinned
-            # parameter agree with what the lowerer will apply.
-            from pyscriptc.inferrunner import (
-                build_facts,
-                facts_as_pins,
-                has_unannotated_params,
-                pinned_facts,
-            )
-
-            dbg.begin("infer")
-            infer_started = time.perf_counter()
-            # The skip fast path (issue #1317): a tree with no
-            # unannotated parameter has nothing for the engine to
-            # prove, so no checker server starts and the pins stay
-            # empty. The mirror re-check would prove nothing, so it is
-            # skipped too.
-            infer_skipped = not has_unannotated_params(source_path)
-            facts = build_facts(source_path, skip=infer_skipped)
-            pins = facts_as_pins(facts)
-            pinned = pinned_facts(source_path, facts) if source_path.is_dir() and not infer_skipped else {}
-            dbg.infer_info = {
-                "skipped": 1 if infer_skipped else 0,
-                "pins": len(facts.pins),
-                "callSites": len(facts.calls),
-                "ms": int((time.perf_counter() - infer_started) * 1000.0),
-            }
-            dbg.end("infer")
-            # The bridge opens only when the engine had something to
-            # prove: a tree with no unannotated parameter keeps the
-            # lowering it had before the default flip (the bridge would
-            # answer expression facts the compiler already proves, and a
-            # compile that lowers the same program must read the same).
-            # `--bridge` still asks for the checker map explicitly.
-            if not infer_skipped or getattr(args, "bridge", None):
-                provider_name: str = getattr(args, "bridge", None) or "pyrefly"
-                if source_path.is_dir():
-                    # A directory compile lowers one unit at a time, so the
-                    # bridge is a provider: one bridge per unit. The pins
-                    # ride every bridge, the way `pyscriptc infer` wires
-                    # them.
-                    provider = BridgeProvider(provider_name, strict=False, pins=pins)
-                    provider.pinned = pinned
-                    provider.open()
-                    bridge = provider
-                else:
-                    bridge = CheckerBridge.for_path(source_path, provider_name, strict=False)
-                    bridge.call_site_facts = pins
-            dbg.end("bridge")
         dbg.begin("lower")
         # boxed:begin
         island_names = config.island_imports()
@@ -2042,8 +1989,9 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         # N2 (issue #1308): the default island routing is on, so an import
         # outside the closed table routes to the island with no flag. A
         # named policy lane (`compile`, `replace`, `extern`) pins that
-        # import off the island; there is no opt-out flag.
-        island_ctx = island_policy(island_names, True, config.native_pinned_imports())
+        # import off the island; there is no opt-out flag. The policy is
+        # installed per lowering pass (`lower_once`): the gate may lower
+        # the tree twice, and the context is a module-level switch.
         # boxed:end
         dep_roots, checker_roots, dep_lanes = _dependency_roots(source_path, config, island_default=island_default)
         binary: Path = Path(args.output) if args.output else _artifact_base(args, source_path)
@@ -2076,16 +2024,21 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
         _package._STAGED_DATA_TARGET = (
             binary.parent / "pyscriptc-data" / source_path.resolve().name if staged_data and fallback else None
         )
+
         # boxed:end
-        try:
-            # boxed:begin
-            with island_ctx, boxed_definitions(fallback):
-                # boxed:end
+        def lower_once(with_bridge: Any) -> tuple[dict[str, Any] | None, str]:
+            """Lower the tree once, with the given bridge (None for the plain pass).
+
+            The island policy and the definitions tier are context managers
+            over module-level state, so each pass installs its own.
+            """
+
+            with island_policy(island_names, True, config.native_pinned_imports()), boxed_definitions(fallback):
                 if source_path.is_dir():
                     lowered_dir: tuple[dict[str, Any], str] = lower_directory(
                         source_path,
                         program_mode=args.program,
-                        bridge=bridge,
+                        bridge=with_bridge,
                         ffi=manifests,
                         target=args.target,
                         dep_roots=dep_roots,
@@ -2093,13 +2046,13 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                         resource_root=str(data_root) if data_root else "",
                         config=config,
                         staged_data=staged_data,
+                        bridged=with_bridge is not None,
                     )
-                    module: dict[str, Any] | None = lowered_dir[0]
-                    source: str = lowered_dir[1]
-                elif source_path.is_file():
+                    return lowered_dir[0], lowered_dir[1]
+                if source_path.is_file():
                     lowered_file: tuple[dict[str, Any], str] = lower_file(
                         str(source_path),
-                        bridge=bridge,
+                        bridge=with_bridge,
                         timings=dbg.timings_map,
                         ffi=manifests,
                         target=args.target,
@@ -2107,11 +2060,96 @@ def _compile_cmd(args: argparse.Namespace, state: dict[str, Any]) -> int:
                         dep_lane_report=dep_lanes,
                         resource_root=str(data_root) if data_root else "",
                         config=config,
+                        bridged=with_bridge is not None,
                     )
-                    module: dict[str, Any] | None = lowered_file[0]
-                    source: str = lowered_file[1]
+                    return lowered_file[0], lowered_file[1]
+                raise IRError(f"source not found: {source_path}")
+
+        try:
+            # The plain compile: no bridge, no engine. Its fences are what
+            # the gate reads (the inference gate, `pyscriptc.infergate`).
+            module, source = lower_once(None)
+            if module is None:
+                raise IRError("internal: lowering produced no module")
+            if not infer_disabled:
+                from pyscriptc.infergate import needs_inference
+
+                if needs_inference(module) or getattr(args, "bridge", None):
+                    dbg.begin("bridge")
+                    # The pins are a package-wide fact (`pyscriptc infer`):
+                    # the checker proves the type of every argument at
+                    # every call site, and the sites that agree pin the
+                    # parameter. The checker then re-checks a pinned copy
+                    # of each module, so the return and local types it
+                    # derives from a pinned parameter agree with what the
+                    # lowerer will apply.
+                    from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
+                    from pyscriptc.inferrunner import (
+                        build_facts,
+                        facts_as_pins,
+                        has_unannotated_params,
+                        pinned_facts,
+                    )
+
+                    dbg.begin("infer")
+                    infer_started = time.perf_counter()
+                    # The skip fast path (issue #1317): a tree with no
+                    # unannotated parameter has nothing for the engine to
+                    # prove, so no checker server starts and the pins stay
+                    # empty. The mirror re-check would prove nothing, so it
+                    # is skipped too.
+                    infer_skipped = not has_unannotated_params(source_path)
+                    facts = build_facts(source_path, skip=infer_skipped)
+                    pins = facts_as_pins(facts)
+                    pinned = pinned_facts(source_path, facts) if source_path.is_dir() and not infer_skipped else {}
+                    dbg.infer_info = {
+                        "skipped": 1 if infer_skipped else 0,
+                        "pins": len(facts.pins),
+                        "callSites": len(facts.calls),
+                        "ms": int((time.perf_counter() - infer_started) * 1000.0),
+                    }
+                    dbg.end("infer")
+                    # The bridge opens only when the engine had something
+                    # to prove: a tree with no unannotated parameter keeps
+                    # the lowering it had before the default flip (the
+                    # bridge would answer expression facts the compiler
+                    # already proves, and a compile that lowers the same
+                    # program must read the same). `--bridge` still asks
+                    # for the checker map explicitly.
+                    provider_name: str = getattr(args, "bridge", None) or "pyrefly"
+                    if source_path.is_dir():
+                        # A directory compile lowers one unit at a time, so
+                        # the bridge is a provider: one bridge per unit. The
+                        # pins ride every bridge, the way `pyscriptc infer`
+                        # wires them.
+                        provider = BridgeProvider(provider_name, strict=False, pins=pins)
+                        provider.pinned = pinned
+                        provider.open()
+                        bridge = provider
+                    else:
+                        bridge = CheckerBridge.for_path(source_path, provider_name, strict=False)
+                        bridge.call_site_facts = pins
+                    # The second pass: the same tree, with the engine's
+                    # proofs wired. The bridged module is the answer: the
+                    # bridge only supplies types the checker proved, so
+                    # every fence that differs between the two passes is
+                    # a consequence of a missing proof, and the bridged
+                    # reading is the one the source supports.
+                    bridged_module, bridged_source = lower_once(bridge)
+                    if bridged_module is not None:
+                        module = bridged_module
+                        source = bridged_source
+                    dbg.end("bridge")
                 else:
-                    raise IRError(f"source not found: {source_path}")
+                    # The gate closed: the plain compile's fences are not
+                    # ones the engine could clear, so it never runs.
+                    dbg.infer_info = {
+                        "skipped": 1,
+                        "reason": "no fence the engine could clear",
+                        "pins": 0,
+                        "callSites": 0,
+                        "ms": 0,
+                    }
         # boxed:begin
         finally:
             _package._STAGED_DATA_TARGET = None

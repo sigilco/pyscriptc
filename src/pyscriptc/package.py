@@ -83,6 +83,7 @@ def lower_directory(
     staged_data: list[tuple[Path, bytes]] | None = None,
     exclude: frozenset[Path] | None = None,
     unit_failures: list[dict[str, Any]] | None = None,
+    bridged: bool = False,
 ) -> tuple[dict[str, Any], str]:
     """Lower a directory tree into one IR module.
 
@@ -146,6 +147,7 @@ def lower_directory(
         staged_data=staged_data or [],
         unit_failures=unit_failures,
         roots=root_set,
+        bridged=bridged,
     )
     if skipped:
         notes = [*notes, *[_skip_note(root, rel) for rel in skipped]]
@@ -241,6 +243,7 @@ def _lower_units(
     package_mode: bool = False,
     unit_failures: list[dict[str, Any]] | None = None,
     roots: RootSet | None = None,
+    bridged: bool = False,
 ) -> tuple[dict[str, Any], list[str]]:
     """Lower a set of module units into one IR module.
 
@@ -299,6 +302,7 @@ def _lower_units(
         lanes=dep_lane_report,
         resource_root=resource_root,
         ffi=ffi,
+        bridged=bridged,
     )
     exports, failed = _catalog(
         [*units, *(catalog_units or [])],
@@ -560,6 +564,7 @@ def _open_dep_cache(
     lanes: dict[str, dict[str, str]] | None,
     resource_root: str,
     ffi: list[Any] | None,
+    bridged: bool = False,
 ) -> _depir.DepIrCache | None:
     """The pure-dependency IR cache of this compile, None when it does not apply (issue #416).
 
@@ -568,6 +573,12 @@ def _open_dep_cache(
     against an overridden cache directory keeps its IR with its wheels. A
     compile with no wheel-backed unit, an `--ffi` manifest or
     `PYSC_NO_DEP_IR_CACHE=1` keeps the uncached path.
+
+    `bridged` says whether this pass runs with the inference bridge wired.
+    The bridge changes a unit's signatures (a definition the engine proved
+    keeps its export), so the IR of a bridged pass and the IR of a plain
+    one are different artifacts: the flag rides the cache key, and the two
+    passes never read each other's entries.
     """
 
     if not _depir.enabled():
@@ -585,7 +596,12 @@ def _open_dep_cache(
     if not shas or wheel_root is None:
         return None
     base = _depir.base_of(wheel_root)
-    return _depir.DepIrCache(base, _depir.target_triple(target), shas, {"policy": policy})
+    return _depir.DepIrCache(
+        base,
+        _depir.target_triple(target),
+        shas,
+        {"policy": policy, "bridged": "1" if bridged else "0"},
+    )
 
 
 def _dep_ir_common(

@@ -263,6 +263,11 @@ class Debug:
             infer = self.infer_info
             if infer["skipped"] == "disabled":
                 lines.append(f"[debug] infer: disabled (noinfer) {infer['ms']}ms")
+            elif infer.get("reason"):
+                # The inference gate (`pyscriptc.infergate`): the plain
+                # compile's fences are ones the engine could not clear, so
+                # it never ran.
+                lines.append(f"[debug] infer: skipped ({infer['reason']}) {infer['ms']}ms")
             elif infer["skipped"]:
                 lines.append(f"[debug] infer: skipped (no unannotated parameter to prove) {infer['ms']}ms")
             else:

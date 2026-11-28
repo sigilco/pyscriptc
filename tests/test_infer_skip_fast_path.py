@@ -164,7 +164,9 @@ def test_infer_timing_in_debug_stages(tmp_path: Path) -> None:
         f"--debug-dir={dbg}",
     )
     assert proc.returncode == 0, proc.stderr
-    assert "[debug] infer: skipped (no unannotated parameter to prove)" in proc.stderr
+    # The inference gate (issue #1305 follow-up): an annotated tree lowers
+    # with no fence at all, so the gate closes and the engine never runs.
+    assert "[debug] infer: skipped (no fence the engine could clear)" in proc.stderr
     summary = json.loads((dbg / "summary.json").read_text(encoding="utf-8"))
     assert summary["infer"]["skipped"] == 1
     assert summary["infer"]["pins"] == 0
