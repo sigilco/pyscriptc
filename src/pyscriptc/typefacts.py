@@ -233,6 +233,8 @@ class _LspConnection:
         try:
             self.request("shutdown", None, timeout=10)
             self.notify("exit", None)
+            if proc.stdin is not None:
+                proc.stdin.close()  # the server exits on EOF; `exit` alone leaves it running
             proc.wait(timeout=5)
         except (OSError, CheckFailed, subprocess.TimeoutExpired):
             pass

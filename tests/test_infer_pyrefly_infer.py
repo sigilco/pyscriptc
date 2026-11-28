@@ -44,7 +44,7 @@ def _tree(root: Path) -> None:
 
 
 def _lower_with_infer(root: Path):
-    """Lower the tree the way `compile --infer` wires the facts."""
+    """Lower the tree the way a compile wires the facts."""
 
     from pyscriptc.factsbridge import BridgeProvider, CheckerBridge
     from pyscriptc.inferrunner import build_facts, facts_as_pins, pinned_facts
@@ -141,7 +141,7 @@ def test_the_infer_report_breaks_the_fence_delta_down_by_family_and_code(tmp_pat
 
 
 def test_the_inferred_chain_runs_native_and_matches_cpython(tmp_path: Path) -> None:
-    """`compile --infer` lowers the chain and the binary agrees with CPython."""
+    """A compile lowers the chain and the binary agrees with CPython."""
 
     root = tmp_path / "inferred"
     _tree(root)
@@ -150,7 +150,6 @@ def test_the_inferred_chain_runs_native_and_matches_cpython(tmp_path: Path) -> N
         "compile",
         str(root),
         "--program",
-        "--infer",
         "--emit",
         "bin",
         "--out-dir",

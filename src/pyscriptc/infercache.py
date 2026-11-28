@@ -31,6 +31,7 @@ entry, and a corrupt entry is a miss, never a failed compile.
 from __future__ import annotations
 
 import ast
+import functools
 import hashlib
 import json
 import os
@@ -85,13 +86,19 @@ def checker_stamp() -> str:
     return _CHECKER_STAMP
 
 
-def _facts_key(module_source: bytes, module: str, dep_hashes: dict[str, str]) -> str:
-    """The cache key: schema, compiler digest, checker stamp, module and dep hashes."""
+@functools.cache
+def _compiler_digest_once() -> str:
+    """The compiler does not change under a running compile: stamp it once."""
     from pyscriptc.runcache import compiler_digest
 
+    return compiler_digest()
+
+
+def _facts_key(module_source: bytes, module: str, dep_hashes: dict[str, str]) -> str:
+    """The cache key: schema, compiler digest, checker stamp, module and dep hashes."""
     hasher = hashlib.sha256()
     hasher.update(str(SCHEMA).encode())
-    hasher.update(compiler_digest().encode())
+    hasher.update(_compiler_digest_once().encode())
     hasher.update(checker_stamp().encode())
     hasher.update(hashlib.sha256(module_source).hexdigest().encode())
     hasher.update(module.encode())
