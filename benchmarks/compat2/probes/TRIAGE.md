@@ -8,23 +8,28 @@ The script does not run the compiler. `probe wrong` is a label in this table, no
 
 - Newest frozen v1 iteration: `046-bool-const-surface.json`. v1 ids use the same spelling as
   `calibrate.v1_lowered_ids` (`builtins.<id>`, `stdlib.<id>`).
-- Oracle recorded in `CALIBRATION.json`: `3.14.8`.
-- `CALIBRATION.json` `v1_lowered.v2_probe_outcomes`: fence 189,
-  build-error 1.
-- Per-id outcomes name 190 v1-lowered rows that are not pass. Fence rows are
+- Oracle recorded in `CALIBRATION.json`: `3.14.9`.
+- `CALIBRATION.json` `v1_lowered.v2_probe_outcomes`: fence 184,
+  build-error 0.
+- Per-id outcomes name 348 v1-lowered rows that are not pass. Fence rows are
   classified from those outcomes. Build-error ids are out of scope because the file names them.
-- Cells with `build-error`: `surface/function/value`.
+- `CALIBRATION.json` `v1_lowered.v2_probe_missing` names 163 ids the
+  primary oracle does not expose at generation time. They are out of scope for the same reason:
+  the calibration file names them.
+- Cells with `build-error`: `surface/class/value`, `surface/function/value`, `surface/method/value`.
 
 ## Counts
 
 | bucket | rows |
 | --- | --- |
-| probe wrong | 32 |
+| probe wrong | 31 |
 | stricter than v1 | 139 |
-| compiler gap | 18 |
-| fence total | 189 |
+| compiler gap | 14 |
+| fence total | 184 |
 | unclassified | 0 |
-| out of scope (build-error) | 1 |
+| out of scope (build-error) | 0 |
+| out of scope (not on the primary oracle) | 163 |
+| other non-pass | 1 |
 
 Fence buckets sum to the calibration fence count. Unclassified rows make this script exit non-zero.
 
@@ -36,10 +41,10 @@ given a fence bucket.
 
 | rule | bucket | rows | why |
 | --- | --- | --- | --- |
-| `out-of-scope-getenv` | out of scope | 1 | Named build-error whose body is os.getenv of one parameter then return 1. The id is the per-id outcome in the calibration file. The shape explains that row. It does not choose the id, and it is not a fence bucket. |
+| `out-of-scope-getenv` | out of scope | 0 | Named build-error whose body is os.getenv of one parameter then return 1. The id is the per-id outcome in the calibration file. The shape explains that row. It does not choose the id, and it is not a fence bucket. |
 | `raises-fallback` | probe wrong | 9 | kind raises with expect_exc set. Argument search kept an exception. v1 had lowered the name. |
 | `private-annotation` | probe wrong | 9 | Result annotation starts with '_' or is builtin_function_or_method. v1 folded the name to an int. |
-| `seq-int-remainder` | probe wrong | 1 | Source contains the seq-int fold '% 1000003'. v1 returned an element. |
+| `seq-int-remainder` | probe wrong | 0 | Source contains the seq-int fold '% 1000003'. v1 returned an element. |
 | `int-operand` | probe wrong | 3 | getattr, hasattr, or shutil.copyfile receives an int parameter. v1 passed an object or a path. |
 | `bisect-str-haystack` | probe wrong | 2 | bisect_left or bisect_right is called with a str haystack. v1 passed a list of ints. |
 | `sum-bools` | probe wrong | 1 | sum of a list of bool literals. v1 summed a list of ints. |
@@ -54,20 +59,19 @@ given a fence bucket.
 | `iterator-object` | compiler gap | 3 | enumerate, range, or zip materialized as that type. v1 only used it in a for. Kept. |
 | `container-class` | compiler gap | 2 | OrderedDict() or deque() annotated as that class. v1 checked len or pop. Kept. |
 | `split-tuple` | compiler gap | 2 | posixpath.split or splitext annotated tuple[str, str], CPython's return. v1 folded len. Kept. |
-| `result-class` | compiler gap | 2 | re.compile annotated re.Pattern, or urlsplit annotated SplitResult. v1 folded a string attribute. Kept. |
-| `strftime-format-only` | compiler gap | 1 | time.strftime called with only the format. The one-argument form stays. v1 also passed a struct_time. |
-| `mirrored-int` | compiler gap | 1 | unicodedata.mirrored annotated int and the int returned. v1 branched on the value. Kept. |
+| `result-class` | compiler gap | 0 | re.compile annotated re.Pattern, or urlsplit annotated SplitResult. v1 folded a string attribute. Kept. |
+| `strftime-format-only` | compiler gap | 0 | time.strftime called with only the format. The one-argument form stays. v1 also passed a struct_time. |
+| `mirrored-int` | compiler gap | 0 | unicodedata.mirrored annotated int and the int returned. v1 branched on the value. Kept. |
 
 ## Rows
 
-### probe wrong (32)
+### probe wrong (31)
 
 | id | kind | category | rule | detail |
 | --- | --- | --- | --- | --- |
 | `builtins.getattr` | value | function | `int-operand` | getattr receives int parameter p0 |
 | `builtins.hasattr` | value | function | `int-operand` | hasattr receives int parameter p0 |
 | `builtins.open` | value | function | `private-annotation` | annotation _io.TextIOWrapper |
-| `builtins.sorted` | value | function | `seq-int-remainder` | seq-int fold uses `% 1000003` |
 | `builtins.sum` | value | function | `sum-bools` | sum of bool literals [True, False] |
 | `builtins.tuple` | value | class | `empty-tuple-annotation` | tuple() annotated tuple[int, ...] |
 | `stdlib.atexit.register` | value | function | `private-annotation` | annotation builtin_function_or_method |
@@ -241,7 +245,7 @@ given a fence bucket.
 | `stdlib.ssl.VERIFY_X509_STRICT` | value | constant | `enum-constant` | annotation ssl.VerifyFlags; v1 returns ssl.VERIFY_X509_STRICT; v2 returns 1 |
 | `stdlib.ssl.VERIFY_X509_TRUSTED_FIRST` | value | constant | `enum-constant` | annotation ssl.VerifyFlags; v1 returns ssl.VERIFY_X509_TRUSTED_FIRST; v2 returns 1 |
 
-### compiler gap (18)
+### compiler gap (14)
 
 | id | kind | category | rule | detail |
 | --- | --- | --- | --- | --- |
@@ -259,18 +263,183 @@ given a fence bucket.
 | `stdlib.math.hypot` | value | function | `zero-arg-constructor` | math.hypot() annotation float |
 | `stdlib.posixpath.split` | value | function | `split-tuple` | posixpath.split annotated tuple[str, str] |
 | `stdlib.posixpath.splitext` | value | function | `split-tuple` | posixpath.splitext annotated tuple[str, str] |
-| `stdlib.re.compile` | value | function | `result-class` | re.compile annotated re.Pattern; returns 1 |
-| `stdlib.time.strftime` | value | function | `strftime-format-only` | time.strftime(format) annotated str |
-| `stdlib.unicodedata.mirrored` | value | function | `mirrored-int` | unicodedata.mirrored annotated int and returned |
-| `stdlib.urllib.parse.urlsplit` | value | function | `result-class` | urllib.parse.urlsplit annotated urllib.parse.SplitResult; returns 1 |
 
 ## Out of scope
 
-`stdlib.os.getenv` is `surface/function/value` and matches `out-of-scope-getenv`. os.getenv(p0) then return 1; args ['hello world']
+The ids below are named in `CALIBRATION.json` `v1_lowered.v2_probe_missing` and the probe set
+does not carry them: the primary oracle does not expose the name at generation time (the
+kernel-dependent errno/socket/stat/ssl/os/inspect constants). They are out of scope because
+the calibration file names the absence, not because a shape rule guessed the id.
 
-The calibration file names this id with outcome `build-error`. It is set aside because of that
-outcome, not because a shape rule guessed the id. `calibrate.run_one` returns `build-error`
-when a value probe exits non-zero for a reason other than fence exit 3. The row is not a fence bucket.
+- `stdlib.errno.EHWPOISON`: absent from the generated probe set
+- `stdlib.inspect.CO_HAS_DOCSTRING`: absent from the generated probe set
+- `stdlib.inspect.CO_METHOD`: absent from the generated probe set
+- `stdlib.os.CLONE_NEWCGROUP`: absent from the generated probe set
+- `stdlib.os.CLONE_NEWTIME`: absent from the generated probe set
+- `stdlib.os.SCHED_DEADLINE`: absent from the generated probe set
+- `stdlib.os.SCHED_NORMAL`: absent from the generated probe set
+- `stdlib.os.TFD_CLOEXEC`: absent from the generated probe set
+- `stdlib.os.TFD_NONBLOCK`: absent from the generated probe set
+- `stdlib.os.TFD_TIMER_ABSTIME`: absent from the generated probe set
+- `stdlib.pathlib.E2BIG`: absent from the generated probe set
+- `stdlib.pathlib.EACCES`: absent from the generated probe set
+- `stdlib.pathlib.EADDRINUSE`: absent from the generated probe set
+- `stdlib.pathlib.EADDRNOTAVAIL`: absent from the generated probe set
+- `stdlib.pathlib.EADV`: absent from the generated probe set
+- `stdlib.pathlib.EAFNOSUPPORT`: absent from the generated probe set
+- `stdlib.pathlib.EAGAIN`: absent from the generated probe set
+- `stdlib.pathlib.EALREADY`: absent from the generated probe set
+- `stdlib.pathlib.EBADE`: absent from the generated probe set
+- `stdlib.pathlib.EBADFD`: absent from the generated probe set
+- `stdlib.pathlib.EBADMSG`: absent from the generated probe set
+- `stdlib.pathlib.EBADR`: absent from the generated probe set
+- `stdlib.pathlib.EBADRQC`: absent from the generated probe set
+- `stdlib.pathlib.EBADSLT`: absent from the generated probe set
+- `stdlib.pathlib.EBFONT`: absent from the generated probe set
+- `stdlib.pathlib.EBUSY`: absent from the generated probe set
+- `stdlib.pathlib.ECANCELED`: absent from the generated probe set
+- `stdlib.pathlib.ECHILD`: absent from the generated probe set
+- `stdlib.pathlib.ECHRNG`: absent from the generated probe set
+- `stdlib.pathlib.ECOMM`: absent from the generated probe set
+- `stdlib.pathlib.ECONNABORTED`: absent from the generated probe set
+- `stdlib.pathlib.ECONNREFUSED`: absent from the generated probe set
+- `stdlib.pathlib.ECONNRESET`: absent from the generated probe set
+- `stdlib.pathlib.EDEADLK`: absent from the generated probe set
+- `stdlib.pathlib.EDEADLOCK`: absent from the generated probe set
+- `stdlib.pathlib.EDESTADDRREQ`: absent from the generated probe set
+- `stdlib.pathlib.EDOM`: absent from the generated probe set
+- `stdlib.pathlib.EDOTDOT`: absent from the generated probe set
+- `stdlib.pathlib.EDQUOT`: absent from the generated probe set
+- `stdlib.pathlib.EEXIST`: absent from the generated probe set
+- `stdlib.pathlib.EFAULT`: absent from the generated probe set
+- `stdlib.pathlib.EFBIG`: absent from the generated probe set
+- `stdlib.pathlib.EHOSTDOWN`: absent from the generated probe set
+- `stdlib.pathlib.EHOSTUNREACH`: absent from the generated probe set
+- `stdlib.pathlib.EHWPOISON`: absent from the generated probe set
+- `stdlib.pathlib.EIDRM`: absent from the generated probe set
+- `stdlib.pathlib.EILSEQ`: absent from the generated probe set
+- `stdlib.pathlib.EINPROGRESS`: absent from the generated probe set
+- `stdlib.pathlib.EINTR`: absent from the generated probe set
+- `stdlib.pathlib.EINVAL`: absent from the generated probe set
+- `stdlib.pathlib.EIO`: absent from the generated probe set
+- `stdlib.pathlib.EISCONN`: absent from the generated probe set
+- `stdlib.pathlib.EISDIR`: absent from the generated probe set
+- `stdlib.pathlib.EISNAM`: absent from the generated probe set
+- `stdlib.pathlib.EKEYEXPIRED`: absent from the generated probe set
+- `stdlib.pathlib.EKEYREJECTED`: absent from the generated probe set
+- `stdlib.pathlib.EKEYREVOKED`: absent from the generated probe set
+- `stdlib.pathlib.EL2HLT`: absent from the generated probe set
+- `stdlib.pathlib.EL2NSYNC`: absent from the generated probe set
+- `stdlib.pathlib.EL3HLT`: absent from the generated probe set
+- `stdlib.pathlib.EL3RST`: absent from the generated probe set
+- `stdlib.pathlib.ELIBACC`: absent from the generated probe set
+- `stdlib.pathlib.ELIBBAD`: absent from the generated probe set
+- `stdlib.pathlib.ELIBEXEC`: absent from the generated probe set
+- `stdlib.pathlib.ELIBMAX`: absent from the generated probe set
+- `stdlib.pathlib.ELIBSCN`: absent from the generated probe set
+- `stdlib.pathlib.ELNRNG`: absent from the generated probe set
+- `stdlib.pathlib.EMEDIUMTYPE`: absent from the generated probe set
+- `stdlib.pathlib.EMFILE`: absent from the generated probe set
+- `stdlib.pathlib.EMLINK`: absent from the generated probe set
+- `stdlib.pathlib.EMSGSIZE`: absent from the generated probe set
+- `stdlib.pathlib.EMULTIHOP`: absent from the generated probe set
+- `stdlib.pathlib.ENAMETOOLONG`: absent from the generated probe set
+- `stdlib.pathlib.ENAVAIL`: absent from the generated probe set
+- `stdlib.pathlib.ENETDOWN`: absent from the generated probe set
+- `stdlib.pathlib.ENETRESET`: absent from the generated probe set
+- `stdlib.pathlib.ENETUNREACH`: absent from the generated probe set
+- `stdlib.pathlib.ENFILE`: absent from the generated probe set
+- `stdlib.pathlib.ENOANO`: absent from the generated probe set
+- `stdlib.pathlib.ENOBUFS`: absent from the generated probe set
+- `stdlib.pathlib.ENOCSI`: absent from the generated probe set
+- `stdlib.pathlib.ENODATA`: absent from the generated probe set
+- `stdlib.pathlib.ENODEV`: absent from the generated probe set
+- `stdlib.pathlib.ENOEXEC`: absent from the generated probe set
+- `stdlib.pathlib.ENOKEY`: absent from the generated probe set
+- `stdlib.pathlib.ENOLCK`: absent from the generated probe set
+- `stdlib.pathlib.ENOLINK`: absent from the generated probe set
+- `stdlib.pathlib.ENOMEDIUM`: absent from the generated probe set
+- `stdlib.pathlib.ENOMEM`: absent from the generated probe set
+- `stdlib.pathlib.ENOMSG`: absent from the generated probe set
+- `stdlib.pathlib.ENONET`: absent from the generated probe set
+- `stdlib.pathlib.ENOPKG`: absent from the generated probe set
+- `stdlib.pathlib.ENOPROTOOPT`: absent from the generated probe set
+- `stdlib.pathlib.ENOSPC`: absent from the generated probe set
+- `stdlib.pathlib.ENOSR`: absent from the generated probe set
+- `stdlib.pathlib.ENOSTR`: absent from the generated probe set
+- `stdlib.pathlib.ENOSYS`: absent from the generated probe set
+- `stdlib.pathlib.ENOTBLK`: absent from the generated probe set
+- `stdlib.pathlib.ENOTCONN`: absent from the generated probe set
+- `stdlib.pathlib.ENOTEMPTY`: absent from the generated probe set
+- `stdlib.pathlib.ENOTNAM`: absent from the generated probe set
+- `stdlib.pathlib.ENOTRECOVERABLE`: absent from the generated probe set
+- `stdlib.pathlib.ENOTSOCK`: absent from the generated probe set
+- `stdlib.pathlib.ENOTSUP`: absent from the generated probe set
+- `stdlib.pathlib.ENOTTY`: absent from the generated probe set
+- `stdlib.pathlib.ENOTUNIQ`: absent from the generated probe set
+- `stdlib.pathlib.ENXIO`: absent from the generated probe set
+- `stdlib.pathlib.EOPNOTSUPP`: absent from the generated probe set
+- `stdlib.pathlib.EOVERFLOW`: absent from the generated probe set
+- `stdlib.pathlib.EOWNERDEAD`: absent from the generated probe set
+- `stdlib.pathlib.EPERM`: absent from the generated probe set
+- `stdlib.pathlib.EPFNOSUPPORT`: absent from the generated probe set
+- `stdlib.pathlib.EPIPE`: absent from the generated probe set
+- `stdlib.pathlib.EPROTO`: absent from the generated probe set
+- `stdlib.pathlib.EPROTONOSUPPORT`: absent from the generated probe set
+- `stdlib.pathlib.EPROTOTYPE`: absent from the generated probe set
+- `stdlib.pathlib.ERANGE`: absent from the generated probe set
+- `stdlib.pathlib.EREMCHG`: absent from the generated probe set
+- `stdlib.pathlib.EREMOTE`: absent from the generated probe set
+- `stdlib.pathlib.EREMOTEIO`: absent from the generated probe set
+- `stdlib.pathlib.ERESTART`: absent from the generated probe set
+- `stdlib.pathlib.ERFKILL`: absent from the generated probe set
+- `stdlib.pathlib.EROFS`: absent from the generated probe set
+- `stdlib.pathlib.ESHUTDOWN`: absent from the generated probe set
+- `stdlib.pathlib.ESOCKTNOSUPPORT`: absent from the generated probe set
+- `stdlib.pathlib.ESPIPE`: absent from the generated probe set
+- `stdlib.pathlib.ESRCH`: absent from the generated probe set
+- `stdlib.pathlib.ESRMNT`: absent from the generated probe set
+- `stdlib.pathlib.ESTALE`: absent from the generated probe set
+- `stdlib.pathlib.ESTRPIPE`: absent from the generated probe set
+- `stdlib.pathlib.ETIME`: absent from the generated probe set
+- `stdlib.pathlib.ETIMEDOUT`: absent from the generated probe set
+- `stdlib.pathlib.ETOOMANYREFS`: absent from the generated probe set
+- `stdlib.pathlib.ETXTBSY`: absent from the generated probe set
+- `stdlib.pathlib.EUCLEAN`: absent from the generated probe set
+- `stdlib.pathlib.EUNATCH`: absent from the generated probe set
+- `stdlib.pathlib.EUSERS`: absent from the generated probe set
+- `stdlib.pathlib.EWOULDBLOCK`: absent from the generated probe set
+- `stdlib.pathlib.EXDEV`: absent from the generated probe set
+- `stdlib.pathlib.EXFULL`: absent from the generated probe set
+- `stdlib.socket.CAN_RAW_ERR_FILTER`: absent from the generated probe set
+- `stdlib.socket.IPV6_DONTFRAG`: absent from the generated probe set
+- `stdlib.socket.IPV6_PATHMTU`: absent from the generated probe set
+- `stdlib.socket.IPV6_RECVERR`: absent from the generated probe set
+- `stdlib.socket.IPV6_RECVPATHMTU`: absent from the generated probe set
+- `stdlib.socket.IP_BIND_ADDRESS_NO_PORT`: absent from the generated probe set
+- `stdlib.socket.IP_FREEBIND`: absent from the generated probe set
+- `stdlib.socket.IP_RECVERR`: absent from the generated probe set
+- `stdlib.socket.IP_RECVORIGDSTADDR`: absent from the generated probe set
+- `stdlib.socket.IP_RECVTTL`: absent from the generated probe set
+- `stdlib.socket.NI_IDN`: absent from the generated probe set
+- `stdlib.socket.SO_BINDTOIFINDEX`: absent from the generated probe set
+- `stdlib.socket.SO_ORIGINAL_DST`: absent from the generated probe set
+- `stdlib.socket.VMADDR_CID_LOCAL`: absent from the generated probe set
+- `stdlib.ssl.HAS_PHA`: absent from the generated probe set
+- `stdlib.ssl.HAS_PSK`: absent from the generated probe set
+- `stdlib.stat.SF_DATALESS`: absent from the generated probe set
+- `stdlib.stat.SF_FIRMLINK`: absent from the generated probe set
+- `stdlib.stat.SF_RESTRICTED`: absent from the generated probe set
+- `stdlib.stat.SF_SETTABLE`: absent from the generated probe set
+- `stdlib.stat.UF_DATAVAULT`: absent from the generated probe set
+- `stdlib.stat.UF_SETTABLE`: absent from the generated probe set
+- `stdlib.stat.UF_TRACKED`: absent from the generated probe set
+
+## Other non-pass
+
+| id | kind | category | outcome |
+| --- | --- | --- | --- |
+| `stdlib.os.getcwd` | mention | function | outcome mention |
 
 ## Calibration coverage per (area, category) cell
 
@@ -282,16 +451,16 @@ short when the probe set itself has fewer rows. The fence classifier above reads
 | --- | --- | --- | --- |
 | builtins/class | 26 | 10 | ok |
 | builtins/constant | 38 | 10 | ok |
-| builtins/exception | 70 | 10 | ok |
+| builtins/exception | 69 | 10 | ok |
 | builtins/function | 77 | 10 | ok |
-| builtins/method | 226 | 10 | ok |
-| language/language | 444 | 10 | ok |
-| modules/module | 194 | 10 | ok |
-| surface/class | 753 | 10 | ok |
-| surface/constant | 4994 | 10 | ok |
-| surface/exception | 172 | 10 | ok |
-| surface/function | 3057 | 10 | ok |
-| surface/method | 5275 | 10 | ok |
-| surface/module | 192 | 10 | ok |
+| builtins/method | 221 | 10 | ok |
+| language/language | 440 | 10 | ok |
+| modules/module | 192 | 10 | ok |
+| surface/class | 733 | 10 | ok |
+| surface/constant | 4689 | 10 | ok |
+| surface/exception | 164 | 10 | ok |
+| surface/function | 2989 | 10 | ok |
+| surface/method | 5103 | 10 | ok |
+| surface/module | 196 | 10 | ok |
 
 All sampled cells meet the target.

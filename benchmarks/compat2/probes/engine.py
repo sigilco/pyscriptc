@@ -147,13 +147,13 @@ def build(
         recv = info["recv"]  # type: ignore[index]
         if receiver and recv and recv[0]:
             rdesc = Desc(*recv)
-            lines = [f"{expr}", *fold_lines(rdesc, receiver, 2**62 if info["recv_big"] else 0)]  # type: ignore[index]
+            lines = [f"{expr}", *fold_lines(rdesc, receiver, 2**62 if info["recv_big"] else 0, expr)]  # type: ignore[index]
             return _finalize(head, params, args, setup, lines, rdesc, f"recv-{rdesc.fold}", receiver)
         lines = [f"{expr}", "return 1"]
         return _finalize(head, params, args, setup, lines, desc, "none")
     if not desc.ann:
         return _finalize(head, params, args, setup, [f"{expr}", "return 1"], desc, "exec")
-    lines = [f"r: {desc.ann} = {expr}", *fold_lines(desc, "r", 2**62 if big else 0)]
+    lines = [f"r: {desc.ann} = {expr}", *fold_lines(desc, "r", 2**62 if big else 0, expr)]
     return _finalize(head, params, args, setup, lines, desc, desc.fold, "r")
 
 

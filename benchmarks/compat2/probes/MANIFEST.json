@@ -28,7 +28,7 @@
       "exception": 164,
       "function": 1784,
       "method": 5103,
-      "module": 184
+      "module": 196
     }
   },
   "cpython": "3.12.15",
@@ -64,15 +64,15 @@
     "expr-assign": 67,
     "expr-cond": 67,
     "expr-loop": 67,
-    "float": 97,
-    "handle": 2287,
-    "import": 376,
+    "float": 98,
+    "handle": 2286,
+    "import": 388,
     "int": 2788,
     "len": 343,
     "mention": 1153,
     "none": 530,
     "raise-except": 228,
-    "raises": 1941,
+    "raises": 1939,
     "recv-handle": 949,
     "recv-len": 11,
     "recv-seq-int": 5,
@@ -81,14 +81,14 @@
     "shape": 132,
     "stmt-function": 76,
     "stmt-method": 76,
-    "str": 792
+    "str": 794
   },
   "interpreters": {
     "3.10": "3.10.22",
     "3.11": "3.11.17",
     "3.12": "3.12.15",
     "3.13": "3.13.16",
-    "3.14": "3.14.8"
+    "3.14": "3.14.9"
   },
   "kinds": {
     "builtins/class/raises": 1,
@@ -108,12 +108,12 @@
     "surface/exception/mention": 5,
     "surface/exception/value": 159,
     "surface/function/mention": 19,
-    "surface/function/raises": 498,
-    "surface/function/value": 1267,
+    "surface/function/raises": 496,
+    "surface/function/value": 1269,
     "surface/method/mention": 1107,
     "surface/method/raises": 1263,
     "surface/method/value": 2733,
-    "surface/module/value": 184
+    "surface/module/value": 196
   },
   "language": {
     "absent_in_oracle": [
@@ -229,7 +229,7 @@
     "unstable across axis runs": 6
   },
   "mypy": "2.4.0",
-  "total": 13692,
+  "total": 13704,
   "v1_equivalent": {
     "rows": 1233,
     "skipped_emit": [
@@ -270,11 +270,11 @@
         "3.14": 188
       },
       "surface": {
-        "3.10": 11543,
-        "3.11": 12146,
-        "3.12": 12597,
-        "3.13": 12425,
-        "3.14": 12342
+        "3.10": 11559,
+        "3.11": 12159,
+        "3.12": 12610,
+        "3.13": 12438,
+        "3.14": 12351
       }
     },
     "process_dependent": [
@@ -291,8 +291,6 @@
       "stdlib.configparser.RawConfigParser.read",
       "stdlib.errno.EHWPOISON.v1",
       "stdlib.gzip.open",
-      "stdlib.importlib.resources.as_file.v1",
-      "stdlib.importlib.resources.files.v1",
       "stdlib.inspect.CO_HAS_DOCSTRING.v1",
       "stdlib.inspect.CO_METHOD.v1",
       "stdlib.mailbox.Babyl.get_bytes",
@@ -503,7 +501,6 @@
       "stdlib.venv.EnvBuilder.ensure_directories",
       "stdlib.venv.EnvBuilder.symlink_or_copy",
       "stdlib.venv.create",
-      "stdlib.venv.main",
       "stdlib.wave.Wave_read",
       "stdlib.winreg",
       "stdlib.winsound",

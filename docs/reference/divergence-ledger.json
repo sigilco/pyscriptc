@@ -44,7 +44,7 @@
     },
     {
       "id": "D3",
-      "seam": "str model mid-migration: is* predicates needing Unicode category tables raise NotImplementedError",
+      "seam": "code-point str model: the is* predicates that need the Unicode category tables (isalpha/isalnum/isspace) raise NotImplementedError on a code point above Latin-1",
       "listed": true,
       "docs": "docs/reference/divergences.md#3",
       "probe": "probes/divergences/d03_str_predicates.py",
