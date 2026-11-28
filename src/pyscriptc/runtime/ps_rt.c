@@ -3071,6 +3071,63 @@ static int64_t ps_slice_count_neg(int64_t from, int64_t to, int64_t step) {
     return (from - to - 1) / (-step) + 1;
 }
 
+void ps_buf_slice(
+    int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
+) {
+    /* A bytes slice counts bytes: one index is one byte, so the bounds
+       arithmetic runs over n directly (no ASCII fast path, no code-point
+       scan). The step-1 result is a view; a stepped slice copies the
+       bytes it picks. Issue #1416. */
+    ps_slice_step_ok(step);
+    if (step > 0) {
+        int64_t lo = 0;
+        int64_t hi = 0;
+        ps_slice_bounds(n, start, stop, has_start, has_stop, &lo, &hi);
+        if (step == 1) {
+            ps_view(out, p + lo, hi - lo);
+            return;
+        }
+        int64_t count = ps_slice_count(lo, hi, step);
+        if (count == 0) {
+            ps_view(out, "", 0);
+            return;
+        }
+        char *q = malloc((size_t)count + 1);
+        if (q == NULL) {
+            abort();
+        }
+        int64_t i = lo;
+        for (int64_t w = 0; w < count; w++) {
+            q[w] = p[i];
+            i += step;
+        }
+        q[count] = '\0';
+        out->len = count;
+        out->data = q;
+        return;
+    }
+    int64_t lo = 0;
+    int64_t hi = 0;
+    ps_slice_bounds_neg(n, start, stop, has_start, has_stop, &lo, &hi);
+    int64_t count = ps_slice_count_neg(lo, hi, step);
+    if (count == 0) {
+        ps_view(out, "", 0);
+        return;
+    }
+    char *q = malloc((size_t)count + 1);
+    if (q == NULL) {
+        abort();
+    }
+    int64_t i = lo;
+    for (int64_t w = 0; w < count; w++) {
+        q[w] = p[i];
+        i += step;
+    }
+    q[count] = '\0';
+    out->len = count;
+    out->data = q;
+}
+
 void ps_str_slice(
     int64_t n, const char *p, int64_t start, int64_t stop, int64_t has_start, int64_t has_stop, int64_t step, PsBuf *out
 ) {

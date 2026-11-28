@@ -213,6 +213,11 @@ The stdlib subsets that touch the outside world keep to a closed surface; each n
 - Anything not covered above stops the build with a named `PSxxxx` code, never a guess.
 The full divergence list is in [Divergences from CPython](../reference/divergences.md).
 
+The dynamic-typing refusals are the design, not gaps waiting to close: annotations are what the compiler builds from, so `Any` stops the build (`PS1104`) and code written around values that change type needs restructuring.
+This applies to drivers written against a C ABI as much as to application code.
+Annotate every slot, carry mixed JSON-shaped data in `dict[str, object]` or `list[object]`, and bind each foreign function through a typed extern manifest with `--ffi` (see the [CLI reference](../reference/cli.md)).
+An import that has no Python source, such as your own C module, does not need to be reimplemented in Python: a manifest can claim the module name and link its C sources.
+
 ## Where the live status lives
 
 Per-construct, per-builtin, per-module and per-library support status is tracked on the [compat site]({{PYSC_COMPAT_URL}}), fed by the [nightly CI workflow](https://github.com/sigilco/pyscriptc/actions/workflows/nightly.yml), so it cannot go stale the way a page would.
