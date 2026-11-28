@@ -37,7 +37,7 @@ def inference_table(report: dict[str, Any]) -> str:
     """Markdown table over the inference suite's rows.
 
     The compile-time inference suite (issue #1319) records one row per
-    benchmark tree: the plain compile, the compile with `--infer`, and
+    benchmark tree: the compile with the engine out and the default compile (engine on), and
     the engine's own report (pins, call sites, skipped flag). The table
     is report-only, like every other table here.
     """

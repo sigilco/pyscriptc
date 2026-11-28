@@ -105,14 +105,13 @@ def test_the_pinned_helper_runs_native_and_matches_cpython(tmp_path: Path) -> No
     write_case(root, "helpers.py", _HELPER)
     write_case(root, "__main__.py", _MAIN)
 
-    # `pyscriptc compile --infer` applies the package-wide pins: the
+    # A compile applies the package-wide pins by default: the
     # checker proves the type of every argument at every call site, and
     # the sites that agree pin the parameter.
     proc = run_cli(
         "compile",
         str(root),
         "--program",
-        "--infer",
         "--emit",
         "bin",
         "--out-dir",

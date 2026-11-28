@@ -4,8 +4,11 @@
 
 The suite prices the pin engine (issue #1319, stage 1 of the
 `.agents/docs/design/inference-perf-baseline.md` note): every workload is
-compiled twice, once without inference and once with `--infer`, and the
-run records the wall-clock split and the engine's own report. The ratio
+compiled twice, once with the engine out and once with the engine on, and
+the run records the wall-clock split and the engine's own report. The
+engine is out with the `noinfer` debug topic (`PYSC_DEBUG=noinfer`,
+issue #1305): inference is on by default since that change, and the topic
+is the only way to take the engine out. The ratio
 gate (`--check`) never reads these rows: `infer_ms` is recorded per
 release through `bench.yml` and armed only after two releases of data,
 matching the report-only discipline of the existing time and RSS ratios.
@@ -32,6 +35,7 @@ compile that fails outright (no summary) is an error row.
 from __future__ import annotations
 
 import json
+import os
 import subprocess
 import sys
 import tempfile
@@ -79,7 +83,11 @@ def _compile(
 ) -> tuple[float, subprocess.CompletedProcess[str]]:
     """One compile of a tree, timed. The IR-only emit keeps the link and
     binary size out of the number: the row prices inference, not
-    emission. The debug directory carries the engine's own report."""
+    emission. The debug directory carries the engine's own report.
+
+    The engine is out of the "plain" compile through the `noinfer` debug
+    topic (issue #1305): the pins run on every compile now, so the topic
+    is the only way to measure the tree without them."""
 
     command = [
         sys.executable,
@@ -95,10 +103,11 @@ def _compile(
         "-o",
         str(out),
     ]
-    if infer:
-        command.append("--infer")
+    env = dict(os.environ)
+    if not infer:
+        env["PYSC_DEBUG"] = "noinfer"
     started = time.perf_counter()
-    completed = subprocess.run(command, capture_output=True, text=True)
+    completed = subprocess.run(command, capture_output=True, text=True, env=env)
     return (time.perf_counter() - started) * 1000.0, completed
 
 
