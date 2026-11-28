@@ -1,12 +1,12 @@
 {
   "schema": "2",
-  "generated": "2026-11-27",
-  "commit": "d26d9ca20b239c3e56b6c317b06531defd8dd762",
+  "generated": "2026-11-28",
+  "commit": "949fbbb0cb4ceac8c9809a1c6c7e935a8f2a50a6",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
     "coverage": "pyscriptc coverage over benchmarks/compat/top100/src",
-    "score": ""
+    "score": "nightly/visible-score.json"
   },
   "channel": {
     "released": "0.10.0",
@@ -17,8 +17,8 @@
     "measured": 18,
     "packages": 18,
     "runs": 18,
-    "date": "2026-11-27",
-    "commit": "d26d9ca20b239c3e56b6c317b06531defd8dd762",
+    "date": "2026-11-28",
+    "commit": "949fbbb0cb4ceac8c9809a1c6c7e935a8f2a50a6",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -31,7 +31,7 @@
     "packages_full": 2,
     "packages_partial": 11,
     "packages_none": 8,
-    "weighted_pass": 0.0,
+    "weighted_pass": 1261.3,
     "fences": 3779
   },
   "builtins": [
@@ -2538,7 +2538,88 @@
       "pypi": "https://pypi.org/project/zipp/"
     }
   ],
-  "language": [],
+  "language": [
+    {
+      "id": "lang",
+      "label": "language",
+      "probes": 440,
+      "outcomes": {
+        "fence": 97,
+        "pass": 343
+      },
+      "weighted_pass": 343.0,
+      "fence_codes": {
+        "PS2002": 59,
+        "PS1001": 12,
+        "PS2003": 11,
+        "PS1004": 10,
+        "PS2004": 3,
+        "PS1106": 2
+      }
+    },
+    {
+      "id": "builtins",
+      "label": "builtins",
+      "probes": 403,
+      "outcomes": {
+        "excluded": 2,
+        "fence": 233,
+        "pass": 168
+      },
+      "weighted_pass": 165.3,
+      "fence_codes": {
+        "PS1106": 108,
+        "PS2001": 56,
+        "PS2002": 34,
+        "PS2003": 23,
+        "PS1103": 9,
+        "PS1003": 3
+      }
+    },
+    {
+      "id": "stdlib",
+      "label": "stdlib modules",
+      "probes": 12861,
+      "outcomes": {
+        "build-error": 591,
+        "crash": 1,
+        "excluded": 1439,
+        "fence": 9397,
+        "pass": 1433
+      },
+      "weighted_pass": 695.0,
+      "fence_codes": {
+        "PS1106": 5318,
+        "PS2001": 2781,
+        "PS2002": 1073,
+        "PS1003": 87,
+        "PS2003": 70,
+        "PS1001": 47,
+        "PS1104": 14,
+        "PS1103": 7
+      }
+    },
+    {
+      "id": "top100",
+      "label": "PyPI packages",
+      "probes": 127,
+      "outcomes": {
+        "build-error": 82,
+        "excluded": 7,
+        "fence": 36,
+        "pass": 2
+      },
+      "weighted_pass": 10.0,
+      "fence_codes": {
+        "PS2002": 28,
+        "PS3099": 3,
+        "PS1001": 2,
+        "PS1102": 1,
+        "PS1106": 1,
+        "PS1203": 1
+      }
+    }
+  ],
   "ladder": {
     "corpus": "benchmarks/scripts_corpus",
     "rungs": [
@@ -2548,7 +2629,7 @@
         "corpus": "benchmarks/scripts_corpus/scripts",
         "total": 45,
         "compiled": 23,
-        "passed": 20,
+        "passed": 19,
         "measured": true
       },
       {
@@ -2598,7 +2679,7 @@
       "passed": 3,
       "rate": 0.0769,
       "fences": 273,
-      "date": "2026-11-26",
+      "date": "2026-11-28",
       "blockers": [
         {
           "family": "keyword-args",
@@ -2696,6 +2777,12 @@
         },
         {
           "date": "2026-11-26",
+          "passed": 3,
+          "total": 39,
+          "rate": 0.0769
+        },
+        {
+          "date": "2026-11-28",
           "passed": 3,
           "total": 39,
           "rate": 0.0769
@@ -2845,6 +2932,15 @@
       "date": "2026-11-27",
       "commit": "d26d9ca20b239c3e56b6c317b06531defd8dd762",
       "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 11,
+      "packages_none": 8,
+      "fences": 3779
+    },
+    {
+      "date": "2026-11-28",
+      "commit": "949fbbb0cb4ceac8c9809a1c6c7e935a8f2a50a6",
+      "weighted_pass": 1261.3,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,

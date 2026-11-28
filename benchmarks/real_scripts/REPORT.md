@@ -1,6 +1,6 @@
 # Real script report
 
-Generated 2026-11-26 by the measurement tool.
+Generated 2026-11-28 by the measurement tool.
 
 Command: `uv run python -m benchmarks.real_scripts.measure --markdown benchmarks/real_scripts/REPORT.md`.
 
