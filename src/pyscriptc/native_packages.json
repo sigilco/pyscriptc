@@ -5,8 +5,8 @@
     {
       "dist": "numpy",
       "imports": ["numpy"],
-      "pack": "pyscriptc-ndarray",
-      "note": "Fortran and C core; the Python layer is a thin wrapper. The pyscriptc-ndarray pack (issue #496) mirrors the closed M1 subset under the pyscriptc_ndarray import name."
+      "pack": null,
+      "note": "Fortran and C core; the Python layer is a thin wrapper. The pyscriptc-ndarray pack (issue #496) mirrors the closed M1 subset, but under the pyscriptc_ndarray import name: the numpy spelling is not redirected onto it."
     },
     {
       "dist": "scipy",

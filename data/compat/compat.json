@@ -1,7 +1,7 @@
 {
   "schema": "2",
-  "generated": "2026-11-26",
-  "commit": "9ede2c8fb34470caa3e28130f0cdb3f243fbc326",
+  "generated": "2026-11-27",
+  "commit": "e030976675904a91fe632c773ba074d654493e74",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -17,8 +17,8 @@
     "measured": 18,
     "packages": 18,
     "runs": 18,
-    "date": "2026-11-26",
-    "commit": "9ede2c8fb34470caa3e28130f0cdb3f243fbc326",
+    "date": "2026-11-27",
+    "commit": "e030976675904a91fe632c773ba074d654493e74",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -527,13 +527,12 @@
     {
       "id": "stdlib.pyscriptc-ndarray",
       "kind": "stdlib",
-      "label": "`pyscriptc_ndarray`, `numpy`",
+      "label": "`pyscriptc_ndarray`",
       "names": [
-        "pyscriptc_ndarray",
-        "numpy"
+        "pyscriptc_ndarray"
       ],
       "status": "partial",
-      "count": 2,
+      "count": 1,
       "unsupported": [
         "other module members (dot, linalg, random, fft, einsum), other methods (argsort, clip, cumsum, fill), dtype outside the four, negative slice step, an axis on a one-dimensional array"
       ],
@@ -2835,6 +2834,15 @@
     {
       "date": "2026-11-26",
       "commit": "9ede2c8fb34470caa3e28130f0cdb3f243fbc326",
+      "weighted_pass": 0.0,
+      "packages_full": 2,
+      "packages_partial": 11,
+      "packages_none": 8,
+      "fences": 3779
+    },
+    {
+      "date": "2026-11-27",
+      "commit": "e030976675904a91fe632c773ba074d654493e74",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,

@@ -730,7 +730,7 @@ ROWS: list[dict[str, Any]] = [
         docs=f"{DOC}#88",
         note="the CPython side is real numpy, which the pinned oracle interpreter does not carry; "
         "the byte comparison runs in the differential lane instead "
-        "(probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
+        "(probes/differential/ndarray_subset.py, the pyscriptc_ndarray spelling on both sides)",
     ),
     _row(
         "D87",

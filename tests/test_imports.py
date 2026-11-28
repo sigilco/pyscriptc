@@ -70,9 +70,9 @@ def test_data_file_is_valid_json_with_a_stable_schema() -> None:
 def test_curated_packs_cover_the_planned_candidates() -> None:
     packs = curated_packs()
     assert packs["orjson"] == "pyscriptc-orjson"
-    # The numpy tier ships its own pack (issue #496): the numpy spelling
-    # resolves to the pyscriptc-ndarray pack.
-    assert packs["numpy"] == "pyscriptc-ndarray"
+    # The ndarray pack is reached only through its own import name; the
+    # numpy spelling is not redirected onto it.
+    assert "numpy" not in packs
     assert "scipy" not in packs
     assert any(pack.startswith("pyscriptc-") for pack in packs.values())
 
