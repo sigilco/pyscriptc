@@ -299,6 +299,51 @@ def test_corrupt_cache_entry_is_recomputed(tmp_path: Path) -> None:
     assert again["cache_hits"] == 0 and again["counts"] == {"pass": 1}
 
 
+def test_an_environment_build_error_is_not_cached(tmp_path: Path) -> None:
+    """A build-error whose evidence is not a compiler diagnostic is the machine's, not the compiler's.
+
+    The zig linker's `note: referenced N more times` tail forged 4593 build-error
+    rows in one overnight window (#1437); the cache key covers the compiler tree
+    but not the environment, so the failure would have been read back forever.
+    """
+
+    def run(p: Probe, timeout: float) -> Result:
+        calls.append(p.id)
+        return Result(Row(id=p.id, area=p.area, category=p.category, outcome="build-error", evidence=evidence), 1.0)  # type: ignore[arg-type]
+
+    calls: list[str] = []
+    evidence = "note: referenced 8 more times"
+    first = score([probe("a")], cache_dir=tmp_path, evaluator=run)
+    assert first["counts"] == {"build-error": 1}
+    second = score([probe("a")], cache_dir=tmp_path, evaluator=run)
+    assert calls == ["a", "a"], "the environment failure must be measured again, never cached"
+    assert second["counts"] == {"build-error": 1}
+
+
+def test_a_compiler_build_error_is_cached(tmp_path: Path) -> None:
+    """A build-error that names its PS code is the compiler's verdict and caches normally."""
+
+    calls = []
+
+    def run(p: Probe, timeout: float) -> Result:
+        calls.append(p.id)
+        return Result(
+            Row(
+                id=p.id,
+                area=p.area,
+                category=p.category,
+                outcome="build-error",
+                code="PS0001",
+                evidence="PS0001: internal: no module",
+            ),
+            1.0,
+        )  # type: ignore[arg-type]
+
+    first = score([probe("a")], cache_dir=tmp_path, evaluator=run)
+    second = score([probe("a")], cache_dir=tmp_path, evaluator=run)
+    assert calls == ["a"] and first["cache_hits"] == 0 and second["cache_hits"] == 1
+
+
 def test_holdout_cli_is_closed_without_the_evaluator_flag(
     monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
 ) -> None:

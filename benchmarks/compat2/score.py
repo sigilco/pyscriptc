@@ -35,6 +35,29 @@ from benchmarks.compat2.outcomes import WEIGHTS, Probe, Row
 PS_CODE = re.compile(r"PS\d+")
 
 
+def _is_cacheable(row: Row) -> bool:
+    """True when a row's outcome is the compiler's, not the machine's.
+
+    A `build-error` is the one outcome a transient environment failure can forge:
+    the compile did not finish, so the evidence is whatever the last line of the
+    failed build happened to be (a zig linker note, an OOM kill, a toolchain
+    hiccup). The cache key covers the compiler tree, the probe and the oracle,
+    but nothing in it covers the environment, so such a failure would be read back
+    as the probe's result on every later run (#1437).
+
+    The compiler's own refusals always name themselves with a `PS####` code, so a
+    build-error that carries one is the compiler's verdict and is cached. A
+    build-error without one is the machine's, and is measured again next time.
+    The cost of being wrong in this direction is a recomputed row; the cost of
+    being wrong in the other direction is a receipt that reports a phantom
+    regression.
+    """
+
+    if row.outcome != "build-error":
+        return True
+    return bool(PS_CODE.search(row.evidence))
+
+
 @dataclass(frozen=True)
 class Result:
     row: Row
@@ -294,7 +317,7 @@ def score(
     def run(unit: list[Probe]) -> list[tuple[str, Result]]:
         results = bundle.evaluate_group(unit, timeout, ev)
         for probe, result in zip(unit, results, strict=True):
-            if cache_dir:
+            if cache_dir and _is_cacheable(result.row):
                 cache.store(cache_dir, keys[probe.id], {"row": result.row.to_json(), "compile_s": result.compile_s})
         return [(p.id, r) for p, r in zip(unit, results, strict=True)]
 
@@ -561,6 +584,8 @@ def main(argv: list[str] | None = None) -> int:
     if results["versions"]:
         per_version = "  ".join(f"{v}: {cell['counts']}" for v, cell in results["versions"].items())
         print(f"versions {per_version}")
+    if results["cache_hits"]:
+        print(f"cache hits {results['cache_hits']} of {len(probes)}")
     print(f"weighted pass {weighted_pass(results):.1f}")
     return 0
 

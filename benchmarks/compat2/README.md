@@ -4,6 +4,23 @@ Scorer v2: typed outcomes per probe, CPython oracle, tiered selection and cachin
 contract is `outcomes.py`. `score.py` drives a run; `loader.py` reads probe JSONL; `cache.py`,
 `coverage_map.py` and `headroom.py` support the tiers; `verdict.py` judges an iteration.
 
+## The result cache
+
+`cache.py` keys a result by (probe hash, oracle version, compiler hash). The compiler hash covers
+`src/pyscriptc`, so a compiler change invalidates the cache; the oracle stamp covers the CPython
+version. Nothing in the key covers the environment, so a transient failure would otherwise be read
+back as the probe's result on every later run.
+
+`build-error` is the one outcome the environment can forge: the compile did not finish, so the
+evidence is whatever the last line of the failed build happened to be. A `build-error` whose
+evidence carries no `PS####` code is therefore not cached, and the next run measures it again
+(#1437). Every other outcome is deterministic given the compiler and caches normally. The scorer
+prints its cache-hit count so a receipt can state its cache state.
+
+```
+uv run python -m benchmarks.compat2.score --out /tmp/score.json --no-cache   # a clean measurement
+```
+
 ## Pinned oracle
 
 The CPython oracle is pinned to 3.14. `score.py` resolves the oracle executable in this order: `PYSC_ORACLE` (path to a python3.14 executable), else `PYSC_ORACLE_DIR` (a `cpython-3.14.*/bin/python3` under it), else `uv python find 3.14`, else the running interpreter only if it is already 3.14. Anything else exits with a message naming CPython 3.14, so a run never silently scores against another interpreter. The resolved full version is stamped into the `oracle` field of the score output and into the cache keys.
