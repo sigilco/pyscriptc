@@ -2370,6 +2370,7 @@ def lower_file(
     dep_lane_report: dict[str, dict[str, str]] | None = None,
     resource_root: str = "",
     config: Any = None,
+    bridged: bool = False,
 ) -> tuple[dict[str, Any], str]:
     """Lower one script file, with the dependency roots as extra modules.
 
@@ -2433,6 +2434,7 @@ def lower_file(
         catalog_units=catalogued,
         resource_root=resource_root,
         config=config,
+        bridged=bridged,
     )
     merged["sourceFile"] = str(script)
     notes = [

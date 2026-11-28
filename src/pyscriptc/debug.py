@@ -31,7 +31,16 @@ from pyscriptc.emit._ir import (
 )
 from pyscriptc.island_engine import EngineSummary
 
-_TOPICS = {"stages", "fences", "cc", "paths", "verify", "mir", "all"}
+# The `noinfer` topic takes the inference engine out of a compile (issue
+# #1305). It is a developer bisect tool, not a user switch: it is not in
+# `--help`, it is documented only in `.agents/docs/debug.md`, and it is
+# never silent (the stages row and `summary.json` record that the engine
+# was disabled). The owner direction ships no `--no-infer` option and no
+# user-facing escape hatch (see
+# `.agents/docs/design/inference-default-on-and-debug-switch.md`).
+_NOINFER_TOPIC = "noinfer"
+
+_TOPICS = {"stages", "fences", "cc", "paths", "verify", "mir", "all", _NOINFER_TOPIC}
 
 
 def parse_topics(value: str | None) -> set[str]:
@@ -81,7 +90,7 @@ class Debug:
     # The inference engine's record (issue #1317): whether the skip fast
     # path took the engine out of the compile, and how many pins and call
     # sites it produced. None when the compile ran no inference.
-    infer_info: dict[str, int] | None
+    infer_info: dict[str, Any] | None
 
     def __init__(self, topics: set[str], debug_dir: Path | None) -> None:
         self.topics = topics
@@ -252,7 +261,14 @@ class Debug:
             )
         if self.infer_info is not None and self.wants("stages"):
             infer = self.infer_info
-            if infer["skipped"]:
+            if infer["skipped"] == "disabled":
+                lines.append(f"[debug] infer: disabled (noinfer) {infer['ms']}ms")
+            elif infer.get("reason"):
+                # The inference gate (`pyscriptc.infergate`): the plain
+                # compile's fences are ones the engine could not clear, so
+                # it never ran.
+                lines.append(f"[debug] infer: skipped ({infer['reason']}) {infer['ms']}ms")
+            elif infer["skipped"]:
                 lines.append(f"[debug] infer: skipped (no unannotated parameter to prove) {infer['ms']}ms")
             else:
                 lines.append(

@@ -31,12 +31,28 @@ saw, what it decided, and how long each stage took.
   are never touched. On `--emit bin` (and `run`) the pyrefly `check` stage
   overlaps emit/link: its row closes after `link`, so `total` can read below
   the sum of the rows. `PYSC_NO_CHECK_OVERLAP=1` restores the serial order.
-  With `--infer` an `infer` row shows the engine's wall time plus its
-  outcome: `infer: skipped (no unannotated parameter to prove) N.Nms` when
-  the skip fast path (issue #1317) took the engine out — no checker server
-  started — or `infer: P pinned, C call site(s) N.Nms` when it ran.
-  `summary.json` carries the same dict as `infer` (skipped, pins,
-  callSites, ms).
+  Inference is gated on the plain compile's fences (issue #1305, the
+  inference gate `pyscriptc.infergate`): the compile lowers the tree once
+  with no bridge, and the engine runs only when a fence is one its proofs
+  could clear. An `infer` row shows the engine's wall time plus its
+  outcome: `infer: skipped (no fence the engine could clear) N.Nms` when
+  the gate closed (an annotated tree, or a tree whose fences the engine
+  cannot touch — no checker server started),
+  `infer: skipped (no unannotated parameter to prove) N.Nms` when the
+  gate opened but the skip fast path (issue #1317) took the engine out —
+  no checker server started either — or
+  `infer: P pinned, C call site(s) N.Nms` when it ran. A gated tree
+  lowers once; a gated-in tree lowers twice (the second pass with the
+  bridge), and the `lower` row prices both passes. With the
+  `noinfer` topic (`PYSC_DEBUG=noinfer`, `--debug=noinfer`) the engine is
+  out of the compile entirely: the row reads
+  `infer: disabled (noinfer) 0ms` and `summary.json` records
+  `infer.skipped = "disabled"`, so a bisect run with the topic set is
+  never silent. `noinfer` is a developer bisect tool, not a user switch:
+  there is no `--no-infer` option, the topic is absent from `--help`, and
+  it is documented only here.
+  `summary.json` carries the same dict as `infer` (skipped, reason, pins,
+  callSites, ms; `reason` names why the gate closed).
 - `fences` — the fence table: count, then `file:line:col CODE message` per fence
   (the same dicts that `module["fences"]` carries; no extra computation).
 - `cc` — every clang/zig command line `link_binary` runs (the `.ll`/`.c -> .o`
@@ -72,7 +88,7 @@ Two read-only checks run when the `verify` topic is on (bare `--debug`,
 | `ir.json` | The lowered module, identical to the `<out>.ir.json` next to the output. |
 | `out.ll` | The emitted LLVM text (present for `--emit llvm` and `--emit bin`). |
 | `cc.sh` | The exact cc invocations, one per line (only when linking ran). |
-| `summary.json` | Stage timings (`timings` maps every stage and sub-step to ms; `stageStats` adds per-stage `rssKb`, `nodes` and `functions` for the compile stages), fence dicts, cc commands, output paths, verification verdicts (`verify.ir` list, `verify.llvm` object), final status (`ok` / `fences` / `error`), and with `--infer` the `infer` dict (`skipped`, `pins`, `callSites`, `ms`). |
+| `summary.json` | Stage timings (`timings` maps every stage and sub-step to ms; `stageStats` adds per-stage `rssKb`, `nodes` and `functions` for the compile stages), fence dicts, cc commands, output paths, verification verdicts (`verify.ir` list, `verify.llvm` object), final status (`ok` / `fences` / `error`), and the `infer` dict (`skipped`, `reason`, `pins`, `callSites`, `ms`; the engine runs only when the plain compile's fences ask for it, issue #1305). |
 
 Artifacts are written in a `finally`, so a fenced or failed compile still
 leaves `ir.json` and `summary.json` for inspection.

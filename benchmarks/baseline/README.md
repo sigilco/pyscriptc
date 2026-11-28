@@ -19,14 +19,14 @@ uv run python -m benchmarks.baseline.run --record
 
 ## The inference suite
 
-The compile-time inference suite (issue #1319) prices the pin engine: the same trees compiled without inference and with `--infer`, so the run records what inference costs a tree. It is report-only, like the `bench` workflow that runs it: the rows are recorded per release and the ratio gate arms after two releases of data, so `--record` and `--check` refuse this suite and nothing here fails on a number.
+The compile-time inference suite (issue #1319) prices the pin engine: the same trees compiled with the engine out and with it on, so the run records what inference costs a tree. It is report-only, like the `bench` workflow that runs it: the rows are recorded per release and the ratio gate arms after two releases of data, so `--record` and `--check` refuse this suite and nothing here fails on a number.
 
 ```bash
 uv run python -m benchmarks.baseline.run --suite inference --json=infer.json
 uv run python -m benchmarks.baseline.delta --inference infer.json
 ```
 
-Three workloads, all in-repo: `examples/wordcount` (fully annotated, so the skip fast path of issue #1317 takes the engine out and the row shows it skipped), `benchmarks/real_scripts/scripts` (39 script modules, a real mixed-annotation tree) and a generated ~150-module chain (`synthetic.py`, written to a temporary directory at run time so the suite stays hermetic). Each row carries the plain compile time, the compile time with `--infer`, the engine's own wall time and its report (pins, call sites, skipped flag).
+Three workloads, all in-repo: `examples/wordcount` (fully annotated, so the skip fast path of issue #1317 takes the engine out and the row shows it skipped), `benchmarks/real_scripts/scripts` (39 script modules, a real mixed-annotation tree) and a generated ~150-module chain (`synthetic.py`, written to a temporary directory at run time so the suite stays hermetic). Each row carries the compile time with the engine out (the `noinfer` debug topic, issue #1305), the compile time with the engine on (the default), the engine's own wall time and its report (pins, call sites, skipped flag).
 
 `delta.py --inference` prints the rows of one run, or the change in `infer_ms` per workload between two runs.
 

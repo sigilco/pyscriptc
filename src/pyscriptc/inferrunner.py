@@ -372,20 +372,17 @@ def _pyrefly_infer_annotations(tree: Path) -> dict[str, str]:
 
     base: list = _resolve_pyrefly_binary() + _PYREFLY_INFER_ARGS
     changed: dict[str, str] = {}
+    # One apply run per pass; the files that moved are read off their bytes.
+    before: dict[str, bytes] = {str(path): path.read_bytes() for path in sorted(tree.rglob("*.py"))}
     for _ in range(_PYREFLY_INFER_PASSES):
-        probe = subprocess.run(base + ["--dry-run", str(tree)], capture_output=True)
-        if probe.returncode == 0:
+        subprocess.run(base + [str(tree)], capture_output=True)
+        after: dict[str, bytes] = {str(path): path.read_bytes() for path in sorted(tree.rglob("*.py"))}
+        moved: list[str] = [name for name in after if after[name] != before.get(name)]
+        if not moved:
             break
-        text: str = probe.stdout.decode()
-        found: bool = False
-        for line in text.splitlines():
-            if ": would add " not in line:
-                continue
-            changed[line.split(": would add ", 1)[0]] = line
-            found = True
-        if not found:
-            break
-        subprocess.run(base + [str(tree)])
+        for name in moved:
+            changed[name] = name
+        before = after
     return changed
 
 

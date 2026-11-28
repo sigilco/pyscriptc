@@ -130,4 +130,8 @@ def test_user_type_checking_name_stays_a_module_if(tmp_path: Path) -> None:
         # TYPE_CHECKING still never folds when the guard value stays
         # unprovable (`sys.flags.verbose`), and the False polarity still
         # fences on the module-scope else-binding (#502).
-        assert "PS2002" in got.stderr or "PS1001" in got.stderr
+        # The inference gate (issue #1305 follow-up) names the real cause:
+        # the engine proves TYPE_CHECKING is a bool, so the guard's own
+        # value is the refusal (PS2001 for the `sys` attribute outside the
+        # lowered subset), and the else-binding still fences (PS2002).
+        assert "PS2001" in got.stderr or "PS2002" in got.stderr

@@ -1,7 +1,7 @@
 {
   "schema": "2",
   "generated": "2026-11-27",
-  "commit": "e030976675904a91fe632c773ba074d654493e74",
+  "commit": "d26d9ca20b239c3e56b6c317b06531defd8dd762",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -18,7 +18,7 @@
     "packages": 18,
     "runs": 18,
     "date": "2026-11-27",
-    "commit": "e030976675904a91fe632c773ba074d654493e74",
+    "commit": "d26d9ca20b239c3e56b6c317b06531defd8dd762",
     "source": "benchmarks/compat/top100/island_probe.py"
   },
   "summary": {
@@ -142,19 +142,20 @@
     {
       "id": "builtin.str",
       "kind": "builtin",
-      "label": "`str`",
+      "label": "`str` and the `str` methods",
       "names": [
         "str"
       ],
       "status": "partial",
       "count": 1,
       "unsupported": [
-        "str of a user class"
+        "str of a user class, isnumeric, isdecimal, isprintable, istitle, iscapitalize, encode/decode lower the utf-8 encoding only, translate"
       ],
       "fences": [
+        "PS2001",
         "PS2003"
       ],
-      "note": ""
+      "note": "a str is a sequence of Unicode code points stored as UTF-8 bytes (divergence 3): the length, the index, the slice and the find/count family count code points, the case family applies the full Unicode 16.0.0 mappings, and the text I/O is UTF-8. The category-table predicates raise NotImplementedError at run time on a code point above Latin-1 (a compile, so not a `no` row); isnumeric, isdecimal, isprintable, istitle, iscapitalize, translate and maketrans with the lowered shape are the fences below."
     },
     {
       "id": "builtin.list",
@@ -2833,16 +2834,16 @@
     },
     {
       "date": "2026-11-26",
-      "commit": "9ede2c8fb34470caa3e28130f0cdb3f243fbc326",
+      "commit": "c57d43a854ed56f50b32047f76f689327c684269",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,
       "packages_none": 8,
-      "fences": 3779
+      "fences": 3807
     },
     {
       "date": "2026-11-27",
-      "commit": "e030976675904a91fe632c773ba074d654493e74",
+      "commit": "d26d9ca20b239c3e56b6c317b06531defd8dd762",
       "weighted_pass": 0.0,
       "packages_full": 2,
       "packages_partial": 11,

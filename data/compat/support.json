@@ -1,7 +1,7 @@
 {
   "schema": "1",
   "generated": "2026-11-27",
-  "commit": "e030976675904a91fe632c773ba074d654493e74",
+  "commit": "d26d9ca20b239c3e56b6c317b06531defd8dd762",
   "sources": {
     "support_data": "scripts/support_data.toml",
     "pins": "benchmarks/compat/top100/pins.json",
@@ -74,11 +74,12 @@
       ]
     },
     {
-      "label": "`str`",
+      "label": "`str` and the `str` methods",
       "status": "\ud83d\udfe1",
       "count": 1,
-      "missing": "str of a user class",
+      "missing": "str of a user class, isnumeric, isdecimal, isprintable, istitle, iscapitalize, encode/decode lower the utf-8 encoding only, translate",
       "codes": [
+        "PS2001",
         "PS2003"
       ]
     },

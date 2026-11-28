@@ -81,9 +81,13 @@ def test_compile_root_fence_and_cascade_count(tmp_path: Path) -> None:
     path = write_case(tmp_path, "cascade.py", source)
     got = run_cli("compile", str(path), "--skip-check")
     assert got.returncode == 3
-    assert "PS1001" in got.stderr
-    assert "(and 2 more fences that follow from it)" in got.stderr
-    assert "y is not a local or parameter" not in got.stderr
+    # The inference gate (issue #1305 follow-up): the engine proves `x` is
+    # an int from the assignment's own context, so the annotation cascade
+    # (PS1001 on `x`, PS1001 on `y`, PS2002 on the read) collapses into
+    # the one real error: the `+` on int and str.
+    assert "PS2004" in got.stderr
+    assert "PS1001" not in got.stderr
+    assert "more fence" not in got.stderr
 
 
 def test_compile_corpus_prints_at_most_three_fences() -> None:

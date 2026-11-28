@@ -52,6 +52,9 @@ def test_debug_dir_writes_artifacts(tmp_path: Path) -> None:
     assert (dbg / "out.ll").read_text() == out.read_text()
     summary = json.loads((dbg / "summary.json").read_text())
     assert summary["status"] == "ok"
+    # The inference gate (issue #1305 follow-up): a fully annotated tree
+    # lowers once, its fences ask for no proof, and the engine never
+    # starts, so `infer` and `bridge` are gone from the stage list.
     assert [stage["name"] for stage in summary["stages"]] == [
         "lower",
         "check",
