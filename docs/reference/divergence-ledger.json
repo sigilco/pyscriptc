@@ -1501,7 +1501,7 @@
       "listed": true,
       "docs": "docs/reference/divergences.md#88",
       "probe": null,
-      "note": "the CPython side is real numpy, which the pinned oracle interpreter does not carry; the byte comparison runs in the differential lane instead (probes/differential/ndarray_subset.py, numpy's spelling on both sides)",
+      "note": "the CPython side is real numpy, which the pinned oracle interpreter does not carry; the byte comparison runs in the differential lane instead (probes/differential/ndarray_subset.py, the pyscriptc_ndarray spelling on both sides)",
       "cpython": null,
       "pyscriptc": null,
       "status": "unprobed"

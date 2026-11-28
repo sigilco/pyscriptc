@@ -2,9 +2,10 @@
 #
 # The identity block follows section 2 of .agents/docs/spec/pack-format.md.
 # The pack mirrors the closed M1 subset of issue #496 under the
-# pyscriptc_ndarray import name; `import numpy` resolves here through
-# native_packages.json so a user who writes the numpy spelling gets the
-# pack, while `import pyscriptc_ndarray` is the explicit one.
+# pyscriptc_ndarray import name. The numpy spelling is not redirected
+# onto the pack: `import numpy` routes to the island lane as a
+# native-backed distribution, and the pack is reached only through its
+# own import name.
 #
 # The pack's runtime is the compiler's in-tree ps_ndarray.c /
 # ps_ndbuffer.h (the M1 buffer layer and the arithmetic loops), so no C
@@ -15,16 +16,13 @@
 [pack]
 name = "pyscriptc-ndarray"      # distribution name, equals the directory name
 version = "1.0.0"               # the pack's own SemVer release
-replaces = "numpy"              # the PyPI distribution whose imports it covers
-replaces-version = ">=1.20,<3"  # the upstream versions the surface mirrors
+replaces = ""                   # the pack replaces no PyPI distribution: the numpy spelling is not redirected
+replaces-version = ""           # no upstream version range, for the same reason
 ps-abi = 1                      # the compiler/runtime ABI epoch (ffi_manifest.CURRENT_PS_ABI)
 format = 1                      # this schema's version (pack-format spec)
 
 [[imports]]                     # import names the pack binds; native_packages.json
-name = "numpy"                  # maps numpy onto this pack
-
-[[imports]]
-name = "pyscriptc_ndarray"
+name = "pyscriptc_ndarray"      # the pack's own import name
 
 [[platform]]                    # platform targets; one row per shipped triple
 triple = "aarch64-apple-darwin"

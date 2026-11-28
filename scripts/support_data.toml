@@ -263,8 +263,8 @@ no = [
 ]
 
 [[stdlib]]
-names = ["pyscriptc_ndarray", "numpy"]
-imports = ["pyscriptc_ndarray", "numpy"]
+names = ["pyscriptc_ndarray"]
+imports = ["pyscriptc_ndarray"]
 pack = true
 ok = [
   'nd = pyscriptc_ndarray.array("float64", [1.0, 2.0])',
